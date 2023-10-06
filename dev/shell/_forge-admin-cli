@@ -1,0 +1,4038 @@
+#compdef forge-admin-cli
+
+autoload -U is-at-least
+
+_forge-admin-cli() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" \
+'-c+[Default to CARBIDE_API_URL environment variable or \$HOME/.config/carbide_api_cli.json file or https\://carbide-api.forge-system.svc.cluster.local\:1079.]:CARBIDE_API: ' \
+'--carbide-api=[Default to CARBIDE_API_URL environment variable or \$HOME/.config/carbide_api_cli.json file or https\://carbide-api.forge-system.svc.cluster.local\:1079.]:CARBIDE_API: ' \
+'-f+[]:FORMAT:(json csv ascii-table)' \
+'--format=[]:FORMAT:(json csv ascii-table)' \
+'-o+[]:OUTPUT: ' \
+'--output=[]:OUTPUT: ' \
+'--forge-root-ca-path=[Default to FORGE_ROOT_CA_PATH environment variable or \$HOME/.config/carbide_api_cli.json file.]:FORGE_ROOT_CA_PATH: ' \
+'--client-cert-path=[Default to CLIENT_CERT_PATH environment variable or \$HOME/.config/carbide_api_cli.json file.]:CLIENT_CERT_PATH: ' \
+'--client-key-path=[Default to CLIENT_KEY_PATH environment variable or \$HOME/.config/carbide_api_cli.json file.]:CLIENT_KEY_PATH: ' \
+'-d+[]' \
+'--debug=[]' \
+'--version[Print version number of forge-admin-cli and exit. For API server version see '\''version'\'' command.]' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli_commands" \
+"*::: :->forge-admin-cli" \
+&& ret=0
+    case $state in
+    (forge-admin-cli)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-command-$line[1]:"
+        case $line[1] in
+            (version)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(machine)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__machine_commands" \
+"*::: :->machine" \
+&& ret=0
+
+    case $state in
+    (machine)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-machine-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+'-m+[]:MACHINE: ' \
+'--machine=[]:MACHINE: ' \
+'-a[Show all machines]' \
+'--all[Show all machines]' \
+'--dpus[Show only DPUs]' \
+'--hosts[Show only hosts]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(dpu-ssh-credentials)
+_arguments "${_arguments_options[@]}" \
+'-q+[ID, IPv4, MAC or hostnmame of the DPU machine to query]:QUERY: ' \
+'--query=[ID, IPv4, MAC or hostnmame of the DPU machine to query]:QUERY: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(network)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__machine__network_commands" \
+"*::: :->network" \
+&& ret=0
+
+    case $state in
+    (network)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-machine-network-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" \
+'--machine-id=[DPU machine id]:MACHINE_ID: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__machine__network__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-machine-network-help-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(reboot)
+_arguments "${_arguments_options[@]}" \
+'--address=[Hostname or IP of machine BMC]:ADDRESS: ' \
+'--port=[Port of machine BMC. \[443\]]:PORT: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'--machine=[ID of the machine to reboot]:MACHINE: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(force-delete)
+_arguments "${_arguments_options[@]}" \
+'--machine=[UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete]:MACHINE: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__machine__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-machine-help-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(dpu-ssh-credentials)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(network)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__machine__help__network_commands" \
+"*::: :->network" \
+&& ret=0
+
+    case $state in
+    (network)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-machine-help-network-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(reboot)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(force-delete)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(instance)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__instance_commands" \
+"*::: :->instance" \
+&& ret=0
+
+    case $state in
+    (instance)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-instance-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+'-i+[]:INSTANCE: ' \
+'--instance=[]:INSTANCE: ' \
+'-m+[]:MACHINE: ' \
+'--machine=[]:MACHINE: ' \
+'-a[]' \
+'--all[]' \
+'-e[]' \
+'--extrainfo[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(reboot)
+_arguments "${_arguments_options[@]}" \
+'-i+[]:INSTANCE: ' \
+'--instance=[]:INSTANCE: ' \
+'-c[]' \
+'--custom-pxe[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(release)
+_arguments "${_arguments_options[@]}" \
+'-i+[]:INSTANCE: ' \
+'--instance=[]:INSTANCE: ' \
+'-m+[]:MACHINE: ' \
+'--machine=[]:MACHINE: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__instance__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-instance-help-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(reboot)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(release)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(network-segment)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__network-segment_commands" \
+"*::: :->network-segment" \
+&& ret=0
+
+    case $state in
+    (network-segment)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-network-segment-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+'-n+[]:NETWORK: ' \
+'--network=[]:NETWORK: ' \
+'-a[]' \
+'--all[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__network-segment__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-network-segment-help-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(domain)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__domain_commands" \
+"*::: :->domain" \
+&& ret=0
+
+    case $state in
+    (domain)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-domain-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+'-d+[]:DOMAIN: ' \
+'--domain=[]:DOMAIN: ' \
+'-a[]' \
+'--all[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__domain__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-domain-help-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(managed-host)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__managed-host_commands" \
+"*::: :->managed-host" \
+&& ret=0
+
+    case $state in
+    (managed-host)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-managed-host-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+'--host=[]:HOST: ' \
+'-a[]' \
+'--all[]' \
+'-i[]' \
+'--ips[]' \
+'--more[]' \
+'--fix[Show only hosts in maintenance mode]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(maintenance)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__managed-host__maintenance_commands" \
+"*::: :->maintenance" \
+&& ret=0
+
+    case $state in
+    (maintenance)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-managed-host-maintenance-command-$line[1]:"
+        case $line[1] in
+            (on)
+_arguments "${_arguments_options[@]}" \
+'--host=[Managed Host ID]:HOST: ' \
+'--reference=[URL of reference (ticket, issue, etc) for this machine'\''s maintenance]:REFERENCE: ' \
+'--ref=[URL of reference (ticket, issue, etc) for this machine'\''s maintenance]:REFERENCE: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(off)
+_arguments "${_arguments_options[@]}" \
+'--host=[Managed Host ID]:HOST: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__managed-host__maintenance__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-managed-host-maintenance-help-command-$line[1]:"
+        case $line[1] in
+            (on)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(off)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__managed-host__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-managed-host-help-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(maintenance)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__managed-host__help__maintenance_commands" \
+"*::: :->maintenance" \
+&& ret=0
+
+    case $state in
+    (maintenance)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-managed-host-help-maintenance-command-$line[1]:"
+        case $line[1] in
+            (on)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(off)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(resource-pool)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__resource-pool_commands" \
+"*::: :->resource-pool" \
+&& ret=0
+
+    case $state in
+    (resource-pool)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-resource-pool-command-$line[1]:"
+        case $line[1] in
+            (grow)
+_arguments "${_arguments_options[@]}" \
+'-f+[]:FILENAME: ' \
+'--filename=[]:FILENAME: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__resource-pool__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-resource-pool-help-command-$line[1]:"
+        case $line[1] in
+            (grow)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(redfish)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__redfish_commands" \
+"*::: :->redfish" \
+&& ret=0
+
+    case $state in
+    (redfish)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-command-$line[1]:"
+        case $line[1] in
+            (bios-attrs)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(boot-hdd)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(boot-pxe)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(boot-once-hdd)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(boot-once-pxe)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(clear-pending)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(forge-setup)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get-power-state)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(lockdown-disable)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(lockdown-enable)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(lockdown-status)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(force-off)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(force-restart)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(graceful-restart)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(graceful-shutdown)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(on)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(pcie-devices)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(pending)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(serial-enable)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(serial-status)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(tpm-reset)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(bmc-reset)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(disable-secure-boot)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get-chassis-all)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(get-bmc-ethernet-interface)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(change-bmc-password)
+_arguments "${_arguments_options[@]}" \
+'--new-password=[New BMC password]:NEW_PASSWORD: ' \
+'--user=[BMC user]:USER: ' \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(change-uefi-password)
+_arguments "${_arguments_options[@]}" \
+'--current-password=[Current UEFI password]:CURRENT_PASSWORD: ' \
+'--new-password=[New UEFI password]:NEW_PASSWORD: ' \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(dpu)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__redfish__dpu_commands" \
+"*::: :->dpu" \
+&& ret=0
+
+    case $state in
+    (dpu)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-dpu-command-$line[1]:"
+        case $line[1] in
+            (set-host-level-restricted)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(set-host-level-privileged)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(firmware)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__redfish__dpu__firmware_commands" \
+"*::: :->firmware" \
+&& ret=0
+
+    case $state in
+    (firmware)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-dpu-firmware-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" \
+'-p+[FW package to install]:PACKAGE:_files' \
+'--package=[FW package to install]:PACKAGE:_files' \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" \
+'-f+[]:FW: ' \
+'--fw=[]:FW: ' \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-a[Show information]' \
+'--all[Show information]' \
+'--bmc[Show BMC FW Version]' \
+'--dpu-os[Show DPU OS version]' \
+'--uefi[Show UEFI version]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__redfish__dpu__firmware__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-dpu-firmware-help-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(ports)
+_arguments "${_arguments_options[@]}" \
+'-p+[]:PORT: ' \
+'--port=[]:PORT: ' \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-a[Show information]' \
+'--all[Show information]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__redfish__dpu__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-dpu-help-command-$line[1]:"
+        case $line[1] in
+            (set-host-level-restricted)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(set-host-level-privileged)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(firmware)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__redfish__dpu__help__firmware_commands" \
+"*::: :->firmware" \
+&& ret=0
+
+    case $state in
+    (firmware)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-dpu-help-firmware-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(ports)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__redfish__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-help-command-$line[1]:"
+        case $line[1] in
+            (bios-attrs)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-hdd)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-pxe)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-once-hdd)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-once-pxe)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(clear-pending)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(forge-setup)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(get-power-state)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(lockdown-disable)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(lockdown-enable)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(lockdown-status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(force-off)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(force-restart)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(graceful-restart)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(graceful-shutdown)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(on)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(pcie-devices)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(pending)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(serial-enable)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(serial-status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(tpm-reset)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(bmc-reset)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(disable-secure-boot)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(get-chassis-all)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(get-bmc-ethernet-interface)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(change-bmc-password)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(change-uefi-password)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(dpu)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__redfish__help__dpu_commands" \
+"*::: :->dpu" \
+&& ret=0
+
+    case $state in
+    (dpu)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-help-dpu-command-$line[1]:"
+        case $line[1] in
+            (set-host-level-restricted)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(set-host-level-privileged)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(firmware)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__redfish__help__dpu__firmware_commands" \
+"*::: :->firmware" \
+&& ret=0
+
+    case $state in
+    (firmware)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-help-dpu-firmware-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(ports)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(migrate)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__migrate_commands" \
+"*::: :->migrate" \
+&& ret=0
+
+    case $state in
+    (migrate)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-migrate-command-$line[1]:"
+        case $line[1] in
+            (vpc-vni)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__migrate__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-migrate-help-command-$line[1]:"
+        case $line[1] in
+            (vpc-vni)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(network-device)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__network-device_commands" \
+"*::: :->network-device" \
+&& ret=0
+
+    case $state in
+    (network-device)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-network-device-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+'-i+[Show data for given network devices]:ID: ' \
+'--id=[Show data for given network devices]:ID: ' \
+'-a[Show all network devices]' \
+'--all[Show all network devices]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__network-device__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-network-device-help-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(ip)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__ip_commands" \
+"*::: :->ip" \
+&& ret=0
+
+    case $state in
+    (ip)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-ip-command-$line[1]:"
+        case $line[1] in
+            (find)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+':ip -- The IP address we are looking to identify:' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__ip__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-ip-help-command-$line[1]:"
+        case $line[1] in
+            (find)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(dpu)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__dpu_commands" \
+"*::: :->dpu" \
+&& ret=0
+
+    case $state in
+    (dpu)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-dpu-command-$line[1]:"
+        case $line[1] in
+            (reprovision)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__dpu__reprovision_commands" \
+"*::: :->reprovision" \
+&& ret=0
+
+    case $state in
+    (reprovision)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-dpu-reprovision-command-$line[1]:"
+        case $line[1] in
+            (set)
+_arguments "${_arguments_options[@]}" \
+'-i+[DPU Machine ID for which reprovisioning is needed.]:ID: ' \
+'--id=[DPU Machine ID for which reprovisioning is needed.]:ID: ' \
+'-u[]' \
+'--update-firmware[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(clear)
+_arguments "${_arguments_options[@]}" \
+'-i+[DPU Machine ID for which reprovisioning is needed.]:ID: ' \
+'--id=[DPU Machine ID for which reprovisioning is needed.]:ID: ' \
+'-u[]' \
+'--update-firmware[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__dpu__reprovision__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-dpu-reprovision-help-command-$line[1]:"
+        case $line[1] in
+            (set)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(clear)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(agent-upgrade-policy)
+_arguments "${_arguments_options[@]}" \
+'--set=[]:SET:(off up-only up-down)' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__dpu__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-dpu-help-command-$line[1]:"
+        case $line[1] in
+            (reprovision)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__dpu__help__reprovision_commands" \
+"*::: :->reprovision" \
+&& ret=0
+
+    case $state in
+    (reprovision)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-dpu-help-reprovision-command-$line[1]:"
+        case $line[1] in
+            (set)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(clear)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(agent-upgrade-policy)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(inventory)
+_arguments "${_arguments_options[@]}" \
+'-f+[Write to file]:FILENAME: ' \
+'--filename=[Write to file]:FILENAME: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(boot-override)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__boot-override_commands" \
+"*::: :->boot-override" \
+&& ret=0
+
+    case $state in
+    (boot-override)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-boot-override-command-$line[1]:"
+        case $line[1] in
+            (get)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+':interface_id:' \
+&& ret=0
+;;
+(set)
+_arguments "${_arguments_options[@]}" \
+'-p+[]:CUSTOM_PXE: ' \
+'--custom-pxe=[]:CUSTOM_PXE: ' \
+'-u+[]:CUSTOM_USER_DATA: ' \
+'--custom-user-data=[]:CUSTOM_USER_DATA: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+':interface_id:' \
+&& ret=0
+;;
+(clear)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+':interface_id:' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__boot-override__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-boot-override-help-command-$line[1]:"
+        case $line[1] in
+            (get)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(set)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(clear)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(bmc-machine)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__bmc-machine_commands" \
+"*::: :->bmc-machine" \
+&& ret=0
+
+    case $state in
+    (bmc-machine)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-bmc-machine-command-$line[1]:"
+        case $line[1] in
+            (reset)
+_arguments "${_arguments_options[@]}" \
+'--address=[Hostname or IP of machine BMC]:ADDRESS: ' \
+'--port=[Port of machine BMC. \[443\]]:PORT: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'--machine=[ID of the machine to reboot]:MACHINE: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__bmc-machine__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-bmc-machine-help-command-$line[1]:"
+        case $line[1] in
+            (reset)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-command-$line[1]:"
+        case $line[1] in
+            (version)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(machine)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__machine_commands" \
+"*::: :->machine" \
+&& ret=0
+
+    case $state in
+    (machine)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-machine-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(dpu-ssh-credentials)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(network)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__machine__network_commands" \
+"*::: :->network" \
+&& ret=0
+
+    case $state in
+    (network)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-machine-network-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(config)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(reboot)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(force-delete)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(instance)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__instance_commands" \
+"*::: :->instance" \
+&& ret=0
+
+    case $state in
+    (instance)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-instance-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(reboot)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(release)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(network-segment)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__network-segment_commands" \
+"*::: :->network-segment" \
+&& ret=0
+
+    case $state in
+    (network-segment)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-network-segment-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(domain)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__domain_commands" \
+"*::: :->domain" \
+&& ret=0
+
+    case $state in
+    (domain)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-domain-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(managed-host)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__managed-host_commands" \
+"*::: :->managed-host" \
+&& ret=0
+
+    case $state in
+    (managed-host)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-managed-host-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(maintenance)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__managed-host__maintenance_commands" \
+"*::: :->maintenance" \
+&& ret=0
+
+    case $state in
+    (maintenance)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-managed-host-maintenance-command-$line[1]:"
+        case $line[1] in
+            (on)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(off)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(resource-pool)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__resource-pool_commands" \
+"*::: :->resource-pool" \
+&& ret=0
+
+    case $state in
+    (resource-pool)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-resource-pool-command-$line[1]:"
+        case $line[1] in
+            (grow)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(redfish)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__redfish_commands" \
+"*::: :->redfish" \
+&& ret=0
+
+    case $state in
+    (redfish)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-redfish-command-$line[1]:"
+        case $line[1] in
+            (bios-attrs)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-hdd)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-pxe)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-once-hdd)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-once-pxe)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(clear-pending)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(forge-setup)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(get-power-state)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(lockdown-disable)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(lockdown-enable)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(lockdown-status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(force-off)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(force-restart)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(graceful-restart)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(graceful-shutdown)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(on)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(pcie-devices)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(pending)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(serial-enable)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(serial-status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(tpm-reset)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(bmc-reset)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(disable-secure-boot)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(get-chassis-all)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(get-bmc-ethernet-interface)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(change-bmc-password)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(change-uefi-password)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(dpu)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__redfish__dpu_commands" \
+"*::: :->dpu" \
+&& ret=0
+
+    case $state in
+    (dpu)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-redfish-dpu-command-$line[1]:"
+        case $line[1] in
+            (set-host-level-restricted)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(set-host-level-privileged)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(firmware)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__redfish__dpu__firmware_commands" \
+"*::: :->firmware" \
+&& ret=0
+
+    case $state in
+    (firmware)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-redfish-dpu-firmware-command-$line[1]:"
+        case $line[1] in
+            (status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(ports)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(migrate)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__migrate_commands" \
+"*::: :->migrate" \
+&& ret=0
+
+    case $state in
+    (migrate)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-migrate-command-$line[1]:"
+        case $line[1] in
+            (vpc-vni)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(network-device)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__network-device_commands" \
+"*::: :->network-device" \
+&& ret=0
+
+    case $state in
+    (network-device)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-network-device-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(ip)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__ip_commands" \
+"*::: :->ip" \
+&& ret=0
+
+    case $state in
+    (ip)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-ip-command-$line[1]:"
+        case $line[1] in
+            (find)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(dpu)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__dpu_commands" \
+"*::: :->dpu" \
+&& ret=0
+
+    case $state in
+    (dpu)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-dpu-command-$line[1]:"
+        case $line[1] in
+            (reprovision)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__dpu__reprovision_commands" \
+"*::: :->reprovision" \
+&& ret=0
+
+    case $state in
+    (reprovision)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-dpu-reprovision-command-$line[1]:"
+        case $line[1] in
+            (set)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(clear)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(agent-upgrade-policy)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(inventory)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(boot-override)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__boot-override_commands" \
+"*::: :->boot-override" \
+&& ret=0
+
+    case $state in
+    (boot-override)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-boot-override-command-$line[1]:"
+        case $line[1] in
+            (get)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(set)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(clear)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(bmc-machine)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__bmc-machine_commands" \
+"*::: :->bmc-machine" \
+&& ret=0
+
+    case $state in
+    (bmc-machine)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-bmc-machine-command-$line[1]:"
+        case $line[1] in
+            (reset)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_forge-admin-cli_commands] )) ||
+_forge-admin-cli_commands() {
+    local commands; commands=(
+'version:Print API server version' \
+'v:Print API server version' \
+'machine:Machine related handling' \
+'m:Machine related handling' \
+'instance:Instance related handling' \
+'i:Instance related handling' \
+'network-segment:Network Segment related handling' \
+'ns:Network Segment related handling' \
+'domain:Domain related handling' \
+'d:Domain related handling' \
+'managed-host:Managed host related handling' \
+'mh:Managed host related handling' \
+'resource-pool:Resource pool handling' \
+'rp:Resource pool handling' \
+'redfish:Redfish BMC actions' \
+'rf:Redfish BMC actions' \
+'migrate:Migrate data, see sub-command' \
+'network-device:Network Devices handling' \
+'ip:IP address handling' \
+'dpu:DPU specific handling' \
+'inventory:Generate Ansible Inventory' \
+'boot-override:Cloud init override' \
+'bmc-machine:BMC Machine related handling' \
+'bmc:BMC Machine related handling' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__agent-upgrade-policy_commands] )) ||
+_forge-admin-cli__dpu__agent-upgrade-policy_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu agent-upgrade-policy commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__help__agent-upgrade-policy_commands] )) ||
+_forge-admin-cli__dpu__help__agent-upgrade-policy_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu help agent-upgrade-policy commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__dpu__agent-upgrade-policy_commands] )) ||
+_forge-admin-cli__help__dpu__agent-upgrade-policy_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help dpu agent-upgrade-policy commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__bios-attrs_commands] )) ||
+_forge-admin-cli__help__redfish__bios-attrs_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish bios-attrs commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__bios-attrs_commands] )) ||
+_forge-admin-cli__redfish__bios-attrs_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish bios-attrs commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__bios-attrs_commands] )) ||
+_forge-admin-cli__redfish__help__bios-attrs_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help bios-attrs commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__bmc-machine_commands] )) ||
+_forge-admin-cli__bmc-machine_commands() {
+    local commands; commands=(
+'reset:Reset a BMC machine' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli bmc-machine commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__bmc-machine_commands] )) ||
+_forge-admin-cli__help__bmc-machine_commands() {
+    local commands; commands=(
+'reset:Reset a BMC machine' \
+    )
+    _describe -t commands 'forge-admin-cli help bmc-machine commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__bmc-reset_commands] )) ||
+_forge-admin-cli__help__redfish__bmc-reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish bmc-reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__bmc-reset_commands] )) ||
+_forge-admin-cli__redfish__bmc-reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish bmc-reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__bmc-reset_commands] )) ||
+_forge-admin-cli__redfish__help__bmc-reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help bmc-reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__boot-hdd_commands] )) ||
+_forge-admin-cli__help__redfish__boot-hdd_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish boot-hdd commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__boot-hdd_commands] )) ||
+_forge-admin-cli__redfish__boot-hdd_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish boot-hdd commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__boot-hdd_commands] )) ||
+_forge-admin-cli__redfish__help__boot-hdd_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help boot-hdd commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__boot-once-hdd_commands] )) ||
+_forge-admin-cli__help__redfish__boot-once-hdd_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish boot-once-hdd commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__boot-once-hdd_commands] )) ||
+_forge-admin-cli__redfish__boot-once-hdd_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish boot-once-hdd commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__boot-once-hdd_commands] )) ||
+_forge-admin-cli__redfish__help__boot-once-hdd_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help boot-once-hdd commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__boot-once-pxe_commands] )) ||
+_forge-admin-cli__help__redfish__boot-once-pxe_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish boot-once-pxe commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__boot-once-pxe_commands] )) ||
+_forge-admin-cli__redfish__boot-once-pxe_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish boot-once-pxe commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__boot-once-pxe_commands] )) ||
+_forge-admin-cli__redfish__help__boot-once-pxe_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help boot-once-pxe commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override_commands] )) ||
+_forge-admin-cli__boot-override_commands() {
+    local commands; commands=(
+'get:' \
+'set:' \
+'clear:' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli boot-override commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__boot-override_commands] )) ||
+_forge-admin-cli__help__boot-override_commands() {
+    local commands; commands=(
+'get:' \
+'set:' \
+'clear:' \
+    )
+    _describe -t commands 'forge-admin-cli help boot-override commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__boot-pxe_commands] )) ||
+_forge-admin-cli__help__redfish__boot-pxe_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish boot-pxe commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__boot-pxe_commands] )) ||
+_forge-admin-cli__redfish__boot-pxe_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish boot-pxe commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__boot-pxe_commands] )) ||
+_forge-admin-cli__redfish__help__boot-pxe_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help boot-pxe commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__change-bmc-password_commands] )) ||
+_forge-admin-cli__help__redfish__change-bmc-password_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish change-bmc-password commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__change-bmc-password_commands] )) ||
+_forge-admin-cli__redfish__change-bmc-password_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish change-bmc-password commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__change-bmc-password_commands] )) ||
+_forge-admin-cli__redfish__help__change-bmc-password_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help change-bmc-password commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__change-uefi-password_commands] )) ||
+_forge-admin-cli__help__redfish__change-uefi-password_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish change-uefi-password commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__change-uefi-password_commands] )) ||
+_forge-admin-cli__redfish__change-uefi-password_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish change-uefi-password commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__change-uefi-password_commands] )) ||
+_forge-admin-cli__redfish__help__change-uefi-password_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help change-uefi-password commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override__clear_commands] )) ||
+_forge-admin-cli__boot-override__clear_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli boot-override clear commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override__help__clear_commands] )) ||
+_forge-admin-cli__boot-override__help__clear_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli boot-override help clear commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__help__reprovision__clear_commands] )) ||
+_forge-admin-cli__dpu__help__reprovision__clear_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu help reprovision clear commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision__clear_commands] )) ||
+_forge-admin-cli__dpu__reprovision__clear_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu reprovision clear commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision__help__clear_commands] )) ||
+_forge-admin-cli__dpu__reprovision__help__clear_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu reprovision help clear commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__boot-override__clear_commands] )) ||
+_forge-admin-cli__help__boot-override__clear_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help boot-override clear commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__dpu__reprovision__clear_commands] )) ||
+_forge-admin-cli__help__dpu__reprovision__clear_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help dpu reprovision clear commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__clear-pending_commands] )) ||
+_forge-admin-cli__help__redfish__clear-pending_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish clear-pending commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__clear-pending_commands] )) ||
+_forge-admin-cli__redfish__clear-pending_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish clear-pending commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__clear-pending_commands] )) ||
+_forge-admin-cli__redfish__help__clear-pending_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help clear-pending commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine__network__config_commands] )) ||
+_forge-admin-cli__help__machine__network__config_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help machine network config commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help__network__config_commands] )) ||
+_forge-admin-cli__machine__help__network__config_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine help network config commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__network__config_commands] )) ||
+_forge-admin-cli__machine__network__config_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine network config commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__network__help__config_commands] )) ||
+_forge-admin-cli__machine__network__help__config_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine network help config commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__disable-secure-boot_commands] )) ||
+_forge-admin-cli__help__redfish__disable-secure-boot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish disable-secure-boot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__disable-secure-boot_commands] )) ||
+_forge-admin-cli__redfish__disable-secure-boot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish disable-secure-boot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__disable-secure-boot_commands] )) ||
+_forge-admin-cli__redfish__help__disable-secure-boot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help disable-secure-boot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__domain_commands] )) ||
+_forge-admin-cli__domain_commands() {
+    local commands; commands=(
+'show:Display Domain information' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli domain commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__domain_commands] )) ||
+_forge-admin-cli__help__domain_commands() {
+    local commands; commands=(
+'show:Display Domain information' \
+    )
+    _describe -t commands 'forge-admin-cli help domain commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu_commands] )) ||
+_forge-admin-cli__dpu_commands() {
+    local commands; commands=(
+'reprovision:DPU Reprovisioning handling' \
+'agent-upgrade-policy:Get or set forge-dpu-agent upgrade policy' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli dpu commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__dpu_commands] )) ||
+_forge-admin-cli__help__dpu_commands() {
+    local commands; commands=(
+'reprovision:DPU Reprovisioning handling' \
+'agent-upgrade-policy:Get or set forge-dpu-agent upgrade policy' \
+    )
+    _describe -t commands 'forge-admin-cli help dpu commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__dpu_commands] )) ||
+_forge-admin-cli__help__redfish__dpu_commands() {
+    local commands; commands=(
+'set-host-level-restricted:Set host level to to restricted. Host will not be able to configure DPU' \
+'set-host-level-privileged:Set host level to to privilged. Allow host to configure the DPU' \
+'firmware:BMC'\''s FW Commands' \
+'ports:Show ports information' \
+    )
+    _describe -t commands 'forge-admin-cli help redfish dpu commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu_commands] )) ||
+_forge-admin-cli__redfish__dpu_commands() {
+    local commands; commands=(
+'set-host-level-restricted:Set host level to to restricted. Host will not be able to configure DPU' \
+'set-host-level-privileged:Set host level to to privilged. Allow host to configure the DPU' \
+'firmware:BMC'\''s FW Commands' \
+'fw:BMC'\''s FW Commands' \
+'ports:Show ports information' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli redfish dpu commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__dpu_commands] )) ||
+_forge-admin-cli__redfish__help__dpu_commands() {
+    local commands; commands=(
+'set-host-level-restricted:Set host level to to restricted. Host will not be able to configure DPU' \
+'set-host-level-privileged:Set host level to to privilged. Allow host to configure the DPU' \
+'firmware:BMC'\''s FW Commands' \
+'ports:Show ports information' \
+    )
+    _describe -t commands 'forge-admin-cli redfish help dpu commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine__dpu-ssh-credentials_commands] )) ||
+_forge-admin-cli__help__machine__dpu-ssh-credentials_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help machine dpu-ssh-credentials commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__dpu-ssh-credentials_commands] )) ||
+_forge-admin-cli__machine__dpu-ssh-credentials_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine dpu-ssh-credentials commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help__dpu-ssh-credentials_commands] )) ||
+_forge-admin-cli__machine__help__dpu-ssh-credentials_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine help dpu-ssh-credentials commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__ip__find_commands] )) ||
+_forge-admin-cli__help__ip__find_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help ip find commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__ip__find_commands] )) ||
+_forge-admin-cli__ip__find_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli ip find commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__ip__help__find_commands] )) ||
+_forge-admin-cli__ip__help__find_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli ip help find commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__dpu__firmware_commands] )) ||
+_forge-admin-cli__help__redfish__dpu__firmware_commands() {
+    local commands; commands=(
+'status:Print FW update status' \
+'update:Update BMC'\''s FW to the given FW package' \
+'show:Show FW versions of different components' \
+    )
+    _describe -t commands 'forge-admin-cli help redfish dpu firmware commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware_commands() {
+    local commands; commands=(
+'status:Print FW update status' \
+'update:Update BMC'\''s FW to the given FW package' \
+'show:Show FW versions of different components' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli redfish dpu firmware commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help__firmware_commands] )) ||
+_forge-admin-cli__redfish__dpu__help__firmware_commands() {
+    local commands; commands=(
+'status:Print FW update status' \
+'update:Update BMC'\''s FW to the given FW package' \
+'show:Show FW versions of different components' \
+    )
+    _describe -t commands 'forge-admin-cli redfish dpu help firmware commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__dpu__firmware_commands] )) ||
+_forge-admin-cli__redfish__help__dpu__firmware_commands() {
+    local commands; commands=(
+'status:Print FW update status' \
+'update:Update BMC'\''s FW to the given FW package' \
+'show:Show FW versions of different components' \
+    )
+    _describe -t commands 'forge-admin-cli redfish help dpu firmware commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine__force-delete_commands] )) ||
+_forge-admin-cli__help__machine__force-delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help machine force-delete commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__force-delete_commands] )) ||
+_forge-admin-cli__machine__force-delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine force-delete commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help__force-delete_commands] )) ||
+_forge-admin-cli__machine__help__force-delete_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine help force-delete commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__force-off_commands] )) ||
+_forge-admin-cli__help__redfish__force-off_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish force-off commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__force-off_commands] )) ||
+_forge-admin-cli__redfish__force-off_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish force-off commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__force-off_commands] )) ||
+_forge-admin-cli__redfish__help__force-off_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help force-off commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__force-restart_commands] )) ||
+_forge-admin-cli__help__redfish__force-restart_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish force-restart commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__force-restart_commands] )) ||
+_forge-admin-cli__redfish__force-restart_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish force-restart commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__force-restart_commands] )) ||
+_forge-admin-cli__redfish__help__force-restart_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help force-restart commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__forge-setup_commands] )) ||
+_forge-admin-cli__help__redfish__forge-setup_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish forge-setup commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__forge-setup_commands] )) ||
+_forge-admin-cli__redfish__forge-setup_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish forge-setup commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__forge-setup_commands] )) ||
+_forge-admin-cli__redfish__help__forge-setup_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help forge-setup commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override__get_commands] )) ||
+_forge-admin-cli__boot-override__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli boot-override get commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override__help__get_commands] )) ||
+_forge-admin-cli__boot-override__help__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli boot-override help get commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__boot-override__get_commands] )) ||
+_forge-admin-cli__help__boot-override__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help boot-override get commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__get-bmc-ethernet-interface_commands] )) ||
+_forge-admin-cli__help__redfish__get-bmc-ethernet-interface_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish get-bmc-ethernet-interface commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__get-bmc-ethernet-interface_commands] )) ||
+_forge-admin-cli__redfish__get-bmc-ethernet-interface_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish get-bmc-ethernet-interface commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__get-bmc-ethernet-interface_commands] )) ||
+_forge-admin-cli__redfish__help__get-bmc-ethernet-interface_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help get-bmc-ethernet-interface commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__get-chassis-all_commands] )) ||
+_forge-admin-cli__help__redfish__get-chassis-all_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish get-chassis-all commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__get-chassis-all_commands] )) ||
+_forge-admin-cli__redfish__get-chassis-all_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish get-chassis-all commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__get-chassis-all_commands] )) ||
+_forge-admin-cli__redfish__help__get-chassis-all_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help get-chassis-all commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__get-power-state_commands] )) ||
+_forge-admin-cli__help__redfish__get-power-state_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish get-power-state commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__get-power-state_commands] )) ||
+_forge-admin-cli__redfish__get-power-state_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish get-power-state commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__get-power-state_commands] )) ||
+_forge-admin-cli__redfish__help__get-power-state_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help get-power-state commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__graceful-restart_commands] )) ||
+_forge-admin-cli__help__redfish__graceful-restart_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish graceful-restart commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__graceful-restart_commands] )) ||
+_forge-admin-cli__redfish__graceful-restart_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish graceful-restart commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__graceful-restart_commands] )) ||
+_forge-admin-cli__redfish__help__graceful-restart_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help graceful-restart commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__graceful-shutdown_commands] )) ||
+_forge-admin-cli__help__redfish__graceful-shutdown_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish graceful-shutdown commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__graceful-shutdown_commands] )) ||
+_forge-admin-cli__redfish__graceful-shutdown_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish graceful-shutdown commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__graceful-shutdown_commands] )) ||
+_forge-admin-cli__redfish__help__graceful-shutdown_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help graceful-shutdown commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__resource-pool__grow_commands] )) ||
+_forge-admin-cli__help__resource-pool__grow_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help resource-pool grow commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__resource-pool__grow_commands] )) ||
+_forge-admin-cli__resource-pool__grow_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli resource-pool grow commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__resource-pool__help__grow_commands] )) ||
+_forge-admin-cli__resource-pool__help__grow_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli resource-pool help grow commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__bmc-machine__help_commands] )) ||
+_forge-admin-cli__bmc-machine__help_commands() {
+    local commands; commands=(
+'reset:Reset a BMC machine' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli bmc-machine help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__bmc-machine__help__help_commands] )) ||
+_forge-admin-cli__bmc-machine__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli bmc-machine help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override__help_commands] )) ||
+_forge-admin-cli__boot-override__help_commands() {
+    local commands; commands=(
+'get:' \
+'set:' \
+'clear:' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli boot-override help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override__help__help_commands] )) ||
+_forge-admin-cli__boot-override__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli boot-override help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__domain__help_commands] )) ||
+_forge-admin-cli__domain__help_commands() {
+    local commands; commands=(
+'show:Display Domain information' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli domain help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__domain__help__help_commands] )) ||
+_forge-admin-cli__domain__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli domain help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__help_commands] )) ||
+_forge-admin-cli__dpu__help_commands() {
+    local commands; commands=(
+'reprovision:DPU Reprovisioning handling' \
+'agent-upgrade-policy:Get or set forge-dpu-agent upgrade policy' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli dpu help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__help__help_commands] )) ||
+_forge-admin-cli__dpu__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision__help_commands] )) ||
+_forge-admin-cli__dpu__reprovision__help_commands() {
+    local commands; commands=(
+'set:Set the DPU in reprovisioing mode.' \
+'clear:Clear the reprovisioing mode.' \
+'list:List all DPUs pending reprovisioning.' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli dpu reprovision help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision__help__help_commands] )) ||
+_forge-admin-cli__dpu__reprovision__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu reprovision help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help_commands] )) ||
+_forge-admin-cli__help_commands() {
+    local commands; commands=(
+'version:Print API server version' \
+'machine:Machine related handling' \
+'instance:Instance related handling' \
+'network-segment:Network Segment related handling' \
+'domain:Domain related handling' \
+'managed-host:Managed host related handling' \
+'resource-pool:Resource pool handling' \
+'redfish:Redfish BMC actions' \
+'migrate:Migrate data, see sub-command' \
+'network-device:Network Devices handling' \
+'ip:IP address handling' \
+'dpu:DPU specific handling' \
+'inventory:Generate Ansible Inventory' \
+'boot-override:Cloud init override' \
+'bmc-machine:BMC Machine related handling' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__help_commands] )) ||
+_forge-admin-cli__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance__help_commands] )) ||
+_forge-admin-cli__instance__help_commands() {
+    local commands; commands=(
+'show:Display instance information' \
+'reboot:Reboot instance' \
+'release:De-allocate instance' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli instance help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance__help__help_commands] )) ||
+_forge-admin-cli__instance__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli instance help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__ip__help_commands] )) ||
+_forge-admin-cli__ip__help_commands() {
+    local commands; commands=(
+'find:' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli ip help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__ip__help__help_commands] )) ||
+_forge-admin-cli__ip__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli ip help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help_commands] )) ||
+_forge-admin-cli__machine__help_commands() {
+    local commands; commands=(
+'show:Display Machine information' \
+'dpu-ssh-credentials:Print DPU admin SSH username\:password' \
+'network:Networking information' \
+'reboot:Reboot a machine' \
+'force-delete:Force delete a machine' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli machine help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help__help_commands] )) ||
+_forge-admin-cli__machine__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__network__help_commands] )) ||
+_forge-admin-cli__machine__network__help_commands() {
+    local commands; commands=(
+'status:Print network status of all machines' \
+'config:Machine network configuration, used by VPC.' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli machine network help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__network__help__help_commands] )) ||
+_forge-admin-cli__machine__network__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine network help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__help_commands] )) ||
+_forge-admin-cli__managed-host__help_commands() {
+    local commands; commands=(
+'show:Display managed host information' \
+'maintenance:Switch a machine in/out of maintenance mode' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli managed-host help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__help__help_commands] )) ||
+_forge-admin-cli__managed-host__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__maintenance__help_commands] )) ||
+_forge-admin-cli__managed-host__maintenance__help_commands() {
+    local commands; commands=(
+'on:Put this machine into maintenance mode. Prevents an instance being assigned to it' \
+'off:Return this machine to normal operation' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli managed-host maintenance help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__maintenance__help__help_commands] )) ||
+_forge-admin-cli__managed-host__maintenance__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host maintenance help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__migrate__help_commands] )) ||
+_forge-admin-cli__migrate__help_commands() {
+    local commands; commands=(
+'vpc-vni:Assign a VNI to every VPC. Prepare for Forge Native Networking.' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli migrate help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__migrate__help__help_commands] )) ||
+_forge-admin-cli__migrate__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli migrate help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-device__help_commands] )) ||
+_forge-admin-cli__network-device__help_commands() {
+    local commands; commands=(
+'show:' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli network-device help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-device__help__help_commands] )) ||
+_forge-admin-cli__network-device__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli network-device help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-segment__help_commands] )) ||
+_forge-admin-cli__network-segment__help_commands() {
+    local commands; commands=(
+'show:Display Network Segment information' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli network-segment help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-segment__help__help_commands] )) ||
+_forge-admin-cli__network-segment__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli network-segment help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware__help_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware__help_commands() {
+    local commands; commands=(
+'status:Print FW update status' \
+'update:Update BMC'\''s FW to the given FW package' \
+'show:Show FW versions of different components' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli redfish dpu firmware help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware__help__help_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu firmware help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help_commands] )) ||
+_forge-admin-cli__redfish__dpu__help_commands() {
+    local commands; commands=(
+'set-host-level-restricted:Set host level to to restricted. Host will not be able to configure DPU' \
+'set-host-level-privileged:Set host level to to privilged. Allow host to configure the DPU' \
+'firmware:BMC'\''s FW Commands' \
+'ports:Show ports information' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli redfish dpu help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help__help_commands] )) ||
+_forge-admin-cli__redfish__dpu__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help_commands] )) ||
+_forge-admin-cli__redfish__help_commands() {
+    local commands; commands=(
+'bios-attrs:List BIOS attributes' \
+'boot-hdd:Set hard drive first in boot order' \
+'boot-pxe:Set PXE first in boot order' \
+'boot-once-hdd:On next boot only, boot from hard drive' \
+'boot-once-pxe:On next boot only, boot from PXE' \
+'clear-pending:Delete all pending jobs' \
+'forge-setup:Setup host for Forge use' \
+'get-power-state:Is this thing on?' \
+'lockdown-disable:Disable BMC/BIOS lockdown' \
+'lockdown-enable:Enable BMC/BIOS lockdown' \
+'lockdown-status:Display status of BMC/BIOS lockdown' \
+'force-off:Force turn machine off' \
+'force-restart:Force restart. This is equivalent to pressing the reset button on the front panel.
+- Will not restart DPUs
+- Will apply pending BIOS/UEFI setting changes' \
+'graceful-restart:Graceful restart. Asks the OS to restart via ACPI
+- Might restart DPUs if no OS is running
+- Will not apply pending BIOS/UEFI setting changes' \
+'graceful-shutdown:Graceful host shutdown' \
+'on:Power on a machine' \
+'pcie-devices:List PCIe devices' \
+'pending:List pending operations' \
+'serial-enable:Enable serial console' \
+'serial-status:Serial console status' \
+'tpm-reset:Clear Trusted Platform Module (TPM)' \
+'bmc-reset:Reboot the BMC itself' \
+'disable-secure-boot:Disable Secure Boot' \
+'get-chassis-all:List Chassis' \
+'get-bmc-ethernet-interface:Show BMC'\''s Ethernet interface information' \
+'change-bmc-password:Change password for a BMC user' \
+'change-uefi-password:Change UEFI password' \
+'dpu:DPU specific operations' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli redfish help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__help_commands] )) ||
+_forge-admin-cli__redfish__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__resource-pool__help_commands] )) ||
+_forge-admin-cli__resource-pool__help_commands() {
+    local commands; commands=(
+'grow:Add capacity to one or more resource pools from a TOML file. See carbide-api admin_grow_resource_pool docs for example TOML.' \
+'list:List all resource pools with stats' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli resource-pool help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__resource-pool__help__help_commands] )) ||
+_forge-admin-cli__resource-pool__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli resource-pool help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__instance_commands] )) ||
+_forge-admin-cli__help__instance_commands() {
+    local commands; commands=(
+'show:Display instance information' \
+'reboot:Reboot instance' \
+'release:De-allocate instance' \
+    )
+    _describe -t commands 'forge-admin-cli help instance commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance_commands] )) ||
+_forge-admin-cli__instance_commands() {
+    local commands; commands=(
+'show:Display instance information' \
+'reboot:Reboot instance' \
+'release:De-allocate instance' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli instance commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__inventory_commands] )) ||
+_forge-admin-cli__help__inventory_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help inventory commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__inventory_commands] )) ||
+_forge-admin-cli__inventory_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli inventory commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__ip_commands] )) ||
+_forge-admin-cli__help__ip_commands() {
+    local commands; commands=(
+'find:' \
+    )
+    _describe -t commands 'forge-admin-cli help ip commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__ip_commands] )) ||
+_forge-admin-cli__ip_commands() {
+    local commands; commands=(
+'find:' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli ip commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__help__reprovision__list_commands] )) ||
+_forge-admin-cli__dpu__help__reprovision__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu help reprovision list commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision__help__list_commands] )) ||
+_forge-admin-cli__dpu__reprovision__help__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu reprovision help list commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision__list_commands] )) ||
+_forge-admin-cli__dpu__reprovision__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu reprovision list commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__dpu__reprovision__list_commands] )) ||
+_forge-admin-cli__help__dpu__reprovision__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help dpu reprovision list commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__resource-pool__list_commands] )) ||
+_forge-admin-cli__help__resource-pool__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help resource-pool list commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__resource-pool__help__list_commands] )) ||
+_forge-admin-cli__resource-pool__help__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli resource-pool help list commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__resource-pool__list_commands] )) ||
+_forge-admin-cli__resource-pool__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli resource-pool list commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__lockdown-disable_commands] )) ||
+_forge-admin-cli__help__redfish__lockdown-disable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish lockdown-disable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__lockdown-disable_commands] )) ||
+_forge-admin-cli__redfish__help__lockdown-disable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help lockdown-disable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__lockdown-disable_commands] )) ||
+_forge-admin-cli__redfish__lockdown-disable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish lockdown-disable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__lockdown-enable_commands] )) ||
+_forge-admin-cli__help__redfish__lockdown-enable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish lockdown-enable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__lockdown-enable_commands] )) ||
+_forge-admin-cli__redfish__help__lockdown-enable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help lockdown-enable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__lockdown-enable_commands] )) ||
+_forge-admin-cli__redfish__lockdown-enable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish lockdown-enable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__lockdown-status_commands] )) ||
+_forge-admin-cli__help__redfish__lockdown-status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish lockdown-status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__lockdown-status_commands] )) ||
+_forge-admin-cli__redfish__help__lockdown-status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help lockdown-status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__lockdown-status_commands] )) ||
+_forge-admin-cli__redfish__lockdown-status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish lockdown-status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine_commands] )) ||
+_forge-admin-cli__help__machine_commands() {
+    local commands; commands=(
+'show:Display Machine information' \
+'dpu-ssh-credentials:Print DPU admin SSH username\:password' \
+'network:Networking information' \
+'reboot:Reboot a machine' \
+'force-delete:Force delete a machine' \
+    )
+    _describe -t commands 'forge-admin-cli help machine commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine_commands] )) ||
+_forge-admin-cli__machine_commands() {
+    local commands; commands=(
+'show:Display Machine information' \
+'dpu-ssh-credentials:Print DPU admin SSH username\:password' \
+'network:Networking information' \
+'reboot:Reboot a machine' \
+'force-delete:Force delete a machine' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli machine commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__managed-host__maintenance_commands] )) ||
+_forge-admin-cli__help__managed-host__maintenance_commands() {
+    local commands; commands=(
+'on:Put this machine into maintenance mode. Prevents an instance being assigned to it' \
+'off:Return this machine to normal operation' \
+    )
+    _describe -t commands 'forge-admin-cli help managed-host maintenance commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__help__maintenance_commands] )) ||
+_forge-admin-cli__managed-host__help__maintenance_commands() {
+    local commands; commands=(
+'on:Put this machine into maintenance mode. Prevents an instance being assigned to it' \
+'off:Return this machine to normal operation' \
+    )
+    _describe -t commands 'forge-admin-cli managed-host help maintenance commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__maintenance_commands] )) ||
+_forge-admin-cli__managed-host__maintenance_commands() {
+    local commands; commands=(
+'on:Put this machine into maintenance mode. Prevents an instance being assigned to it' \
+'off:Return this machine to normal operation' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli managed-host maintenance commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__managed-host_commands] )) ||
+_forge-admin-cli__help__managed-host_commands() {
+    local commands; commands=(
+'show:Display managed host information' \
+'maintenance:Switch a machine in/out of maintenance mode' \
+    )
+    _describe -t commands 'forge-admin-cli help managed-host commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host_commands] )) ||
+_forge-admin-cli__managed-host_commands() {
+    local commands; commands=(
+'show:Display managed host information' \
+'maintenance:Switch a machine in/out of maintenance mode' \
+'fix:Switch a machine in/out of maintenance mode' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli managed-host commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__migrate_commands] )) ||
+_forge-admin-cli__help__migrate_commands() {
+    local commands; commands=(
+'vpc-vni:Assign a VNI to every VPC. Prepare for Forge Native Networking.' \
+    )
+    _describe -t commands 'forge-admin-cli help migrate commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__migrate_commands] )) ||
+_forge-admin-cli__migrate_commands() {
+    local commands; commands=(
+'vpc-vni:Assign a VNI to every VPC. Prepare for Forge Native Networking.' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli migrate commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine__network_commands] )) ||
+_forge-admin-cli__help__machine__network_commands() {
+    local commands; commands=(
+'status:Print network status of all machines' \
+'config:Machine network configuration, used by VPC.' \
+    )
+    _describe -t commands 'forge-admin-cli help machine network commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help__network_commands] )) ||
+_forge-admin-cli__machine__help__network_commands() {
+    local commands; commands=(
+'status:Print network status of all machines' \
+'config:Machine network configuration, used by VPC.' \
+    )
+    _describe -t commands 'forge-admin-cli machine help network commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__network_commands] )) ||
+_forge-admin-cli__machine__network_commands() {
+    local commands; commands=(
+'status:Print network status of all machines' \
+'config:Machine network configuration, used by VPC.' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli machine network commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__network-device_commands] )) ||
+_forge-admin-cli__help__network-device_commands() {
+    local commands; commands=(
+'show:' \
+    )
+    _describe -t commands 'forge-admin-cli help network-device commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-device_commands] )) ||
+_forge-admin-cli__network-device_commands() {
+    local commands; commands=(
+'show:' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli network-device commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__network-segment_commands] )) ||
+_forge-admin-cli__help__network-segment_commands() {
+    local commands; commands=(
+'show:Display Network Segment information' \
+    )
+    _describe -t commands 'forge-admin-cli help network-segment commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-segment_commands] )) ||
+_forge-admin-cli__network-segment_commands() {
+    local commands; commands=(
+'show:Display Network Segment information' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli network-segment commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__managed-host__maintenance__off_commands] )) ||
+_forge-admin-cli__help__managed-host__maintenance__off_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help managed-host maintenance off commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__help__maintenance__off_commands] )) ||
+_forge-admin-cli__managed-host__help__maintenance__off_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host help maintenance off commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__maintenance__help__off_commands] )) ||
+_forge-admin-cli__managed-host__maintenance__help__off_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host maintenance help off commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__maintenance__off_commands] )) ||
+_forge-admin-cli__managed-host__maintenance__off_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host maintenance off commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__managed-host__maintenance__on_commands] )) ||
+_forge-admin-cli__help__managed-host__maintenance__on_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help managed-host maintenance on commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__on_commands] )) ||
+_forge-admin-cli__help__redfish__on_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish on commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__help__maintenance__on_commands] )) ||
+_forge-admin-cli__managed-host__help__maintenance__on_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host help maintenance on commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__maintenance__help__on_commands] )) ||
+_forge-admin-cli__managed-host__maintenance__help__on_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host maintenance help on commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__maintenance__on_commands] )) ||
+_forge-admin-cli__managed-host__maintenance__on_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host maintenance on commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__on_commands] )) ||
+_forge-admin-cli__redfish__help__on_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help on commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__on_commands] )) ||
+_forge-admin-cli__redfish__on_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish on commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__pcie-devices_commands] )) ||
+_forge-admin-cli__help__redfish__pcie-devices_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish pcie-devices commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__pcie-devices_commands] )) ||
+_forge-admin-cli__redfish__help__pcie-devices_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help pcie-devices commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__pcie-devices_commands] )) ||
+_forge-admin-cli__redfish__pcie-devices_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish pcie-devices commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__pending_commands] )) ||
+_forge-admin-cli__help__redfish__pending_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish pending commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__pending_commands] )) ||
+_forge-admin-cli__redfish__help__pending_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help pending commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__pending_commands] )) ||
+_forge-admin-cli__redfish__pending_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish pending commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__dpu__ports_commands] )) ||
+_forge-admin-cli__help__redfish__dpu__ports_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish dpu ports commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help__ports_commands] )) ||
+_forge-admin-cli__redfish__dpu__help__ports_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu help ports commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__ports_commands] )) ||
+_forge-admin-cli__redfish__dpu__ports_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu ports commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__dpu__ports_commands] )) ||
+_forge-admin-cli__redfish__help__dpu__ports_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help dpu ports commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__instance__reboot_commands] )) ||
+_forge-admin-cli__help__instance__reboot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help instance reboot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine__reboot_commands] )) ||
+_forge-admin-cli__help__machine__reboot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help machine reboot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance__help__reboot_commands] )) ||
+_forge-admin-cli__instance__help__reboot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli instance help reboot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance__reboot_commands] )) ||
+_forge-admin-cli__instance__reboot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli instance reboot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help__reboot_commands] )) ||
+_forge-admin-cli__machine__help__reboot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine help reboot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__reboot_commands] )) ||
+_forge-admin-cli__machine__reboot_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine reboot commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish_commands] )) ||
+_forge-admin-cli__help__redfish_commands() {
+    local commands; commands=(
+'bios-attrs:List BIOS attributes' \
+'boot-hdd:Set hard drive first in boot order' \
+'boot-pxe:Set PXE first in boot order' \
+'boot-once-hdd:On next boot only, boot from hard drive' \
+'boot-once-pxe:On next boot only, boot from PXE' \
+'clear-pending:Delete all pending jobs' \
+'forge-setup:Setup host for Forge use' \
+'get-power-state:Is this thing on?' \
+'lockdown-disable:Disable BMC/BIOS lockdown' \
+'lockdown-enable:Enable BMC/BIOS lockdown' \
+'lockdown-status:Display status of BMC/BIOS lockdown' \
+'force-off:Force turn machine off' \
+'force-restart:Force restart. This is equivalent to pressing the reset button on the front panel.
+- Will not restart DPUs
+- Will apply pending BIOS/UEFI setting changes' \
+'graceful-restart:Graceful restart. Asks the OS to restart via ACPI
+- Might restart DPUs if no OS is running
+- Will not apply pending BIOS/UEFI setting changes' \
+'graceful-shutdown:Graceful host shutdown' \
+'on:Power on a machine' \
+'pcie-devices:List PCIe devices' \
+'pending:List pending operations' \
+'serial-enable:Enable serial console' \
+'serial-status:Serial console status' \
+'tpm-reset:Clear Trusted Platform Module (TPM)' \
+'bmc-reset:Reboot the BMC itself' \
+'disable-secure-boot:Disable Secure Boot' \
+'get-chassis-all:List Chassis' \
+'get-bmc-ethernet-interface:Show BMC'\''s Ethernet interface information' \
+'change-bmc-password:Change password for a BMC user' \
+'change-uefi-password:Change UEFI password' \
+'dpu:DPU specific operations' \
+    )
+    _describe -t commands 'forge-admin-cli help redfish commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish_commands] )) ||
+_forge-admin-cli__redfish_commands() {
+    local commands; commands=(
+'bios-attrs:List BIOS attributes' \
+'boot-hdd:Set hard drive first in boot order' \
+'boot-pxe:Set PXE first in boot order' \
+'boot-once-hdd:On next boot only, boot from hard drive' \
+'boot-once-pxe:On next boot only, boot from PXE' \
+'clear-pending:Delete all pending jobs' \
+'forge-setup:Setup host for Forge use' \
+'get-power-state:Is this thing on?' \
+'lockdown-disable:Disable BMC/BIOS lockdown' \
+'lockdown-enable:Enable BMC/BIOS lockdown' \
+'lockdown-status:Display status of BMC/BIOS lockdown' \
+'force-off:Force turn machine off' \
+'force-restart:Force restart. This is equivalent to pressing the reset button on the front panel.
+- Will not restart DPUs
+- Will apply pending BIOS/UEFI setting changes' \
+'graceful-restart:Graceful restart. Asks the OS to restart via ACPI
+- Might restart DPUs if no OS is running
+- Will not apply pending BIOS/UEFI setting changes' \
+'graceful-shutdown:Graceful host shutdown' \
+'on:Power on a machine' \
+'pcie-devices:List PCIe devices' \
+'pending:List pending operations' \
+'serial-enable:Enable serial console' \
+'serial-status:Serial console status' \
+'tpm-reset:Clear Trusted Platform Module (TPM)' \
+'bmc-reset:Reboot the BMC itself' \
+'disable-secure-boot:Disable Secure Boot' \
+'get-chassis-all:List Chassis' \
+'get-bmc-ethernet-interface:Show BMC'\''s Ethernet interface information' \
+'change-bmc-password:Change password for a BMC user' \
+'change-uefi-password:Change UEFI password' \
+'dpu:DPU specific operations' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli redfish commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__instance__release_commands] )) ||
+_forge-admin-cli__help__instance__release_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help instance release commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance__help__release_commands] )) ||
+_forge-admin-cli__instance__help__release_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli instance help release commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance__release_commands] )) ||
+_forge-admin-cli__instance__release_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli instance release commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__help__reprovision_commands] )) ||
+_forge-admin-cli__dpu__help__reprovision_commands() {
+    local commands; commands=(
+'set:Set the DPU in reprovisioing mode.' \
+'clear:Clear the reprovisioing mode.' \
+'list:List all DPUs pending reprovisioning.' \
+    )
+    _describe -t commands 'forge-admin-cli dpu help reprovision commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision_commands] )) ||
+_forge-admin-cli__dpu__reprovision_commands() {
+    local commands; commands=(
+'set:Set the DPU in reprovisioing mode.' \
+'clear:Clear the reprovisioing mode.' \
+'list:List all DPUs pending reprovisioning.' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli dpu reprovision commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__dpu__reprovision_commands] )) ||
+_forge-admin-cli__help__dpu__reprovision_commands() {
+    local commands; commands=(
+'set:Set the DPU in reprovisioing mode.' \
+'clear:Clear the reprovisioing mode.' \
+'list:List all DPUs pending reprovisioning.' \
+    )
+    _describe -t commands 'forge-admin-cli help dpu reprovision commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__bmc-machine__help__reset_commands] )) ||
+_forge-admin-cli__bmc-machine__help__reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli bmc-machine help reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__bmc-machine__reset_commands] )) ||
+_forge-admin-cli__bmc-machine__reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli bmc-machine reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__bmc-machine__reset_commands] )) ||
+_forge-admin-cli__help__bmc-machine__reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help bmc-machine reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__resource-pool_commands] )) ||
+_forge-admin-cli__help__resource-pool_commands() {
+    local commands; commands=(
+'grow:Add capacity to one or more resource pools from a TOML file. See carbide-api admin_grow_resource_pool docs for example TOML.' \
+'list:List all resource pools with stats' \
+    )
+    _describe -t commands 'forge-admin-cli help resource-pool commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__resource-pool_commands] )) ||
+_forge-admin-cli__resource-pool_commands() {
+    local commands; commands=(
+'grow:Add capacity to one or more resource pools from a TOML file. See carbide-api admin_grow_resource_pool docs for example TOML.' \
+'list:List all resource pools with stats' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli resource-pool commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__serial-enable_commands] )) ||
+_forge-admin-cli__help__redfish__serial-enable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish serial-enable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__serial-enable_commands] )) ||
+_forge-admin-cli__redfish__help__serial-enable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help serial-enable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__serial-enable_commands] )) ||
+_forge-admin-cli__redfish__serial-enable_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish serial-enable commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__serial-status_commands] )) ||
+_forge-admin-cli__help__redfish__serial-status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish serial-status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__serial-status_commands] )) ||
+_forge-admin-cli__redfish__help__serial-status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help serial-status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__serial-status_commands] )) ||
+_forge-admin-cli__redfish__serial-status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish serial-status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override__help__set_commands] )) ||
+_forge-admin-cli__boot-override__help__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli boot-override help set commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__boot-override__set_commands] )) ||
+_forge-admin-cli__boot-override__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli boot-override set commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__help__reprovision__set_commands] )) ||
+_forge-admin-cli__dpu__help__reprovision__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu help reprovision set commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision__help__set_commands] )) ||
+_forge-admin-cli__dpu__reprovision__help__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu reprovision help set commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__dpu__reprovision__set_commands] )) ||
+_forge-admin-cli__dpu__reprovision__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli dpu reprovision set commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__boot-override__set_commands] )) ||
+_forge-admin-cli__help__boot-override__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help boot-override set commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__dpu__reprovision__set_commands] )) ||
+_forge-admin-cli__help__dpu__reprovision__set_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help dpu reprovision set commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__dpu__set-host-level-privileged_commands] )) ||
+_forge-admin-cli__help__redfish__dpu__set-host-level-privileged_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish dpu set-host-level-privileged commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help__set-host-level-privileged_commands] )) ||
+_forge-admin-cli__redfish__dpu__help__set-host-level-privileged_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu help set-host-level-privileged commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__set-host-level-privileged_commands] )) ||
+_forge-admin-cli__redfish__dpu__set-host-level-privileged_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu set-host-level-privileged commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__dpu__set-host-level-privileged_commands] )) ||
+_forge-admin-cli__redfish__help__dpu__set-host-level-privileged_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help dpu set-host-level-privileged commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__dpu__set-host-level-restricted_commands] )) ||
+_forge-admin-cli__help__redfish__dpu__set-host-level-restricted_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish dpu set-host-level-restricted commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help__set-host-level-restricted_commands] )) ||
+_forge-admin-cli__redfish__dpu__help__set-host-level-restricted_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu help set-host-level-restricted commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__set-host-level-restricted_commands] )) ||
+_forge-admin-cli__redfish__dpu__set-host-level-restricted_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu set-host-level-restricted commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__dpu__set-host-level-restricted_commands] )) ||
+_forge-admin-cli__redfish__help__dpu__set-host-level-restricted_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help dpu set-host-level-restricted commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__domain__help__show_commands] )) ||
+_forge-admin-cli__domain__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli domain help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__domain__show_commands] )) ||
+_forge-admin-cli__domain__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli domain show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__domain__show_commands] )) ||
+_forge-admin-cli__help__domain__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help domain show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__instance__show_commands] )) ||
+_forge-admin-cli__help__instance__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help instance show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine__show_commands] )) ||
+_forge-admin-cli__help__machine__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help machine show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__managed-host__show_commands] )) ||
+_forge-admin-cli__help__managed-host__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help managed-host show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__network-device__show_commands] )) ||
+_forge-admin-cli__help__network-device__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help network-device show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__network-segment__show_commands] )) ||
+_forge-admin-cli__help__network-segment__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help network-segment show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__dpu__firmware__show_commands] )) ||
+_forge-admin-cli__help__redfish__dpu__firmware__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish dpu firmware show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance__help__show_commands] )) ||
+_forge-admin-cli__instance__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli instance help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__instance__show_commands] )) ||
+_forge-admin-cli__instance__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli instance show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help__show_commands] )) ||
+_forge-admin-cli__machine__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__show_commands] )) ||
+_forge-admin-cli__machine__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__help__show_commands] )) ||
+_forge-admin-cli__managed-host__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__managed-host__show_commands] )) ||
+_forge-admin-cli__managed-host__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli managed-host show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-device__help__show_commands] )) ||
+_forge-admin-cli__network-device__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli network-device help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-device__show_commands] )) ||
+_forge-admin-cli__network-device__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli network-device show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-segment__help__show_commands] )) ||
+_forge-admin-cli__network-segment__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli network-segment help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__network-segment__show_commands] )) ||
+_forge-admin-cli__network-segment__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli network-segment show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware__help__show_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu firmware help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware__show_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu firmware show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help__firmware__show_commands] )) ||
+_forge-admin-cli__redfish__dpu__help__firmware__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu help firmware show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__dpu__firmware__show_commands] )) ||
+_forge-admin-cli__redfish__help__dpu__firmware__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help dpu firmware show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine__network__status_commands] )) ||
+_forge-admin-cli__help__machine__network__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help machine network status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__dpu__firmware__status_commands] )) ||
+_forge-admin-cli__help__redfish__dpu__firmware__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish dpu firmware status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__help__network__status_commands] )) ||
+_forge-admin-cli__machine__help__network__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine help network status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__network__help__status_commands] )) ||
+_forge-admin-cli__machine__network__help__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine network help status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine__network__status_commands] )) ||
+_forge-admin-cli__machine__network__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine network status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware__help__status_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware__help__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu firmware help status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware__status_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu firmware status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help__firmware__status_commands] )) ||
+_forge-admin-cli__redfish__dpu__help__firmware__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu help firmware status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__dpu__firmware__status_commands] )) ||
+_forge-admin-cli__redfish__help__dpu__firmware__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help dpu firmware status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__tpm-reset_commands] )) ||
+_forge-admin-cli__help__redfish__tpm-reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish tpm-reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__tpm-reset_commands] )) ||
+_forge-admin-cli__redfish__help__tpm-reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help tpm-reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__tpm-reset_commands] )) ||
+_forge-admin-cli__redfish__tpm-reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish tpm-reset commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__dpu__firmware__update_commands] )) ||
+_forge-admin-cli__help__redfish__dpu__firmware__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish dpu firmware update commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware__help__update_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware__help__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu firmware help update commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__firmware__update_commands] )) ||
+_forge-admin-cli__redfish__dpu__firmware__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu firmware update commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__dpu__help__firmware__update_commands] )) ||
+_forge-admin-cli__redfish__dpu__help__firmware__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish dpu help firmware update commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__dpu__firmware__update_commands] )) ||
+_forge-admin-cli__redfish__help__dpu__firmware__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help dpu firmware update commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__version_commands] )) ||
+_forge-admin-cli__help__version_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help version commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__version_commands] )) ||
+_forge-admin-cli__version_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli version commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__migrate__vpc-vni_commands] )) ||
+_forge-admin-cli__help__migrate__vpc-vni_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help migrate vpc-vni commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__migrate__help__vpc-vni_commands] )) ||
+_forge-admin-cli__migrate__help__vpc-vni_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli migrate help vpc-vni commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__migrate__vpc-vni_commands] )) ||
+_forge-admin-cli__migrate__vpc-vni_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli migrate vpc-vni commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_forge-admin-cli" ]; then
+    _forge-admin-cli "$@"
+else
+    compdef _forge-admin-cli forge-admin-cli
+fi
