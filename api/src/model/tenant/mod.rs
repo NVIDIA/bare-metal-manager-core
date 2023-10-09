@@ -134,7 +134,7 @@ pub struct TenantKeysetContent {
 pub struct TenantKeyset {
     pub keyset_identifier: TenantKeysetIdentifier,
     pub keyset_content: TenantKeysetContent,
-    pub version: ConfigVersion,
+    pub version: String,
 }
 
 impl Display for PublicKey {
@@ -253,10 +253,7 @@ impl TryFrom<rpc::forge::TenantKeyset> for TenantKeyset {
                 "tenant keyset content",
             ))?
             .into();
-        let version = src
-            .version
-            .parse::<ConfigVersion>()
-            .map_err(|_| RpcDataConversionError::InvalidConfigVersion(src.version))?;
+        let version = src.version;
 
         Ok(Self {
             keyset_content,
@@ -271,7 +268,7 @@ impl From<TenantKeyset> for rpc::forge::TenantKeyset {
         Self {
             keyset_identifier: Some(src.keyset_identifier.into()),
             keyset_content: Some(src.keyset_content.into()),
-            version: src.version.version_string(),
+            version: src.version,
         }
     }
 }
@@ -294,10 +291,7 @@ impl TryFrom<rpc::forge::CreateTenantKeysetRequest> for TenantKeyset {
                     public_keys: vec![],
                 });
 
-        let version = src
-            .version
-            .parse::<ConfigVersion>()
-            .map_err(|_| RpcDataConversionError::InvalidConfigVersion(src.version))?;
+        let version = src.version;
 
         Ok(Self {
             keyset_content,
