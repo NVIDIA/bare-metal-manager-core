@@ -87,11 +87,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 Ok(machine) => match machine {
                     Some(machine) => {
                         if let Err(e) = machine
-                            .trigger_reprovisioning_request(
-                                txn,
-                                "Automatic dpu firmware update",
-                                true,
-                            )
+                            .trigger_reprovisioning_request(txn, &reference.to_string(), true)
                             .await
                         {
                             tracing::warn!(

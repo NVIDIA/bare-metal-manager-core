@@ -53,7 +53,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(machines.len(), 2);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
-    assert_eq!(&initiator, "Automatic dpu firmware update");
+    assert!(initiator.starts_with("Automatic dpu firmware update from"));
 
     Ok(())
 }
@@ -154,7 +154,7 @@ async fn test_clear_complated_updates(
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
     let reference = dpu_machine.maintenance_reference().unwrap();
-    assert_eq!(&initiator, "Automatic dpu firmware update");
+    assert!(initiator.starts_with("Automatic dpu firmware update from"));
     assert!(reference.starts_with("Automatic dpu firmware update from"));
 
     txn.commit().await.expect("commit failed");
@@ -174,7 +174,7 @@ async fn test_clear_complated_updates(
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
     let reference = dpu_machine.maintenance_reference().unwrap();
-    assert_eq!(&initiator, "Automatic dpu firmware update");
+    assert!(initiator.starts_with("Automatic dpu firmware update from"));
     assert!(reference.starts_with("Automatic dpu firmware update from"));
 
     txn.rollback().await.unwrap();
