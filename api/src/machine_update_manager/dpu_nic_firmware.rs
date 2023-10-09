@@ -8,7 +8,10 @@ use crate::{
         dpu_machine_update::DpuMachineUpdate,
         machine::{Machine, MachineSearchConfig},
     },
-    machine_update_manager::MachineUpdateManager,
+    machine_update_manager::{
+        machine_update_module::{AutomaticFirmwareUpdateReference, MaintenanceReference},
+        MachineUpdateManager,
+    },
     CarbideResult,
 };
 
@@ -33,15 +36,16 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     ) -> CarbideResult<i32> {
         // Note: this includes any machines that are reprovisioning, even if they
         // are user triggered.
-        let current_updating_count = match DpuMachineUpdate::get_reprovisioning_count(txn).await {
-            Ok(current_updating_count) => current_updating_count,
+        let current_updating_count = match DpuMachineUpdate::get_reprovisioning_machines(txn).await
+        {
+            Ok(current_updating_count) => current_updating_count.len(),
             Err(e) => {
                 tracing::warn!("Error getting outstanding reprovisioning count: {}", e);
                 0
             }
         };
 
-        Ok(current_updating_count)
+        Ok(current_updating_count as i32)
     }
 
     async fn start_updates(
@@ -58,10 +62,10 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 machine_update.firmware_version
             );
 
-            let reference: String = format!(
-                "Automatic dpu firmware update from '{}' to '{}'",
-                machine_update.firmware_version, self.expected_dpu_firmware_version
-            );
+            let reference = MaintenanceReference::Automatic(AutomaticFirmwareUpdateReference {
+                from: machine_update.firmware_version.clone(),
+                to: self.expected_dpu_firmware_version.clone(),
+            });
 
             if let Err(e) =
                 MachineUpdateManager::put_machine_in_maintenance(txn, &machine_update, &reference)

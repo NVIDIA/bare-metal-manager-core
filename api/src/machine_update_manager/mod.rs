@@ -26,7 +26,10 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
-use self::{dpu_nic_firmware::DpuNicFirmwareUpdate, machine_update_module::MachineUpdateModule};
+use self::{
+    dpu_nic_firmware::DpuNicFirmwareUpdate,
+    machine_update_module::{MachineUpdateModule, MaintenanceReference},
+};
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:
@@ -48,7 +51,7 @@ impl MachineUpdateManager {
     const DB_LOCK_NAME: &'static str = "machine_update_lock";
     const DB_LOCK_QUERY: &'static str =
         "SELECT pg_try_advisory_xact_lock((SELECT 'machine_update_lock'::regclass::oid)::integer);";
-    const DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES: i32 = 10;
+    const DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES: i32 = 0;
 
     /// create a MachineUpdateManager with provided modules, overridding the default.
     pub fn new_with_modules(
@@ -111,7 +114,7 @@ impl MachineUpdateManager {
             tokio::select! {
                 _ = tokio::time::sleep(self.run_interval) => {},
                 _ = &mut stop_receiver => {
-                    tracing::info!("StateController stop was requested");
+                    tracing::info!("Machine update manager stop was requested");
                     return;
                 }
             }
@@ -137,11 +140,14 @@ impl MachineUpdateManager {
                             Ok(module_update_count) => {
                                 current_updating_count += module_update_count
                             }
-                            Err(e) => tracing::warn!(
-                                "module {} failed checking for updates: {}",
-                                update_module,
-                                e
-                            ),
+                            Err(e) => {
+                                tracing::warn!(
+                                    "module {} failed checking for updates: {}",
+                                    update_module,
+                                    e
+                                );
+                                return;
+                            }
                         }
                     }
                     let mut available_updates =
@@ -173,13 +179,13 @@ impl MachineUpdateManager {
     pub async fn put_machine_in_maintenance(
         txn: &mut Transaction<'_, Postgres>,
         machine_update: &DpuMachineUpdate,
-        reference: &str,
+        reference: &MaintenanceReference,
     ) -> CarbideResult<()> {
         Machine::set_maintenance_mode(
             txn,
             &machine_update.host_machine_id,
             MaintenanceMode::On {
-                reference: reference.to_owned(),
+                reference: reference.to_string(),
             },
         )
         .await
@@ -189,7 +195,7 @@ impl MachineUpdateManager {
             txn,
             &machine_update.dpu_machine_id,
             MaintenanceMode::On {
-                reference: reference.to_owned(),
+                reference: reference.to_string(),
             },
         )
         .await

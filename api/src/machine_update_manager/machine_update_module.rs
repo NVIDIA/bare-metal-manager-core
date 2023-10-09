@@ -1,4 +1,4 @@
-use std::fmt;
+use std::fmt::{self, Display, Formatter};
 
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
@@ -25,4 +25,25 @@ pub trait MachineUpdateModule: Send + Sync + fmt::Display {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<()>;
+}
+
+pub struct AutomaticFirmwareUpdateReference {
+    pub from: String,
+    pub to: String,
+}
+
+pub enum MaintenanceReference {
+    Automatic(AutomaticFirmwareUpdateReference),
+}
+
+impl Display for MaintenanceReference {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MaintenanceReference::Automatic(x) => write!(
+                f,
+                "Automatic dpu firmware update from {} to {}",
+                x.from, x.to
+            ),
+        }
+    }
 }

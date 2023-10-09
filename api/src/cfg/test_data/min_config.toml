@@ -1,5 +1,3 @@
 database_url="postgres://a:b@postgresql"
 listen="[::]:1081"
 asn=123
-max_concurrent_machine_updates=1
-dpu_nic_firmware_update_version="2.0.1"

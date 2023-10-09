@@ -1,10 +1,15 @@
-use std::str::FromStr;
-
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 
 use crate::model::machine::machine_id::MachineId;
 
-use super::DatabaseError;
+use super::{machine::DbMachineId, DatabaseError};
+
+#[derive(FromRow)]
+pub struct DbDpuMachineUpdate {
+    pub host_machine_id: DbMachineId,
+    pub dpu_machine_id: DbMachineId,
+    pub firmware_version: String,
+}
 
 pub struct DpuMachineUpdate {
     pub host_machine_id: MachineId,
@@ -12,23 +17,13 @@ pub struct DpuMachineUpdate {
     pub firmware_version: String,
 }
 
-impl<'r> FromRow<'r, PgRow> for DpuMachineUpdate {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        Ok(DpuMachineUpdate {
-            host_machine_id: MachineId::from_str(row.try_get("host_machine_id")?).map_err(|e| {
-                sqlx::Error::ColumnDecode {
-                    index: "host_machine_id".to_owned(),
-                    source: Box::new(e),
-                }
-            })?,
-            dpu_machine_id: MachineId::from_str(row.try_get("dpu_machine_id")?).map_err(|e| {
-                sqlx::Error::ColumnDecode {
-                    index: "dpu_machine_id".to_owned(),
-                    source: Box::new(e),
-                }
-            })?,
-            firmware_version: row.try_get("firmware_version")?,
-        })
+impl From<DbDpuMachineUpdate> for DpuMachineUpdate {
+    fn from(value: DbDpuMachineUpdate) -> Self {
+        DpuMachineUpdate {
+            host_machine_id: value.host_machine_id.into(),
+            dpu_machine_id: value.dpu_machine_id.into(),
+            firmware_version: value.firmware_version,
+        }
     }
 }
 
@@ -59,30 +54,30 @@ impl DpuMachineUpdate {
             AND m.controller_state = '{"state": "ready"}' 
             AND m.maintenance_start_time IS NULL 
             AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != $1 LIMIT $2;"#;
-        let result = sqlx::query_as::<_, DpuMachineUpdate>(query)
+        let result = sqlx::query_as::<_, DbDpuMachineUpdate>(query)
             .bind(expected_firmware_version)
             .bind(limit)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(result)
+        Ok(result.into_iter().map(DbDpuMachineUpdate::into).collect())
     }
 
-    pub async fn get_reprovisioning_count(
+    pub async fn get_reprovisioning_machines(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<i32, DatabaseError> {
-        let query = r#"SELECT COUNT(reprovisioning_requested)::int FROM machines;"#;
-        let result = sqlx::query::<_>(query)
-            .fetch_one(&mut **txn)
+    ) -> Result<Vec<MachineId>, DatabaseError> {
+        // use `maintenance_reference` as the reprovisioning fields are cleared by the state machine at the start of reprovisioning
+        let query = r#"SELECT m.id FROM machines m, machine_interfaces mi WHERE m.id = mi.attached_dpu_machine_id 
+        AND m.maintenance_reference like 'Automatic dpu firmware update from%'
+        AND mi.attached_dpu_machine_id != mi.machine_id;"#;
+
+        let result: Vec<DbMachineId> = sqlx::query_as(query)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        let count = result
-            .try_get("count")
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(count)
+        Ok(result.into_iter().map(MachineId::from).collect())
     }
 
     pub async fn get_updated_machines(
@@ -98,11 +93,15 @@ impl DpuMachineUpdate {
         AND m.maintenance_reference like 'Automatic dpu firmware update from%'
         AND m.reprovisioning_requested IS NULL"#;
 
-        let updated_machines: Vec<DpuMachineUpdate> = sqlx::query_as::<_, DpuMachineUpdate>(query)
-            .fetch_all(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let updated_machines: Vec<DbDpuMachineUpdate> =
+            sqlx::query_as::<_, DbDpuMachineUpdate>(query)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(updated_machines)
+        Ok(updated_machines
+            .into_iter()
+            .map(DpuMachineUpdate::from)
+            .collect())
     }
 }

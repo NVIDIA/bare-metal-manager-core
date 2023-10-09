@@ -5,7 +5,12 @@ use async_trait::async_trait;
 use carbide::{
     cfg::CarbideConfig,
     db::dpu_machine_update::DpuMachineUpdate,
-    machine_update_manager::{machine_update_module::MachineUpdateModule, MachineUpdateManager},
+    machine_update_manager::{
+        machine_update_module::{
+            AutomaticFirmwareUpdateReference, MachineUpdateModule, MaintenanceReference,
+        },
+        MachineUpdateManager,
+    },
     model::machine::machine_id::try_parse_machine_id,
     CarbideResult,
 };
@@ -102,7 +107,7 @@ async fn test_max_outstanding_updates(
 
     let config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
-            .merge(Toml::file(format!("{}/min_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{}/full_config.toml", TEST_DATA_DIR)))
             .extract()
             .unwrap(),
     );
@@ -148,15 +153,23 @@ async fn test_put_machine_in_maintenance(
         firmware_version: "1".to_owned(),
     };
 
-    MachineUpdateManager::put_machine_in_maintenance(&mut txn, &machine_update, "test reference")
+    let reference = &MaintenanceReference::Automatic(AutomaticFirmwareUpdateReference {
+        from: "x".to_owned(),
+        to: "y".to_owned(),
+    });
+
+    MachineUpdateManager::put_machine_in_maintenance(&mut txn, &machine_update, &reference)
         .await
         .unwrap();
 
     txn.commit().await.unwrap();
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = 'test reference'";
-    let count: i32 = sqlx::query::<_>(query)
+    let query = format!(
+        "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = '{}'",
+        reference
+    );
+    let count: i32 = sqlx::query::<_>(&query)
         .fetch_one(&mut *txn)
         .await
         .unwrap()
@@ -194,15 +207,23 @@ async fn test_remove_machine_from_maintenance(
         firmware_version: "1".to_owned(),
     };
 
-    MachineUpdateManager::put_machine_in_maintenance(&mut txn, &machine_update, "test reference")
+    let reference = &MaintenanceReference::Automatic(AutomaticFirmwareUpdateReference {
+        from: "x".to_owned(),
+        to: "y".to_owned(),
+    });
+
+    MachineUpdateManager::put_machine_in_maintenance(&mut txn, &machine_update, &reference)
         .await
         .unwrap();
 
     txn.commit().await.unwrap();
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = 'test reference'";
-    let count: i32 = sqlx::query::<_>(query)
+    let query = format!(
+        "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = '{}'",
+        reference
+    );
+    let count: i32 = sqlx::query::<_>(&query)
         .fetch_one(&mut *txn)
         .await
         .unwrap()
@@ -238,7 +259,7 @@ fn test_start(pool: sqlx::PgPool) {
 
     let mut config: Arc<CarbideConfig> = Arc::new(
         Figment::new()
-            .merge(Toml::file(format!("{}/min_config.toml", TEST_DATA_DIR)))
+            .merge(Toml::file(format!("{}/full_config.toml", TEST_DATA_DIR)))
             .extract()
             .unwrap(),
     );
