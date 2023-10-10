@@ -305,7 +305,7 @@ impl TryFrom<rpc::forge::CreateTenantKeysetRequest> for TenantKeyset {
 pub struct UpdateTenantKeyset {
     pub keyset_identifier: TenantKeysetIdentifier,
     pub keyset_content: TenantKeysetContent,
-    pub version: ConfigVersion,
+    pub version: String,
     pub if_version_match: Option<String>,
 }
 
@@ -327,15 +327,10 @@ impl TryFrom<rpc::forge::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
                     public_keys: vec![],
                 });
 
-        let version = src
-            .version
-            .parse::<ConfigVersion>()
-            .map_err(|_| RpcDataConversionError::InvalidConfigVersion(src.version))?;
-
         Ok(Self {
             keyset_content,
             keyset_identifier,
-            version,
+            version: src.version,
             if_version_match: src.if_version_match,
         })
     }
