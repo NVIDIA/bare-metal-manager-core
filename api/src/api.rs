@@ -606,7 +606,7 @@ where
 
         txn.commit()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_ib_subnet", e))?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_ib_subnet", e))?;
 
         Ok(resp)
     }
