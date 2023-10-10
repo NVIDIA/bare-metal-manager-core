@@ -49,6 +49,7 @@ dependencies = [
 	"mkdir-static-aarch64",
 	"bfb-aarch64",
 	"ipxe-aarch64",
+	"setup-apt-repo",
 ]
 
 [tasks.build-boot-artifacts-aarch64-ci]
