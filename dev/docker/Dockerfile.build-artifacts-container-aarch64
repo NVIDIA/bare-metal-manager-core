@@ -9,12 +9,16 @@
 # its affiliates is strictly prohibited.
 FROM arm64v8/rust:1.71-slim-bullseye
 
+# Set in gitlab-templates/scripts/build-push-container-image.sh
+ARG CI_COMMIT_SHORT_SHA
+ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
+
 # Change CACHEKEY to whatever so docker doesn't re-use the cache from before if you want apt to actually run.
 #
 # https://github.com/moby/moby/issues/1996
 # https://github.com/moby/buildkit/issues/4294
 #
-RUN CACHEKEY=112391023 apt update && \
+RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt upgrade -y && \
 	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y \
 		automake \

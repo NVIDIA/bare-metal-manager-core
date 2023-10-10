@@ -9,6 +9,10 @@
 # its affiliates is strictly prohibited.
 FROM debian:12-slim
 
+# Set in gitlab-templates/scripts/build-push-container-image.sh
+ARG CI_COMMIT_SHORT_SHA
+ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
+
 # Change CACHEKEY to whatever so docker doesn't re-use the cache from before if you want apt to actually run.
 #
 # https://github.com/moby/moby/issues/1996
@@ -17,7 +21,7 @@ FROM debian:12-slim
 # Install CA certificates first so fluentbit works.  This is why there's two
 # separate apt install lines, and we don't delete the /var/lib/apt/lists here
 #
-RUN CACHEKEY=oidf3028r apt-get update && \
+RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt-get update && \
 	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt upgrade -y && \
 	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y --no-install-recommends ca-certificates
 
@@ -33,7 +37,7 @@ RUN mkdir -p /var/run/kea
 # https://github.com/moby/moby/issues/1996
 # https://github.com/moby/buildkit/issues/4294
 #
-RUN CACHEKEY=lksadjfdlks apt-get update && \
+RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt-get update && \
 	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y --no-install-recommends \
 		curl \
 		fluent-bit \
