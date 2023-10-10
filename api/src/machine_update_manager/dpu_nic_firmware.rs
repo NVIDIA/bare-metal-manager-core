@@ -63,6 +63,10 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 machine_update.firmware_version
             );
 
+            if updating_host_machines.contains(&machine_update.host_machine_id) {
+                continue;
+            }
+
             let updated_machines = DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
                 txn,
                 machine_update,
