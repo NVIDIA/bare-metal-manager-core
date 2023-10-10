@@ -12,7 +12,7 @@
 pub mod dpu_nic_firmware;
 pub mod machine_update_module;
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::sync::oneshot;
@@ -21,8 +21,10 @@ use crate::{
     cfg::CarbideConfig,
     db::{
         dpu_machine_update::DpuMachineUpdate,
-        machine::{Machine, MaintenanceMode},
+        machine::{Machine, MachineSearchConfig, MaintenanceMode},
+        DatabaseError, ObjectFilter,
     },
+    model::machine::machine_id::MachineId,
     CarbideError, CarbideResult,
 };
 
@@ -109,7 +111,9 @@ impl MachineUpdateManager {
 
     async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {
         loop {
-            self.run_single_iteration().await;
+            if let Err(e) = self.run_single_iteration().await {
+                tracing::warn!("MachineUpdateManager error: {}", e);
+            }
 
             tokio::select! {
                 _ = tokio::time::sleep(self.run_interval) => {},
@@ -121,59 +125,59 @@ impl MachineUpdateManager {
         }
     }
 
-    pub async fn run_single_iteration(&self) {
-        match self.database_connection.begin().await {
-            Ok(mut txn) => {
-                if sqlx::query_scalar(MachineUpdateManager::DB_LOCK_QUERY)
-                    .fetch_one(&mut *txn)
-                    .await
-                    .unwrap_or(false)
-                {
-                    tracing::trace!(
-                        lock = MachineUpdateManager::DB_LOCK_NAME,
-                        "Machine update manager acquired the lock",
-                    );
+    pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::GenericError(format!("Failed to create transaction: {e}"))
+        })?;
 
-                    let mut current_updating_count = 0;
-                    for update_module in self.update_modules.iter() {
-                        match update_module.get_updates_in_progress_count(&mut txn).await {
-                            Ok(module_update_count) => {
-                                current_updating_count += module_update_count
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "module {} failed checking for updates: {}",
-                                    update_module,
-                                    e
-                                );
-                                return;
-                            }
-                        }
-                    }
-                    let mut available_updates =
-                        self.max_concurrent_machine_updates - current_updating_count;
+        if sqlx::query_scalar(MachineUpdateManager::DB_LOCK_QUERY)
+            .fetch_one(&mut *txn)
+            .await
+            .unwrap_or(false)
+        {
+            tracing::trace!(
+                lock = MachineUpdateManager::DB_LOCK_NAME,
+                "Machine update manager acquired the lock",
+            );
 
-                    if available_updates > 0 {
-                        for update_module in self.update_modules.iter() {
-                            let updates_started = update_module
-                                .start_updates(&mut txn, available_updates)
-                                .await;
+            // current host machines in maintenance
+            let mut current_updating_machines =
+                MachineUpdateManager::get_machines_in_maintenance(&mut txn).await?;
 
-                            available_updates -= updates_started;
-                            if available_updates <= 0 {
-                                break;
-                            }
-                        }
-                    }
-                }
-                if let Err(e) = txn.commit().await {
-                    tracing::warn!("Failed to commit database transaction: {}", e);
-                }
+            for update_module in self.update_modules.iter() {
+                current_updating_machines = update_module
+                    .get_updates_in_progress(&mut txn)
+                    .await?
+                    .union(&current_updating_machines)
+                    .cloned()
+                    .collect();
             }
-            Err(e) => {
-                tracing::warn!("Failed to create database transaction: {}", e);
+
+            for update_module in self.update_modules.iter() {
+                if (current_updating_machines.len() as i32) >= self.max_concurrent_machine_updates {
+                    break;
+                }
+                tracing::info!("in progress: {:?}", current_updating_machines);
+                let available_updates =
+                    self.max_concurrent_machine_updates - current_updating_machines.len() as i32;
+
+                let updates_started = update_module
+                    .start_updates(&mut txn, available_updates, &current_updating_machines)
+                    .await?;
+
+                tracing::info!("started: {:?}", updates_started);
+
+                current_updating_machines = current_updating_machines
+                    .union(&updates_started)
+                    .cloned()
+                    .collect();
             }
         }
+        txn.commit().await.map_err(|e| {
+            CarbideError::GenericError(format!("Failed to create transaction: {e}"))
+        })?;
+
+        Ok(())
     }
 
     pub async fn put_machine_in_maintenance(
@@ -215,5 +219,26 @@ impl MachineUpdateManager {
             .await
             .map_err(CarbideError::from)?;
         Ok(())
+    }
+
+    /// get host machines in maintenance
+    pub async fn get_machines_in_maintenance(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<HashSet<MachineId>, DatabaseError> {
+        let machines = Machine::find(
+            txn,
+            ObjectFilter::All,
+            MachineSearchConfig {
+                include_history: false,
+                only_maintenance: true,
+            },
+        )
+        .await?;
+
+        Ok(machines
+            .into_iter()
+            .filter(|m| !m.is_dpu())
+            .map(|m| m.id().clone())
+            .collect())
     }
 }

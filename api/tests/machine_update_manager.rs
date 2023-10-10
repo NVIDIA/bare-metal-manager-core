@@ -11,7 +11,7 @@ use carbide::{
         },
         MachineUpdateManager,
     },
-    model::machine::machine_id::try_parse_machine_id,
+    model::machine::machine_id::{try_parse_machine_id, MachineId},
     CarbideResult,
 };
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
@@ -21,6 +21,7 @@ use figment::{
 };
 use sqlx::{Postgres, Row, Transaction};
 use std::{
+    collections::HashSet,
     fmt,
     sync::{Arc, Mutex},
     time::Duration,
@@ -35,29 +36,30 @@ const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_d
 
 #[derive(Clone)]
 struct TestUpdateModule {
-    pub updates_in_progress: i32,
-    pub updates_started: i32,
+    pub updates_in_progress: Vec<MachineId>,
+    pub updates_started: HashSet<MachineId>,
     start_updates_called: Arc<Mutex<i32>>,
 }
 
 #[async_trait]
 impl MachineUpdateModule for TestUpdateModule {
-    async fn get_updates_in_progress_count(
+    async fn get_updates_in_progress(
         &self,
         _txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<i32> {
-        Ok(self.updates_in_progress)
+    ) -> CarbideResult<HashSet<MachineId>> {
+        Ok(self.updates_in_progress.clone().into_iter().collect())
     }
 
     async fn start_updates(
         &self,
         _txn: &mut Transaction<'_, Postgres>,
         _available_updates: i32,
-    ) -> i32 {
+        _updating_machines: &HashSet<MachineId>,
+    ) -> CarbideResult<HashSet<MachineId>> {
         if let Ok(mut guard) = self.start_updates_called.lock() {
             (*guard) += 1;
         }
-        self.updates_started
+        Ok(self.updates_started.clone())
     }
 
     async fn clear_completed_updates(
@@ -69,7 +71,7 @@ impl MachineUpdateModule for TestUpdateModule {
 }
 
 impl TestUpdateModule {
-    pub fn new(updates_in_progress: i32, updates_started: i32) -> Self {
+    pub fn new(updates_in_progress: Vec<MachineId>, updates_started: HashSet<MachineId>) -> Self {
         TestUpdateModule {
             updates_in_progress,
             updates_started,
@@ -112,8 +114,11 @@ async fn test_max_outstanding_updates(
             .unwrap(),
     );
 
-    let module1 = Box::new(TestUpdateModule::new(0, 1));
-    let module2 = Box::new(TestUpdateModule::new(0, 1));
+    let mut machines_started = HashSet::default();
+    machines_started.insert(dpu_machine_id);
+
+    let module1 = Box::new(TestUpdateModule::new(vec![], machines_started));
+    let module2 = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
 
     let machine_update_manager = MachineUpdateManager::new_with_modules(
         pool.clone(),
@@ -121,7 +126,7 @@ async fn test_max_outstanding_updates(
         vec![module1.clone(), module2.clone()],
     );
 
-    machine_update_manager.run_single_iteration().await;
+    machine_update_manager.run_single_iteration().await?;
 
     assert_eq!(module1.get_start_updates_called(), 1);
     assert_eq!(module2.get_start_updates_called(), 0);
@@ -255,7 +260,7 @@ async fn test_remove_machine_from_maintenance(
 
 #[sqlx::test()]
 fn test_start(pool: sqlx::PgPool) {
-    let test_module = Box::new(TestUpdateModule::new(0, 1));
+    let test_module = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
 
     let mut config: Arc<CarbideConfig> = Arc::new(
         Figment::new()

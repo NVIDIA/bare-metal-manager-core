@@ -1,25 +1,32 @@
-use std::fmt::{self, Display, Formatter};
+use std::{
+    collections::HashSet,
+    fmt::{self, Display, Formatter},
+};
 
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
 
-use crate::CarbideResult;
+use crate::{model::machine::machine_id::MachineId, CarbideResult};
 
 /// Used by [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager) to initiate
 /// machine updates.  A module is responsible for managing its own updates and accurately reporting
 /// the number of outstanding updates.
+///
+/// NOTE: Updating machines are treated as managed hosts and identified by the host machine id.  DPU
+/// updates are identified by using the host machine id, and the host/DPU pair should be treated as one.
 #[async_trait]
 pub trait MachineUpdateModule: Send + Sync + fmt::Display {
-    async fn get_updates_in_progress_count(
+    async fn get_updates_in_progress(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<i32>;
+    ) -> CarbideResult<HashSet<MachineId>>;
 
     async fn start_updates(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         available_updates: i32,
-    ) -> i32;
+        updating_host_machines: &HashSet<MachineId>,
+    ) -> CarbideResult<HashSet<MachineId>>;
 
     async fn clear_completed_updates(
         &self,

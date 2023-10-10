@@ -1,4 +1,7 @@
 pub mod common;
+
+use std::collections::HashSet;
+
 use carbide::{
     db::{
         machine::{Machine, MachineSearchConfig},
@@ -23,7 +26,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let _host_machine_id =
+    let host_machine_id =
         try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
             .unwrap();
 
@@ -33,9 +36,13 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");
 
-    let started_count = dpu_nic_firmware_update.start_updates(&mut txn, 10).await;
+    let started_count = dpu_nic_firmware_update
+        .start_updates(&mut txn, 10, &HashSet::default())
+        .await?;
 
-    assert_eq!(started_count, 1);
+    assert_eq!(started_count.len(), 1);
+    assert!(started_count.get(&dpu_machine_id).is_none());
+    assert!(started_count.get(&host_machine_id).is_some());
 
     let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like 'Automatic dpu firmware update from%'";
     let count: i32 = sqlx::query::<_>(query)
@@ -59,14 +66,14 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_get_updates_in_progress_count(
+async fn test_get_updates_in_progress(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let _host_machine_id =
+    let host_machine_id =
         try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
             .unwrap();
 
@@ -77,19 +84,22 @@ async fn test_get_updates_in_progress_count(
     let mut txn = pool.begin().await.expect("Failed to create transaction");
 
     let updating_count = dpu_nic_firmware_update
-        .get_updates_in_progress_count(&mut txn)
+        .get_updates_in_progress(&mut txn)
         .await?;
 
-    assert_eq!(updating_count, 0);
+    assert!(updating_count.is_empty());
 
-    let started_count = dpu_nic_firmware_update.start_updates(&mut txn, 10).await;
+    let started_count = dpu_nic_firmware_update
+        .start_updates(&mut txn, 10, &HashSet::default())
+        .await?;
 
     let updating_count = dpu_nic_firmware_update
-        .get_updates_in_progress_count(&mut txn)
+        .get_updates_in_progress(&mut txn)
         .await?;
 
-    assert_eq!(started_count, 1);
-    assert_eq!(updating_count, 1);
+    assert!(started_count.get(&host_machine_id).is_some());
+    assert_eq!(updating_count.len(), 1);
+    assert!(updating_count.get(&host_machine_id).is_some());
 
     Ok(())
 }
@@ -132,7 +142,7 @@ async fn test_clear_complated_updates(
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let _host_machine_id =
+    let host_machine_id =
         try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
             .unwrap();
 
@@ -142,9 +152,12 @@ async fn test_clear_complated_updates(
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");
 
-    let started_count = dpu_nic_firmware_update.start_updates(&mut txn, 10).await;
+    let started_count = dpu_nic_firmware_update
+        .start_updates(&mut txn, 10, &HashSet::default())
+        .await?;
 
-    assert_eq!(started_count, 1);
+    assert!(started_count.get(&dpu_machine_id).is_none());
+    assert!(started_count.get(&host_machine_id).is_some());
 
     let machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
         .await
