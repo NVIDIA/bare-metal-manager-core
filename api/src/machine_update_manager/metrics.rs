@@ -17,7 +17,7 @@ impl MachineUpdateManagerMetrics {
         }
     }
 
-    pub fn observe(&self, observer: &dyn Observer) {
+    pub fn observe(&mut self, observer: &dyn Observer) {
         observer.observe_u64(
             &self.instruments.machines_in_maintenance,
             self.machines_in_maintenance as u64,
@@ -28,6 +28,7 @@ impl MachineUpdateManagerMetrics {
             self.machine_updates_started as u64,
             &[],
         );
+        self.machine_updates_started = 0;
     }
 
     pub fn instruments(&self) -> Vec<Arc<dyn Any>> {

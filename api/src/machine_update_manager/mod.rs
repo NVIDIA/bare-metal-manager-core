@@ -106,7 +106,7 @@ impl MachineUpdateManager {
         let machine_update_metrics_clone = machine_update_metrics.clone();
 
         if let Err(e) = meter.register_callback(&instruments, move |observer| {
-            if let Ok(machine_update_metrics) = machine_update_metrics_clone.lock() {
+            if let Ok(mut machine_update_metrics) = machine_update_metrics_clone.lock() {
                 machine_update_metrics.observe(observer);
             }
         }) {
