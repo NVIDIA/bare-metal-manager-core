@@ -125,7 +125,6 @@ impl DpuNicFirmwareUpdate {
         )
         .await
         {
-            // TODO! stash the machine updates somewhere
             Ok(machine_updates) => machine_updates,
             Err(e) => {
                 tracing::warn!("Failed to find machines needing updates: {}", e);
