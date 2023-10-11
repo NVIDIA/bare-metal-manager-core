@@ -39,6 +39,7 @@ struct TestUpdateModule {
     pub updates_in_progress: Vec<MachineId>,
     pub updates_started: HashSet<MachineId>,
     start_updates_called: Arc<Mutex<i32>>,
+    clear_completed_updates_called: Arc<Mutex<i32>>,
 }
 
 #[async_trait]
@@ -66,6 +67,10 @@ impl MachineUpdateModule for TestUpdateModule {
         &self,
         _txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<()> {
+        if let Ok(mut guard) = self.clear_completed_updates_called.lock() {
+            (*guard) += 1;
+        }
+
         Ok(())
     }
 }
@@ -76,10 +81,15 @@ impl TestUpdateModule {
             updates_in_progress,
             updates_started,
             start_updates_called: Arc::new(Mutex::new(0)),
+            clear_completed_updates_called: Arc::new(Mutex::new(0)),
         }
     }
     pub fn get_start_updates_called(&self) -> i32 {
         *self.start_updates_called.lock().unwrap()
+    }
+
+    pub fn get_clear_completed_updates_called(&self) -> i32 {
+        *self.clear_completed_updates_called.lock().unwrap()
     }
 }
 
@@ -130,6 +140,10 @@ async fn test_max_outstanding_updates(
 
     assert_eq!(module1.get_start_updates_called(), 1);
     assert_eq!(module2.get_start_updates_called(), 0);
+
+    assert_eq!(module1.get_clear_completed_updates_called(), 1);
+    assert_eq!(module2.get_clear_completed_updates_called(), 1);
+
     Ok(())
 }
 

@@ -140,6 +140,10 @@ impl MachineUpdateManager {
                 "Machine update manager acquired the lock",
             );
 
+            for update_module in self.update_modules.iter() {
+                update_module.clear_completed_updates(&mut txn).await?;
+            }
+
             // current host machines in maintenance
             let mut current_updating_machines =
                 MachineUpdateManager::get_machines_in_maintenance(&mut txn).await?;
