@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 pub mod dpu_nic_firmware;
+mod dpu_nic_firmware_metrics;
 pub mod machine_update_module;
 mod metrics;
 
@@ -87,12 +88,8 @@ impl MachineUpdateManager {
     ) -> Self {
         let mut update_modules = vec![];
 
-        if let Some(dpu_nic_firmware_update_version) =
-            config.dpu_nic_firmware_update_version.as_ref()
-        {
-            update_modules.push(Box::new(DpuNicFirmwareUpdate {
-                expected_dpu_firmware_version: dpu_nic_firmware_update_version.clone(),
-            }) as Box<dyn MachineUpdateModule>);
+        if let Some(dpu_nic_firmware) = DpuNicFirmwareUpdate::new(config.clone(), meter.clone()) {
+            update_modules.push(Box::new(dpu_nic_firmware) as Box<dyn MachineUpdateModule>);
         }
 
         let machine_update_metrics = Arc::new(Mutex::new(MachineUpdateManagerMetrics::new(&meter)));

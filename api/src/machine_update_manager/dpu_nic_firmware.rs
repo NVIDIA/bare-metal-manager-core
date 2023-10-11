@@ -1,13 +1,18 @@
-use std::{collections::HashSet, fmt};
+use std::{
+    collections::HashSet,
+    fmt,
+    sync::{Arc, Mutex},
+};
 
+use crate::{
+    cfg::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
+    machine_update_manager::MachineUpdateManager, model::machine::machine_id::MachineId,
+    CarbideError, CarbideResult,
+};
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
 
-use crate::{
-    db::dpu_machine_update::DpuMachineUpdate, machine_update_manager::MachineUpdateManager,
-    model::machine::machine_id::MachineId, CarbideError, CarbideResult,
-};
-
+use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
 use super::machine_update_module::MachineUpdateModule;
 
 /// DpuNicFirmwareUpdate is a module used [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager)
@@ -17,12 +22,46 @@ use super::machine_update_module::MachineUpdateModule;
 /// * `dpu_nic_firmware_update_version` the version of the DPU NIC firmware that is expected to be running on the DPU.
 ///
 /// Note that if the version does not match in either direction, the DPU will be updated.
+
 pub struct DpuNicFirmwareUpdate {
     pub expected_dpu_firmware_version: String,
+    pub metrics: Option<Arc<Mutex<DpuNicFirmwareUpdateMetrics>>>,
 }
 
 #[async_trait]
 impl MachineUpdateModule for DpuNicFirmwareUpdate {
+    fn new(config: Arc<CarbideConfig>, meter: opentelemetry::metrics::Meter) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        if let Some(expected_dpu_firmware_version) = config.dpu_nic_firmware_update_version.as_ref()
+        {
+            let metrics = Arc::new(Mutex::new(DpuNicFirmwareUpdateMetrics::new(meter.clone())));
+            let metrics_clone = metrics.clone();
+            if let Ok(locked_metrics) = metrics.lock() {
+                if let Err(e) =
+                    meter.register_callback(&locked_metrics.instruments(), move |observer| {
+                        if let Ok(mut locked_metrics_clone) = metrics_clone.lock() {
+                            locked_metrics_clone.observe(observer);
+                        }
+                    })
+                {
+                    tracing::warn!(
+                        "Failed to register metrics callback for DpuNicFirmwareUpdate: {}",
+                        e
+                    );
+                }
+            }
+
+            Some(DpuNicFirmwareUpdate {
+                expected_dpu_firmware_version: expected_dpu_firmware_version.clone(),
+                metrics: Some(metrics),
+            })
+        } else {
+            None
+        }
+    }
+
     async fn get_updates_in_progress(
         &self,
         txn: &mut Transaction<'_, Postgres>,
@@ -121,7 +160,7 @@ impl DpuNicFirmwareUpdate {
         match DpuMachineUpdate::find_outdated_dpus(
             txn,
             &self.expected_dpu_firmware_version,
-            available_updates,
+            Some(available_updates),
         )
         .await
         {
@@ -130,6 +169,21 @@ impl DpuNicFirmwareUpdate {
                 tracing::warn!("Failed to find machines needing updates: {}", e);
                 vec![]
             }
+        }
+    }
+
+    pub async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>) {
+        match DpuMachineUpdate::find_outdated_dpus(txn, &self.expected_dpu_firmware_version, None)
+            .await
+        {
+            Ok(outdated_dpus) => {
+                if let Some(metrics) = &self.metrics {
+                    if let Ok(mut metrics) = metrics.lock() {
+                        metrics.pending_firmware_updates = outdated_dpus.len();
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("Error geting outdated dpus for metrics: {}", e),
         }
     }
 }

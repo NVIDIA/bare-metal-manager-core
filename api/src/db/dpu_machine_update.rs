@@ -43,13 +43,13 @@ impl DpuMachineUpdate {
     pub async fn find_outdated_dpus(
         txn: &mut Transaction<'_, Postgres>,
         expected_firmware_version: &str,
-        limit: i32,
+        limit: Option<i32>,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
-        if limit <= 0 {
+        if limit.is_some_and(|l| l <= 0) {
             return Ok(vec![]);
         }
 
-        let query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id, 
+        let mut query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id, 
             mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version 
             FROM machines m
             INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
@@ -58,13 +58,22 @@ impl DpuMachineUpdate {
             AND mi.machine_id != mi.attached_dpu_machine_id 
             AND m.controller_state = '{"state": "ready"}' 
             AND m.maintenance_start_time IS NULL 
-            AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != $1 LIMIT $2;"#;
-        let result = sqlx::query_as::<_, DbDpuMachineUpdate>(query)
-            .bind(expected_firmware_version)
-            .bind(limit)
+            AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != $1"#.to_string();
+
+        if limit.is_some() {
+            query += r#" LIMIT $2;"#;
+        } else {
+            query += r#";"#;
+        }
+
+        let mut q = sqlx::query_as::<_, DbDpuMachineUpdate>(&query).bind(expected_firmware_version);
+        if let Some(limit) = limit {
+            q = q.bind(limit);
+        }
+        let result = q
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_dpus", e))?;
 
         Ok(result.into_iter().map(DbDpuMachineUpdate::into).collect())
     }

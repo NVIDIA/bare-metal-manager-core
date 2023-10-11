@@ -32,6 +32,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_version: "2.0.1".to_string(),
+        metrics: None,
     };
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");
@@ -79,6 +80,7 @@ async fn test_get_updates_in_progress(
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_version: "2.0.1".to_string(),
+        metrics: None,
     };
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");
@@ -122,6 +124,7 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_version: "2.0.1".to_string(),
+        metrics: None,
     };
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");
@@ -148,6 +151,7 @@ async fn test_clear_complated_updates(
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
         expected_dpu_firmware_version: "2.0.1".to_string(),
+        metrics: None,
     };
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");

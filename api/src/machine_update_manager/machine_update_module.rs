@@ -1,12 +1,13 @@
 use std::{
     collections::HashSet,
     fmt::{self, Display, Formatter},
+    sync::Arc,
 };
 
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
 
-use crate::{model::machine::machine_id::MachineId, CarbideResult};
+use crate::{cfg::CarbideConfig, model::machine::machine_id::MachineId, CarbideResult};
 
 /// Used by [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager) to initiate
 /// machine updates.  A module is responsible for managing its own updates and accurately reporting
@@ -16,6 +17,10 @@ use crate::{model::machine::machine_id::MachineId, CarbideResult};
 /// updates are identified by using the host machine id, and the host/DPU pair should be treated as one.
 #[async_trait]
 pub trait MachineUpdateModule: Send + Sync + fmt::Display {
+    fn new(config: Arc<CarbideConfig>, meter: opentelemetry::metrics::Meter) -> Option<Self>
+    where
+        Self: Sized;
+
     async fn get_updates_in_progress(
         &self,
         txn: &mut Transaction<'_, Postgres>,
