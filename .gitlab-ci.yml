@@ -78,7 +78,7 @@ prepare-ci:
 #        - job: "lint:commit-push"
 #
 # Reenable this when we want to enforce commit ci post-mr
-# 
+#
 lint:commit-push:
   rules:
     - when: never
@@ -437,6 +437,7 @@ build-boot-artifacts-aarch64:
       - pxe/static/blobs/internal/aarch64/ipxe.efi
       - pxe/static/blobs/internal/aarch64/carbide.efi
       - pxe/static/blobs/internal/aarch64/carbide.root
+      - pxe/static/blobs/internal/apt
       - target/debug/forge-admin-cli
       - target/debug/forge-scout
     when: always
