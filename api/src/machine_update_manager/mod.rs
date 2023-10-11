@@ -222,7 +222,7 @@ impl MachineUpdateManager {
         }
         if let Some(metrics) = self.metrics.as_ref() {
             if let Ok(mut metrics) = metrics.lock() {
-                metrics.machine_updates_started += updates_started_count;
+                metrics.machine_updates_started = updates_started_count;
                 metrics.machines_in_maintenance = current_updating_count;
             }
         }

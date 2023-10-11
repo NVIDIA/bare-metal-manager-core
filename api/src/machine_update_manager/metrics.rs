@@ -47,13 +47,13 @@ impl MachineUpdateManagerMetricsInstruments {
     pub fn new(meter: &Meter) -> Self {
         MachineUpdateManagerMetricsInstruments {
             machines_in_maintenance: meter
-                .u64_observable_gauge("forge_machines_in_maintenance")
+                .u64_observable_gauge("forge_machines_in_maintenance_count")
                 .with_description(
                     "The total number of machines in the system that are in maintenance.",
                 )
                 .init(),
             machine_updates_started: meter
-                .u64_observable_gauge("forge_machine_updates_started")
+                .u64_observable_gauge("forge_machine_updates_started_count")
                 .with_description(
                     "The number of machines in the system that in the process of updating.",
                 )
