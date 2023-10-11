@@ -66,6 +66,72 @@ pub struct ForgeTlsConfig {
     pub client_cert: Option<ForgeClientCert>,
 }
 
+impl ForgeTlsConfig {
+    pub async fn read_client_cert(&self) -> Option<(Vec<Certificate>, PrivateKey)> {
+        if let Some(client_cert) = self.client_cert.as_ref() {
+            let cert_path = client_cert.cert_path.clone();
+            let key_path = client_cert.key_path.clone();
+            tokio::task::spawn_blocking(move || {
+                let certs = {
+                    let fd = match std::fs::File::open(cert_path) {
+                        Ok(fd) => fd,
+                        Err(_) => return None,
+                    };
+                    let mut buf = std::io::BufReader::new(&fd);
+                    match rustls_pemfile::certs(&mut buf) {
+                        Ok(certs) => certs.into_iter().map(Certificate).collect::<Vec<_>>(),
+                        Err(_error) => {
+                            // tracing::error!("Rustls error reading certs: {:?}", error);
+                            return None;
+                        }
+                    }
+                };
+
+                let key = {
+                    let fd = match std::fs::File::open(key_path) {
+                        Ok(fd) => fd,
+                        Err(_) => return None,
+                    };
+                    let mut buf = std::io::BufReader::new(&fd);
+
+                    use rustls_pemfile::Item;
+                    match rustls_pemfile::read_one(&mut buf) {
+                        Ok(Some(item)) => match item {
+                            Item::RSAKey(rsa_key) => Some(PrivateKey(rsa_key)),
+                            Item::PKCS8Key(pkcs8_key) => Some(PrivateKey(pkcs8_key)),
+                            Item::ECKey(ec_key) => Some(PrivateKey(ec_key)),
+                            Item::X509Certificate(_) => {
+                                // expected a private key, found a certificate.
+                                None
+                            }
+                            Item::Crl(_) => {
+                                // expected a private key, found a certificate revocation list.
+                                None
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    }
+                };
+
+                let key = match key {
+                    Some(key) => key,
+                    None => {
+                        // tracing::error!("Rustls error: no keys?");
+                        return None;
+                    }
+                };
+
+                Some((certs, key))
+            })
+            .await
+            .unwrap_or(None)
+        } else {
+            None
+        }
+    }
+}
+
 pub struct ForgeTlsClient {
     forge_tls_config: ForgeTlsConfig,
     enforce_tls: bool,
@@ -119,78 +185,18 @@ impl ForgeTlsClient {
                     .with_no_client_auth()
             };
 
-            if let Some(client_cert) = self.forge_tls_config.client_cert.as_ref() {
-                let cert_path = client_cert.cert_path.clone();
-                let key_path = client_cert.key_path.clone();
-                if let Ok(Some((certs, key))) = tokio::task::spawn_blocking(move || {
-                    let certs = {
-                        let fd = match std::fs::File::open(cert_path) {
-                            Ok(fd) => fd,
-                            Err(_) => return None,
-                        };
-                        let mut buf = std::io::BufReader::new(&fd);
-                        match rustls_pemfile::certs(&mut buf) {
-                            Ok(certs) => certs.into_iter().map(Certificate).collect::<Vec<_>>(),
-                            Err(_error) => {
-                                // tracing::error!("Rustls error reading certs: {:?}", error);
-                                return None;
-                            }
-                        }
-                    };
-
-                    let key = {
-                        let fd = match std::fs::File::open(key_path) {
-                            Ok(fd) => fd,
-                            Err(_) => return None,
-                        };
-                        let mut buf = std::io::BufReader::new(&fd);
-
-                        use rustls_pemfile::Item;
-                        match rustls_pemfile::read_one(&mut buf) {
-                            Ok(Some(item)) => match item {
-                                Item::RSAKey(rsa_key) => Some(PrivateKey(rsa_key)),
-                                Item::PKCS8Key(pkcs8_key) => Some(PrivateKey(pkcs8_key)),
-                                Item::ECKey(ec_key) => Some(PrivateKey(ec_key)),
-                                Item::X509Certificate(_) => {
-                                    // expected a private key, found a certificate.
-                                    None
-                                }
-                                Item::Crl(_) => {
-                                    // expected a private key, found a certificate revocation list.
-                                    None
-                                }
-                                _ => None,
-                            },
-                            _ => None,
-                        }
-                    };
-
-                    let key = match key {
-                        Some(key) => key,
-                        None => {
-                            // tracing::error!("Rustls error: no keys?");
-                            return None;
-                        }
-                    };
-
-                    Some((certs, key))
-                })
-                .await
+            if let Some((certs, key)) = self.forge_tls_config.read_client_cert().await {
+                if let Ok(config) = ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_root_certificates(roots)
+                    .with_single_cert(certs, key)
                 {
-                    if let Ok(config) = ClientConfig::builder()
-                        .with_safe_defaults()
-                        .with_root_certificates(roots)
-                        .with_single_cert(certs, key)
-                    {
-                        config // happy path, full valid TLS client config with client cert
-                    } else {
-                        build_no_client_auth_config() // error building client config from cert/key
-                    }
+                    config // happy path, full valid TLS client config with client cert
                 } else {
-                    build_no_client_auth_config() // unable to parse client cert/key from file
+                    build_no_client_auth_config() // error building client config from cert/key
                 }
             } else {
-                build_no_client_auth_config() // no client cert provided in tls config
+                build_no_client_auth_config() // unable to parse client cert/key from file, or no client cert provided in tls config
             }
         } else {
             // tls disabled by environment variable

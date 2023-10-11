@@ -1433,6 +1433,7 @@ message DpuNetworkStatus {
   optional string network_config_error = 7;
   optional UUID instance_id = 8;
   optional string dpu_agent_version = 9;
+  optional uint64 client_certificate_expiry_unix_epoch_secs = 10;
 }
 
 // Observed status of the networking subsystem of an instance

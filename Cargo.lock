@@ -83,6 +83,7 @@ dependencies = [
  "tower-http 0.4.3",
  "tracing",
  "uuid 1.4.1",
+ "x509-parser 0.15.1",
 ]
 
 [[package]]
@@ -764,7 +765,7 @@ dependencies = [
  "utils",
  "uuid 1.4.1",
  "vaultrs",
- "x509-parser",
+ "x509-parser 0.14.0",
 ]
 
 [[package]]
@@ -6745,6 +6746,23 @@ dependencies = [
  "nom",
  "oid-registry",
  "ring",
+ "rusticata-macros",
+ "thiserror",
+ "time 0.3.25",
+]
+
+[[package]]
+name = "x509-parser"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7069fba5b66b9193bd2c5d3d4ff12b839118f6bcbef5328efafafb5395cf63da"
+dependencies = [
+ "asn1-rs",
+ "data-encoding",
+ "der-parser",
+ "lazy_static",
+ "nom",
+ "oid-registry",
  "rusticata-macros",
  "thiserror",
  "time 0.3.25",

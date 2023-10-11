@@ -40,6 +40,7 @@ tonic = { workspace = true}
 tower = "0.4.13"
 tower-http = { version = "0.4.0", features = ["trace"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+x509-parser = "0.15"
 
 # Local dependencies
 forge-host-support = { path = "../../host-support" }

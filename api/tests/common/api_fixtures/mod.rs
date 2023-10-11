@@ -583,6 +583,7 @@ pub async fn network_configured(
         instance_config_version: instance_cv.clone(),
         interfaces,
         network_config_error: None,
+        client_certificate_expiry_unix_epoch_secs: None,
     };
     tracing::trace!(
         "network_configured machine={} instance={}",

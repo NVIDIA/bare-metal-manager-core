@@ -10,28 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::{
-    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbSubnet,
-    IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult, IbSubnetList,
-    IbSubnetQuery, InstanceList, MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
-    TenantKeySetList, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
-    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
-};
+use arc_swap::ArcSwap;
 use chrono::Duration;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
+use opentelemetry_api::metrics::{ObservableGauge, Observer, Unit};
 use opentelemetry_api::KeyValue;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Postgres, Transaction};
@@ -50,7 +41,19 @@ use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
 use uuid::Uuid;
 
-use self::rpc::forge_server::Forge;
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::{
+    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbSubnet,
+    IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult, IbSubnetList,
+    IbSubnetQuery, InstanceList, MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
+    TenantKeySetList, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
+    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+};
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -129,6 +132,8 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
+use self::rpc::forge_server::Forge;
+
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
@@ -151,6 +156,29 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
     tls_config: ApiTlsConfig,
+    pub(crate) api_request_metrics: Option<Arc<ApiRequestMetrics>>,
+}
+
+pub struct ApiRequestMetrics {
+    dpu_client_certificate_expiry_gauge: ObservableGauge<u64>,
+    dpu_client_certificate_expiry: ArcSwap<HashMap<MachineId, u64>>,
+}
+
+impl ApiRequestMetrics {
+    pub fn emit_observables(&self) -> Vec<Arc<dyn Any>> {
+        vec![self.dpu_client_certificate_expiry_gauge.as_any()]
+    }
+
+    pub fn observe_callback(&self, observer: &dyn Observer) {
+        let dpu_client_certificate_expiry = self.dpu_client_certificate_expiry.load_full();
+        for (machine_id, expiry) in dpu_client_certificate_expiry.iter() {
+            observer.observe_u64(
+                &self.dpu_client_certificate_expiry_gauge,
+                *expiry,
+                &[KeyValue::new("machine_id", machine_id.to_string())],
+            );
+        }
+    }
 }
 
 pub struct ApiTlsConfig {
@@ -1213,7 +1241,24 @@ where
             "Applied network configs",
         );
 
-        // We already peristed the machine parts of applied_config in
+        if let Some(client_certificate_expiry_unix_epoch_secs) =
+            request.client_certificate_expiry_unix_epoch_secs
+        {
+            if let Some(api_request_metrics) = self.api_request_metrics.as_ref() {
+                api_request_metrics
+                    .dpu_client_certificate_expiry
+                    .rcu(|expiry_map| {
+                        let mut expiry_map = HashMap::clone(expiry_map);
+                        expiry_map.insert(
+                            dpu_machine_id.clone(),
+                            client_certificate_expiry_unix_epoch_secs,
+                        );
+                        expiry_map
+                    });
+            }
+        }
+
+        // We already persisted the machine parts of applied_config in
         // update_network_status_observation above. Now do the instance parts.
         if let Some(version_string) = request.instance_config_version {
             let Ok(version) = version_string.as_str().parse() else {
@@ -4028,6 +4073,7 @@ where
             eth_data,
             common_pools,
             tls_config,
+            api_request_metrics: None,
         }
     }
 
@@ -4143,6 +4189,19 @@ where
             root_cafile_path: tls_ref.root_cafile_path.clone(),
             admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
         };
+        let dpu_client_certificate_expiry_gauge = meter
+            .u64_observable_gauge("carbide-api.certificates.dpu_client_cert_expiry")
+            .with_description(
+                "The timestamp, in unix epoch seconds, until the dpu client certificate will expire",
+            )
+            .with_unit(Unit::new("s"))
+            .init();
+
+        let api_request_metrics = Arc::new(ApiRequestMetrics {
+            dpu_client_certificate_expiry_gauge,
+            dpu_client_certificate_expiry: ArcSwap::new(Arc::new(HashMap::default())),
+        });
+
         let api_service = Arc::new(Api {
             credential_provider: credential_provider.clone(),
             certificate_provider: certificate_provider.clone(),
@@ -4152,7 +4211,13 @@ where
             eth_data,
             common_pools: common_pools.clone(),
             tls_config,
+            api_request_metrics: Some(api_request_metrics.clone()),
         });
+
+        meter.register_callback(
+            &api_request_metrics.emit_observables(),
+            move |observer: &dyn Observer| api_request_metrics.observe_callback(observer),
+        )?;
 
         if let Some(networks) = carbide_config.networks.as_ref() {
             api_service.create_initial_networks(networks).await?;
@@ -4584,6 +4649,7 @@ impl ServiceConfig {
 #[cfg(test)]
 mod tests {
     use super::truncate;
+
     #[test]
     fn test_truncate() {
         let s = "hello world".to_string();

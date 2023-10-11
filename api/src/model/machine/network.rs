@@ -68,6 +68,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             instance_config_version: None,
             interfaces: vec![],
             network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
         }
     }
 }

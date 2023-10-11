@@ -789,6 +789,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
         network_config_error: None,
         instance_id: None,
         dpu_agent_version: Some("test_cannot_create_instance_on_unhealthy_dpu".to_string()),
+        client_certificate_expiry_unix_epoch_secs: None,
     });
     env.api.record_dpu_network_status(netstat_req).await?;
 
