@@ -11,8 +11,13 @@
  */
 pub mod dpu_nic_firmware;
 pub mod machine_update_module;
+mod metrics;
 
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::sync::oneshot;
@@ -31,6 +36,7 @@ use crate::{
 use self::{
     dpu_nic_firmware::DpuNicFirmwareUpdate,
     machine_update_module::{MachineUpdateModule, MaintenanceReference},
+    metrics::MachineUpdateManagerMetrics,
 };
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
@@ -47,6 +53,7 @@ pub struct MachineUpdateManager {
     max_concurrent_machine_updates: i32,
     run_interval: Duration,
     update_modules: Vec<Box<dyn MachineUpdateModule>>,
+    metrics: Option<Arc<Mutex<MachineUpdateManagerMetrics>>>,
 }
 
 impl MachineUpdateManager {
@@ -68,11 +75,16 @@ impl MachineUpdateManager {
                 .unwrap_or(MachineUpdateManager::DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES),
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules: modules,
+            metrics: None,
         }
     }
 
     /// Create a MachineUpdateManager with the default modules.
-    pub fn new(database_connection: sqlx::PgPool, config: Arc<CarbideConfig>) -> Self {
+    pub fn new(
+        database_connection: sqlx::PgPool,
+        config: Arc<CarbideConfig>,
+        meter: opentelemetry::metrics::Meter,
+    ) -> Self {
         let mut update_modules = vec![];
 
         if let Some(dpu_nic_firmware_update_version) =
@@ -83,6 +95,27 @@ impl MachineUpdateManager {
             }) as Box<dyn MachineUpdateModule>);
         }
 
+        let machine_update_metrics = Arc::new(Mutex::new(MachineUpdateManagerMetrics::new(&meter)));
+
+        let instruments = if let Ok(machine_update_metrics) = machine_update_metrics.lock() {
+            machine_update_metrics.instruments()
+        } else {
+            vec![]
+        };
+
+        let machine_update_metrics_clone = machine_update_metrics.clone();
+
+        if let Err(e) = meter.register_callback(&instruments, move |observer| {
+            if let Ok(machine_update_metrics) = machine_update_metrics_clone.lock() {
+                machine_update_metrics.observe(observer);
+            }
+        }) {
+            tracing::warn!(
+                "Failed to register callback for machine update manager metrics: {}",
+                e
+            );
+        }
+
         MachineUpdateManager {
             database_connection,
             max_concurrent_machine_updates: config
@@ -90,6 +123,7 @@ impl MachineUpdateManager {
                 .unwrap_or(MachineUpdateManager::DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES),
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules,
+            metrics: Some(machine_update_metrics),
         }
     }
 
@@ -126,6 +160,9 @@ impl MachineUpdateManager {
     }
 
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+        let mut updates_started_count = 0;
+        let mut current_updating_count = 0;
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::GenericError(format!("Failed to create transaction: {e}"))
         })?;
@@ -171,15 +208,24 @@ impl MachineUpdateManager {
 
                 tracing::info!("started: {:?}", updates_started);
 
+                updates_started_count += updates_started.len();
+
                 current_updating_machines = current_updating_machines
                     .union(&updates_started)
                     .cloned()
                     .collect();
             }
+            current_updating_count = current_updating_machines.len();
+            txn.commit().await.map_err(|e| {
+                CarbideError::GenericError(format!("Failed to create transaction: {e}"))
+            })?;
         }
-        txn.commit().await.map_err(|e| {
-            CarbideError::GenericError(format!("Failed to create transaction: {e}"))
-        })?;
+        if let Some(metrics) = self.metrics.as_ref() {
+            if let Ok(mut metrics) = metrics.lock() {
+                metrics.machine_updates_started += updates_started_count;
+                metrics.machines_in_maintenance = current_updating_count;
+            }
+        }
 
         Ok(())
     }

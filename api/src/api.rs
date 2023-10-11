@@ -4258,8 +4258,11 @@ where
                 .build()
                 .expect("Unable to build BmcMachineController");
 
-        let machine_update_manager =
-            MachineUpdateManager::new(database_connection.clone(), carbide_config.clone());
+        let machine_update_manager = MachineUpdateManager::new(
+            database_connection.clone(),
+            carbide_config.clone(),
+            meter.clone(),
+        );
         let _machine_update_manager_handler = machine_update_manager.start();
 
         let listen_addr = carbide_config.listen;
