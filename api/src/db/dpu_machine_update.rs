@@ -40,7 +40,7 @@ impl DpuMachineUpdate {
     /// 3. the DPU is not marked for reprovisioning
     /// 4. the DPU is not marked for maintenance.
     ///
-    pub async fn find_outdated_dpus(
+    pub async fn find_available_outdated_dpus(
         txn: &mut Transaction<'_, Postgres>,
         expected_firmware_version: &str,
         limit: Option<i32>,
@@ -73,7 +73,33 @@ impl DpuMachineUpdate {
         let result = q
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "find_outdated_dpus", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
+
+        Ok(result.into_iter().map(DbDpuMachineUpdate::into).collect())
+    }
+
+    pub async fn find_unavailable_outdated_dpus(
+        txn: &mut Transaction<'_, Postgres>,
+        expected_firmware_version: &str,
+    ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
+        let query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id, 
+            mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version 
+            FROM machines m
+            INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
+            INNER JOIN machine_topologies mt ON m.id = mt.machine_id
+            WHERE m.reprovisioning_requested IS NULL 
+            AND mi.machine_id != mi.attached_dpu_machine_id 
+            AND m.controller_state != '{"state": "ready"}' 
+            AND m.maintenance_start_time IS NULL 
+            AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != $1"#;
+
+        let result = sqlx::query_as::<_, DbDpuMachineUpdate>(query)
+            .bind(expected_firmware_version)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "find_unavailable_outdated_dpus", e)
+            })?;
 
         Ok(result.into_iter().map(DbDpuMachineUpdate::into).collect())
     }

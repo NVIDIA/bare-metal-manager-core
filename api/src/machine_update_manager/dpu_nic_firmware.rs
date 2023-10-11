@@ -160,7 +160,7 @@ impl DpuNicFirmwareUpdate {
         txn: &mut Transaction<'_, Postgres>,
         available_updates: i32,
     ) -> Vec<DpuMachineUpdate> {
-        match DpuMachineUpdate::find_outdated_dpus(
+        match DpuMachineUpdate::find_available_outdated_dpus(
             txn,
             &self.expected_dpu_firmware_version,
             Some(available_updates),
@@ -176,8 +176,12 @@ impl DpuNicFirmwareUpdate {
     }
 
     pub async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>) {
-        match DpuMachineUpdate::find_outdated_dpus(txn, &self.expected_dpu_firmware_version, None)
-            .await
+        match DpuMachineUpdate::find_available_outdated_dpus(
+            txn,
+            &self.expected_dpu_firmware_version,
+            None,
+        )
+        .await
         {
             Ok(outdated_dpus) => {
                 if let Some(metrics) = &self.metrics {
@@ -187,6 +191,25 @@ impl DpuNicFirmwareUpdate {
                 }
             }
             Err(e) => tracing::warn!("Error geting outdated dpus for metrics: {}", e),
+        }
+
+        match DpuMachineUpdate::find_unavailable_outdated_dpus(
+            txn,
+            &self.expected_dpu_firmware_version,
+        )
+        .await
+        {
+            Ok(outdated_dpus) => {
+                if let Some(metrics) = &self.metrics {
+                    if let Ok(mut metrics) = metrics.lock() {
+                        metrics.unavailable_dpu_updates = outdated_dpus.len();
+                    }
+                }
+            }
+            Err(e) => tracing::warn!(
+                "Error geting outdated and unavailable dpus for metrics: {}",
+                e
+            ),
         }
     }
 }
