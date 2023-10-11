@@ -119,6 +119,9 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 
             updates_started.insert(machine_update.host_machine_id.clone());
         }
+
+        self.update_metrics(txn).await;
+
         Ok(updates_started)
     }
 
