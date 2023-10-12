@@ -61,15 +61,6 @@ chmod +x /opt/forge/mnv_cli
 set >/home/set.$1
 ls -l /boot
 
-kernver=$(ls -1 /boot/vmlinuz-* | sed "s/.*vmlinuz-//g;tg;d;:g;q;")
-
-#hdrpkg="linux-headers-$kernver"
-hdrpkg=linux-headers-generic
-
-#apt install -y $hdrpkg
-
-#pip3 install setuptools
-
 cat >/etc/systemd/network/dhcp.network <<EOF
 [Match]
 Name=bootnic
@@ -82,43 +73,3 @@ ClientIdentifier=mac
 EOF
 systemctl enable systemd-networkd
 systemctl enable systemd-timesyncd
-
-cd $tmpdir
-#chipsecsrcfile=$softdir/chipsec.tar.gz
-chipsecsrcfile=$tmpdir/distr_chipsec.tar.gz
-wget -O ${chipsecsrcfile} https://github.com/chipsec/chipsec/archive/refs/tags/1.10.4.tar.gz
-
-shahash="60f3ed086568a22efecc0c43b2d4fecd7932734458fdd2917e2e4a479ef56895"
-echo -n "${shahash} ${chipsecsrcfile}" | sha256sum -c - --status
-
-if [ "$?" != "0" ]; then
-echo $shahash is wrong hash for ${chipsecsrcfile}>>/FAILED
-exit 1
-fi
-
-tar xf ${chipsecsrcfile}
-cd chipsec*
-cd drivers/linux
-sed -i "s/^KVERS.*/KVERS\t= \"$kernver\"/g" Makefile
-
-
-make
-#make install
-
-mkdir -p /lib/modules/$kernver/extra
-cp chipsec.ko /lib/modules/$kernver/extra
-
-cd -
-python3 setup.py install
-
-cat >/usr/sbin/chipsec_load_module.sh <<EOF
-#!/bin/bash
-insmode /lib/modules/$kernver/extra/chipsec.ko
-exit \$?
-
-EOF
-chmod +x /usr/sbin/chipsec_load_module.sh
-
-rm -f $chipsecsrcfile
-rm -r -f $tmpdir
-
