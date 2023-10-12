@@ -91,8 +91,8 @@ dependencies = [
 category = "ipxe"
 script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/aarch64"
-  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/aarch64/apt/dists/focal/main/binary-arm64"
-  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/aarch64/apt/pool/base/f/forge-dpu"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu"
 '''
 
 [tasks.mkdir-static-x86_64]
@@ -563,10 +563,10 @@ category = "iPXE Kernel"
 description = "Setup apt repo for forge-dpu package"
 script = '''
 	mv "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}.deb" \
-	"${REPO_ROOT}/pxe/static/blobs/internal/aarch64/apt/pool/base/f/forge-dpu/"
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/aarch64/apt"
+	"${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu/"
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt"
 	dpkg-scanpackages -m pool > dists/focal/main/binary-arm64/Packages
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/aarch64/apt/dists/focal"
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal"
 	echo "Origin: Ubuntu
 Label: Ubuntu
 Suite: focal
@@ -575,10 +575,10 @@ Codename: focal
 Architectures: arm64
 Components: main
 Description: Forge apt repo" > Release
-	echo -e "Date: `LANG=C date -Ru`" >> Release
-	echo -e 'SHA256:' >> Release
+	echo "Date: `LANG=C date -Ru`" >> Release
+	echo 'SHA256:' >> Release
 	find main -type f | xargs -i sh -c 'printf " "$(sha256sum {} | cut -d " " -f 1)" "$(wc --bytes {} | cut -d " " -f 1)" "{}"\n"' >> Release
-	cd "${REPO_ROOT}/pxe/static/blobs/internal/aarch64/apt/dists/focal/main/binary-arm64"
+	cd "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
 	echo "Archive: focal
 Version: 20.04
 Component: main
