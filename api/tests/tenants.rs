@@ -614,3 +614,47 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         .await
         .is_err());
 }
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_keyset_in_instance(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec!["keyset1".to_string(), "keyset2".to_string()],
+    )
+    .await;
+
+    let instance = env
+        .api
+        .find_instances(tonic::Request::new(::rpc::forge::InstanceSearchQuery {
+            id: Some(::rpc::forge::Uuid {
+                value: instance_id.to_string(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let tenant = instance.instances[0]
+        .clone()
+        .config
+        .unwrap()
+        .tenant
+        .unwrap();
+
+    assert_eq!(
+        tenant.tenant_keyset_ids,
+        vec!["keyset1".to_string(), "keyset2".to_string()]
+    );
+}
