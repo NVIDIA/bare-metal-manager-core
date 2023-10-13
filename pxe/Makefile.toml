@@ -13,7 +13,7 @@ FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
 IPXE_CA_PATH = { value = "${REPO_ROOT}/dev/ipxe-root.pem"}
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/Ubuntu22.04"
-BFB_NAME = "DOCA_2.2.0_BSP_4.2.0_Ubuntu_22.04-1.20230918.bfb"
+BFB_NAME = "DOCA_2.2.0_BSP_4.2.0_Ubuntu_22.04-1.20230918.prod.bfb"
 HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/2.2.0v3/zip"
 IPXE_BANNER_VERSION = { script = ["echo ${VERSION:-$(git describe --tags --first-parent --always)}"] }
 DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:1.5.0-doca2.2.0"
