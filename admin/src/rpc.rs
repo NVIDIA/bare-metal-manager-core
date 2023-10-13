@@ -474,7 +474,7 @@ pub async fn trigger_dpu_reprovisioning(
         let request = tonic::Request::new(rpc::DpuReprovisioningRequest {
             dpu_id: Some(rpc::MachineId { id }),
             mode: if set { Mode::Set } else { Mode::Clear } as i32,
-            initiator: "admin_cli".to_string(),
+            initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
             update_firmware,
         });
         client

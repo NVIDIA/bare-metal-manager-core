@@ -149,13 +149,23 @@ exit ||
         // The second boot enables HBN.  This is handled here when the DPU is
         // waiting for the network install
         if machine.is_dpu() {
+            if let Some(reprov_state) = &machine.current_state().as_reprovision_state() {
+                if matches!(
+                    reprov_state,
+                    ReprovisionState::FirmwareUpgrade | ReprovisionState::WaitingForNetworkInstall
+                ) {
+                    return Ok(PxeInstructions::get_pxe_instruction_for_arch(
+                        arch,
+                        interface_id,
+                        mac,
+                        console,
+                    ));
+                }
+            }
+
             match &machine.current_state() {
                 ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkInstall,
-                }
-                | ManagedHostState::DPUReprovision {
-                    reprovision_state:
-                        ReprovisionState::FirmwareUpgrade | ReprovisionState::WaitingForNetworkInstall,
                 } => {
                     return Ok(PxeInstructions::get_pxe_instruction_for_arch(
                         arch,

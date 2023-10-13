@@ -43,6 +43,8 @@ impl TryFrom<InstanceTenantStatus> for rpc::InstanceTenantStatus {
 pub enum TenantState {
     /// The instance is currently getting provisioned for a tenant
     Provisioning,
+    /// DPU is being reprovisioned.
+    DpuReprovisioning,
     /// The instance is ready and can be used by the tenant
     Ready,
     /// The instance has been ready, but the newest configuration that the tenant
@@ -65,6 +67,7 @@ impl TryFrom<TenantState> for rpc::TenantState {
     fn try_from(state: TenantState) -> Result<Self, Self::Error> {
         Ok(match state {
             TenantState::Provisioning => rpc::TenantState::Provisioning,
+            TenantState::DpuReprovisioning => rpc::TenantState::DpuReprovisioning,
             TenantState::Ready => rpc::TenantState::Ready,
             TenantState::Configuring => rpc::TenantState::Configuring,
             TenantState::Terminating => rpc::TenantState::Terminating,
