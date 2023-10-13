@@ -38,10 +38,12 @@ use crate::{
         machine::{
             machine_id::MachineId,
             network::HealthStatus,
-            CleanupState, FailureCause, FailureDetails, InstanceState, LockdownInfo,
+            CleanupState, FailureCause, FailureDetails, InstanceNextStateResolver, InstanceState,
+            LockdownInfo,
             LockdownMode::{self, Enable},
-            LockdownState, MachineSnapshot, MachineState, ManagedHostState,
-            ManagedHostStateSnapshot, ReprovisionState,
+            LockdownState, MachineNextStateResolver, MachineSnapshot, MachineState,
+            ManagedHostState, ManagedHostStateSnapshot, NextReprovisionState, ReprovisionRequest,
+            ReprovisionState,
         },
     },
     redfish::RedfishCredentialType,
@@ -82,19 +84,8 @@ impl Default for MachineStateHandler {
 
 /// This function checks if reprovisoning is requested of a given DPU or not.
 /// It also returns if firmware upgrade is needed.
-fn dpu_reprovisioning_needed(
-    dpu_snapshot: &MachineSnapshot,
-    current_state: &ManagedHostState,
-) -> (bool, bool) {
-    if matches!(current_state, ManagedHostState::DPUReprovision { .. }) {
-        return (false, false);
-    }
-
-    if let Some(request) = dpu_snapshot.reprovision_requested.as_ref() {
-        return (true, request.update_firmware);
-    }
-
-    (false, false)
+fn dpu_reprovisioning_needed(dpu_snapshot: &MachineSnapshot) -> Option<ReprovisionRequest> {
+    dpu_snapshot.reprovision_requested.clone()
 }
 
 // Function to wait for some time in state machine.
@@ -246,17 +237,12 @@ impl StateHandler for MachineStateHandler {
 
             ManagedHostState::Ready => {
                 // Check if DPU reprovisioing is requested
-                let (reprovisioning_requested, update_firmware) =
-                    dpu_reprovisioning_needed(&state.dpu_snapshot, &state.managed_state);
-
-                if reprovisioning_requested {
-                    // Clear reprovisioning state.
-                    Machine::clear_reprovisioning_request(txn, &state.dpu_snapshot.machine_id)
-                        .await
-                        .map_err(StateHandlerError::from)?;
+                if let Some(reprovisioning_requested) =
+                    dpu_reprovisioning_needed(&state.dpu_snapshot)
+                {
                     restart_machine(&state.dpu_snapshot, ctx).await?;
                     *controller_state.modify() = ManagedHostState::DPUReprovision {
-                        reprovision_state: if update_firmware {
+                        reprovision_state: if reprovisioning_requested.update_firmware {
                             ReprovisionState::FirmwareUpgrade
                         } else {
                             set_managed_host_topology_update_needed(txn, state).await?;
@@ -356,62 +342,81 @@ impl StateHandler for MachineStateHandler {
             }
 
             ManagedHostState::DPUReprovision { reprovision_state } => {
-                match reprovision_state {
-                    ReprovisionState::FirmwareUpgrade => {
-                        // Firmware upgrade is going on.
-                        if !rebooted(
-                            state.dpu_snapshot.current.version,
-                            state.dpu_snapshot.last_reboot_time,
-                        )
-                        .await?
-                        {
-                            return Ok(());
-                        }
-
-                        restart_machine(&state.dpu_snapshot, ctx).await?;
-                        set_managed_host_topology_update_needed(txn, state).await?;
-                        *controller_state.modify() = ManagedHostState::DPUReprovision {
-                            reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-                        };
-                    }
-                    ReprovisionState::WaitingForNetworkInstall => {
-                        if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
-                            return Ok(());
-                        }
-
-                        *controller_state.modify() = ManagedHostState::DPUReprovision {
-                            reprovision_state: ReprovisionState::BufferTime,
-                        };
-                    }
-                    ReprovisionState::BufferTime => {
-                        // This state just waits for some time to avoid race condition where
-                        // dpu_agent sends heartbeat just before DPU goes down. A few microseconds
-                        // gap can cause host to restart before DPU comes up. This will fail Host
-                        // DHCP.
-                        // TODO: Reduce this duration to 2 mins.
-                        if wait(state, ctx.services.reachability_params.dpu_wait_time) {
-                            return Ok(());
-                        }
-                        *controller_state.modify() = ManagedHostState::DPUReprovision {
-                            reprovision_state: ReprovisionState::WaitingForNetworkConfig,
-                        };
-                    }
-                    ReprovisionState::WaitingForNetworkConfig => {
-                        if !is_dpu_up_and_network_ready(state) {
-                            return Ok(());
-                        }
-
-                        restart_host(&state.host_snapshot, ctx).await?;
-                        // We need to wait for the host to reboot and submit it's new Hardware information
-                        *controller_state.modify() = ManagedHostState::HostNotReady {
-                            machine_state: MachineState::Discovered,
-                        };
-                    }
+                if let Some(new_state) = handle_dpu_reprovision(
+                    reprovision_state,
+                    state,
+                    ctx,
+                    txn,
+                    &MachineNextStateResolver,
+                )
+                .await?
+                {
+                    *controller_state.modify() = new_state;
                 }
             }
         }
 
         Ok(())
+    }
+}
+
+/// Handle workflow of DPU reprovision
+async fn handle_dpu_reprovision(
+    reprovision_state: &ReprovisionState,
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    next_state_resolver: &impl NextReprovisionState,
+) -> Result<Option<ManagedHostState>, StateHandlerError> {
+    match reprovision_state {
+        ReprovisionState::FirmwareUpgrade => {
+            // Firmware upgrade is going on.
+            if !rebooted(
+                state.dpu_snapshot.current.version,
+                state.dpu_snapshot.last_reboot_time,
+            )
+            .await?
+            {
+                return Ok(None);
+            }
+
+            restart_machine(&state.dpu_snapshot, ctx).await?;
+            set_managed_host_topology_update_needed(txn, state).await?;
+            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+        }
+        ReprovisionState::WaitingForNetworkInstall => {
+            if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
+                return Ok(None);
+            }
+
+            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+        }
+        ReprovisionState::BufferTime => {
+            // This state just waits for some time to avoid race condition where
+            // dpu_agent sends heartbeat just before DPU goes down. A few microseconds
+            // gap can cause host to restart before DPU comes up. This will fail Host
+            // DHCP.
+            // TODO: Reduce this duration to 2 mins.
+            if wait(state, ctx.services.reachability_params.dpu_wait_time) {
+                return Ok(None);
+            }
+            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+        }
+        ReprovisionState::WaitingForNetworkConfig => {
+            if !is_dpu_up_and_network_ready(state) {
+                return Ok(None);
+            }
+
+            // Clear reprovisioning state.
+            Machine::clear_reprovisioning_request(txn, &state.dpu_snapshot.machine_id)
+                .await
+                .map_err(StateHandlerError::from)?;
+            restart_host(&state.host_snapshot, ctx).await?;
+
+            // We need to wait for the host to reboot and submit it's new Hardware information in
+            // case of Ready.
+            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+        }
     }
 }
 
@@ -821,6 +826,44 @@ impl StateHandler for InstanceStateHandler {
                             instance.config.infiniband.ib_interfaces.clone(),
                         )
                         .await?;
+
+                        // Check if DPU reprovisioing is requested
+                        if let Some(reprovisioning_requested) =
+                            dpu_reprovisioning_needed(&state.dpu_snapshot)
+                        {
+                            // TODO: Replace with type safe enum.
+                            // TODO: If initiator is admin_cli, start re-provisioning immediately,
+                            // else wait for user's approval.
+                            if !reprovisioning_requested.initiator.contains("Automatic") {
+                                restart_machine(&state.dpu_snapshot, ctx).await?;
+                                *controller_state.modify() = ManagedHostState::Assigned {
+                                    instance_state: InstanceState::DPUReprovision {
+                                        reprovision_state: if reprovisioning_requested
+                                            .update_firmware
+                                        {
+                                            ReprovisionState::FirmwareUpgrade
+                                        } else {
+                                            set_managed_host_topology_update_needed(txn, state)
+                                                .await?;
+                                            ReprovisionState::WaitingForNetworkInstall
+                                        },
+                                    },
+                                };
+                            } else {
+                                //TODO: This block to be removed once Automatic reprovision is
+                                //implemented.
+
+                                // Clear reprovisioning state.
+                                Machine::clear_reprovisioning_request(
+                                    txn,
+                                    &state.dpu_snapshot.machine_id,
+                                )
+                                .await
+                                .map_err(StateHandlerError::from)?;
+                            }
+
+                            return Ok(());
+                        }
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage => {
@@ -882,6 +925,19 @@ impl StateHandler for InstanceStateHandler {
                     *controller_state.modify() = ManagedHostState::WaitingForCleanup {
                         cleanup_state: CleanupState::HostCleanup,
                     };
+                }
+                InstanceState::DPUReprovision { reprovision_state } => {
+                    if let Some(new_state) = handle_dpu_reprovision(
+                        reprovision_state,
+                        state,
+                        ctx,
+                        txn,
+                        &InstanceNextStateResolver,
+                    )
+                    .await?
+                    {
+                        *controller_state.modify() = new_state;
+                    }
                 }
             }
         }

@@ -70,7 +70,7 @@ use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    FailureCause, FailureDetails, FailureSource, ManagedHostState, ReprovisionState,
+    FailureCause, FailureDetails, FailureSource, InstanceState, ManagedHostState, ReprovisionState,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkTopologyData};
 use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
@@ -2701,12 +2701,13 @@ where
                                 .map_err(CarbideError::from)?;
 
                         if let Some(machine) = machine {
-                            matches!(
-                                machine.current_state(),
-                                ManagedHostState::DPUReprovision {
-                                    reprovision_state: ReprovisionState::FirmwareUpgrade,
-                                }
-                            )
+                            if let Some(reprov_state) =
+                                machine.current_state().as_reprovision_state()
+                            {
+                                matches!(reprov_state, ReprovisionState::FirmwareUpgrade,)
+                            } else {
+                                false
+                            }
                         } else {
                             false
                         }
@@ -2805,6 +2806,12 @@ where
                 }
                 | ManagedHostState::DPUReprovision {
                     reprovision_state: ReprovisionState::WaitingForNetworkInstall,
+                }
+                | ManagedHostState::Assigned {
+                    instance_state:
+                        InstanceState::DPUReprovision {
+                            reprovision_state: ReprovisionState::WaitingForNetworkInstall,
+                        },
                 } => Action::Discovery,
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
@@ -3328,8 +3335,9 @@ where
         }
 
         if let rpc::dpu_reprovisioning_request::Mode::Set = req.mode() {
+            let initiator = req.initiator().as_str_name();
             machine
-                .trigger_reprovisioning_request(&mut txn, &req.initiator, req.update_firmware)
+                .trigger_reprovisioning_request(&mut txn, initiator, req.update_firmware)
                 .await
                 .map_err(CarbideError::from)?;
         } else {

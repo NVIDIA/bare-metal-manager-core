@@ -77,6 +77,7 @@ impl InstanceStatus {
                 InstanceState::SwitchToAdminNetwork
                 | InstanceState::BootingWithDiscoveryImage
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
+                InstanceState::DPUReprovision { .. } => tenant::TenantState::DpuReprovisioning,
             },
             _ => {
                 tracing::error!(%machine_state, "Invalid state during state handling");

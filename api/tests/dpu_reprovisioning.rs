@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::db::machine_interface::MachineInterface;
-use carbide::model::machine::{MachineState, ManagedHostState, ReprovisionState};
+use carbide::model::machine::{InstanceState, MachineState, ManagedHostState, ReprovisionState};
 use carbide::state_controller::machine::handler::MachineStateHandler;
 use common::api_fixtures::create_test_env;
 use rpc::forge::dpu_reprovisioning_request::Mode;
@@ -22,9 +22,11 @@ use rpc::forge::forge_server::Forge;
 pub mod common;
 
 use crate::common::api_fixtures::dpu::create_dpu_machine;
+use crate::common::api_fixtures::instance::create_instance;
+use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 use crate::common::api_fixtures::{
-    discovery_completed, forge_agent_control, network_configured, run_state_controller_iteration,
-    TestEnv,
+    create_managed_host, discovery_completed, forge_agent_control, network_configured,
+    run_state_controller_iteration, TestEnv,
 };
 
 #[ctor::ctor]
@@ -62,7 +64,10 @@ async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert_eq!(dpu.reprovisioning_requested().unwrap().initiator, "test");
+    assert_eq!(
+        dpu.reprovisioning_requested().unwrap().initiator,
+        "AdminCli"
+    );
 
     let res = env
         .api
@@ -102,7 +107,7 @@ async fn trigger_dpu_reprovisioning(
                     id: dpu_id.to_string(),
                 }),
                 mode: mode as i32,
-                initiator: "test".to_string(),
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware,
             },
         ))
@@ -150,7 +155,10 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert_eq!(dpu.reprovisioning_requested().unwrap().initiator, "test");
+    assert_eq!(
+        dpu.reprovisioning_requested().unwrap().initiator,
+        "AdminCli"
+    );
 
     let handler = MachineStateHandler::default();
     let services = Arc::new(env.state_handler_services());
@@ -387,7 +395,7 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
                     id: dpu_machine_id.to_string(),
                 }),
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
-                initiator: "test".to_string(),
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true
             },
         ))
@@ -409,7 +417,7 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
                     id: dpu_machine_id.to_string(),
                 }),
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
-                initiator: "test".to_string(),
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true
             },
         ))
@@ -457,7 +465,10 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         .unwrap()
         .unwrap();
 
-    assert_eq!(dpu.reprovisioning_requested().unwrap().initiator, "test");
+    assert_eq!(
+        dpu.reprovisioning_requested().unwrap().initiator,
+        "AdminCli"
+    );
 
     let handler = MachineStateHandler::default();
     let services = Arc::new(env.state_handler_services());
@@ -607,5 +618,473 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         .unwrap();
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
+    txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let (_instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id)
+        .unwrap()[0]
+        .id
+        .to_string();
+
+    let arch = rpc::forge::MachineArchitecture::Arm;
+
+    env.api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 0,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .unwrap();
+
+    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.reprovisioning_requested().unwrap().initiator,
+        "AdminCli"
+    );
+
+    let handler = MachineStateHandler::default();
+    let services = Arc::new(env.state_handler_services());
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                reprovision_state: ReprovisionState::FirmwareUpgrade,
+                ..
+            }
+        }
+    ));
+
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_ne!(pxe.pxe_script, "exit".to_string());
+
+    let dpu_rpc_id = rpc::forge::MachineId {
+        id: dpu_machine_id.to_string(),
+    };
+    let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                reprovision_state: ReprovisionState::WaitingForNetworkInstall,
+                ..
+            }
+        }
+    ));
+
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_ne!(pxe.pxe_script, "exit".to_string());
+    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    assert_eq!(
+        response.action,
+        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+    );
+    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                reprovision_state: ReprovisionState::BufferTime,
+                ..
+            }
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(pxe.pxe_script, "exit".to_string());
+
+    let mut txn = env.pool.begin().await.unwrap();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                reprovision_state: ReprovisionState::WaitingForNetworkConfig,
+                ..
+            }
+        }
+    ));
+    txn.commit().await.unwrap();
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(pxe.pxe_script, "exit".to_string());
+
+    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    assert_eq!(
+        response.action,
+        rpc::forge::forge_agent_control_response::Action::Noop as i32
+    );
+    let _ = network_configured(&env, &dpu_machine_id).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready
+        }
+    ));
+    txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let (_instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        .await
+        .unwrap()
+        .get(&dpu_machine_id)
+        .unwrap()[0]
+        .id
+        .to_string();
+
+    let arch = rpc::forge::MachineArchitecture::Arm;
+
+    env.api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 0,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .unwrap();
+
+    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, false).await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.reprovisioning_requested().unwrap().initiator,
+        "AdminCli"
+    );
+
+    let handler = MachineStateHandler::default();
+    let services = Arc::new(env.state_handler_services());
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                reprovision_state: ReprovisionState::WaitingForNetworkInstall,
+                ..
+            }
+        }
+    ));
+
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_ne!(pxe.pxe_script, "exit".to_string());
+    let dpu_rpc_id = rpc::forge::MachineId {
+        id: dpu_machine_id.to_string(),
+    };
+    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    assert_eq!(
+        response.action,
+        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+    );
+    discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                reprovision_state: ReprovisionState::BufferTime,
+                ..
+            }
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(pxe.pxe_script, "exit".to_string());
+
+    let mut txn = env.pool.begin().await.unwrap();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                reprovision_state: ReprovisionState::WaitingForNetworkConfig,
+                ..
+            }
+        }
+    ));
+    txn.commit().await.unwrap();
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: arch as i32,
+            interface_id: Some(rpc::Uuid {
+                value: interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(pxe.pxe_script, "exit".to_string());
+
+    let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
+    assert_eq!(
+        response.action,
+        rpc::forge::forge_agent_control_response::Action::Noop as i32
+    );
+    let _ = network_configured(&env, &dpu_machine_id).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready
+        }
+    ));
     txn.commit().await.unwrap();
 }

@@ -369,6 +369,8 @@ enum TenantState {
   // an instance might enter a FAILED state before even fully activating, in case
   // activation failed.
   FAILED = 5;
+  // DPU is being reprovisioned.
+  DPU_REPROVISIONING = 6;
 }
 
 // Describe the desired configuration of an IBSubnet
@@ -1681,6 +1683,10 @@ message FindIpAddressResponse {
   repeated string errors = 2;
 }
 
+enum UpdateInitiator {
+  AdminCli = 0;
+}
+
 message DpuReprovisioningRequest {
   enum Mode {
     Set = 0;
@@ -1688,7 +1694,7 @@ message DpuReprovisioningRequest {
   }
   MachineId dpu_id = 1;
   Mode mode = 2;
-  string initiator = 3;
+  UpdateInitiator initiator = 3;
   bool update_firmware = 4;
 }
 

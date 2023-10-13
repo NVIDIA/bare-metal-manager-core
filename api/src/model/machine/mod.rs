@@ -131,6 +131,18 @@ pub enum ManagedHostState {
     DPUReprovision { reprovision_state: ReprovisionState },
 }
 
+impl ManagedHostState {
+    pub fn as_reprovision_state(&self) -> Option<&ReprovisionState> {
+        match self {
+            ManagedHostState::DPUReprovision { reprovision_state } => Some(reprovision_state),
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision { reprovision_state },
+            } => Some(reprovision_state),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReprovisionState {
@@ -221,6 +233,7 @@ pub enum InstanceState {
     BootingWithDiscoveryImage,
     SwitchToAdminNetwork,
     WaitingForNetworkReconfig,
+    DPUReprovision { reprovision_state: ReprovisionState },
 }
 
 /// Struct to store information if Reprovision is requested.
@@ -328,6 +341,57 @@ pub struct MachineInterfaceSnapshot {
     pub gateway_cidr: String,
 }
 
+pub struct InstanceNextStateResolver;
+pub struct MachineNextStateResolver;
+
+pub trait NextReprovisionState {
+    fn next_state(&self, current_state: &ReprovisionState) -> ManagedHostState;
+}
+
+impl NextReprovisionState for MachineNextStateResolver {
+    fn next_state(&self, current_state: &ReprovisionState) -> ManagedHostState {
+        match current_state {
+            ReprovisionState::FirmwareUpgrade => ManagedHostState::DPUReprovision {
+                reprovision_state: ReprovisionState::WaitingForNetworkInstall,
+            },
+            ReprovisionState::WaitingForNetworkInstall => ManagedHostState::DPUReprovision {
+                reprovision_state: ReprovisionState::BufferTime,
+            },
+            ReprovisionState::BufferTime => ManagedHostState::DPUReprovision {
+                reprovision_state: ReprovisionState::WaitingForNetworkConfig,
+            },
+            ReprovisionState::WaitingForNetworkConfig => ManagedHostState::HostNotReady {
+                machine_state: MachineState::Discovered,
+            },
+        }
+    }
+}
+
+impl NextReprovisionState for InstanceNextStateResolver {
+    fn next_state(&self, current_state: &ReprovisionState) -> ManagedHostState {
+        match current_state {
+            ReprovisionState::FirmwareUpgrade => ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision {
+                    reprovision_state: ReprovisionState::WaitingForNetworkInstall,
+                },
+            },
+            ReprovisionState::WaitingForNetworkInstall => ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision {
+                    reprovision_state: ReprovisionState::BufferTime,
+                },
+            },
+            ReprovisionState::BufferTime => ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision {
+                    reprovision_state: ReprovisionState::WaitingForNetworkConfig,
+                },
+            },
+            ReprovisionState::WaitingForNetworkConfig => ManagedHostState::Assigned {
+                instance_state: InstanceState::Ready,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,6 +432,21 @@ mod tests {
             deserialized,
             ManagedHostState::DPUReprovision {
                 reprovision_state: ReprovisionState::FirmwareUpgrade
+            }
+        );
+    }
+
+    #[test]
+    fn test_json_deserialize_reprovisioning_state_for_instance() {
+        let serialized = r#"{"state":"assigned","instance_state":{"state":"dpureprovision","reprovision_state":"firmwareupgrade"}}"#;
+        let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            deserialized,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision {
+                    reprovision_state: ReprovisionState::FirmwareUpgrade,
+                },
             }
         );
     }

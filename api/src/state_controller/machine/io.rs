@@ -109,6 +109,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 InstanceState::BootingWithDiscoveryImage => "bootingwithdiscoveryimage",
                 InstanceState::SwitchToAdminNetwork => "switchtoadminnetwork",
                 InstanceState::WaitingForNetworkReconfig => "waitingfornetworkreconfig",
+                InstanceState::DPUReprovision { .. } => "dpureprovisioning",
             }
         }
 
