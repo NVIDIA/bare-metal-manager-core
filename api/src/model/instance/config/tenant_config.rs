@@ -53,7 +53,7 @@ impl TryFrom<TenantConfig> for rpc::TenantConfig {
             tenant_organization_id: config.tenant_organization_id.to_string(),
             custom_ipxe: config.custom_ipxe,
             user_data: config.user_data,
-            tenant_keyset_ids: vec![],
+            tenant_keyset_ids: config.tenant_keyset_ids,
         })
     }
 }
