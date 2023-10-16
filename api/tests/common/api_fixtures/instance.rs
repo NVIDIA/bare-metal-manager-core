@@ -30,23 +30,35 @@ pub async fn create_instance(
     infiniband: Option<rpc::InstanceInfinibandConfig>,
     keyset_ids: Vec<String>,
 ) -> (uuid::Uuid, rpc::Instance) {
+    let config = rpc::InstanceConfig {
+        tenant: Some(rpc::TenantConfig {
+            user_data: Some("SomeRandomData".to_string()),
+            custom_ipxe: "SomeRandomiPxe".to_string(),
+            tenant_organization_id: "Tenant1".to_string(),
+            tenant_keyset_ids: keyset_ids,
+            always_boot_with_custom_ipxe: false,
+        }),
+        network,
+        infiniband,
+    };
+
+    create_instance_with_config(env, dpu_machine_id, host_machine_id, config).await
+}
+
+pub async fn create_instance_with_config(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+    host_machine_id: &MachineId,
+    config: rpc::InstanceConfig,
+) -> (uuid::Uuid, rpc::Instance) {
     let mut info = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
-            config: Some(rpc::InstanceConfig {
-                tenant: Some(rpc::TenantConfig {
-                    user_data: Some("SomeRandomData".to_string()),
-                    custom_ipxe: "SomeRandomiPxe".to_string(),
-                    tenant_organization_id: "Tenant1".to_string(),
-                    tenant_keyset_ids: keyset_ids,
-                }),
-                network,
-                infiniband,
-            }),
-            ssh_keys: vec!["mykey1".to_owned()],
+            config: Some(config),
+            ssh_keys: vec![],
         }))
         .await
         .expect("Create instance failed.")

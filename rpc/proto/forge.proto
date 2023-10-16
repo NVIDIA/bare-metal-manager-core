@@ -519,10 +519,23 @@ enum InstanceTypeCapabilities {
 
 message InstancePowerRequest {
   MachineId machine_id = 1;
+
   enum Operation {
     POWER_RESET = 0;
   }
   Operation operation = 2;
+
+  // Whether the `custom_ipxe` script that had been provided during instance creation
+  // should be executed again during the next reboot.
+  //
+  // If the flag is set to `false` or not specified, Forge will only provide the
+  // `custom_ipxe` script on the first boot attempt. For every subsequent boot,
+  // the instance will use the default boot action - which is usually to boot from
+  // the hard drive.
+  //
+  // If the `always_boot_with_custom_ipxe` flag is set during instance creation,
+  // Forge will also provide the `custom_ipxe` script on every reboot. Thereby the
+  // `always_boot_with_custom_ipxe` takes precedence over `boot_with_custom_ipxe`.
   bool boot_with_custom_ipxe = 3;
 }
 
@@ -584,6 +597,21 @@ message TenantConfig {
   // able to get from empty to populated.
   optional string user_data = 11;
   string custom_ipxe = 12;
+
+  // If this flag is set to `true`, the instance will receive the `custom_ipxe` instructions
+  // on every reboot attempts. Depending on the type of iPXE instructions, this might
+  // lead the instance to reinstall itself on every reboot.
+  //
+  // If the flag is set to `false` or not specified, Forge will only provide the
+  // `custom_ipxe` script on the first boot attempt. For every subsequent boot,
+  // the instance will use the default boot action - which is usually to boot from
+  // the hard drive.
+  //
+  // If the `custom_ipxe` instructions should only be used for specific reboots
+  // in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
+  // API to reboot instances with the `boot_with_custom_ipxe` parameter set to
+  // `true`.
+  bool always_boot_with_custom_ipxe = 13;
 
   //TODO: make an API that allows these to be updated.  For now, they're set only at instance allocation.
   repeated string tenantKeysetIds = 8; // this may be empty

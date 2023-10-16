@@ -48,6 +48,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let tenant = rpcf::TenantConfig {
         user_data: Some("SomeRandomData".to_string()),
         custom_ipxe: "SomeRandomiPxe".to_string(),
+        always_boot_with_custom_ipxe: false,
         tenant_organization_id: "Tenant1".to_string(),
         tenant_keyset_ids: vec![],
     };

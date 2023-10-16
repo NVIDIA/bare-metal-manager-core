@@ -94,6 +94,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             tenant_organization_id: tenant_org,
             custom_ipxe,
             user_data,
+            always_boot_with_custom_ipxe: row.try_get("always_boot_with_custom_ipxe")?,
             tenant_keyset_ids: row.try_get("keyset_ids")?,
         };
 
@@ -335,6 +336,7 @@ impl<'a> NewInstance<'a> {
                         machine_id,
                         user_data,
                         custom_ipxe,
+                        always_boot_with_custom_ipxe,
                         tenant_org,
                         ssh_keys,
                         use_custom_pxe_on_boot,
@@ -346,12 +348,13 @@ impl<'a> NewInstance<'a> {
                         ib_status_observation,
                         keyset_ids
                     )
-                    VALUES ($1, $2, $3, $4, $5::text[], true, $6::json, $7, $8::json, $9::json, $10, $11::json, $12)
+                    VALUES ($1, $2, $3, $4, $5, $6::text[], true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.machine_id.to_string())
             .bind(&self.tenant_config.user_data)
             .bind(&self.tenant_config.custom_ipxe)
+            .bind(self.tenant_config.always_boot_with_custom_ipxe)
             .bind(self.tenant_config.tenant_organization_id.as_str())
             .bind(&self.ssh_keys)
             .bind(sqlx::types::Json(&self.network_config.value))

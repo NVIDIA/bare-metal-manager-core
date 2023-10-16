@@ -104,6 +104,16 @@ fn convert_instance_to_nice_format(
                 .and_then(|tenant| tenant.user_data.clone())
                 .unwrap_or_default(),
         ),
+        (
+            "ALWAYS BOOT CUSTOM IPXE",
+            instance
+                .config
+                .as_ref()
+                .and_then(|config| config.tenant.as_ref())
+                .map(|tenant| tenant.always_boot_with_custom_ipxe)
+                .unwrap_or_default()
+                .to_string(),
+        ),
     ];
 
     if extrainfo {
