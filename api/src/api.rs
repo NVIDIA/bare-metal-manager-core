@@ -1365,13 +1365,26 @@ where
                     id: machine_id.to_string(),
                 })?;
 
-        Instance::use_custom_ipxe_on_next_boot(
-            &machine_id,
-            request.boot_with_custom_ipxe,
-            &mut txn,
-        )
-        .await
-        .map_err(CarbideError::from)?;
+        let always_boot_with_custom_ipxe = snapshot
+            .instance
+            .map(|instance| {
+                instance
+                    .config
+                    .tenant
+                    .map(|tenant| tenant.always_boot_with_custom_ipxe)
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        if !always_boot_with_custom_ipxe {
+            Instance::use_custom_ipxe_on_next_boot(
+                &machine_id,
+                request.boot_with_custom_ipxe,
+                &mut txn,
+            )
+            .await
+            .map_err(CarbideError::from)?;
+        }
+        let boot_pxe = always_boot_with_custom_ipxe || request.boot_with_custom_ipxe;
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -1400,7 +1413,7 @@ where
         // Since libredfish calls are thread blocking and we are inside an async function,
         // we have to delegate the actual call into a threadpool
         tokio::task::spawn_blocking(move || {
-            if request.boot_with_custom_ipxe {
+            if boot_pxe {
                 client.boot_once(libredfish::Boot::Pxe)?;
             }
             client.power(libredfish::SystemPowerControl::ForceRestart)

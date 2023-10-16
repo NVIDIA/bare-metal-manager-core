@@ -205,6 +205,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         &TenantConfig {
             user_data: Some("SomeRandomData".to_string()),
             custom_ipxe: "SomeRandomiPxe".to_string(),
+            always_boot_with_custom_ipxe: false,
             tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string()).unwrap(),
             tenant_keyset_ids: vec![],
         }
@@ -522,6 +523,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         Some(TenantConfig {
             user_data: Some("SomeRandomData".to_string()),
             custom_ipxe: "SomeRandomiPxe".to_string(),
+            always_boot_with_custom_ipxe: false,
             tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string()).unwrap(),
             tenant_keyset_ids: vec![],
         })
@@ -542,6 +544,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
+                always_boot_with_custom_ipxe: false,
                 tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
                     .unwrap(),
                 tenant_keyset_ids: vec![],
@@ -809,6 +812,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
                 tenant: Some(rpc::TenantConfig {
                     user_data: Some("SomeRandomData".to_string()),
                     custom_ipxe: "SomeRandomiPxe".to_string(),
+                    always_boot_with_custom_ipxe: false,
                     tenant_organization_id: "Tenant1".to_string(),
                     tenant_keyset_ids: vec![],
                 }),
@@ -993,6 +997,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
+                always_boot_with_custom_ipxe: false,
                 tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
                     .unwrap(),
                 tenant_keyset_ids: vec![],
@@ -1051,6 +1056,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
+                always_boot_with_custom_ipxe: false,
                 tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
                     .unwrap(),
                 tenant_keyset_ids: vec![],
@@ -1109,6 +1115,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
+                always_boot_with_custom_ipxe: false,
                 tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
                     .unwrap(),
                 tenant_keyset_ids: vec![],
