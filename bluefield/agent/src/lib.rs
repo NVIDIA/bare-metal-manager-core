@@ -27,6 +27,7 @@ use opentelemetry::sdk;
 use opentelemetry::sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
+use tokio::signal::unix::{signal, SignalKind};
 
 use crate::frr::FrrVlanConfig;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
@@ -301,6 +302,8 @@ async fn run(
     agent: AgentConfig,
     options: Option<RunOptions>,
 ) -> eyre::Result<()> {
+    let mut term_signal = signal(SignalKind::terminate())?;
+
     let enable_metadata_service = options.map(|o| o.enable_metadata_service).unwrap_or(false);
     if enable_metadata_service {
         if let (Some(metadata_service_config), Some(telemetry_config)) =
@@ -448,19 +451,28 @@ async fn run(
         // We potentially restart at this point, so make it last in the loop
         if now > version_check_time {
             version_check_time = now.add(version_check_period);
-            if let Err(e) = upgrade::upgrade_check(
+            let upgrade_result = upgrade::upgrade_check(
                 forge_api,
                 forge_tls_config.clone(),
                 machine_id,
                 &agent.machine.upgrade_cmd,
             )
-            .await
-            {
-                tracing::error!(
-                    forge_api,
-                    error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
-                    "upgrade_check failed"
-                );
+            .await;
+            match upgrade_result {
+                Ok(false) => {
+                    // did not upgrade, normal case, continue
+                }
+                Ok(true) => {
+                    // upgraded, need to exit and restart
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::error!(
+                        forge_api,
+                        error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
+                        "upgrade_check failed"
+                    );
+                }
             }
         }
 
@@ -469,7 +481,14 @@ async fn run(
         } else {
             main_loop_period_idle
         };
-        tokio::time::sleep(loop_period).await;
+        tokio::select! {
+            biased;
+            _ = term_signal.recv() => {
+                tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
+                return Ok(());
+            }
+            _ = tokio::time::sleep(loop_period) => {}
+        }
     }
 }
 

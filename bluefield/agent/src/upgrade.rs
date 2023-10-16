@@ -22,13 +22,14 @@ use data_encoding::BASE64;
 use eyre::WrapErr;
 
 /// Check if forge-dpu-agent needs upgrading to a new version, and if yes perform the upgrade
+/// Returns true if we just updated and hence need to exit, so the new version can start instead.
 pub async fn upgrade_check(
     forge_api: &str,
     tls_config: ForgeTlsConfig,
     machine_id: &str,
     // The command to run to upgrade forge-dpu-agent
     upgrade_cmd: &str,
-) -> eyre::Result<()> {
+) -> eyre::Result<bool> {
     let binary_path = env::current_exe()?;
     let stat = fs::metadata(&binary_path)
         .wrap_err_with(|| format!("Failed stat of '{}'", binary_path.display()))?;
@@ -91,17 +92,22 @@ pub async fn upgrade_check(
             version = forge_version::v!(build_version),
             "Upgrading myself, goodbye.",
         );
-        if let Err(err) = run_upgrade_cmd(&upgrade_cmd) {
-            tracing::error!(upgrade_cmd, err = format!("{err:#}"), "Upgrade failed");
-            fs::rename(backup, binary_path)?;
-            eyre::bail!("run_upgrade_cmd failed");
+        match run_upgrade_cmd(&upgrade_cmd) {
+            Ok(()) => {
+                // Upgrade succeeded, we need to restart. We do this by exiting and letting
+                // systemd restart us.
+                return Ok(true);
+            }
+            Err(err) => {
+                tracing::error!(upgrade_cmd, err = format!("{err:#}"), "Upgrade failed");
+                fs::rename(backup, binary_path)?;
+                eyre::bail!("run_upgrade_cmd failed");
+            }
         }
-        // The debian package has a postinst command to systemctl restart us,
-        // so shouldn't reach here.
     } else {
         tracing::trace!("forge-dpu-agent is up to date");
     }
-    Ok(())
+    Ok(false)
 }
 
 fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
