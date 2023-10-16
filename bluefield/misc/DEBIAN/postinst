@@ -1,5 +1,10 @@
 #!/bin/sh
+set -e
 
-systemctl enable local_bmc_dev.service
-systemctl enable forge-dpu-agent.service
-systemctl restart forge-dpu-agent
+. /usr/share/debconf/confmodule
+
+if [ "$1" = "configure" ]; then
+	systemctl enable local_bmc_dev.service
+	systemctl enable forge-dpu-agent.service
+	systemctl start forge-dpu-agent
+fi
