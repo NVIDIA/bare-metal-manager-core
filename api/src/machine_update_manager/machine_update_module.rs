@@ -44,6 +44,10 @@ pub struct AutomaticFirmwareUpdateReference {
     pub to: String,
 }
 
+impl AutomaticFirmwareUpdateReference {
+    pub const REF_NAME: &str = "AutomaticDpuFirmwareUpdate";
+}
+
 pub enum MaintenanceReference {
     Automatic(AutomaticFirmwareUpdateReference),
 }
@@ -53,8 +57,10 @@ impl Display for MaintenanceReference {
         match self {
             MaintenanceReference::Automatic(x) => write!(
                 f,
-                "Automatic dpu firmware update from {} to {}",
-                x.from, x.to
+                "{}/{}/{}",
+                AutomaticFirmwareUpdateReference::REF_NAME,
+                x.from,
+                x.to
             ),
         }
     }

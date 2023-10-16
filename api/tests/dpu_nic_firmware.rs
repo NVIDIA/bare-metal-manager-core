@@ -8,7 +8,8 @@ use carbide::{
         ObjectFilter,
     },
     machine_update_manager::{
-        dpu_nic_firmware::DpuNicFirmwareUpdate, machine_update_module::MachineUpdateModule,
+        dpu_nic_firmware::DpuNicFirmwareUpdate,
+        machine_update_module::{AutomaticFirmwareUpdateReference, MachineUpdateModule},
     },
     model::machine::machine_id::try_parse_machine_id,
 };
@@ -45,8 +46,10 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert!(started_count.get(&dpu_machine_id).is_none());
     assert!(started_count.get(&host_machine_id).is_some());
 
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like 'Automatic dpu firmware update from%'";
+    let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
+    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like $1";
     let count: i32 = sqlx::query::<_>(query)
+        .bind(reference)
         .fetch_one(&mut *txn)
         .await
         .unwrap()
@@ -61,7 +64,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(machines.len(), 2);
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
-    assert!(initiator.starts_with("Automatic dpu firmware update from"));
+    assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
 
     Ok(())
 }
@@ -171,8 +174,8 @@ async fn test_clear_complated_updates(
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
     let reference = dpu_machine.maintenance_reference().unwrap();
-    assert!(initiator.starts_with("Automatic dpu firmware update from"));
-    assert!(reference.starts_with("Automatic dpu firmware update from"));
+    assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    assert!(reference.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
 
     txn.commit().await.expect("commit failed");
     let mut txn = pool.begin().await.expect("Failed to create transaction");
@@ -191,8 +194,8 @@ async fn test_clear_complated_updates(
     let dpu_machine = machines.iter().find(|m| m.is_dpu()).unwrap();
     let initiator = dpu_machine.reprovisioning_requested().unwrap().initiator;
     let reference = dpu_machine.maintenance_reference().unwrap();
-    assert!(initiator.starts_with("Automatic dpu firmware update from"));
-    assert!(reference.starts_with("Automatic dpu firmware update from"));
+    assert!(initiator.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
+    assert!(reference.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
 
     txn.rollback().await.unwrap();
 

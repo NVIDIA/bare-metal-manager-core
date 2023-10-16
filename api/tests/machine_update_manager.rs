@@ -263,8 +263,9 @@ async fn test_remove_machine_from_maintenance(
     txn.commit().await.unwrap();
 
     let mut txn = pool.begin().await.expect("Failed to create transaction");
-    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like 'Automatic dpu firmware update from%'";
+    let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like '$1%'";
     let count: i32 = sqlx::query::<_>(query)
+        .bind(AutomaticFirmwareUpdateReference::REF_NAME)
         .fetch_one(&mut *txn)
         .await
         .unwrap()
