@@ -7,7 +7,7 @@ use carbide::{
     db::dpu_machine_update::DpuMachineUpdate,
     machine_update_manager::{
         machine_update_module::{
-            AutomaticFirmwareUpdateReference, MachineUpdateModule, MaintenanceReference,
+            AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, MachineUpdateModule,
         },
         MachineUpdateManager,
     },
@@ -176,7 +176,7 @@ async fn test_put_machine_in_maintenance(
         firmware_version: "1".to_owned(),
     };
 
-    let reference = &MaintenanceReference::Automatic(AutomaticFirmwareUpdateReference {
+    let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
         from: "x".to_owned(),
         to: "y".to_owned(),
     });
@@ -230,7 +230,7 @@ async fn test_remove_machine_from_maintenance(
         firmware_version: "1".to_owned(),
     };
 
-    let reference = &MaintenanceReference::Automatic(AutomaticFirmwareUpdateReference {
+    let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
         from: "x".to_owned(),
         to: "y".to_owned(),
     });

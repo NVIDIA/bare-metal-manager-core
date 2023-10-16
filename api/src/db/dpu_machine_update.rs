@@ -2,7 +2,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 use crate::{
     machine_update_manager::machine_update_module::{
-        AutomaticFirmwareUpdateReference, MaintenanceReference,
+        AutomaticFirmwareUpdateReference, DpuReprovisionInitiator,
     },
     model::machine::{machine_id::MachineId, ReprovisionRequest},
 };
@@ -109,7 +109,7 @@ impl DpuMachineUpdate {
         machine_update: &DpuMachineUpdate,
         expected_version: String,
     ) -> Result<Vec<MachineId>, DatabaseError> {
-        let initiator = MaintenanceReference::Automatic(AutomaticFirmwareUpdateReference {
+        let initiator = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
             from: machine_update.firmware_version.clone(),
             to: expected_version,
         });

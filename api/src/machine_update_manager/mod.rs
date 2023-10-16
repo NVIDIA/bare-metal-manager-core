@@ -36,7 +36,7 @@ use crate::{
 
 use self::{
     dpu_nic_firmware::DpuNicFirmwareUpdate,
-    machine_update_module::{MachineUpdateModule, MaintenanceReference},
+    machine_update_module::{DpuReprovisionInitiator, MachineUpdateModule},
     metrics::MachineUpdateManagerMetrics,
 };
 
@@ -230,7 +230,7 @@ impl MachineUpdateManager {
     pub async fn put_machine_in_maintenance(
         txn: &mut Transaction<'_, Postgres>,
         machine_update: &DpuMachineUpdate,
-        reference: &MaintenanceReference,
+        reference: &DpuReprovisionInitiator,
     ) -> CarbideResult<()> {
         Machine::set_maintenance_mode(
             txn,

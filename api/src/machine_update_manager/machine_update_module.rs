@@ -48,14 +48,14 @@ impl AutomaticFirmwareUpdateReference {
     pub const REF_NAME: &str = "AutomaticDpuFirmwareUpdate";
 }
 
-pub enum MaintenanceReference {
+pub enum DpuReprovisionInitiator {
     Automatic(AutomaticFirmwareUpdateReference),
 }
 
-impl Display for MaintenanceReference {
+impl Display for DpuReprovisionInitiator {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            MaintenanceReference::Automatic(x) => write!(
+            DpuReprovisionInitiator::Automatic(x) => write!(
                 f,
                 "{}/{}/{}",
                 AutomaticFirmwareUpdateReference::REF_NAME,
