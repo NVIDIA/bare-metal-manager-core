@@ -103,7 +103,7 @@ impl CredentialKey {
                     "machines/all_dpus/site_default/bmc-metadata-items/root".to_string()
                 }
                 CredentialType::BmcMachine { bmc_machine_id } => {
-                    format!("bmc_machines/{bmc_machine_id}/redfish-admin")
+                    format!("machines/bmc_machines/{bmc_machine_id}/redfish-admin")
                 }
             },
             CredentialKey::HostRedfish { credential_type } => match credential_type {

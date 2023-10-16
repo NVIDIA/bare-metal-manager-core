@@ -45,17 +45,50 @@ async fn dpu_bmc_machine_discovery_creates_bmc_machine(
 
     let bmc_machine = io.load_object_state(&mut txn, &bmc_machine_id).await?;
     assert_eq!(bmc_machine.machine_interface_id, dpu_bmc_machine_interface);
-    assert_eq!(bmc_machine.controller_state.value, BmcMachineState::Init);
+    assert_eq!(
+        bmc_machine.controller_state.value,
+        BmcMachineState::Initializing
+    );
     txn.rollback().await?;
 
     // Running the controller will not yet advance the state
     env.run_bmc_machine_controller_iteration(bmc_machine_id, &BmcMachineStateHandler::default())
         .await;
 
+    // Initializing -> Configuring
     let mut txn = pool.begin().await?;
     let bmc_machine = io.load_object_state(&mut txn, &bmc_machine_id).await?;
     assert_eq!(bmc_machine.machine_interface_id, dpu_bmc_machine_interface);
-    assert_eq!(bmc_machine.controller_state.value, BmcMachineState::Init);
+    assert_eq!(
+        bmc_machine.controller_state.value,
+        BmcMachineState::Configuring
+    );
+    txn.rollback().await?;
+
+    env.run_bmc_machine_controller_iteration(bmc_machine_id, &BmcMachineStateHandler::default())
+        .await;
+
+    // Configuring -> DpuReboot
+    let mut txn = pool.begin().await?;
+    let bmc_machine = io.load_object_state(&mut txn, &bmc_machine_id).await?;
+    assert_eq!(bmc_machine.machine_interface_id, dpu_bmc_machine_interface);
+    assert_eq!(
+        bmc_machine.controller_state.value,
+        BmcMachineState::DpuReboot
+    );
+    txn.rollback().await?;
+
+    env.run_bmc_machine_controller_iteration(bmc_machine_id, &BmcMachineStateHandler::default())
+        .await;
+
+    // DpuReboot -> Initialized
+    let mut txn = pool.begin().await?;
+    let bmc_machine = io.load_object_state(&mut txn, &bmc_machine_id).await?;
+    assert_eq!(bmc_machine.machine_interface_id, dpu_bmc_machine_interface);
+    assert_eq!(
+        bmc_machine.controller_state.value,
+        BmcMachineState::Initialized
+    );
     txn.rollback().await?;
 
     Ok(())

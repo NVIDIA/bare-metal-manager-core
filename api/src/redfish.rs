@@ -184,10 +184,12 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        standard_client
-            .change_password(username.as_str(), password.as_str())
-            .map_err(RedfishClientCreationError::RedfishError)?;
-        Ok(())
+        tokio::task::spawn_blocking(move || {
+            standard_client.change_password(username.as_str(), password.as_str())
+        })
+        .await
+        .map_err(RedfishClientCreationError::SubtaskError)?
+        .map_err(RedfishClientCreationError::RedfishError)
     }
 
     async fn create_forge_admin_user(
@@ -195,7 +197,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         client: Box<dyn Redfish>,
         bmc_machine_id: Uuid,
     ) -> Result<(), RedfishClientCreationError> {
-        let username = "forge-redfish-admin";
+        let username = "forge_admin";
         let password = Credentials::generate_password();
         self.credential_provider
             .set_credentials(
@@ -211,11 +213,12 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             )
             .await
             .map_err(RedfishClientCreationError::MissingCredentials)?;
-
-        client
-            .create_user(username, password.as_str(), RoleId::Administrator)
-            .map_err(RedfishClientCreationError::RedfishError)?;
-        Ok(())
+        tokio::task::spawn_blocking(move || {
+            client.create_user(username, password.as_str(), RoleId::Administrator)
+        })
+        .await
+        .map_err(RedfishClientCreationError::SubtaskError)?
+        .map_err(RedfishClientCreationError::RedfishError)
     }
 }
 
@@ -372,7 +375,7 @@ impl Redfish for RedfishSimClient {
     }
 
     fn disable_secure_boot(&self) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
 
     fn get_network_device_functions(

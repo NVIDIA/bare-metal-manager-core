@@ -33,7 +33,15 @@ pub enum BmcMachineError {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum BmcMachineState {
     /// Bmc machine got discovered through DHCP interface
-    Init,
+    Initializing,
+    /// DPU machine is being configuring: (change UEFI password, set secure boot to disabled,
+    /// move to restricted mode, and change boot order to OOB).
+    Configuring,
+    /// DPU machine is being rebooted (ARM from BMC POV).
+    DpuReboot,
+    /// DPU BMC was configured successfully.
+    Initialized,
+    /// An error has occurred.
     Error(BmcMachineError),
 }
 
@@ -43,9 +51,9 @@ mod tests {
 
     #[test]
     fn serialize_controller_state() {
-        let state = BmcMachineState::Init {};
+        let state = BmcMachineState::Initializing {};
         let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"init\"}");
+        assert_eq!(serialized, "{\"state\":\"initializing\"}");
         assert_eq!(
             serde_json::from_str::<BmcMachineState>(&serialized).unwrap(),
             state
