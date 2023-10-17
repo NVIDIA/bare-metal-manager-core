@@ -10,7 +10,7 @@ package forge;
 
 service Forge {
   // What version of Forge is this service running? Matches `--version` command line.
-  rpc Version(google.protobuf.Empty) returns (FullVersion);
+  rpc Version(google.protobuf.Empty) returns (BuildInfo);
 
   // Domain
   rpc CreateDomain(Domain) returns (Domain);
@@ -185,7 +185,7 @@ service Forge {
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
 }
 
-message FullVersion {
+message BuildInfo {
     string build_version = 1; // v2023.06-rc2-1-gc5c05de3
     string build_date = 2; // 2023-06-05
     string git_sha = 3; // c5c05de3

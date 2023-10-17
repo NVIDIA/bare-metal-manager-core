@@ -408,7 +408,7 @@ pub async fn list_resource_pools(
     .await
 }
 
-pub async fn version(api_config: &Config) -> CarbideCliResult<rpc::FullVersion> {
+pub async fn version(api_config: &Config) -> CarbideCliResult<rpc::BuildInfo> {
     with_forge_client(api_config.clone(), |mut client| async move {
         let out = client
             .version(tonic::Request::new(()))
