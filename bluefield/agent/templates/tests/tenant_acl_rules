@@ -1,8 +1,14 @@
 # This file is managed by the Forge DPU agent.
 
 [iptables]
-# Prevent the host from talking to the infrastructure prefixes.
--A FORWARD -i pf0vf0_sf -d 192.0.2.0/24 -j DROP
+# Allow associated VPC prefixes for tenant interface pf0hpf_sf
+-A FORWARD -i pf0hpf_sf -d 10.217.5.160/30 -j ACCEPT
+-A FORWARD -i pf0hpf_sf -d 10.217.5.168/29 -j ACCEPT
+# Allow associated VPC prefixes for tenant interface pf0vf0_sf
+-A FORWARD -i pf0vf0_sf -d 10.217.5.160/30 -j ACCEPT
+-A FORWARD -i pf0vf0_sf -d 10.217.5.168/29 -j ACCEPT
+# Drop traffic to deny_prefix list
 -A FORWARD -i pf0hpf_sf -d 192.0.2.0/24 -j DROP
--A FORWARD -i pf0vf0_sf -d 198.51.100.0/24 -j DROP
+-A FORWARD -i pf0vf0_sf -d 192.0.2.0/24 -j DROP
 -A FORWARD -i pf0hpf_sf -d 198.51.100.0/24 -j DROP
+-A FORWARD -i pf0vf0_sf -d 198.51.100.0/24 -j DROP
