@@ -163,6 +163,47 @@ impl StateHandler for BmcMachineStateHandler {
                     }
                 };
 
+                let bmc_inventory = match client.get_firmware("BMC_Firmware").await {
+                    Ok(inventory) => inventory,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to get BMC version");
+                        *controller_state.modify() =
+                            BmcMachineState::Error(BmcMachineError::RedfishCommand {
+                                command: "get_firmware".to_string(),
+                                message: e.to_string(),
+                            });
+                        return Ok(());
+                    }
+                };
+
+                match bmc_inventory.version {
+                    Some(version_str) => {
+                        // example of returned result: "BF-23.07-3"
+                        let version = version_str.replace("BF-", "");
+                        let minimal_supported_version = "23.07";
+                        if let Ok(version_compare::Cmp::Lt) =
+                            version_compare::compare(version.as_str(), minimal_supported_version)
+                        {
+                            tracing::error!(
+                                "Current BMC FW version: {}, minimal supported version: {}",
+                                version.as_str(),
+                                minimal_supported_version
+                            );
+                            *controller_state.modify() =
+                                BmcMachineState::Error(BmcMachineError::UnsupportedBmcFirmware);
+                            return Ok(());
+                        }
+
+                        state.update_firmware_version(txn, version).await?;
+                    }
+                    None => {
+                        tracing::error!("Unknown BMC FW version");
+                        *controller_state.modify() =
+                            BmcMachineState::Error(BmcMachineError::UnsupportedBmcFirmware);
+                        return Ok(());
+                    }
+                }
+
                 if let Err(e) = client.disable_secure_boot().await {
                     tracing::error!(error = %e, "Failed to disable secure boot");
                     *controller_state.modify() =
