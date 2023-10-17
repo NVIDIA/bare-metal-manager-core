@@ -78,7 +78,10 @@ impl StateControllerIO for BmcMachineStateControllerIO {
 
     fn metric_state_names(state: &Self::ControllerState) -> (&'static str, &'static str) {
         match state {
-            BmcMachineState::Init => ("bmc-init", ""),
+            BmcMachineState::Initializing => ("bmc-init", ""),
+            BmcMachineState::Configuring => ("bmc-configure", ""),
+            BmcMachineState::DpuReboot => ("dpu-reboot", ""),
+            BmcMachineState::Initialized => ("dpu-intialized", ""),
             BmcMachineState::Error(_) => ("bmc-error", ""),
         }
     }

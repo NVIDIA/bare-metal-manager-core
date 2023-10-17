@@ -50,7 +50,7 @@ use carbide::{
 use chrono::Utc;
 use common::api_fixtures::{
     create_managed_host, create_test_env, dpu,
-    ib_subnet::create_ib_subnet,
+    ib_partition::create_ib_partition,
     instance::{create_instance, delete_instance, FIXTURE_CIRCUIT_ID},
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
@@ -205,6 +205,7 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
         &TenantConfig {
             user_data: Some("SomeRandomData".to_string()),
             custom_ipxe: "SomeRandomiPxe".to_string(),
+            always_boot_with_custom_ipxe: false,
             tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string()).unwrap(),
             tenant_keyset_ids: vec![],
         }
@@ -522,6 +523,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
         Some(TenantConfig {
             user_data: Some("SomeRandomData".to_string()),
             custom_ipxe: "SomeRandomiPxe".to_string(),
+            always_boot_with_custom_ipxe: false,
             tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string()).unwrap(),
             tenant_keyset_ids: vec![],
         })
@@ -542,12 +544,13 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
+                always_boot_with_custom_ipxe: false,
                 tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
                     .unwrap(),
                 tenant_keyset_ids: vec![],
             }),
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
-            infiniband: InstanceInfinibandConfig::for_ib_subnet_id(FIXTURE_NETWORK_SEGMENT_ID),
+            infiniband: InstanceInfinibandConfig::for_ib_partition_id(FIXTURE_NETWORK_SEGMENT_ID),
         },
         ssh_keys: vec!["mykey1".to_owned()],
     };
@@ -810,6 +813,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
                 tenant: Some(rpc::TenantConfig {
                     user_data: Some("SomeRandomData".to_string()),
                     custom_ipxe: "SomeRandomiPxe".to_string(),
+                    always_boot_with_custom_ipxe: false,
                     tenant_organization_id: "Tenant1".to_string(),
                     tenant_keyset_ids: vec![],
                 }),
@@ -856,13 +860,14 @@ async fn test_crud_instance_with_ib_config(pool: sqlx::PgPool) {
         }],
     });
 
-    let (ib_subnet_id, _ib_subnet) = create_ib_subnet(&env, "test_ib_subnet".to_string()).await;
+    let (ib_partition_id, _ib_partition) =
+        create_ib_partition(&env, "test_ib_partition".to_string()).await;
     let ib = Some(rpc::InstanceInfinibandConfig {
         ib_interfaces: vec![
             rpc::InstanceIbInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
-                ib_subnet_id: Some(ib_subnet_id.into()),
+                ib_partition_id: Some(ib_partition_id.into()),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 1,
@@ -870,7 +875,7 @@ async fn test_crud_instance_with_ib_config(pool: sqlx::PgPool) {
             rpc::InstanceIbInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
-                ib_subnet_id: Some(ib_subnet_id.into()),
+                ib_partition_id: Some(ib_partition_id.into()),
                 device: "MT27800 Family [ConnectX-5]".to_string(),
                 vendor: None,
                 device_instance: 0,
@@ -986,7 +991,8 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
     ));
     txn.commit().await.unwrap();
 
-    let (ib_subnet_id, _ib_subnet) = create_ib_subnet(&env, "test_ib_subnet".to_string()).await;
+    let (ib_partition_id, _ib_partition) =
+        create_ib_partition(&env, "test_ib_partition".to_string()).await;
 
     let request = InstanceAllocationRequest {
         machine_id: host_machine_id.clone(),
@@ -994,6 +1000,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
+                always_boot_with_custom_ipxe: false,
                 tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
                     .unwrap(),
                 tenant_keyset_ids: vec![],
@@ -1002,7 +1009,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
             infiniband: InstanceInfinibandConfig {
                 ib_interfaces: vec![InstanceIbInterfaceConfig {
                     function_id: InterfaceFunctionId::Physical {},
-                    ib_subnet_id,
+                    ib_partition_id,
                     guid: None,
                     device: "MT2910 Family [ConnectX-7]".to_string(),
                     vendor: None,
@@ -1044,7 +1051,8 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    let (ib_subnet_id, _ib_subnet) = create_ib_subnet(&env, "test_ib_subnet".to_string()).await;
+    let (ib_partition_id, _ib_partition) =
+        create_ib_partition(&env, "test_ib_partition".to_string()).await;
 
     let request = InstanceAllocationRequest {
         machine_id: host_machine_id.clone(),
@@ -1052,6 +1060,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
+                always_boot_with_custom_ipxe: false,
                 tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
                     .unwrap(),
                 tenant_keyset_ids: vec![],
@@ -1060,7 +1069,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
             infiniband: InstanceInfinibandConfig {
                 ib_interfaces: vec![InstanceIbInterfaceConfig {
                     function_id: InterfaceFunctionId::Physical {},
-                    ib_subnet_id,
+                    ib_partition_id,
                     guid: None,
                     device: "MT28908  Family [ConnectX-6]".to_string(), // no ib devices
                     vendor: None,
@@ -1102,7 +1111,8 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    let (ib_subnet_id, _ib_subnet) = create_ib_subnet(&env, "test_ib_subnet".to_string()).await;
+    let (ib_partition_id, _ib_partition) =
+        create_ib_partition(&env, "test_ib_partition".to_string()).await;
 
     let request = InstanceAllocationRequest {
         machine_id: host_machine_id.clone(),
@@ -1110,6 +1120,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
             tenant: Some(TenantConfig {
                 user_data: Some("SomeRandomData".to_string()),
                 custom_ipxe: "SomeRandomiPxe".to_string(),
+                always_boot_with_custom_ipxe: false,
                 tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
                     .unwrap(),
                 tenant_keyset_ids: vec![],
@@ -1119,7 +1130,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
                 ib_interfaces: vec![
                     InstanceIbInterfaceConfig {
                         function_id: InterfaceFunctionId::Physical {},
-                        ib_subnet_id,
+                        ib_partition_id,
                         guid: None,
                         device: "MT2910 Family [ConnectX-7]".to_string(), // no ib devices
                         vendor: None,
@@ -1127,7 +1138,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
                     },
                     InstanceIbInterfaceConfig {
                         function_id: InterfaceFunctionId::Physical {},
-                        ib_subnet_id,
+                        ib_partition_id,
                         guid: None,
                         device: "MT2910 Family [ConnectX-7]".to_string(), // no ib devices
                         vendor: None,

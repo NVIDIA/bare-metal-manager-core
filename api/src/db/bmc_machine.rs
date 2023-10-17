@@ -95,7 +95,7 @@ impl BmcMachine {
                     .bind(machine_interface_id)
                     .bind(bmc_type)
                     .bind(state_version.version_string())
-                    .bind(sqlx::types::Json(BmcMachineState::Init))
+                    .bind(sqlx::types::Json(BmcMachineState::Initializing))
                     .fetch_one(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

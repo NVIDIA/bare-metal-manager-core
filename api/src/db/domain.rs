@@ -30,7 +30,7 @@ const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 /// domain currently.
 ///
 /// Derived trait sqlx::FromRow consist of a series of calls to
-/// [`Row::try_get`] using the name from each struct field
+/// [`sqlx::Row::try_get`] using the name from each struct field
 #[derive(Clone, Debug, FromRow)]
 pub struct Domain {
     /// Uuid is use

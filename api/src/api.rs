@@ -45,11 +45,12 @@ pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
     CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbSubnet,
-    IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult, IbSubnetList,
-    IbSubnetQuery, InstanceList, MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse,
-    TenantKeySetList, UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
-    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
+    IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
+    IbPartitionList, IbPartitionQuery, InstanceList, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
+    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
+    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
@@ -57,7 +58,7 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials}
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
-use crate::db::ib_subnet::{IBSubnet, IBSubnetConfig, IBSubnetSearchConfig};
+use crate::db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionSearchConfig};
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
@@ -67,6 +68,7 @@ use crate::ib::IBFabricManager;
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
+use crate::machine_update_manager::MachineUpdateManager;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
@@ -121,7 +123,7 @@ use crate::{
     state_controller::{
         bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
         controller::StateController,
-        ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
+        ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         machine::handler::MachineStateHandler,
         machine::io::MachineStateControllerIO,
         network_segment::{
@@ -519,19 +521,19 @@ where
         Ok(result)
     }
 
-    async fn find_ib_subnets(
+    async fn find_ib_partitions(
         &self,
-        request: Request<IbSubnetQuery>,
-    ) -> Result<Response<IbSubnetList>, Status> {
+        request: Request<IbPartitionQuery>,
+    ) -> Result<Response<IbPartitionList>, Status> {
         log_request_data(&request);
 
         let mut txn = self
             .database_connection
             .begin()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_ib_subnets", e))?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_ib_partitions", e))?;
 
-        let rpc::IbSubnetQuery {
+        let rpc::IbPartitionQuery {
             id, search_config, ..
         } = request.into_inner();
 
@@ -549,58 +551,56 @@ where
         };
 
         let search_config = search_config
-            .map(IBSubnetSearchConfig::from)
-            .unwrap_or(IBSubnetSearchConfig::default());
-        let results = IBSubnet::find(&mut txn, uuid_filter, search_config)
+            .map(IBPartitionSearchConfig::from)
+            .unwrap_or(IBPartitionSearchConfig::default());
+        let results = IBPartition::find(&mut txn, uuid_filter, search_config)
             .await
             .map_err(CarbideError::from)?;
-        let mut ib_subnets = Vec::with_capacity(results.len());
+        let mut ib_partitions = Vec::with_capacity(results.len());
         for result in results {
-            ib_subnets.push(result.try_into()?);
+            ib_partitions.push(result.try_into()?);
         }
 
-        Ok(Response::new(rpc::IbSubnetList { ib_subnets }))
+        Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
     }
 
-    async fn create_ib_subnet(
+    async fn create_ib_partition(
         &self,
-        req: Request<IbSubnetCreationRequest>,
-    ) -> Result<Response<IbSubnet>, Status> {
+        req: Request<IbPartitionCreationRequest>,
+    ) -> Result<Response<IbPartition>, Status> {
         log_request_data(&req);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_ib_subnet", e))?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin create_ib_partition", e)
+            })?;
 
-        let mut resp = IBSubnetConfig::try_from(req.into_inner())?;
+        let mut resp = IBPartitionConfig::try_from(req.into_inner())?;
         resp.pkey = self.allocate_pkey(&mut txn, &resp.name).await?;
-        let resp = IBSubnet::create(&mut txn, &resp)
+        let resp = IBPartition::create(&mut txn, &resp)
             .await
             .map_err(CarbideError::from)?;
-        let resp = rpc::IbSubnet::try_from(resp).map(Response::new)?;
+        let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
 
         txn.commit()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_ib_subnet", e))?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_ib_partition", e))?;
 
         Ok(resp)
     }
 
-    async fn delete_ib_subnet(
+    async fn delete_ib_partition(
         &self,
-        request: Request<IbSubnetDeletionRequest>,
-    ) -> Result<Response<IbSubnetDeletionResult>, Status> {
+        request: Request<IbPartitionDeletionRequest>,
+    ) -> Result<Response<IbPartitionDeletionResult>, Status> {
         log_request_data(&request);
 
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin delete_ib_subnet", e))?;
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin delete_ib_partition", e)
+            })?;
 
-        let rpc::IbSubnetDeletionRequest { id, .. } = request.into_inner();
+        let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
         let uuid = match id {
             Some(id) => match Uuid::try_from(id) {
@@ -617,7 +617,7 @@ where
             }
         };
 
-        let mut segments = IBSubnet::find(&mut txn, uuid, IBSubnetSearchConfig::default())
+        let mut segments = IBPartition::find(&mut txn, uuid, IBPartitionSearchConfig::default())
             .await
             .map_err(CarbideError::from)?;
 
@@ -629,24 +629,24 @@ where
         let resp = segment
             .mark_as_deleted(&mut txn)
             .await
-            .map(|_| rpc::IbSubnetDeletionResult {})
+            .map(|_| rpc::IbPartitionDeletionResult {})
             .map(Response::new)?;
 
         txn.commit()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_ib_subnet", e))?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_ib_partition", e))?;
 
         Ok(resp)
     }
 
-    async fn ib_subnets_for_tenant(
+    async fn ib_partitions_for_tenant(
         &self,
         request: Request<rpc::TenantSearchQuery>,
-    ) -> Result<Response<IbSubnetList>, Status> {
+    ) -> Result<Response<IbPartitionList>, Status> {
         log_request_data(&request);
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "begin find_ib_subnets_for_tenant", e)
+            CarbideError::DatabaseError(file!(), "begin find_ib_partions_for_tenant", e)
         })?;
 
         let rpc::TenantSearchQuery {
@@ -660,17 +660,17 @@ where
             }
         };
 
-        let results = IBSubnet::for_tenant(&mut txn, _tenant_organization_id)
+        let results = IBPartition::for_tenant(&mut txn, _tenant_organization_id)
             .await
             .map_err(CarbideError::from)?;
 
-        let mut ib_subnets = Vec::with_capacity(results.len());
+        let mut ib_partitions = Vec::with_capacity(results.len());
 
         for result in results {
-            ib_subnets.push(result.try_into()?);
+            ib_partitions.push(result.try_into()?);
         }
 
-        Ok(Response::new(rpc::IbSubnetList { ib_subnets }))
+        Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
     }
 
     async fn find_network_segments(
@@ -1410,13 +1410,26 @@ where
                     id: machine_id.to_string(),
                 })?;
 
-        Instance::use_custom_ipxe_on_next_boot(
-            &machine_id,
-            request.boot_with_custom_ipxe,
-            &mut txn,
-        )
-        .await
-        .map_err(CarbideError::from)?;
+        let always_boot_with_custom_ipxe = snapshot
+            .instance
+            .map(|instance| {
+                instance
+                    .config
+                    .tenant
+                    .map(|tenant| tenant.always_boot_with_custom_ipxe)
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        if !always_boot_with_custom_ipxe {
+            Instance::use_custom_ipxe_on_next_boot(
+                &machine_id,
+                request.boot_with_custom_ipxe,
+                &mut txn,
+            )
+            .await
+            .map_err(CarbideError::from)?;
+        }
+        let boot_pxe = always_boot_with_custom_ipxe || request.boot_with_custom_ipxe;
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -1445,7 +1458,7 @@ where
         // Since libredfish calls are thread blocking and we are inside an async function,
         // we have to delegate the actual call into a threadpool
         tokio::task::spawn_blocking(move || {
-            if request.boot_with_custom_ipxe {
+            if boot_pxe {
                 client.boot_once(libredfish::Boot::Pxe)?;
             }
             client.power(libredfish::SystemPowerControl::ForceRestart)
@@ -2798,6 +2811,7 @@ where
         Ok(Response::new(instructions))
     }
 
+    #[allow(rustdoc::invalid_html_tags)]
     /// Called on x86 boot by 'forge-scout auto-detect --uuid=<uuid>'.
     /// Tells it whether to discover or cleanup based on current machine state.
     async fn forge_agent_control(
@@ -4287,23 +4301,24 @@ where
             .build()
             .expect("Unable to build NetworkSegmentController");
 
-        let _ibsubnet_controller_handle = StateController::<IBSubnetStateControllerIO>::builder()
-            .database(database_connection.clone())
-            .meter("forge_ib_partitions", meter.clone())
-            .redfish_client_pool(shared_redfish_pool.clone())
-            .ib_fabric_manager(ib_fabric_manager.clone())
-            .pool_pkey(common_pools.infiniband.pool_pkey.clone())
-            .reachability_params(ReachabilityParams {
-                dpu_wait_time: service_config.dpu_wait_time,
-            })
-            .forge_api(api_service.clone())
-            .iteration_time(service_config.network_segment_state_controller_iteration_time)
-            .state_handler(Arc::new(IBSubnetStateHandler::new(
-                service_config.network_segment_drain_time,
-            )))
-            .ipmi_tool(ipmi_tool.clone())
-            .build()
-            .expect("Unable to build IBSubnetController");
+        let _ib_partition_controller_handle =
+            StateController::<IBPartitionStateControllerIO>::builder()
+                .database(database_connection.clone())
+                .meter("forge_ib_partitions", meter.clone())
+                .redfish_client_pool(shared_redfish_pool.clone())
+                .ib_fabric_manager(ib_fabric_manager.clone())
+                .pool_pkey(common_pools.infiniband.pool_pkey.clone())
+                .reachability_params(ReachabilityParams {
+                    dpu_wait_time: service_config.dpu_wait_time,
+                })
+                .forge_api(api_service.clone())
+                .iteration_time(service_config.network_segment_state_controller_iteration_time)
+                .state_handler(Arc::new(IBPartitionStateHandler::new(
+                    service_config.network_segment_drain_time,
+                )))
+                .ipmi_tool(ipmi_tool.clone())
+                .build()
+                .expect("Unable to build IBPartitionStateController");
 
         let _bmc_machine_controller_handle =
             StateController::<BmcMachineStateControllerIO>::builder()
@@ -4320,6 +4335,13 @@ where
                 .ipmi_tool(ipmi_tool.clone())
                 .build()
                 .expect("Unable to build BmcMachineController");
+
+        let machine_update_manager = MachineUpdateManager::new(
+            database_connection.clone(),
+            carbide_config.clone(),
+            meter.clone(),
+        );
+        let _machine_update_manager_handler = machine_update_manager.start();
 
         let listen_addr = carbide_config.listen;
         api_handler(api_service, listen_addr, meter).await
@@ -4548,7 +4570,7 @@ where
             .infiniband
             .pool_pkey
             .as_ref()
-            .allocate(txn, resource_pool::OwnerType::IBSubnet, owner_id)
+            .allocate(txn, resource_pool::OwnerType::IBPartition, owner_id)
             .await
         {
             Ok(val) => Ok(Some(val)),

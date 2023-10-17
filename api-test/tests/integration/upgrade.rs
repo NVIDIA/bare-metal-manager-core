@@ -50,11 +50,13 @@ pub async fn upgrade_dpu(
     // The command in dpu.rs DPU_CONFIG upgrade_cmd should run. Wait for it
     let expected_version = forge_version::v!(build_version)[1..].to_string();
     wait_for_upgrade(upgrade_indicator, &expected_version).await?;
-
     remove_blocking_trigger(&db_pool).await?;
-    tokio::time::sleep(Duration::from_secs(3)).await; // longer than main-loop-idle-secs
 
-    // DPU agent no longer marked for upgrade
+    Ok(())
+}
+
+// DPU agent no longer marked for upgrade
+pub async fn confirm_upgraded(db_pool: Pool<Postgres>, dpu_machine_id: &str) -> eyre::Result<()> {
     let mut txn = db_pool
         .begin()
         .await
@@ -66,10 +68,12 @@ pub async fn upgrade_dpu(
     )
     .await?
     .unwrap();
+
     assert!(
         !machine.needs_agent_upgrade(),
         "Machine should be marked as upgraded"
     );
+
     txn.commit()
         .await
         .map_err(|e| CarbideError::DatabaseError(file!(), "commit check needs_agent_upgrade", e))?;

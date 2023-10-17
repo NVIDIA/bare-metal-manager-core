@@ -29,14 +29,14 @@ service Forge {
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
-  // Find a IB subnet
-  rpc FindIBSubnets(IBSubnetQuery) returns (IBSubnetList);
-  // Create a IB subnet
-  rpc CreateIBSubnet(IBSubnetCreationRequest) returns (IBSubnet);
-  // Delete a IB subnet
-  rpc DeleteIBSubnet(IBSubnetDeletionRequest) returns (IBSubnetDeletionResult);
-  // Find all IB subnets under a specified tenant
-  rpc IBSubnetsForTenant(TenantSearchQuery) returns (IBSubnetList);
+  // Find a IB partition
+  rpc FindIBPartitions(IBPartitionQuery) returns (IBPartitionList);
+  // Create a IB partition
+  rpc CreateIBPartition(IBPartitionCreationRequest) returns (IBPartition);
+  // Delete a IB partition
+  rpc DeleteIBPartition(IBPartitionDeletionRequest) returns (IBPartitionDeletionResult);
+  // Find all IB partitions under a specified tenant
+  rpc IBPartitionsForTenant(TenantSearchQuery) returns (IBPartitionList);
 
   // Manage instances on machines
   // Allocates a Machine as Instance for tenant, with the given configuration
@@ -373,65 +373,65 @@ enum TenantState {
   DPU_REPROVISIONING = 6;
 }
 
-// Describe the desired configuration of an IBSubnet
-message IBSubnetConfig {
-  // The name of IBSubnet.
+// Describe the desired configuration of an IBPartition
+message IBPartitionConfig {
+  // The name of IBPartition.
   string name = 1;
-  // The ID of tenant that IBSubnet belong to
+  // The ID of tenant that IBPartition belong to
   string tenantOrganizationId = 2;
 }
 
-// Describe the status and applied configuration of an IBSubnet
-message IBSubnetStatus {
-  // Provisioning state of this subnet
+// Describe the status and applied configuration of an IBPartition
+message IBPartitionStatus {
+  // Provisioning state of this partition
   TenantState state = 1;
 
-  // The pkey of IB Subnet
+  // The pkey of IB Partition
   optional string pkey = 2;
-  // The partition name of IB Subnet
+  // The partition name of IB Partition
   optional string partition = 3;
   // can be range from 0-15
   optional int32 service_level = 4;
   // can be one of the following: 2.5, 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300
   optional int32 rate_limit = 5;
-  // For IB subnets, value can be 2k or 4k only
+  // For IB partitions, value can be 2k or 4k only
   optional int32 mtu = 6;
   // If true, SHARP applications ware created accordingly
   optional bool enable_sharp = 7;
 }
 
-// Describe an Infiniband based Subnet configuration and status
-message IBSubnet {
+// Describe an Infiniband based Partition configuration and status
+message IBPartition {
   UUID id = 1;
 
-  IBSubnetConfig config = 2;
+  IBPartitionConfig config = 2;
   string config_version = 3;
 
-  IBSubnetStatus status = 4;
+  IBPartitionStatus status = 4;
 }
 
-message IBSubnetList {
-  repeated IBSubnet ib_subnets = 1;
+message IBPartitionList {
+  repeated IBPartition ib_partitions = 1;
 }
 
-message IBSubnetCreationRequest {
-  IBSubnetConfig config = 1;
+message IBPartitionCreationRequest {
+  IBPartitionConfig config = 1;
 }
 
-message IBSubnetDeletionRequest {
+message IBPartitionDeletionRequest {
   UUID id = 1;
 }
 
-message IBSubnetDeletionResult {
+message IBPartitionDeletionResult {
 }
 
-message IBSubnetSearchConfig {
+message IBPartitionSearchConfig {
   bool include_history = 1;
 }
 
-message IBSubnetQuery {
+message IBPartitionQuery {
   UUID id = 1;
-  optional IBSubnetSearchConfig search_config = 2;
+  optional IBPartitionSearchConfig search_config = 2;
 }
 
 message NetworkSegmentStateHistory {
@@ -519,10 +519,23 @@ enum InstanceTypeCapabilities {
 
 message InstancePowerRequest {
   MachineId machine_id = 1;
+
   enum Operation {
     POWER_RESET = 0;
   }
   Operation operation = 2;
+
+  // Whether the `custom_ipxe` script that had been provided during instance creation
+  // should be executed again during the next reboot.
+  //
+  // If the flag is set to `false` or not specified, Forge will only provide the
+  // `custom_ipxe` script on the first boot attempt. For every subsequent boot,
+  // the instance will use the default boot action - which is usually to boot from
+  // the hard drive.
+  //
+  // If the `always_boot_with_custom_ipxe` flag is set during instance creation,
+  // Forge will also provide the `custom_ipxe` script on every reboot. Thereby the
+  // `always_boot_with_custom_ipxe` takes precedence over `boot_with_custom_ipxe`.
   bool boot_with_custom_ipxe = 3;
 }
 
@@ -584,6 +597,21 @@ message TenantConfig {
   // able to get from empty to populated.
   optional string user_data = 11;
   string custom_ipxe = 12;
+
+  // If this flag is set to `true`, the instance will receive the `custom_ipxe` instructions
+  // on every reboot attempts. Depending on the type of iPXE instructions, this might
+  // lead the instance to reinstall itself on every reboot.
+  //
+  // If the flag is set to `false` or not specified, Forge will only provide the
+  // `custom_ipxe` script on the first boot attempt. For every subsequent boot,
+  // the instance will use the default boot action - which is usually to boot from
+  // the hard drive.
+  //
+  // If the `custom_ipxe` instructions should only be used for specific reboots
+  // in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
+  // API to reboot instances with the `boot_with_custom_ipxe` parameter set to
+  // `true`.
+  bool always_boot_with_custom_ipxe = 13;
 
   //TODO: make an API that allows these to be updated.  For now, they're set only at instance allocation.
   repeated string tenantKeysetIds = 8; // this may be empty
@@ -785,7 +813,7 @@ message InstanceIBInterfaceConfig {
   optional uint32 virtual_function_id = 12;
 
   // The actual configuration for the device
-  UUID ib_subnet_id = 21;
+  UUID ib_partition_id = 21;
 }
 
 // The actual status of a single network interface of an instance
@@ -816,7 +844,7 @@ message InstanceIBInterfaceStatus {
   uint32 lid = 2;
 
   // The list of IP addresses that had been assigned to this interface,
-  // based on the requested subnet.
+  // based on the requested partition.
   // The list will be empty if interface configuration hasn't been completed or IPoIB disabled
   repeated string addresses = 3;
 }

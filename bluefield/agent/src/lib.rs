@@ -15,19 +15,23 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::{process::Command, time::Duration};
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
-use ::rpc::machine_discovery::DpuData;
 use axum::Router;
-use forge_host_support::{
-    agent_config::AgentConfig, hardware_enumeration::enumerate_hardware, registration,
-    registration::register_machine,
-};
 use opentelemetry::sdk;
 use opentelemetry::sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
+use tokio::signal::unix::{signal, SignalKind};
 use x509_parser::prelude::{FromDer, X509Certificate};
+
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
+use ::rpc::machine_discovery::DpuData;
+pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
+use forge_host_support::{
+    agent_config::AgentConfig, hardware_enumeration::enumerate_hardware, registration,
+    registration::register_machine,
+};
+pub use upgrade::upgrade_check;
 
 use crate::frr::FrrVlanConfig;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
@@ -35,7 +39,6 @@ use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLaye
 
 mod acl_rules;
 mod command_line;
-pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 mod daemons;
 mod dhcp;
 mod ethernet_virtualization;
@@ -48,7 +51,6 @@ mod instrumentation;
 mod interfaces;
 mod network_config_fetcher;
 mod upgrade;
-pub use upgrade::upgrade_check;
 mod util;
 
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
@@ -303,6 +305,8 @@ async fn run(
     agent: AgentConfig,
     options: Option<RunOptions>,
 ) -> eyre::Result<()> {
+    let mut term_signal = signal(SignalKind::terminate())?;
+
     let enable_metadata_service = options.map(|o| o.enable_metadata_service).unwrap_or(false);
     if enable_metadata_service {
         if let (Some(metadata_service_config), Some(telemetry_config)) =
@@ -469,19 +473,28 @@ async fn run(
         // We potentially restart at this point, so make it last in the loop
         if now > version_check_time {
             version_check_time = now.add(version_check_period);
-            if let Err(e) = upgrade::upgrade_check(
+            let upgrade_result = upgrade::upgrade_check(
                 forge_api,
                 forge_tls_config.clone(),
                 machine_id,
                 &agent.machine.upgrade_cmd,
             )
-            .await
-            {
-                tracing::error!(
-                    forge_api,
-                    error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
-                    "upgrade_check failed"
-                );
+            .await;
+            match upgrade_result {
+                Ok(false) => {
+                    // did not upgrade, normal case, continue
+                }
+                Ok(true) => {
+                    // upgraded, need to exit and restart
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::error!(
+                        forge_api,
+                        error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
+                        "upgrade_check failed"
+                    );
+                }
             }
         }
 
@@ -490,7 +503,14 @@ async fn run(
         } else {
             main_loop_period_idle
         };
-        tokio::time::sleep(loop_period).await;
+        tokio::select! {
+            biased;
+            _ = term_signal.recv() => {
+                tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
+                return Ok(());
+            }
+            _ = tokio::time::sleep(loop_period) => {}
+        }
     }
 }
 

@@ -19,7 +19,7 @@ use eyre::eyre;
 
 use crate::{
     db::{
-        ib_subnet,
+        ib_partition,
         instance::{
             status::infiniband::update_instance_infiniband_status_observation, DeleteInstance,
         },
@@ -961,7 +961,7 @@ async fn record_infiniband_status_observation(
         })?;
 
         ibconf
-            .entry(ib.ib_subnet_id)
+            .entry(ib.ib_partition_id)
             .or_insert(Vec::new())
             .push(guid);
     }
@@ -969,24 +969,26 @@ async fn record_infiniband_status_observation(
     let mut ib_interfaces_status = Vec::with_capacity(ib_interfaces.len());
 
     for (k, v) in ibconf {
-        let ibsubnets = ib_subnet::IBSubnet::find(
+        let ib_partitions = ib_partition::IBPartition::find(
             txn,
             crate::db::UuidKeyedObjectFilter::One(k),
-            ib_subnet::IBSubnetSearchConfig {
+            ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },
         )
         .await?;
 
-        let ibsubnet = ibsubnets.first().ok_or(StateHandlerError::MissingData {
-            object_id: k.to_string(),
-            missing: "ib_subnet not found",
-        })?;
+        let ibpartition = ib_partitions
+            .first()
+            .ok_or(StateHandlerError::MissingData {
+                object_id: k.to_string(),
+                missing: "ib_partition not found",
+            })?;
 
         // Get the status of ports from UFM, and persist it as observed status.
         let filter = ib::Filter {
             guids: Some(v),
-            pkey: ibsubnet.config.pkey.map(|pkey| pkey as i32),
+            pkey: ibpartition.config.pkey.map(|pkey| pkey as i32),
         };
         let ports = ctx
             .services
@@ -1035,29 +1037,31 @@ async fn bind_ib_ports(
         })?;
 
         ibconf
-            .entry(ib.ib_subnet_id)
+            .entry(ib.ib_partition_id)
             .or_insert(Vec::new())
             .push(guid);
     }
 
     for (k, v) in ibconf {
-        let ibsubnets = ib_subnet::IBSubnet::find(
+        let ib_partitions = ib_partition::IBPartition::find(
             txn,
             crate::db::UuidKeyedObjectFilter::One(k),
-            ib_subnet::IBSubnetSearchConfig {
+            ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },
         )
         .await?;
 
-        let ibsubnet = ibsubnets.first().ok_or(StateHandlerError::MissingData {
-            object_id: k.to_string(),
-            missing: "ib_subnet not found",
-        })?;
+        let ibpartition = ib_partitions
+            .first()
+            .ok_or(StateHandlerError::MissingData {
+                object_id: k.to_string(),
+                missing: "ib_partition not found",
+            })?;
 
         ctx.services
             .ib_fabric_manager
-            .bind_ib_ports(IBNetwork::from(ibsubnet), v)
+            .bind_ib_ports(IBNetwork::from(ibpartition), v)
             .await
             .map_err(|_| StateHandlerError::IBFabricError("bind_ib_ports".to_string()))?;
     }
@@ -1079,29 +1083,34 @@ async fn unbind_ib_ports(
             missing: "GUID of IB Port",
         })?;
         ibconf
-            .entry(ib.ib_subnet_id)
+            .entry(ib.ib_partition_id)
             .or_insert(Vec::new())
             .push(guid);
     }
 
     for (k, v) in ibconf {
-        let ibsubnets = ib_subnet::IBSubnet::find(
+        let ib_partitions = ib_partition::IBPartition::find(
             txn,
             crate::db::UuidKeyedObjectFilter::One(k),
-            ib_subnet::IBSubnetSearchConfig {
+            ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },
         )
         .await?;
 
-        let ibsubnet = ibsubnets.first().ok_or(StateHandlerError::MissingData {
-            object_id: k.to_string(),
-            missing: "ib_subnet not found",
-        })?;
-        let pkey = ibsubnet.config.pkey.ok_or(StateHandlerError::MissingData {
-            object_id: ibsubnet.id.to_string(),
-            missing: "ib_subnet pkey",
-        })?;
+        let ibpartition = ib_partitions
+            .first()
+            .ok_or(StateHandlerError::MissingData {
+                object_id: k.to_string(),
+                missing: "ib_partition not found",
+            })?;
+        let pkey = ibpartition
+            .config
+            .pkey
+            .ok_or(StateHandlerError::MissingData {
+                object_id: ibpartition.id.to_string(),
+                missing: "ib_partition pkey",
+            })?;
 
         ctx.services
             .ib_fabric_manager

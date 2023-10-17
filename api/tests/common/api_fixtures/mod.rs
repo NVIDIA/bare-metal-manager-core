@@ -33,7 +33,7 @@ use carbide::{
     state_controller::{
         bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
         controller::ReachabilityParams,
-        ib_subnet::{handler::IBSubnetStateHandler, io::IBSubnetStateControllerIO},
+        ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         io::StateControllerIO,
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
         metrics::MetricsEmitter,
@@ -63,7 +63,7 @@ use crate::common::{
 
 pub mod dpu;
 pub mod host;
-pub mod ib_subnet;
+pub mod ib_partition;
 pub mod instance;
 pub mod managed_host;
 pub mod network_segment;
@@ -95,7 +95,7 @@ pub struct TestEnv {
     pub machine_state_controller_io: MachineStateControllerIO,
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
-    pub ib_subnet_state_controller_io: IBSubnetStateControllerIO,
+    pub ib_partition_state_controller_io: IBPartitionStateControllerIO,
     pub bmc_machine_state_controller_io: BmcMachineStateControllerIO,
 }
 
@@ -233,18 +233,18 @@ impl TestEnv {
         .await
     }
 
-    /// Runs one iteration of the ibsubnet state controller handler with the services
+    /// Runs one iteration of the IB partition state controller handler with the services
     /// in this test environment
-    pub async fn run_ib_subnet_controller_iteration(
+    pub async fn run_ib_partition_controller_iteration(
         &self,
         segment_id: uuid::Uuid,
-        handler: &IBSubnetStateHandler,
+        handler: &IBPartitionStateHandler,
     ) {
         let services = Arc::new(self.state_handler_services());
         run_state_controller_iteration(
             &services,
             &self.pool,
-            &self.ib_subnet_state_controller_io,
+            &self.ib_partition_state_controller_io,
             segment_id,
             handler,
         )
@@ -359,7 +359,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         reachability_params: ReachabilityParams {
             dpu_wait_time: Duration::seconds(0),
         },
-        ib_subnet_state_controller_io: IBSubnetStateControllerIO::default(),
+        ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
         bmc_machine_state_controller_io: BmcMachineStateControllerIO::default(),
     }
 }

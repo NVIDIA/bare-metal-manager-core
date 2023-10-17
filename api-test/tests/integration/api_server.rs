@@ -133,6 +133,9 @@ pub async fn start(
         dpu_ipmi_reboot_args: None,
         dpu_impi_tool_impl: Some("test".to_owned()),
         dpu_ipmi_reboot_attempts: None,
+        dpu_nic_firmware_update_version: Some("V1".to_string()),
+        max_concurrent_machine_updates: Some(1),
+        machine_update_run_interval: None,
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

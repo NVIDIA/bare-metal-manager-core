@@ -99,6 +99,19 @@ pub struct CarbideConfig {
     /// The policy we use to decide whether a specific forge-dpu-agent should be upgraded
     /// Also settable via a `forge-admin-cli` command.
     pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
+
+    /// The version of DPU NIC firmware that is expected on the DPU.  If the actual DPU NIC firmware
+    /// does not match, the DPU will be updated during reprovisioning.  It is the operators responsibilty
+    /// to make sure this value matches the version shipped with carbide.  If "None" updates
+    /// during reprovisioning will be disabled
+    pub dpu_nic_firmware_update_version: Option<String>,
+
+    /// The maximum number of machines that have in-progress updates running.  This prevents
+    /// too many machines from being put into maintenance at any given time.
+    pub max_concurrent_machine_updates: Option<i32>,
+
+    /// The interval at which the machine update manager checks for machine updates.
+    pub machine_update_run_interval: Option<u64>,
 }
 
 /// TLS related configuration

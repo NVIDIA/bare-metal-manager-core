@@ -26,6 +26,22 @@ pub struct TenantConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_data: Option<String>,
 
+    /// If this flag is set to `true`, the instance will receive the `custom_ipxe` instructions
+    /// on every reboot attempts. Depending on the type of iPXE instructions, this might
+    /// lead the instance to reinstall itself on every reboot.
+    ///
+    /// If the flag is set to `false` or not specified, Forge will only provide the
+    /// `custom_ipxe` script on the first boot attempt. For every subsequent boot,
+    /// the instance will use the default boot action - which is usually to boot from
+    /// the hard drive.
+    ///
+    /// If the `custom_ipxe` instructions should only be used for specific reboots
+    /// in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
+    /// API to reboot instances with the `boot_with_custom_ipxe` parameter set to
+    /// `true`.
+    #[serde(default)]
+    pub always_boot_with_custom_ipxe: bool,
+
     pub tenant_keyset_ids: Vec<String>,
 }
 
@@ -40,6 +56,7 @@ impl TryFrom<rpc::TenantConfig> for TenantConfig {
             .map_err(|_| RpcDataConversionError::InvalidTenantOrg(config.tenant_organization_id))?,
             custom_ipxe: config.custom_ipxe,
             user_data: config.user_data,
+            always_boot_with_custom_ipxe: config.always_boot_with_custom_ipxe,
             tenant_keyset_ids: config.tenant_keyset_ids,
         })
     }
@@ -54,6 +71,7 @@ impl TryFrom<TenantConfig> for rpc::TenantConfig {
             custom_ipxe: config.custom_ipxe,
             user_data: config.user_data,
             tenant_keyset_ids: config.tenant_keyset_ids,
+            always_boot_with_custom_ipxe: config.always_boot_with_custom_ipxe,
         })
     }
 }
@@ -81,13 +99,14 @@ mod tests {
             tenant_organization_id: TenantOrganizationId::try_from("TenantA".to_string()).unwrap(),
             custom_ipxe: "PXE".to_string(),
             user_data: Some("data".to_string()),
+            always_boot_with_custom_ipxe: false,
             tenant_keyset_ids: vec![],
         };
 
         let serialized = serde_json::to_string(&config).unwrap();
         assert_eq!(
             serialized,
-            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"user_data\":\"data\",\"tenant_keyset_ids\":[]}"
+            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"user_data\":\"data\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[]}"
         );
         assert_eq!(
             serde_json::from_str::<TenantConfig>(&serialized).unwrap(),
@@ -98,7 +117,7 @@ mod tests {
         let serialized = serde_json::to_string(&config).unwrap();
         assert_eq!(
             serialized,
-            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"tenant_keyset_ids\":[]}"
+            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[]}"
         );
         assert_eq!(
             serde_json::from_str::<TenantConfig>(&serialized).unwrap(),
@@ -109,7 +128,7 @@ mod tests {
         let serialized = serde_json::to_string(&config).unwrap();
         assert_eq!(
             serialized,
-            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"user_data\":\"\",\"tenant_keyset_ids\":[]}"
+            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"user_data\":\"\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[]}"
         );
         assert_eq!(
             serde_json::from_str::<TenantConfig>(&serialized).unwrap(),
