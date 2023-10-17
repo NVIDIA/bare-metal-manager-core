@@ -49,6 +49,17 @@ pub fn build(conf: AclConfig) -> Result<String, eyre::Report> {
 fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
     let mut rules: Vec<IpTablesRule> = Vec::new();
 
+    // Add VPC allow rules.
+    rules.extend(
+        acl_config
+            .interfaces
+            .iter()
+            .flat_map(|(if_name, if_rules)| {
+                let if_name: Rc<str> = Rc::from(if_name.as_str());
+                make_vpc_rules(if_name, if_rules.vpc_prefixes.as_slice())
+            }),
+    );
+
     let tenant_interfaces: Vec<_> = acl_config
         .interfaces
         .keys()
@@ -67,6 +78,27 @@ fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
     ));
 
     IpTablesRuleset::new_with_rules(rules)
+}
+
+// Generate rules allowing the instance on the other side of this interface to
+// send packets to the prefixes associated with its VPC.
+fn make_vpc_rules(interface_name: Rc<str>, vpc_prefixes: &[Ipv4Network]) -> Vec<IpTablesRule> {
+    let vpc_base_rule = IpTablesRule::new(chain::FORWARD, target::ACCEPT);
+    let mut rules: Vec<_> = vpc_prefixes
+        .iter()
+        .map(|prefix| {
+            let mut rule = vpc_base_rule.clone();
+            rule.set_ingress_interface(interface_name.clone());
+            rule.set_destination_prefix(prefix.to_owned());
+            rule
+        })
+        .collect();
+    if let Some(first_rule) = rules.first_mut() {
+        let comment =
+            format!("Allow associated VPC prefixes for tenant interface {interface_name}");
+        first_rule.set_comment_before(comment);
+    }
+    rules
 }
 
 fn make_deny_prefix_rules(
