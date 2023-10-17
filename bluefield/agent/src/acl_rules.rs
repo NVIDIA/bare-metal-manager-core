@@ -10,6 +10,7 @@
  *   its affiliates is strictly prohibited.
  */
 
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use ipnetwork::Ipv4Network;
@@ -21,13 +22,16 @@ pub const PATH: &str = "etc/cumulus/acl/policy.d/60-forge.rules";
 pub const RELOAD_CMD: &str = "cl-acltool -i";
 
 pub struct AclConfig {
-    // The interface these rules will be matched against. Should be the
-    // interface that packets from our attached compute node/x86 machine appear
-    // on.
-    pub ingress_interfaces: Vec<String>,
+    // Per-interface ACL config.
+    pub interfaces: BTreeMap<String, InterfaceRules>,
 
     // The prefixes the instance is not allowed to talk to.
     pub deny_prefixes: Vec<String>,
+}
+
+pub struct InterfaceRules {
+    // All of the prefixes associated with this VPC.
+    pub vpc_prefixes: Vec<Ipv4Network>,
 }
 
 /// Generate /etc/cumulus/acl/policy.d/60-forge.rules
@@ -46,8 +50,8 @@ fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
     let mut rules: Vec<IpTablesRule> = Vec::new();
 
     let tenant_interfaces: Vec<_> = acl_config
-        .ingress_interfaces
-        .iter()
+        .interfaces
+        .keys()
         .map(|if_name| Rc::<str>::from(if_name.as_str()))
         .collect();
 
@@ -93,12 +97,25 @@ fn make_deny_prefix_rules(
 
 #[cfg(test)]
 mod tests {
-    use super::{build, AclConfig};
+    use super::Ipv4Network;
+    use super::{build, AclConfig, InterfaceRules};
 
     #[test]
     fn test_write_acl() -> Result<(), Box<dyn std::error::Error>> {
+        let interface_vpc_networks = [("net1", "192.0.2.8/29"), ("net2", "192.0.2.16/29")];
         let params = AclConfig {
-            ingress_interfaces: vec!["net1".into(), "net2".into()],
+            interfaces: interface_vpc_networks
+                .into_iter()
+                .map(|(if_name, vpc_prefix)| {
+                    let if_name = String::from(if_name);
+                    let vpc_prefix: Ipv4Network = vpc_prefix.parse().unwrap();
+                    let if_rules = InterfaceRules {
+                        vpc_prefixes: vec![vpc_prefix],
+                    };
+                    (if_name, if_rules)
+                })
+                .collect(),
+
             deny_prefixes: vec![
                 "192.0.2.0/24".into(),
                 "198.51.100.0/24".into(),

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -437,30 +438,43 @@ fn write_acl_rules<P: AsRef<Path>>(
     path: P,
     dpu_network_config: &rpc::ManagedHostNetworkConfigResponse,
 ) -> Result<Option<PostAction>, eyre::Report> {
-    let ingress_interfaces = instance_interface_names(&dpu_network_config.tenant_interfaces);
+    let rules_by_interface = instance_interface_acls_by_name(&dpu_network_config.tenant_interfaces);
+    // let ingress_interfaces = instance_interface_names(&dpu_network_config.tenant_interfaces);
     let config = acl_rules::AclConfig {
-        ingress_interfaces,
+        interfaces: rules_by_interface,
         deny_prefixes: dpu_network_config.deny_prefixes.clone(),
     };
     let contents = acl_rules::build(config)?;
     write(contents, path, "forge-acl.rules", acl_rules::RELOAD_CMD)
 }
 
-// Return the low-level interfaces that are facing the instance.
-fn instance_interface_names(intf_configs: &[FlatInterfaceConfig]) -> Vec<String> {
+// Compute the interface names along with the specific ACL config for each
+// tenant-facing interface.
+fn instance_interface_acls_by_name(
+    intf_configs: &[FlatInterfaceConfig],
+) -> BTreeMap<String, acl_rules::InterfaceRules> {
     intf_configs
         .iter()
         .enumerate()
-        .map(|(i, conf)| match conf.function_type() {
-            ::rpc::InterfaceFunctionType::Physical => {
-                format!("{}_sf", DPU_PHYSICAL_NETWORK_INTERFACE)
-            }
-            ::rpc::InterfaceFunctionType::Virtual => {
-                let vfid = conf
-                    .virtual_function_id
-                    .unwrap_or_else(|| (i as u32).saturating_sub(1));
-                format!("{}{}_sf", DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER, vfid)
-            }
+        .map(|(i, conf)| {
+            let interface_name = match conf.function_type() {
+                ::rpc::InterfaceFunctionType::Physical => {
+                    format!("{}_sf", DPU_PHYSICAL_NETWORK_INTERFACE)
+                }
+                ::rpc::InterfaceFunctionType::Virtual => {
+                    let vfid = conf
+                        .virtual_function_id
+                        .unwrap_or_else(|| (i as u32).saturating_sub(1));
+                    format!("{}{}_sf", DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER, vfid)
+                }
+            };
+            let vpc_prefixes = conf
+                .allow_prefixes
+                .iter()
+                .map(|prefix| prefix.parse().unwrap())
+                .collect();
+            let interface_rules = acl_rules::InterfaceRules { vpc_prefixes };
+            (interface_name, interface_rules)
         })
         .collect()
 }
