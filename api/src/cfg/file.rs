@@ -57,6 +57,9 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub route_servers: Vec<String>,
 
+    #[serde(default)]
+    pub enable_route_servers: bool,
+
     /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
     #[serde(default)]
     pub deny_prefixes: Vec<Ipv4Network>,

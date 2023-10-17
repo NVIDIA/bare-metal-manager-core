@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-// use std::str::FromStr;
 
 use carbide::db::machine_boot_override::MachineBootOverride;
 use carbide::CarbideError;
@@ -36,7 +35,7 @@ async fn only_one_custom_pxe_per_interface(
     )
     .unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
 
     let expected_pxe = Some("custom_pxe_string".to_string());
     let expected_user_data = Some("custom_user_data_string".to_string());

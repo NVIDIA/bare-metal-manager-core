@@ -21,8 +21,7 @@ use crate::{
     CarbideError,
 };
 
-// Max values we can bind to a Postgres SQL statement;
-const BIND_LIMIT: usize = 65535;
+use super::BIND_LIMIT;
 
 #[derive(Debug)]
 pub struct DbResourcePool<T>
