@@ -15,7 +15,7 @@ use sqlx::PgPool;
 
 use crate::{
     db::{
-        ib_subnet,
+        ib_partition,
         instance::{Instance, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
@@ -203,7 +203,7 @@ pub async fn allocate_instance(
 
     // Allocate GUID for infiniband interfaces/ports.
     let ib_config =
-        ib_subnet::allocate_port_guid(&mut txn, *instance.id(), &ib_config, &machine).await?;
+        ib_partition::allocate_port_guid(&mut txn, *instance.id(), &ib_config, &machine).await?;
 
     // Persist the GUID for Infiniband configuration.
     // We need to retain version 1.

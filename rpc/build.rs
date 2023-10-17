@@ -73,9 +73,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.IBSubnetConfig", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.IBSubnetStatus", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.IBSubnet", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.IBPartitionConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.IBPartitionStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.IBPartition", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.NetworkSegmentStateHistory",

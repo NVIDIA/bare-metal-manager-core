@@ -29,11 +29,11 @@ pub struct InstanceInfinibandConfig {
 
 impl InstanceInfinibandConfig {
     /// Returns a infiniband configuration for a single physical interface
-    pub fn for_ib_subnet_id(ib_subnet_id: Uuid) -> Self {
+    pub fn for_ib_partition_id(ib_partition_id: Uuid) -> Self {
         Self {
             ib_interfaces: vec![InstanceIbInterfaceConfig {
                 function_id: InterfaceFunctionId::Physical {},
-                ib_subnet_id,
+                ib_partition_id,
                 guid: None,
                 device: "MT2910 Family [ConnectX-7]".to_string(), // only for test case
                 vendor: None,
@@ -91,19 +91,19 @@ impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
                 }
             };
 
-            let ib_subnet_id =
+            let ib_partition_id =
                 iface
-                    .ib_subnet_id
+                    .ib_partition_id
                     .ok_or(RpcDataConversionError::MissingArgument(
-                        "InstanceIbInterfaceConfig::ib_subnet_id",
+                        "InstanceIbInterfaceConfig::ib_partition_id",
                     ))?;
-            let ib_subnet_id = uuid::Uuid::try_from(ib_subnet_id).map_err(|_| {
-                RpcDataConversionError::InvalidUuid("InstanceIbInterfaceConfig::ib_subnet_id")
+            let ib_partition_id = uuid::Uuid::try_from(ib_partition_id).map_err(|_| {
+                RpcDataConversionError::InvalidUuid("InstanceIbInterfaceConfig::ib_partition_id")
             })?;
 
             ib_interfaces.push(InstanceIbInterfaceConfig {
                 function_id,
-                ib_subnet_id,
+                ib_partition_id,
                 guid: None,
                 device: iface.device,
                 vendor: iface.vendor,
@@ -128,7 +128,7 @@ impl TryFrom<InstanceInfinibandConfig> for rpc::InstanceInfinibandConfig {
             ib_interfaces.push(rpc::InstanceIbInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
                 virtual_function_id: None,
-                ib_subnet_id: Some(iface.ib_subnet_id.into()),
+                ib_partition_id: Some(iface.ib_partition_id.into()),
                 device: iface.device,
                 vendor: iface.vendor,
                 device_instance: iface.device_instance,
@@ -144,8 +144,8 @@ impl TryFrom<InstanceInfinibandConfig> for rpc::InstanceInfinibandConfig {
 pub struct InstanceIbInterfaceConfig {
     // Uniquely identifies the ib interface on the instance
     pub function_id: InterfaceFunctionId,
-    /// The ib subnet this ib interface is attached to
-    pub ib_subnet_id: Uuid,
+    /// The IB partition this ib interface is attached to
+    pub ib_partition_id: Uuid,
     /// The guid of this ib interface
     pub guid: Option<String>,
     /// The name of this device

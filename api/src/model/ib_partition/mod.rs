@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::ib_subnet::IBSubnet;
+use crate::db::ib_partition::IBPartition;
 use crate::ib::types::{IBNetwork, IBNETWORK_DEFAULT_INDEX0, IBNETWORK_DEFAULT_MEMBERSHIP};
 
 pub const IB_DEFAULT_MTU: i32 = 2048;
@@ -25,7 +25,7 @@ pub const IB_SERVICE_LEVEL_ENV: &str = "IB_DEFAULT_SERVICE_LEVEL";
 /// State of a IB subnet as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
-pub enum IBSubnetControllerState {
+pub enum IBPartitionControllerState {
     /// The IB subnet is created in Carbide, waiting for provisioning in IB Fabric.
     Provisioning,
     /// The IB subnet is ready for IB ports.
@@ -36,8 +36,8 @@ pub enum IBSubnetControllerState {
     Deleting,
 }
 
-impl From<&IBSubnet> for IBNetwork {
-    fn from(ib: &IBSubnet) -> IBNetwork {
+impl From<&IBPartition> for IBNetwork {
+    fn from(ib: &IBPartition) -> IBNetwork {
         Self {
             name: ib.config.name.clone(),
             pkey: ib.config.pkey.unwrap_or(0) as i32,
@@ -58,32 +58,32 @@ mod tests {
 
     #[test]
     fn serialize_controller_state() {
-        let state = IBSubnetControllerState::Provisioning {};
+        let state = IBPartitionControllerState::Provisioning {};
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"provisioning\"}");
         assert_eq!(
-            serde_json::from_str::<IBSubnetControllerState>(&serialized).unwrap(),
+            serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
             state
         );
-        let state = IBSubnetControllerState::Ready {};
+        let state = IBPartitionControllerState::Ready {};
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"ready\"}");
         assert_eq!(
-            serde_json::from_str::<IBSubnetControllerState>(&serialized).unwrap(),
+            serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
             state
         );
-        let state = IBSubnetControllerState::Error {};
+        let state = IBPartitionControllerState::Error {};
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"error\"}");
         assert_eq!(
-            serde_json::from_str::<IBSubnetControllerState>(&serialized).unwrap(),
+            serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
             state
         );
-        let state = IBSubnetControllerState::Deleting {};
+        let state = IBPartitionControllerState::Deleting {};
         let serialized = serde_json::to_string(&state).unwrap();
         assert_eq!(serialized, "{\"state\":\"deleting\"}");
         assert_eq!(
-            serde_json::from_str::<IBSubnetControllerState>(&serialized).unwrap(),
+            serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
             state
         );
     }
