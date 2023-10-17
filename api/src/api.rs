@@ -171,8 +171,16 @@ where
     async fn version(
         &self,
         _request: tonic::Request<()>,
-    ) -> Result<Response<rpc::FullVersion>, Status> {
-        Ok(Response::new(forge_version::for_rpc()))
+    ) -> Result<Response<rpc::BuildInfo>, Status> {
+        let v = rpc::BuildInfo {
+            build_version: forge_version::v!(build_version).to_string(),
+            build_date: forge_version::v!(build_date).to_string(),
+            git_sha: forge_version::v!(git_sha).to_string(),
+            rust_version: forge_version::v!(rust_version).to_string(),
+            build_user: forge_version::v!(build_user).to_string(),
+            build_hostname: forge_version::v!(build_hostname).to_string(),
+        };
+        Ok(Response::new(v))
     }
 
     async fn create_domain(
