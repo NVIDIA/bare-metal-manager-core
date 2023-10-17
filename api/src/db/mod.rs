@@ -19,7 +19,7 @@ pub mod domain;
 pub mod dpu_agent_upgrade_policy;
 pub mod dpu_machine;
 pub mod host_machine;
-pub mod ib_subnet;
+pub mod ib_partition;
 pub mod instance;
 pub mod instance_address;
 pub mod instance_type;

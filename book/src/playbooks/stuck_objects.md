@@ -243,7 +243,7 @@ the following links to look at the state machines for objects managed by
 Forge:
 - [ManagedHost State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/machine/handler.rs) (also used for the lifecycle of Forge instances)
 - [NetworkSegment/Subnet State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/network_segment/handler.rs)
-- [Infiniband Partition State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/ib_subnet/handler.rs)
+- [Infiniband Partition State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/ib_partition/handler.rs)
 - [DPU BMC Controller State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/bmc_machine/handler.rs)
 
 When looking at these files, consider that the software version deployed

@@ -10,40 +10,40 @@
  * its affiliates is strictly prohibited.
  */
 
-//! State Controller IO implementation for network segments
+//! State Controller IO implementation for Infiniband Partitions
 
 use crate::{
     db::{
-        ib_subnet::{IBSubnet, IBSubnetSearchConfig},
+        ib_partition::{IBPartition, IBPartitionSearchConfig},
         UuidKeyedObjectFilter,
     },
     model::config_version::{ConfigVersion, Versioned},
-    model::ib_subnet::IBSubnetControllerState,
+    model::ib_partition::IBPartitionControllerState,
     state_controller::{
         io::StateControllerIO, metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
     },
 };
 
-/// State Controller IO implementation for network segments
+/// State Controller IO implementation for Infiniband Partitions
 #[derive(Default, Debug)]
-pub struct IBSubnetStateControllerIO {}
+pub struct IBPartitionStateControllerIO {}
 
 #[async_trait::async_trait]
-impl StateControllerIO for IBSubnetStateControllerIO {
+impl StateControllerIO for IBPartitionStateControllerIO {
     type ObjectId = uuid::Uuid;
-    type State = IBSubnet;
-    type ControllerState = IBSubnetControllerState;
+    type State = IBPartition;
+    type ControllerState = IBPartitionControllerState;
     type MetricsEmitter = NoopMetricsEmitter;
 
-    const DB_LOCK_NAME: &'static str = "ibsubnet_controller_lock";
+    const DB_LOCK_NAME: &'static str = "ib_partition_controller_lock";
 
-    const LOG_SPAN_CONTROLLER_NAME: &'static str = "ib_subnet_controller";
+    const LOG_SPAN_CONTROLLER_NAME: &'static str = "ib_partition_controller";
 
     async fn list_objects(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
-        IBSubnet::list_segment_ids(txn)
+        IBPartition::list_segment_ids(txn)
             .await
             .map_err(SnapshotLoaderError::from)
     }
@@ -54,15 +54,15 @@ impl StateControllerIO for IBSubnetStateControllerIO {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         segment_id: &Self::ObjectId,
     ) -> Result<Self::State, SnapshotLoaderError> {
-        let mut segments = IBSubnet::find(
+        let mut segments = IBPartition::find(
             txn,
             UuidKeyedObjectFilter::One(*segment_id),
-            IBSubnetSearchConfig::default(),
+            IBPartitionSearchConfig::default(),
         )
         .await?;
         if segments.len() != 1 {
             return Err(SnapshotLoaderError::InvalidResult(format!(
-                "Searching for IBSubnet {} returned zero or multiple results",
+                "Searching for IBPartition {} returned zero or multiple results",
                 segment_id
             )));
         }
@@ -87,16 +87,17 @@ impl StateControllerIO for IBSubnetStateControllerIO {
         new_state: Self::ControllerState,
     ) -> Result<(), SnapshotLoaderError> {
         let _updated =
-            IBSubnet::try_update_controller_state(txn, *object_id, old_version, &new_state).await?;
+            IBPartition::try_update_controller_state(txn, *object_id, old_version, &new_state)
+                .await?;
         Ok(())
     }
 
-    fn metric_state_names(state: &IBSubnetControllerState) -> (&'static str, &'static str) {
+    fn metric_state_names(state: &IBPartitionControllerState) -> (&'static str, &'static str) {
         match state {
-            IBSubnetControllerState::Provisioning => ("provisioning", ""),
-            IBSubnetControllerState::Ready => ("ready", ""),
-            IBSubnetControllerState::Error => ("error", ""),
-            IBSubnetControllerState::Deleting => ("deleting", ""),
+            IBPartitionControllerState::Provisioning => ("provisioning", ""),
+            IBPartitionControllerState::Ready => ("ready", ""),
+            IBPartitionControllerState::Error => ("error", ""),
+            IBPartitionControllerState::Deleting => ("deleting", ""),
         }
     }
 }

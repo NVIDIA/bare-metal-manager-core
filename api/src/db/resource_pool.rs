@@ -338,7 +338,7 @@ pub enum OwnerType {
     NetworkSegment,
 
     /// owner_type for pkey
-    IBSubnet,
+    IBPartition,
 
     /// owner_type for vpc_cni
     Vpc,
@@ -350,7 +350,7 @@ impl FromStr for OwnerType {
         match s {
             "machine" => Ok(Self::Machine),
             "network_segment" => Ok(Self::NetworkSegment),
-            "ib_subnet" => Ok(Self::IBSubnet),
+            "ib_partition" => Ok(Self::IBPartition),
             "vpc" => Ok(Self::Vpc),
             x => Err(CarbideError::GenericError(format!(
                 "Unknown owner_type '{}'",
@@ -365,7 +365,7 @@ impl fmt::Display for OwnerType {
         match self {
             Self::Machine => write!(f, "machine"),
             Self::NetworkSegment => write!(f, "network_segment"),
-            Self::IBSubnet => write!(f, "ib_subnet"),
+            Self::IBPartition => write!(f, "ib_partition"),
             Self::Vpc => write!(f, "vpc"),
         }
     }

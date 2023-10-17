@@ -30,9 +30,9 @@ use crate::model::instance::config::{
 use crate::{
     db::{DatabaseError, UuidKeyedObjectFilter},
     model::config_version::{ConfigVersion, Versioned},
-    model::ib_subnet::{
-        IBSubnetControllerState, IB_DEFAULT_MTU, IB_DEFAULT_RATE_LIMIT, IB_DEFAULT_SERVICE_LEVEL,
-        IB_MTU_ENV, IB_RATE_LIMIT_ENV, IB_SERVICE_LEVEL_ENV,
+    model::ib_partition::{
+        IBPartitionControllerState, IB_DEFAULT_MTU, IB_DEFAULT_RATE_LIMIT,
+        IB_DEFAULT_SERVICE_LEVEL, IB_MTU_ENV, IB_RATE_LIMIT_ENV, IB_SERVICE_LEVEL_ENV,
     },
     model::tenant::TenantOrganizationId,
     CarbideError, CarbideResult,
@@ -41,29 +41,29 @@ use crate::{
 use super::machine::Machine;
 
 #[derive(Debug, Clone, Copy, FromRow)]
-pub struct IBSubnetId(uuid::Uuid);
+pub struct IBPartitionId(uuid::Uuid);
 
-impl From<IBSubnetId> for uuid::Uuid {
-    fn from(id: IBSubnetId) -> Self {
+impl From<IBPartitionId> for uuid::Uuid {
+    fn from(id: IBPartitionId) -> Self {
         id.0
     }
 }
 
-impl From<rpc::IbSubnetSearchConfig> for IBSubnetSearchConfig {
-    fn from(value: rpc::IbSubnetSearchConfig) -> Self {
-        IBSubnetSearchConfig {
+impl From<rpc::IbPartitionSearchConfig> for IBPartitionSearchConfig {
+    fn from(value: rpc::IbPartitionSearchConfig) -> Self {
+        IBPartitionSearchConfig {
             include_history: value.include_history,
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct IBSubnetSearchConfig {
+pub struct IBPartitionSearchConfig {
     pub include_history: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct IBSubnetConfig {
+pub struct IBPartitionConfig {
     pub name: String,
     pub pkey: Option<i16>,
     pub tenant_organization_id: TenantOrganizationId,
@@ -73,7 +73,7 @@ pub struct IBSubnetConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IBSubnetStatus {
+pub struct IBPartitionStatus {
     pub partition: String,
     pub mtu: i32,
     pub rate_limit: i32,
@@ -81,23 +81,23 @@ pub struct IBSubnetStatus {
 }
 
 #[derive(Debug, Clone)]
-pub struct IBSubnet {
+pub struct IBPartition {
     pub id: Uuid,
     pub version: ConfigVersion,
 
-    pub config: IBSubnetConfig,
-    pub status: Option<IBSubnetStatus>,
+    pub config: IBPartitionConfig,
+    pub status: Option<IBPartitionStatus>,
 
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
 
-    pub controller_state: Versioned<IBSubnetControllerState>,
+    pub controller_state: Versioned<IBPartitionControllerState>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
 // (i.e. it can't default unknown fields)
-impl<'r> FromRow<'r, PgRow> for IBSubnet {
+impl<'r> FromRow<'r, PgRow> for IBPartition {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let config_version_str: &str = row.try_get("config_version")?;
         let version = config_version_str
@@ -108,10 +108,10 @@ impl<'r> FromRow<'r, PgRow> for IBSubnet {
         let controller_state_version = controller_state_version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let controller_state: sqlx::types::Json<IBSubnetControllerState> =
+        let controller_state: sqlx::types::Json<IBPartitionControllerState> =
             row.try_get("controller_state")?;
 
-        let status: Option<sqlx::types::Json<IBSubnetStatus>> = row.try_get("status")?;
+        let status: Option<sqlx::types::Json<IBPartitionStatus>> = row.try_get("status")?;
         let status = status.map(|s| s.0);
 
         let tenant_organization_id_str: &str = row.try_get("organization_id")?;
@@ -119,10 +119,10 @@ impl<'r> FromRow<'r, PgRow> for IBSubnet {
             TenantOrganizationId::try_from(tenant_organization_id_str.to_string())
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
-        Ok(IBSubnet {
+        Ok(IBPartition {
             id: row.try_get("id")?,
             version,
-            config: IBSubnetConfig {
+            config: IBPartitionConfig {
                 name: row.try_get("name")?,
                 pkey: Some(row.try_get("pkey")?),
                 tenant_organization_id,
@@ -141,27 +141,27 @@ impl<'r> FromRow<'r, PgRow> for IBSubnet {
     }
 }
 
-/// Converts from Protobuf IBSubnetCreationRequest into IBSubnet
+/// Converts from Protobuf IBPartitionCreationRequest into IBPartition
 ///
 /// Use try_from in order to return a Result where Result is an error if the conversion
 /// from String -> UUID fails
 ///
-impl TryFrom<rpc::IbSubnetCreationRequest> for IBSubnetConfig {
+impl TryFrom<rpc::IbPartitionCreationRequest> for IBPartitionConfig {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::IbSubnetCreationRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: rpc::IbPartitionCreationRequest) -> Result<Self, Self::Error> {
         let conf = match value.config {
             Some(c) => c,
             None => {
                 return Err(CarbideError::InvalidArgument(
-                    "IBSubnet configuration is empty".to_string(),
+                    "IBPartition configuration is empty".to_string(),
                 ))
             }
         };
 
         if conf.tenant_organization_id.is_empty() {
             return Err(CarbideError::InvalidArgument(
-                "IBSubnet organization_id is empty".to_string(),
+                "IBPartition organization_id is empty".to_string(),
             ));
         }
 
@@ -169,7 +169,7 @@ impl TryFrom<rpc::IbSubnetCreationRequest> for IBSubnetConfig {
             TenantOrganizationId::try_from(conf.tenant_organization_id.clone())
                 .map_err(|_| CarbideError::InvalidArgument(conf.tenant_organization_id))?;
 
-        Ok(IBSubnetConfig {
+        Ok(IBPartitionConfig {
             name: conf.name,
             pkey: None,
             tenant_organization_id,
@@ -188,21 +188,21 @@ fn get_env<T: std::str::FromStr>(name: &str, default: T) -> T {
 }
 
 ///
-/// Marshal a Data Object (IBSubnet) into an RPC IBSubnet
+/// Marshal a Data Object (IBPartition) into an RPC IBPartition
 ///
-impl TryFrom<IBSubnet> for rpc::IbSubnet {
+impl TryFrom<IBPartition> for rpc::IbPartition {
     type Error = CarbideError;
-    fn try_from(src: IBSubnet) -> Result<Self, Self::Error> {
-        let config = Some(rpc::IbSubnetConfig {
+    fn try_from(src: IBPartition) -> Result<Self, Self::Error> {
+        let config = Some(rpc::IbPartitionConfig {
             name: src.config.name.clone(),
             tenant_organization_id: src.config.tenant_organization_id.clone().to_string(),
         });
 
         let mut state = match &src.controller_state.value {
-            IBSubnetControllerState::Provisioning => rpc::TenantState::Provisioning,
-            IBSubnetControllerState::Ready => rpc::TenantState::Ready,
-            IBSubnetControllerState::Error => rpc::TenantState::Failed,
-            IBSubnetControllerState::Deleting => rpc::TenantState::Terminating,
+            IBPartitionControllerState::Provisioning => rpc::TenantState::Provisioning,
+            IBPartitionControllerState::Ready => rpc::TenantState::Ready,
+            IBPartitionControllerState::Error => rpc::TenantState::Failed,
+            IBPartitionControllerState::Deleting => rpc::TenantState::Terminating,
         };
 
         // If deletion is requested, we immediately overwrite the state to terminating.
@@ -221,7 +221,7 @@ impl TryFrom<IBSubnet> for rpc::IbSubnet {
             None => (None, None, None, None),
         };
 
-        let status = Some(rpc::IbSubnetStatus {
+        let status = Some(rpc::IbPartitionStatus {
             state: state as i32,
             enable_sharp: Some(false),
             partition,
@@ -231,7 +231,7 @@ impl TryFrom<IBSubnet> for rpc::IbSubnet {
             service_level,
         });
 
-        Ok(rpc::IbSubnet {
+        Ok(rpc::IbPartition {
             id: Some(src.id.into()),
             config_version: src.version.version_string(),
             config,
@@ -240,20 +240,20 @@ impl TryFrom<IBSubnet> for rpc::IbSubnet {
     }
 }
 
-impl IBSubnet {
+impl IBPartition {
     pub fn id(&self) -> &uuid::Uuid {
         &self.id
     }
 
     pub async fn create(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        conf: &IBSubnetConfig,
-    ) -> Result<IBSubnet, DatabaseError> {
+        conf: &IBPartitionConfig,
+    ) -> Result<IBPartition, DatabaseError> {
         let version = ConfigVersion::initial();
         let version_string = version.version_string();
-        let state = IBSubnetControllerState::Provisioning;
+        let state = IBPartitionControllerState::Provisioning;
 
-        let query = "INSERT INTO ib_subnets (
+        let query = "INSERT INTO ib_partitions (
                 name,
                 pkey,
                 organization_id,
@@ -265,7 +265,7 @@ impl IBSubnet {
                 controller_state)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *";
-        let segment: IBSubnet = sqlx::query_as(query)
+        let segment: IBPartition = sqlx::query_as(query)
             .bind(&conf.name)
             .bind(conf.pkey)
             .bind(&conf.tenant_organization_id.to_string())
@@ -282,16 +282,16 @@ impl IBSubnet {
         Ok(segment)
     }
 
-    /// Retrieves the IDs of all IB subnet
+    /// Retrieves the IDs of all IB partition
     ///
     /// * `txn` - A reference to a currently open database transaction
     ///
     pub async fn list_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<Uuid>, DatabaseError> {
-        let query = "SELECT id FROM ib_subnets";
+        let query = "SELECT id FROM ib_partitions";
         let mut results = Vec::new();
-        let mut segment_id_stream = sqlx::query_as::<_, IBSubnetId>(query).fetch(&mut **txn);
+        let mut segment_id_stream = sqlx::query_as::<_, IBPartitionId>(query).fetch(&mut **txn);
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id.into());
@@ -304,8 +304,8 @@ impl IBSubnet {
         txn: &mut sqlx::Transaction<'_, Postgres>,
         tenant_organization_id: String,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let results: Vec<IBSubnet> = {
-            let query = "SELECT * FROM ib_subnets WHERE organization_id=$1";
+        let results: Vec<IBPartition> = {
+            let query = "SELECT * FROM ib_partitions WHERE organization_id=$1";
             sqlx::query_as(query)
                 .bind(tenant_organization_id)
                 .fetch_all(&mut **txn)
@@ -319,61 +319,61 @@ impl IBSubnet {
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
-        _search_config: IBSubnetSearchConfig,
+        _search_config: IBPartitionSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
-        let base_query = "SELECT * FROM ib_subnets {where}".to_owned();
+        let base_query = "SELECT * FROM ib_partitions {where}".to_owned();
 
-        let all_records: Vec<IBSubnet> = match filter {
+        let all_records: Vec<IBPartition> = match filter {
             UuidKeyedObjectFilter::All => {
-                sqlx::query_as::<_, IBSubnet>(&base_query.replace("{where}", ""))
+                sqlx::query_as::<_, IBPartition>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut **txn)
                     .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "ib_subnets All", e))?
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions All", e))?
             }
 
-            UuidKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, IBSubnet>(
-                &base_query.replace("{where}", "WHERE ib_subnets.id=ANY($1)"),
+            UuidKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, IBPartition>(
+                &base_query.replace("{where}", "WHERE ib_partitions.id=ANY($1)"),
             )
             .bind(uuids)
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "ib_subnets List", e))?,
+            .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions List", e))?,
 
-            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, IBSubnet>(
-                &base_query.replace("{where}", "WHERE ib_subnets.id=$1"),
+            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, IBPartition>(
+                &base_query.replace("{where}", "WHERE ib_partitions.id=$1"),
             )
             .bind(uuid)
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "ib_subnets One", e))?,
+            .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions One", e))?,
         };
 
         Ok(all_records)
     }
 
-    /// Updates the IB subnet state that is owned by the state controller
+    /// Updates the IB partition state that is owned by the state controller
     /// under the premise that the curren controller state version didn't change.
     pub async fn try_update_controller_state(
         txn: &mut Transaction<'_, Postgres>,
-        subnet_id: uuid::Uuid,
+        partition_id: uuid::Uuid,
         expected_version: ConfigVersion,
-        new_state: &IBSubnetControllerState,
+        new_state: &IBPartitionControllerState,
     ) -> Result<bool, DatabaseError> {
         let expected_version_str = expected_version.version_string();
         let next_version = expected_version.increment();
         let next_version_str = next_version.version_string();
 
-        let query = "UPDATE ib_subnets SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
-        let query_result: Result<IBSubnetId, _> = sqlx::query_as(query)
+        let query = "UPDATE ib_partitions SET controller_state_version=$1, controller_state=$2::json where id=$3::uuid AND controller_state_version=$4 returning id";
+        let query_result: Result<IBPartitionId, _> = sqlx::query_as(query)
             .bind(&next_version_str)
             .bind(sqlx::types::Json(new_state))
-            .bind(subnet_id)
+            .bind(partition_id)
             .bind(&expected_version_str)
             .fetch_one(&mut **txn)
             .await;
 
         match query_result {
-            Ok(_subnet_id) => Ok(true), // TODO(k82cn): Add state history if necessary.
+            Ok(_partition_id) => Ok(true), // TODO(k82cn): Add state history if necessary.
             Err(sqlx::Error::RowNotFound) => Ok(false),
             Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
         }
@@ -382,9 +382,9 @@ impl IBSubnet {
     pub async fn mark_as_deleted(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<IBSubnet> {
-        let query = "UPDATE ib_subnets SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
-        let segment: IBSubnet = sqlx::query_as(query)
+    ) -> CarbideResult<IBPartition> {
+        let query = "UPDATE ib_partitions SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
+        let segment: IBPartition = sqlx::query_as(query)
             .bind(self.id)
             .fetch_one(&mut **txn)
             .await
@@ -393,7 +393,7 @@ impl IBSubnet {
         Ok(segment)
     }
 
-    /// Returns whether the IB subnet was deleted by the user
+    /// Returns whether the IB partition was deleted by the user
     pub fn is_marked_as_deleted(&self) -> bool {
         self.deleted.is_some()
     }
@@ -402,8 +402,8 @@ impl IBSubnet {
         segment_id: uuid::Uuid,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<uuid::Uuid, DatabaseError> {
-        let query = "DELETE FROM ib_subnets WHERE id=$1::uuid RETURNING id";
-        let segment: IBSubnetId = sqlx::query_as(query)
+        let query = "DELETE FROM ib_partitions WHERE id=$1::uuid RETURNING id";
+        let segment: IBPartitionId = sqlx::query_as(query)
             .bind(segment_id)
             .fetch_one(&mut **txn)
             .await
@@ -415,10 +415,10 @@ impl IBSubnet {
     pub async fn update(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<IBSubnet, DatabaseError> {
-        let query = "UPDATE ib_subnets SET name=$1, organization_id=$2::uuid, status=$3::json, updated=NOW() WHERE id=$4::uuid RETURNING *";
+    ) -> Result<IBPartition, DatabaseError> {
+        let query = "UPDATE ib_partitions SET name=$1, organization_id=$2::uuid, status=$3::json, updated=NOW() WHERE id=$4::uuid RETURNING *";
 
-        let segment: IBSubnet = sqlx::query_as(query)
+        let segment: IBPartition = sqlx::query_as(query)
             .bind(&self.config.name)
             .bind(&self.config.tenant_organization_id.to_string())
             .bind(sqlx::types::Json(&self.status))

@@ -39,8 +39,8 @@ pub use crate::protos::forge::{
 };
 
 pub use crate::protos::forge::{
-    IbSubnet, IbSubnetCreationRequest, IbSubnetDeletionRequest, IbSubnetDeletionResult,
-    IbSubnetList, IbSubnetQuery, InstanceIbInterfaceConfig, InstanceIbInterfaceStatus,
+    IbPartition, IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
+    IbPartitionList, IbPartitionQuery, InstanceIbInterfaceConfig, InstanceIbInterfaceStatus,
     InstanceInfinibandConfig, InstanceInfinibandStatus,
 };
 
