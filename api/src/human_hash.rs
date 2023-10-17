@@ -23,7 +23,7 @@
  */
 //! Generate human readable digests for UUIDs
 //!
-//! Based on https://github.com/zacharyvoase/humanhash
+//! Based on <https://github.com/zacharyvoase/humanhash>
 //! Should be compatible
 use uuid::Uuid;
 

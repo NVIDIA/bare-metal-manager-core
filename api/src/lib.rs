@@ -48,6 +48,7 @@ mod ip_finder;
 pub mod ipmitool;
 mod ipxe;
 pub mod logging;
+pub mod machine_update_manager;
 pub mod model;
 pub mod redfish;
 pub mod resource_pool;
