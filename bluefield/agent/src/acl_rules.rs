@@ -10,10 +10,14 @@
  *   its affiliates is strictly prohibited.
  */
 
-use gtmpl_derive::Gtmpl;
+use std::rc::Rc;
+
+use ipnetwork::Ipv4Network;
+
+use crate::config_model::acl::{chain, target};
+use crate::config_model::acl::{IpTablesRule, IpTablesRuleset, RulesFile};
 
 pub const PATH: &str = "etc/cumulus/acl/policy.d/60-forge.rules";
-const TEMPLATE: &str = include_str!("../templates/forge-acl-rules");
 pub const RELOAD_CMD: &str = "cl-acltool -i";
 
 pub struct AclConfig {
@@ -28,19 +32,63 @@ pub struct AclConfig {
 
 /// Generate /etc/cumulus/acl/policy.d/60-forge.rules
 pub fn build(conf: AclConfig) -> Result<String, eyre::Report> {
-    let values = AclTemplateValues {
-        IngressInterfaces: conf.ingress_interfaces,
-        DenyPrefixes: conf.deny_prefixes,
-    };
-    let rendered = gtmpl::template(TEMPLATE, values)?;
-    Ok(rendered)
+    let iptables_rules = make_forge_rules(conf);
+    let rules_file = RulesFile::new(iptables_rules);
+
+    let file_contents = rules_file.to_string();
+
+    // eprintln!("{}", &file_contents);
+
+    Ok(file_contents)
 }
 
-#[allow(non_snake_case)]
-#[derive(Gtmpl)]
-struct AclTemplateValues {
-    pub IngressInterfaces: Vec<String>,
-    pub DenyPrefixes: Vec<String>,
+fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
+    let mut rules: Vec<IpTablesRule> = Vec::new();
+
+    let tenant_interfaces: Vec<_> = acl_config
+        .ingress_interfaces
+        .iter()
+        .map(|if_name| Rc::<str>::from(if_name.as_str()))
+        .collect();
+
+    let deny_prefixes: Vec<Ipv4Network> = acl_config
+        .deny_prefixes
+        .iter()
+        .map(|prefix| prefix.parse().unwrap())
+        .collect();
+
+    rules.extend(make_deny_prefix_rules(
+        tenant_interfaces.as_slice(),
+        deny_prefixes.as_slice(),
+    ));
+
+    IpTablesRuleset::new_with_rules(rules)
+}
+
+fn make_deny_prefix_rules(
+    tenant_interface_names: &[Rc<str>],
+    deny_prefixes: &[Ipv4Network],
+) -> Vec<IpTablesRule> {
+    let deny_base_rule = IpTablesRule::new(chain::FORWARD, target::DROP);
+    let mut rules: Vec<_> = deny_prefixes
+        .iter()
+        .flat_map(|prefix| {
+            tenant_interface_names
+                .iter()
+                .cloned()
+                .map(|interface_name| {
+                    let mut rule = deny_base_rule.clone();
+                    rule.set_ingress_interface(interface_name.clone());
+                    rule.set_destination_prefix(prefix.to_owned());
+                    rule
+                })
+        })
+        .collect();
+    if let Some(first_rule) = rules.first_mut() {
+        let comment = String::from("Drop traffic to deny_prefix list");
+        first_rule.set_comment_before(comment);
+    }
+    rules
 }
 
 #[cfg(test)]
