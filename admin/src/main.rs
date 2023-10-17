@@ -372,21 +372,35 @@ async fn main() -> color_eyre::Result<()> {
                             "Observed at",
                             "DPU machine ID",
                             "Network config version",
-                            "Is healthy?",
-                            "Checks passed",
-                            "Checks failed",
-                            "First failure"
+                            "Healthy?",
+                            "Check failed",
+                            "Agent version",
                         ]);
                         for mut st in all_status.into_iter().filter(|st| st.health.is_some()) {
                             let h = st.health.take().unwrap();
+                            let observed_at = st
+                                .observed_at
+                                .map(|o| {
+                                    let dt: chrono::DateTime<chrono::Utc> = o.try_into().unwrap();
+                                    dt.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
+                                })
+                                .unwrap_or_default();
+                            let failed_health_check = if !h.failed.is_empty() {
+                                format!(
+                                    "{} ({})",
+                                    h.failed.first().map(String::as_str).unwrap(),
+                                    h.message.unwrap_or_default(),
+                                )
+                            } else {
+                                "".to_string()
+                            };
                             table.add_row(row![
-                                st.observed_at.unwrap(),
+                                observed_at,
                                 st.dpu_machine_id.unwrap(),
                                 st.network_config_version.unwrap_or_default(),
                                 h.is_healthy,
-                                h.passed.join(","),
-                                h.failed.join(","),
-                                h.message.unwrap_or_default(),
+                                failed_health_check,
+                                st.dpu_agent_version.unwrap_or("".to_string())
                             ]);
                         }
                         table.printstd();
