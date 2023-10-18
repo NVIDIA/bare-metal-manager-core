@@ -614,3 +614,35 @@ pub async fn dpu_agent_upgrade_policy_action(
     })
     .await
 }
+
+pub async fn add_credential(
+    api_config: &Config,
+    req: rpc::CredentialCreationRequest,
+) -> CarbideCliResult<rpc::CredentialCreationResult> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(req);
+
+        client
+            .create_credential(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn delete_credential(
+    api_config: &Config,
+    req: rpc::CredentialDeletionRequest,
+) -> CarbideCliResult<rpc::CredentialDeletionResult> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(req);
+
+        client
+            .delete_credential(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}

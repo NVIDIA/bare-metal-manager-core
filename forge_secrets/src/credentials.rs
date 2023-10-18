@@ -78,6 +78,9 @@ pub enum CredentialKey {
     HostRedfish {
         credential_type: CredentialType,
     },
+    UfmAuth {
+        fabric: String,
+    },
 }
 
 impl CredentialKey {
@@ -117,6 +120,9 @@ impl CredentialKey {
                     panic!("BmcMachine is only used for DPUs");
                 }
             },
+            CredentialKey::UfmAuth { fabric } => {
+                format!("ufm/{fabric}/auth")
+            }
         }
     }
 }

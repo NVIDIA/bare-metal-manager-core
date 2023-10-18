@@ -27,7 +27,7 @@ use crate::{
         machine_topology::MachineTopology,
     },
     ib,
-    ib::types::IBNetwork,
+    ib::{types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::{
         config_version::ConfigVersion,
         instance::config::infiniband::InstanceIbInterfaceConfig,
@@ -954,6 +954,13 @@ async fn record_infiniband_status_observation(
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
 
+    let ib_fabric = ctx
+        .services
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .await
+        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+
     for ib in &ib_interfaces {
         let guid = ib.guid.clone().ok_or(StateHandlerError::MissingData {
             object_id: instance.instance_id.to_string(),
@@ -990,9 +997,7 @@ async fn record_infiniband_status_observation(
             guids: Some(v),
             pkey: ibpartition.config.pkey.map(|pkey| pkey as i32),
         };
-        let ports = ctx
-            .services
-            .ib_fabric_manager
+        let ports = ib_fabric
             .find_ib_port(Some(filter))
             .await
             .map_err(|err| StateHandlerError::GenericError(err.into()))?;
@@ -1030,6 +1035,13 @@ async fn bind_ib_ports(
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
 
+    let ib_fabric = ctx
+        .services
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .await
+        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+
     for ib in ib_interfaces {
         let guid = ib.guid.ok_or(StateHandlerError::MissingData {
             object_id: instance_id.to_string(),
@@ -1059,8 +1071,7 @@ async fn bind_ib_ports(
                 missing: "ib_partition not found",
             })?;
 
-        ctx.services
-            .ib_fabric_manager
+        ib_fabric
             .bind_ib_ports(IBNetwork::from(ibpartition), v)
             .await
             .map_err(|_| StateHandlerError::IBFabricError("bind_ib_ports".to_string()))?;
@@ -1076,6 +1087,13 @@ async fn unbind_ib_ports(
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
+
+    let ib_fabric = ctx
+        .services
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .await
+        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
 
     for ib in ib_interfaces {
         let guid = ib.guid.ok_or(StateHandlerError::MissingData {
@@ -1112,8 +1130,7 @@ async fn unbind_ib_ports(
                 missing: "ib_partition pkey",
             })?;
 
-        ctx.services
-            .ib_fabric_manager
+        ib_fabric
             .unbind_ib_ports(pkey as i32, v)
             .await
             .map_err(|_| StateHandlerError::IBFabricError("unbind_ib_ports".to_string()))?;
