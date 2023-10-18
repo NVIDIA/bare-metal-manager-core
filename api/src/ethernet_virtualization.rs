@@ -72,7 +72,7 @@ pub async fn admin_network(
         vni: 0, // admin isn't an overlay network, so no vni
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.to_string(),
-        allow_prefixes: vec![],
+        vpc_prefixes: vec![],
     };
     Ok(cfg)
 }
@@ -138,6 +138,6 @@ pub async fn tenant_network(
         vni: segment.vni.unwrap_or_default() as u32,
         gateway: v4_prefix.gateway_cidr().unwrap_or_default(),
         ip: address.to_string(),
-        allow_prefixes: vpc_prefixes,
+        vpc_prefixes,
     })
 }

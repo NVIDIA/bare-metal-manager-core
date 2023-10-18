@@ -180,7 +180,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         gateway: "192.168.0.0/16".to_string(),
         ip: "127.0.0.1".to_string(),
         virtual_function_id: None,
-        allow_prefixes: vec![],
+        vpc_prefixes: vec![],
     };
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
