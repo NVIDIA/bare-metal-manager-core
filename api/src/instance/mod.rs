@@ -44,6 +44,8 @@ use crate::{
 pub struct InstanceAllocationRequest {
     // The Machine on top of which we create an Instance
     pub machine_id: MachineId,
+    // Desired ID for the new instance
+    pub instance_id: uuid::Uuid,
 
     // Desired configuration of the instance
     pub config: InstanceConfig,
@@ -74,7 +76,17 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             return Err(RpcDataConversionError::MissingArgument("InstanceConfig::tenant").into());
         }
 
+        // If the Tenant provides an instance ID use this one
+        // Otherwise create a random ID
+        let instance_id = match request.instance_id {
+            Some(id) => id
+                .try_into()
+                .map_err(|_| RpcDataConversionError::InvalidUuid("instance_id"))?,
+            None => uuid::Uuid::new_v4(),
+        };
+
         Ok(InstanceAllocationRequest {
+            instance_id,
             machine_id,
             config,
             ssh_keys: request.ssh_keys,
@@ -109,6 +121,7 @@ pub async fn allocate_instance(
     // SSH keys can have 3 segments <algorithm> <key> <owner>
     // We are interested only in key.
     let new_instance = NewInstance {
+        instance_id: request.instance_id,
         machine_id: request.machine_id,
         tenant_config: &tenant_config,
         ssh_keys: request

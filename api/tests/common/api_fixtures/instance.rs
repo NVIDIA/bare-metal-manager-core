@@ -54,6 +54,7 @@ pub async fn create_instance_with_config(
     let mut info = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),

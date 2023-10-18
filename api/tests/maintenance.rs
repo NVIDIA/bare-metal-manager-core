@@ -59,6 +59,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }],
     };
     let req = rpcf::InstanceAllocationRequest {
+        instance_id: None,
         machine_id: Some(rpc_host_id.clone()),
         config: Some(rpcf::InstanceConfig {
             tenant: Some(tenant.clone()),
@@ -130,6 +131,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // allocate: should succeed
     let req = rpcf::InstanceAllocationRequest {
+        instance_id: None,
         machine_id: Some(rpc_host_id.clone()),
         config: Some(rpcf::InstanceConfig {
             tenant: Some(tenant.clone()),
