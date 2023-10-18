@@ -145,4 +145,32 @@ pub mod acl {
         pub const ACCEPT: &str = "ACCEPT";
         pub const DROP: &str = "DROP";
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_rule_outputs() {
+            let mut rule = IpTablesRule::new(chain::FORWARD, target::DROP);
+
+            let output = format!("{rule}");
+            assert_eq!(output.as_str(), "-A FORWARD -j DROP");
+
+            rule.set_ingress_interface(Rc::from("in1"));
+            let output = format!("{rule}");
+            assert_eq!(output.as_str(), "-A FORWARD -i in1 -j DROP");
+
+            rule.set_destination_prefix("192.0.2.0/24".parse().unwrap());
+            let output = format!("{rule}");
+            assert_eq!(output.as_str(), "-A FORWARD -i in1 -d 192.0.2.0/24 -j DROP");
+
+            rule.set_egress_interface(Rc::from("out1"));
+            let output = format!("{rule}");
+            assert_eq!(
+                output.as_str(),
+                "-A FORWARD -i in1 -o out1 -d 192.0.2.0/24 -j DROP"
+            );
+        }
+    }
 }
