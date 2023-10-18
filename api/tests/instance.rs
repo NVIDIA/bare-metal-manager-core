@@ -18,13 +18,13 @@ use carbide::{
         instance::{status::network::update_instance_network_status_observation, Instance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
-        ObjectFilter, UuidKeyedObjectFilter,
+        ObjectFilter,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     model::{
         instance::{
             config::{
-                infiniband::{InstanceIbInterfaceConfig, InstanceInfinibandConfig},
+                infiniband::InstanceInfinibandConfig,
                 network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
                 tenant_config::TenantConfig,
                 InstanceConfig,
@@ -42,15 +42,13 @@ use carbide::{
         machine::{InstanceState, ManagedHostState},
         tenant::TenantOrganizationId,
     },
-    state_controller::{
-        machine::handler::MachineStateHandler,
-        snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader},
+    state_controller::snapshot_loader::{
+        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
     },
 };
 use chrono::Utc;
 use common::api_fixtures::{
     create_managed_host, create_test_env, dpu,
-    ib_partition::create_ib_partition,
     instance::{create_instance, delete_instance, FIXTURE_CIRCUIT_ID},
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
@@ -662,7 +660,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
                 tenant_keyset_ids: vec![],
             }),
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
-            infiniband: InstanceInfinibandConfig::for_ib_partition_id(FIXTURE_NETWORK_SEGMENT_ID),
+            infiniband: InstanceInfinibandConfig::default(),
         },
         ssh_keys: vec!["mykey1".to_owned()],
     };
@@ -829,45 +827,6 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
     }
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_add_infiniband_data_via_migration(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        network,
-        None,
-        vec![],
-    )
-    .await;
-
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
-    env.run_machine_state_controller_iteration(host_machine_id, &handler)
-        .await;
-
-    let instance = env
-        .find_instances(Some(instance_id.into()))
-        .await
-        .instances
-        .remove(0);
-    let status = instance.status.as_ref().unwrap();
-    assert_eq!(
-        status.tenant.as_ref().unwrap().state(),
-        rpc::TenantState::Ready
-    );
-    assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
-}
-
 // TODO(gk) Restore after https://jirasw.nvidia.com/browse/FORGE-2243
 //#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> eyre::Result<()> {
@@ -942,334 +901,4 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
         panic!("Expected grpc code UNAVAILABLE, got {}", err.code());
     }
     Ok(())
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_crud_instance_with_ib_config(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
-    txn.commit().await.unwrap();
-
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
-    let ib = Some(rpc::InstanceInfinibandConfig {
-        ib_interfaces: vec![
-            rpc::InstanceIbInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
-                virtual_function_id: None,
-                ib_partition_id: Some(ib_partition_id.into()),
-                device: "MT2910 Family [ConnectX-7]".to_string(),
-                vendor: None,
-                device_instance: 1,
-            },
-            rpc::InstanceIbInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
-                virtual_function_id: None,
-                ib_partition_id: Some(ib_partition_id.into()),
-                device: "MT27800 Family [ConnectX-5]".to_string(),
-                vendor: None,
-                device_instance: 0,
-            },
-        ],
-    });
-
-    let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, network, ib, vec![]).await;
-
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    let fetched_instance_vec = Instance::find(&mut txn, UuidKeyedObjectFilter::One(instance_id))
-        .await
-        .expect("Could not find an instance");
-
-    let Some(fetched_instance) = fetched_instance_vec.last() else {
-        panic!("Could not find an instance for {}", instance_id);
-    };
-
-    assert_eq!(fetched_instance.machine_id, host_machine_id);
-    assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
-            .await
-            .unwrap(),
-        1
-    );
-
-    let ib_config = fetched_instance.ib_config.clone();
-    assert_eq!(ib_config.version.version_nr(), 1);
-    let ibs = ib_config.value.clone();
-    assert_eq!(ibs.ib_interfaces.len(), 2);
-    // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
-    // |       device               |    slot    |        guid       |   index |
-    // MT2910 Family [ConnectX-7]    0000:b1:00.0    946dae03002ac103      0
-    // MT2910 Family [ConnectX-7]    0000:b1:00.1    946dae03002ac102      1
-    // MT2910 Family [ConnectX-7]    0000:c1:00.0    946dae03002ac101      2
-    // MT2910 Family [ConnectX-7]    0000:c1:00.1    946dae03002ac100      3
-    // MT27800 Family [ConnectX-5]   0000:98:00.0    946dae03002ac752      0
-    // MT27800 Family [ConnectX-5]   0000:98:00.1    946dae03002ac753      1
-    if let Some(ib) = ibs.ib_interfaces.get(0) {
-        assert_eq!(ib.guid, Some("946dae03002ac102".to_string()));
-    } else {
-        panic!("ib configuration is incorrect.");
-    }
-    if let Some(ib) = ibs.ib_interfaces.get(1) {
-        assert_eq!(ib.guid, Some("946dae03002ac752".to_string()));
-    } else {
-        panic!("ib configuration is incorrect.");
-    }
-
-    assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready
-        }
-    ));
-    txn.commit().await.unwrap();
-
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
-
-    // Address is freed during delete
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
-    assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
-            .await
-            .unwrap(),
-        0
-    );
-    txn.commit().await.unwrap();
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
-
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
-    txn.commit().await.unwrap();
-
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
-
-    let request = InstanceAllocationRequest {
-        instance_id: uuid::Uuid::new_v4(),
-        machine_id: host_machine_id.clone(),
-        config: InstanceConfig {
-            tenant: Some(TenantConfig {
-                user_data: Some("SomeRandomData".to_string()),
-                custom_ipxe: "SomeRandomiPxe".to_string(),
-                always_boot_with_custom_ipxe: false,
-                tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
-                    .unwrap(),
-                tenant_keyset_ids: vec![],
-            }),
-            network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
-            infiniband: InstanceInfinibandConfig {
-                ib_interfaces: vec![InstanceIbInterfaceConfig {
-                    function_id: InterfaceFunctionId::Physical {},
-                    ib_partition_id,
-                    guid: None,
-                    device: "MT2910 Family [ConnectX-7]".to_string(),
-                    vendor: None,
-                    device_instance: 10, // not enough devices
-                }],
-            },
-        },
-        ssh_keys: vec!["mykey1".to_owned()],
-    };
-
-    let result = allocate_instance(request, &pool).await;
-    let error = result.expect_err("expected allocation to fail").to_string();
-    assert!(
-        error.contains("not enough ib device"),
-        "Error message should contain 'not enough ib device', but is {}",
-        error
-    );
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
-
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
-    txn.commit().await.unwrap();
-
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
-
-    let request = InstanceAllocationRequest {
-        instance_id: uuid::Uuid::new_v4(),
-        machine_id: host_machine_id.clone(),
-        config: InstanceConfig {
-            tenant: Some(TenantConfig {
-                user_data: Some("SomeRandomData".to_string()),
-                custom_ipxe: "SomeRandomiPxe".to_string(),
-                always_boot_with_custom_ipxe: false,
-                tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
-                    .unwrap(),
-                tenant_keyset_ids: vec![],
-            }),
-            network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
-            infiniband: InstanceInfinibandConfig {
-                ib_interfaces: vec![InstanceIbInterfaceConfig {
-                    function_id: InterfaceFunctionId::Physical {},
-                    ib_partition_id,
-                    guid: None,
-                    device: "MT28908  Family [ConnectX-6]".to_string(), // no ib devices
-                    vendor: None,
-                    device_instance: 0,
-                }],
-            },
-        },
-        ssh_keys: vec!["mykey1".to_owned()],
-    };
-
-    let result = allocate_instance(request, &pool).await;
-    let error = result.expect_err("expected allocation to fail").to_string();
-    assert!(
-        error.contains("no ib device"),
-        "Error message should contain 'no ib device', but is {}",
-        error
-    );
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
-
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
-
-    let mut txn = pool
-        .clone()
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-
-    assert!(matches!(
-        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-            .await
-            .unwrap()
-            .unwrap()
-            .current_state(),
-        ManagedHostState::Ready
-    ));
-    txn.commit().await.unwrap();
-
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
-
-    let request = InstanceAllocationRequest {
-        instance_id: uuid::Uuid::new_v4(),
-        machine_id: host_machine_id.clone(),
-        config: InstanceConfig {
-            tenant: Some(TenantConfig {
-                user_data: Some("SomeRandomData".to_string()),
-                custom_ipxe: "SomeRandomiPxe".to_string(),
-                always_boot_with_custom_ipxe: false,
-                tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
-                    .unwrap(),
-                tenant_keyset_ids: vec![],
-            }),
-            network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
-            infiniband: InstanceInfinibandConfig {
-                ib_interfaces: vec![
-                    InstanceIbInterfaceConfig {
-                        function_id: InterfaceFunctionId::Physical {},
-                        ib_partition_id,
-                        guid: None,
-                        device: "MT2910 Family [ConnectX-7]".to_string(), // no ib devices
-                        vendor: None,
-                        device_instance: 0,
-                    },
-                    InstanceIbInterfaceConfig {
-                        function_id: InterfaceFunctionId::Physical {},
-                        ib_partition_id,
-                        guid: None,
-                        device: "MT2910 Family [ConnectX-7]".to_string(), // no ib devices
-                        vendor: None,
-                        device_instance: 0,
-                    },
-                ],
-            },
-        },
-        ssh_keys: vec!["mykey1".to_owned()],
-    };
-
-    let result = allocate_instance(request, &pool).await;
-    let error = result.expect_err("expected allocation to fail").to_string();
-    assert!(
-        error.contains("is reused"),
-        "Error message should contain 'is reused', but is {}",
-        error
-    );
 }

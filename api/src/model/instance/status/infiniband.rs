@@ -112,9 +112,9 @@ impl InstanceInfinibandStatus {
                     .find(|iface| iface.guid == config.guid);
                 match observation {
                     Some(observation) => InstanceIbInterfaceStatus {
+                        pf_guid: config.pf_guid.clone(),
                         guid: observation.guid.clone(),
                         lid: observation.lid,
-                        addresses: observation.addresses.clone(),
                     },
                     None => {
                         tracing::error!(
@@ -127,9 +127,9 @@ impl InstanceInfinibandStatus {
                         // On the other hand the error is also visible via returning no IPs - and at least we don't break
                         // all other interfaces this way
                         InstanceIbInterfaceStatus {
+                            pf_guid: None,
                             guid: None,
                             lid: 0,
-                            addresses: Vec::new(),
                         }
                     }
                 }
@@ -153,9 +153,9 @@ impl InstanceInfinibandStatus {
                 .ib_interfaces
                 .iter()
                 .map(|iface| InstanceIbInterfaceStatus {
+                    pf_guid: iface.pf_guid.clone(),
                     guid: iface.guid.clone(),
                     lid: 0,
-                    addresses: Vec::new(),
                 })
                 .collect(),
             configs_synced: SyncState::Pending,
@@ -192,18 +192,27 @@ impl InstanceInfinibandStatusObservation {
 /// The network status that was last reported by the infiniband subystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceIbInterfaceStatus {
+    /// The GUID of the hardware device that this interface is attached to
+    pub pf_guid: Option<String>,
+    /// The GUID which has been assigned to this interface
+    /// In case the interface is a PF interface, the GUID will be equvalent to
+    /// `pf_guid` - which is the GUID that is stored on the hardware device.
+    /// For a VF interface, this is a GUID that has been allocated by Forge in order
+    /// be used for the VF.
+    // Tenants have to configure the VF device on their instances to use this GUID.
     pub guid: Option<String>,
+    /// The local id of this IB interface
+    /// If interface configuration has not been completed, the value is 0
     pub lid: u32,
-    pub addresses: Vec<String>,
 }
 
 impl TryFrom<InstanceIbInterfaceStatus> for rpc::InstanceIbInterfaceStatus {
     type Error = RpcDataConversionError;
     fn try_from(status: InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
         Ok(Self {
+            pf_guid: status.pf_guid.clone(),
             guid: status.guid.clone(),
             lid: status.lid,
-            addresses: status.addresses,
         })
     }
 }
@@ -212,9 +221,9 @@ impl TryFrom<rpc::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
     type Error = RpcDataConversionError;
     fn try_from(status: rpc::InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
         Ok(Self {
+            pf_guid: status.pf_guid.clone(),
             guid: status.guid.clone(),
             lid: status.lid,
-            addresses: status.addresses,
         })
     }
 }
