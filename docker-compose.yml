@@ -1,5 +1,8 @@
 version: "3.9"
 
+# NOTE: You need the docker loki log driver:
+# `docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions`
+
 networks:
   carbide:
     driver_opts:
