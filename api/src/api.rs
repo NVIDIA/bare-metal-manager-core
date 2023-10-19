@@ -4160,7 +4160,13 @@ where
             asn: carbide_config.asn,
             dhcp_servers: carbide_config.dhcp_servers.clone(),
             route_servers: carbide_config.route_servers.clone(),
-            deny_prefixes: carbide_config.deny_prefixes.clone(),
+            // Include the site fabric prefixes in the deny prefixes list, since
+            // we treat them the same way from here.
+            deny_prefixes: [
+                carbide_config.site_fabric_prefixes.as_slice(),
+                carbide_config.deny_prefixes.as_slice(),
+            ]
+            .concat(),
         };
 
         let health_pool = database_connection.clone();

@@ -35,6 +35,7 @@ use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLaye
 
 mod acl_rules;
 mod command_line;
+pub mod config_model;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 mod daemons;
 mod dhcp;

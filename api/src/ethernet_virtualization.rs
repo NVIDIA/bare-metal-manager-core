@@ -19,6 +19,7 @@ use crate::{
     db::{
         machine_interface::MachineInterface,
         machine_interface_address::MachineInterfaceAddress,
+        network_prefix::NetworkPrefix,
         network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
         UuidKeyedObjectFilter,
     },
@@ -71,6 +72,7 @@ pub async fn admin_network(
         vni: 0, // admin isn't an overlay network, so no vni
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.to_string(),
+        vpc_prefixes: vec![],
     };
     Ok(cfg)
 }
@@ -111,6 +113,20 @@ pub async fn tenant_network(
         ))
     })?;
 
+    // FIXME: Ideally, we would like the containing prefix that is assigned to
+    // the tenant/VPC, but only the cloud tracks that information. Instead, we
+    // have to collect all of the smaller prefixes that were created from it and
+    // are attached to our VPC at the moment.
+    let vpc_prefixes: Vec<_> = match segment.vpc_id {
+        Some(vpc_id) => NetworkPrefix::find_by_vpc(txn, vpc_id)
+            .await
+            .map_err(CarbideError::from)?
+            .into_iter()
+            .map(|np| np.prefix.to_string())
+            .collect(),
+        None => vec![v4_prefix.prefix.to_string()],
+    };
+
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     Ok(rpc::FlatInterfaceConfig {
         function_type: rpc_ft.into(),
@@ -122,5 +138,6 @@ pub async fn tenant_network(
         vni: segment.vni.unwrap_or_default() as u32,
         gateway: v4_prefix.gateway_cidr().unwrap_or_default(),
         ip: address.to_string(),
+        vpc_prefixes,
     })
 }

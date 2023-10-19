@@ -67,6 +67,11 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub deny_prefixes: Vec<Ipv4Network>,
 
+    /// List of IPv4 prefixes (in CIDR notation) that are assigned for tenant
+    /// use within this site.
+    #[serde(default)]
+    pub site_fabric_prefixes: Vec<Ipv4Network>,
+
     /// TLS related configuration
     pub tls: Option<TlsConfig>,
 

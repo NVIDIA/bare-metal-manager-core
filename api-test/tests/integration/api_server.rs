@@ -39,6 +39,7 @@ pub async fn start(
         dhcp_servers: vec![],
         route_servers: vec![],
         deny_prefixes: vec![],
+        site_fabric_prefixes: vec![],
         initial_domain_name: Some(DOMAIN_NAME.to_string()),
         initial_dpu_agent_upgrade_policy: Some(AgentUpgradePolicyChoice::Off),
         tls: Some(TlsConfig {
