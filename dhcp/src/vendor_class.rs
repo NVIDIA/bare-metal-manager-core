@@ -113,7 +113,7 @@ impl FromStr for VendorClass {
                         arch: parts[1].parse()?,
                     }),
                     _ => Ok(VendorClass {
-                        id: format!("unknown: '{}'", space.to_string()),
+                        id: format!("unknown: '{}'", space),
                         arch: MachineArchitecture::EfiX64,
                     }),
                 }
@@ -131,7 +131,7 @@ impl FromStr for VendorClass {
                 arch: MachineArchitecture::EfiX64,
             }),
             vc => Ok(VendorClass {
-                id: format!("unknown: '{}'", vc.to_string()),
+                id: format!("unknown: '{}'", vc),
                 arch: MachineArchitecture::EfiX64,
             }),
         };
