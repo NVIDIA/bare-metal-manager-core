@@ -22,7 +22,7 @@ use chrono::Duration;
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
-use opentelemetry_api::metrics::{ObservableGauge, Observer, Unit};
+use opentelemetry_api::metrics::{ObservableGauge, Observer};
 use opentelemetry_api::KeyValue;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Postgres, Transaction};
@@ -158,7 +158,6 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
     tls_config: ApiTlsConfig,
-    pub(crate) api_request_metrics: Option<Arc<ApiRequestMetrics>>,
 }
 
 pub struct ApiRequestMetrics {
@@ -1240,23 +1239,6 @@ where
             agent_version = machine_obs.agent_version,
             "Applied network configs",
         );
-
-        if let Some(client_certificate_expiry_unix_epoch_secs) =
-            request.client_certificate_expiry_unix_epoch_secs
-        {
-            if let Some(api_request_metrics) = self.api_request_metrics.as_ref() {
-                api_request_metrics
-                    .dpu_client_certificate_expiry
-                    .rcu(|expiry_map| {
-                        let mut expiry_map = HashMap::clone(expiry_map);
-                        expiry_map.insert(
-                            dpu_machine_id.clone(),
-                            client_certificate_expiry_unix_epoch_secs,
-                        );
-                        expiry_map
-                    });
-            }
-        }
 
         // We already persisted the machine parts of applied_config in
         // update_network_status_observation above. Now do the instance parts.
@@ -4087,7 +4069,6 @@ where
             eth_data,
             common_pools,
             tls_config,
-            api_request_metrics: None,
         }
     }
 
@@ -4203,18 +4184,6 @@ where
             root_cafile_path: tls_ref.root_cafile_path.clone(),
             admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
         };
-        let dpu_client_certificate_expiry_gauge = meter
-            .u64_observable_gauge("carbide-api.certificates.dpu_client_cert_expiry")
-            .with_description(
-                "The timestamp, in unix epoch seconds, until the dpu client certificate will expire",
-            )
-            .with_unit(Unit::new("s"))
-            .init();
-
-        let api_request_metrics = Arc::new(ApiRequestMetrics {
-            dpu_client_certificate_expiry_gauge,
-            dpu_client_certificate_expiry: ArcSwap::new(Arc::new(HashMap::default())),
-        });
 
         let api_service = Arc::new(Api {
             credential_provider: credential_provider.clone(),
@@ -4225,13 +4194,7 @@ where
             eth_data,
             common_pools: common_pools.clone(),
             tls_config,
-            api_request_metrics: Some(api_request_metrics.clone()),
         });
-
-        meter.register_callback(
-            &api_request_metrics.emit_observables(),
-            move |observer: &dyn Observer| api_request_metrics.observe_callback(observer),
-        )?;
 
         if let Some(networks) = carbide_config.networks.as_ref() {
             api_service.create_initial_networks(networks).await?;
