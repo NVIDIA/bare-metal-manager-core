@@ -112,7 +112,10 @@ impl FromStr for VendorClass {
                         id: parts[0].to_string(),
                         arch: parts[1].parse()?,
                     }),
-                    _ => Err(VendorClassParseError::InvalidFormat),
+                    _ => Ok(VendorClass {
+                        id: format!("unknown: '{}'", space),
+                        arch: MachineArchitecture::EfiX64,
+                    }),
                 }
             }
             // BF2Client is older BF2 cards, PXEClient without colon is iPxe response
@@ -127,7 +130,10 @@ impl FromStr for VendorClass {
                 id: vc.to_string(),
                 arch: MachineArchitecture::EfiX64,
             }),
-            _ => Err(VendorClassParseError::InvalidFormat),
+            vc => Ok(VendorClass {
+                id: format!("unknown: '{}'", vc),
+                arch: MachineArchitecture::EfiX64,
+            }),
         };
         out
     }
