@@ -106,6 +106,10 @@ pub struct CarbideConfig {
     /// during reprovisioning will be disabled
     pub dpu_nic_firmware_update_version: Option<String>,
 
+    /// Enable dpu firmware updates
+    #[serde(default)]
+    pub dpu_nic_firmware_update_enabled: bool,
+
     /// The maximum number of machines that have in-progress updates running.  This prevents
     /// too many machines from being put into maintenance at any given time.
     pub max_concurrent_machine_updates: Option<i32>,

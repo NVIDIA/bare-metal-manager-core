@@ -34,6 +34,10 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     where
         Self: Sized,
     {
+        if !config.dpu_nic_firmware_update_enabled {
+            return None;
+        }
+
         if let Some(expected_dpu_firmware_version) = config.dpu_nic_firmware_update_version.as_ref()
         {
             let metrics = Arc::new(Mutex::new(DpuNicFirmwareUpdateMetrics::new(meter.clone())));

@@ -64,7 +64,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
 
     // let state machine check the failure condition.
 
-    let handler = MachineStateHandler::default();
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
     let services = Arc::new(env.state_handler_services());
     run_state_controller_iteration(
         &services,
@@ -102,7 +102,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     assert!(matches!(dpu_machine.has_healthy_network(), Ok(true)));
 
     // Tell state handler to mark DPU as unhealthy after 1 second
-    let handler = MachineStateHandler::new(chrono::Duration::seconds(1));
+    let handler = MachineStateHandler::new(chrono::Duration::seconds(1), true);
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Run the state state handler

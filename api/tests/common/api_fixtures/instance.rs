@@ -64,7 +64,7 @@ pub async fn create_instance_with_config(
         .expect("Create instance failed.")
         .into_inner();
 
-    let handler = MachineStateHandler::default();
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
 
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration(host_machine_id.clone(), &handler)
@@ -109,7 +109,7 @@ pub async fn delete_instance(
         .await
         .expect("Delete instance failed.");
 
-    let handler = MachineStateHandler::default();
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(

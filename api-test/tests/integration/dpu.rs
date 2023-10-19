@@ -83,6 +83,7 @@ pub async fn bootstrap(
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
     grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
 
+    /* Disabled until firmware fix is released
     wait_for_state(
         carbide_api_addr,
         &dpu_machine_id,
@@ -95,6 +96,7 @@ pub async fn bootstrap(
     discover(carbide_api_addr, Some("2.0.1".to_owned()))?;
 
     forge_agent_control(carbide_api_addr, dpu_machine_id.clone())?;
+    */
 
     wait_for_state(
         carbide_api_addr,
@@ -103,7 +105,8 @@ pub async fn bootstrap(
     )?;
 
     let firmware_version = get_firmware_version(carbide_api_addr, &dpu_machine_id)?;
-    assert_eq!(&firmware_version, "2.0.1");
+    tracing::info!("firmware_version: {firmware_version}");
+    //    assert_eq!(&firmware_version, "2.0.1");
 
     let hbn_root = make_dpu_filesystem(
         dpu_config_path,
@@ -168,6 +171,7 @@ fn discover(
     Ok((interface_id, dpu_machine_id, ip_address))
 }
 
+#[allow(dead_code)] // disabled until firmware is fixed
 fn forge_agent_control(addr: SocketAddr, dpu_machine_id: String) -> eyre::Result<()> {
     grpcurl(
         addr,
