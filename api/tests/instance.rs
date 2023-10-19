@@ -739,7 +739,7 @@ async fn test_instance_add_infiniband_data_via_migration(pool: sqlx::PgPool) {
     )
     .await;
 
-    let handler = MachineStateHandler::default();
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
     env.run_machine_state_controller_iteration(host_machine_id, &handler)
         .await;
 

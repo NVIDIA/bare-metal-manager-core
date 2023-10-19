@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use carbide::{
-    api::{Api, ApiTlsConfig},
+    api::{Api, ApiTlsConfig, MachineUpdateConfig},
     auth::{Authorizer, NoopEngine},
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
@@ -116,6 +116,9 @@ impl TestEnv {
                 identity_keyfile_path: "not a real keyfile path".to_string(),
                 root_cafile_path: "not a real cafile path".to_string(),
                 admin_root_cafile_path: "not a real admin cafile path".to_string(),
+            },
+            MachineUpdateConfig {
+                dpu_nic_firmware_update_enabled: true,
             },
         ));
 
@@ -343,6 +346,9 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
             identity_keyfile_path: "not a real keyfile path".to_string(),
             root_cafile_path: "not a real cafile path".to_string(),
             admin_root_cafile_path: "not a real admin cafile path".to_string(),
+        },
+        MachineUpdateConfig {
+            dpu_nic_firmware_update_enabled: true,
         },
     );
     TestEnv {

@@ -65,12 +65,12 @@ pub struct MachineStateHandler {
 }
 
 impl MachineStateHandler {
-    pub fn new(dpu_up_threshold: chrono::Duration) -> Self {
+    pub fn new(dpu_up_threshold: chrono::Duration, dpu_nic_firmware_enabled: bool) -> Self {
         MachineStateHandler {
             dpu_up_threshold,
             host_handler: Default::default(),
-            dpu_handler: Default::default(),
-            instance_handler: Default::default(),
+            dpu_handler: DpuMachineStateHandler::new(dpu_nic_firmware_enabled),
+            instance_handler: InstanceStateHandler::new(dpu_nic_firmware_enabled),
         }
     }
 }
@@ -78,7 +78,7 @@ impl MachineStateHandler {
 /// Conveninence function for the tests
 impl Default for MachineStateHandler {
     fn default() -> Self {
-        Self::new(chrono::Duration::minutes(5))
+        Self::new(chrono::Duration::minutes(5), false)
     }
 }
 
@@ -473,8 +473,17 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 
 /// A `StateHandler` implementation for DPU machines
 #[derive(Debug, Default)]
-pub struct DpuMachineStateHandler {}
+pub struct DpuMachineStateHandler {
+    dpu_nic_firmware_update_enabled: bool,
+}
 
+impl DpuMachineStateHandler {
+    pub fn new(dpu_nic_firmware_update_enabled: bool) -> Self {
+        DpuMachineStateHandler {
+            dpu_nic_firmware_update_enabled,
+        }
+    }
+}
 #[async_trait::async_trait]
 impl StateHandler for DpuMachineStateHandler {
     type State = ManagedHostStateSnapshot;
@@ -500,18 +509,29 @@ impl StateHandler for DpuMachineStateHandler {
                     return Ok(());
                 }
 
-                // the initial topology may be based on a different firmware version.  allow it to be
-                // updated once the reboot completes and sends new data.
-                MachineTopology::set_topology_update_needed(
-                    txn,
-                    &state.dpu_snapshot.machine_id,
-                    true,
-                )
-                .await?;
+                tracing::info!(
+                    "ManagedHostState::DPUNotReady::Init: firmware update enabled = {}",
+                    self.dpu_nic_firmware_update_enabled
+                );
 
-                *controller_state.modify() = ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::WaitingForNetworkInstall,
-                };
+                if self.dpu_nic_firmware_update_enabled {
+                    // the initial topology may be based on a different firmware version.  allow it to be
+                    // updated once the reboot completes and sends new data.
+                    MachineTopology::set_topology_update_needed(
+                        txn,
+                        &state.dpu_snapshot.machine_id,
+                        true,
+                    )
+                    .await?;
+
+                    *controller_state.modify() = ManagedHostState::DPUNotReady {
+                        machine_state: MachineState::WaitingForNetworkInstall,
+                    };
+                } else {
+                    *controller_state.modify() = ManagedHostState::DPUNotReady {
+                        machine_state: MachineState::WaitingForNetworkConfig,
+                    };
+                }
             }
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::WaitingForNetworkInstall,
@@ -729,7 +749,17 @@ impl StateHandler for HostMachineStateHandler {
 
 /// A `StateHandler` implementation for instances
 #[derive(Debug, Default)]
-pub struct InstanceStateHandler {}
+pub struct InstanceStateHandler {
+    dpu_nic_firmware_update_enabled: bool,
+}
+
+impl InstanceStateHandler {
+    pub fn new(dpu_nic_firmware_update_enabled: bool) -> Self {
+        InstanceStateHandler {
+            dpu_nic_firmware_update_enabled,
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl StateHandler for InstanceStateHandler {
@@ -840,6 +870,7 @@ impl StateHandler for InstanceStateHandler {
                                     instance_state: InstanceState::DPUReprovision {
                                         reprovision_state: if reprovisioning_requested
                                             .update_firmware
+                                            && self.dpu_nic_firmware_update_enabled
                                         {
                                             ReprovisionState::FirmwareUpgrade
                                         } else {

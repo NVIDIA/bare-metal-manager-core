@@ -153,6 +153,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
     tls_config: ApiTlsConfig,
+    machine_update_config: MachineUpdateConfig,
 }
 
 pub struct ApiTlsConfig {
@@ -160,6 +161,10 @@ pub struct ApiTlsConfig {
     pub identity_keyfile_path: String,
     pub root_cafile_path: String,
     pub admin_root_cafile_path: String,
+}
+
+pub struct MachineUpdateConfig {
+    pub dpu_nic_firmware_update_enabled: bool,
 }
 
 #[tonic::async_trait]
@@ -3336,6 +3341,12 @@ where
             ));
         }
 
+        if !self.machine_update_config.dpu_nic_firmware_update_enabled && req.update_firmware {
+            return Err(Status::invalid_argument(
+                "DPU NIC firmware update is disabled.",
+            ));
+        }
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin trigger_dpu_reprovisioning ", e)
         })?;
@@ -4040,6 +4051,7 @@ where
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
         tls_config: ApiTlsConfig,
+        machine_update_config: MachineUpdateConfig,
     ) -> Self {
         Self {
             database_connection,
@@ -4050,6 +4062,7 @@ where
             eth_data,
             common_pools,
             tls_config,
+            machine_update_config,
         }
     }
 
@@ -4165,6 +4178,11 @@ where
             root_cafile_path: tls_ref.root_cafile_path.clone(),
             admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
         };
+
+        let machine_update_config = MachineUpdateConfig {
+            dpu_nic_firmware_update_enabled: carbide_config.dpu_nic_firmware_update_enabled,
+        };
+
         let api_service = Arc::new(Api {
             credential_provider: credential_provider.clone(),
             certificate_provider: certificate_provider.clone(),
@@ -4174,6 +4192,7 @@ where
             eth_data,
             common_pools: common_pools.clone(),
             tls_config,
+            machine_update_config,
         });
 
         if let Some(networks) = carbide_config.networks.as_ref() {
@@ -4213,6 +4232,7 @@ where
                 .iteration_time(service_config.machine_state_controller_iteration_time)
                 .state_handler(Arc::new(MachineStateHandler::new(
                     service_config.dpu_up_threshold,
+                    carbide_config.dpu_nic_firmware_update_enabled,
                 )))
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
