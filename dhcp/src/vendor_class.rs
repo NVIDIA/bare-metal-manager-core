@@ -101,7 +101,10 @@ impl FromStr for VendorClass {
                         id: parts[0].to_string(),
                         arch: parts[2].parse()?,
                     }),
-                    _ => Err(VendorClassParseError::InvalidFormat),
+                    _ => Ok(VendorClass {
+                        id: format!("unknown: '{}'", colon),
+                        arch: MachineArchitecture::EfiX64,
+                    }),
                 }
             }
             // This is the OS (bluefield so far, maybe host OS's too)
