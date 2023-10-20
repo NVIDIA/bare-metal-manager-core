@@ -17,7 +17,14 @@ if [ $# -ne 1 ]; then
   exit 1
 fi
 
-export DISABLE_TLS_ENFORCEMENT=true
+export CERT_PATH=${CERT_PATH:=/tmp/localdev-certs}
+if [[ ! -e ${CERT_PATH}/tls.crt ]]; then
+    echo "pulling certs from pod"
+    mkdir -p ${CERT_PATH}
+    kubectl -n forge-system exec deploy/carbide-api -- tar cf - -C /var/run/secrets/spiffe.io/..data . | tar xf - -C ${CERT_PATH}
+fi
+
+export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
 
 DATA_DIR=$1
 source $DATA_DIR/envrc
@@ -27,7 +34,7 @@ BMC_METADATA_FILE=${DATA_DIR}/update_dpu_bmc_metadata.json
 
 simulate_boot() {
   # Simulate the DHCP request of a DPU
-  RESULT=`grpcurl -d @ -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverDhcp < "${DATA_DIR}/dpu_dhcp_discovery.json"`
+  RESULT=`${GRPCURL} -d @ $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverDhcp < "${DATA_DIR}/dpu_dhcp_discovery.json"`
   MACHINE_INTERFACE_ID=$(echo $RESULT | jq ".machineInterfaceId.value" | tr -d '"')
   echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
 
@@ -45,32 +52,32 @@ simulate_boot() {
   echo "Sending DiscoverMachine"
   # Simulate the Machine discovery request of a DPU
   DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "${DATA_DIR}/dpu_machine_discovery.json")
-  RESULT=$(echo $DISCOVER_MACHINE_REQUEST | grpcurl -d @ -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverMachine)
+  RESULT=$(echo $DISCOVER_MACHINE_REQUEST | ${GRPCURL} -d @ $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverMachine)
   DPU_MACHINE_ID=$(echo $RESULT | jq ".machineId.id" | tr -d '"')
   echo "DPU_MACHINE_ID: ${DPU_MACHINE_ID}"
 
   echo "Updating BMC Metadata"
   UPDATE_BMC_METADATA=$(jq --arg machine_id "$DPU_MACHINE_ID" '.machine_id.id = $machine_id' "$BMC_METADATA_FILE")
-  grpcurl -d "$UPDATE_BMC_METADATA" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/UpdateBMCMetaData
+  ${GRPCURL} -d "$UPDATE_BMC_METADATA" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/UpdateBMCMetaData
 
   # Mark discovery complete
   echo "Sending DiscoveryComplete"
-  RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
+  RESULT=$(${GRPCURL} -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
   echo "DPU discovery completed. Waiting for it reached in Host/WaitingForDiscovery state."
 
   ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${REAL_IP}';"
 
-  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   echo "Created DPU Machine with ID $DPU_MACHINE_ID (state: ${MACHINE_STATE})"
 
-  ACTION=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/ForgeAgentControl | jq -r .action)
+  ACTION=$(${GRPCURL} -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/ForgeAgentControl | jq -r .action)
   echo "Forge Agent Control Result: $ACTION (state: ${MACHINE_STATE})"
 
   if [[ "${ACTION}" == "DISCOVERY" ]]
   then
     echo "Performing discovery"
     # Simulate credential settings of a DPU
-    RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"credentials\": [{\"user\": \"forge\", \"password\": \"notforprod\", \"credential_purpose\": 1}] }" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/UpdateMachineCredentials)
+    RESULT=$(${GRPCURL} -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"credentials\": [{\"user\": \"forge\", \"password\": \"notforprod\", \"credential_purpose\": 1}] }" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/UpdateMachineCredentials)
     cred_ret=$?
     if [ $cred_ret -eq 0 ]; then
       echo "Created 'forge' DPU SSH account"
@@ -80,33 +87,40 @@ simulate_boot() {
     fi
 
     # Mark discovery complete
-    RESULT=$(grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
+    RESULT=$(${GRPCURL} -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
     echo "DPU discovery completed: ${RESULT}"
   fi
 
-  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   echo "Machine State: ${MACHINE_STATE}"
 }
 
 echo "simulating first boot"
 simulate_boot
 
-MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
 while [[ $MACHINE_STATE != "DPU/WaitingForNetworkInstall" ]]; do
+  if [[ $MACHINE_STATE == "DPU/WaitingForNetworkConfig" ]]; then
+      echo "DPU/WaitingForNetworkInstall skipped"
+      FIRMWARE_UPDATE_SKIPPED=1
+      break
+  fi
   echo "Waiting for DPU state DPU/WaitingForNetworkInstall. Current: $MACHINE_STATE"
   sleep 10
-  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
 done
 echo "State: ${MACHINE_STATE}"
 
-echo "simulating second boot"
-simulate_boot
+if [[ -n "$FIRMWARE_UPDATE_SKIPPED" ]]; then
+  echo "simulating second boot"
+  simulate_boot
+fi
 
-MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
 while [[ $MACHINE_STATE != "DPU/WaitingForNetworkConfig" ]]; do
   echo "Waiting for DPU state DPU/WaitingForNetworkConfig. Current: $MACHINE_STATE"
   sleep 10
-  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
 done
 echo "State: ${MACHINE_STATE}"
 
@@ -125,7 +139,7 @@ cat <<!> $DPU_CONFIG_FILE
 [forge-system]
 api-server = "https://$API_SERVER_HOST:$API_SERVER_PORT"
 pxe-server = "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT"
-root-ca = "./dev/certs/forge_developer_local_only_root_cert_pem"
+root-ca = "${CERT_PATH}/ca.crt"
 
 [machine]
 interface-id = "$MACHINE_INTERFACE_ID"
@@ -150,11 +164,11 @@ echo "HBN files are in ${HBN_ROOT}"
 cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
 
 # Wait until DPU becomes ready
-MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
 while [[ $MACHINE_STATE != "Host/WaitingForDiscovery" ]]; do
   echo "Waiting for DPU state Host/WaitingForDiscovery. Current: $MACHINE_STATE"
   sleep 10
-  MACHINE_STATE=$(grpcurl -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" -insecure $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
+  MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
 done
 
 echo "simulating third boot"
