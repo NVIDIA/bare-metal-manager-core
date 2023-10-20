@@ -50,7 +50,7 @@ impl FromStr for MachineArchitecture {
                     Ok(16) => Ok(MachineArchitecture::EfiX64), // HTTP version
                     Ok(19) => Ok(MachineArchitecture::Arm64),  // HTTP version
                     Ok(_) => Ok(MachineArchitecture::Unknown), // Unknown
-                    Err(_) => Err(VendorClassParseError::InvalidFormat), // Better Error
+                    Err(_) => Ok(MachineArchitecture::Unknown), // No Errors, we always vend ips
                 }
             }
         }
