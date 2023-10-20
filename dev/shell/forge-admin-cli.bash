@@ -84,6 +84,9 @@ _forge-admin-cli() {
             forge__admin__cli,rf)
                 cmd="forge__admin__cli__redfish"
                 ;;
+            forge__admin__cli,route-server)
+                cmd="forge__admin__cli__route__server"
+                ;;
             forge__admin__cli,rp)
                 cmd="forge__admin__cli__resource__pool"
                 ;;
@@ -263,6 +266,9 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__help,resource-pool)
                 cmd="forge__admin__cli__help__resource__pool"
+                ;;
+            forge__admin__cli__help,route-server)
+                cmd="forge__admin__cli__help__route__server"
                 ;;
             forge__admin__cli__help,version)
                 cmd="forge__admin__cli__help__version"
@@ -470,6 +476,15 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__help__resource__pool,list)
                 cmd="forge__admin__cli__help__resource__pool__list"
+                ;;
+            forge__admin__cli__help__route__server,add)
+                cmd="forge__admin__cli__help__route__server__add"
+                ;;
+            forge__admin__cli__help__route__server,get)
+                cmd="forge__admin__cli__help__route__server__get"
+                ;;
+            forge__admin__cli__help__route__server,remove)
+                cmd="forge__admin__cli__help__route__server__remove"
                 ;;
             forge__admin__cli__instance,help)
                 cmd="forge__admin__cli__instance__help"
@@ -927,6 +942,30 @@ _forge-admin-cli() {
             forge__admin__cli__resource__pool__help,list)
                 cmd="forge__admin__cli__resource__pool__help__list"
                 ;;
+            forge__admin__cli__route__server,add)
+                cmd="forge__admin__cli__route__server__add"
+                ;;
+            forge__admin__cli__route__server,get)
+                cmd="forge__admin__cli__route__server__get"
+                ;;
+            forge__admin__cli__route__server,help)
+                cmd="forge__admin__cli__route__server__help"
+                ;;
+            forge__admin__cli__route__server,remove)
+                cmd="forge__admin__cli__route__server__remove"
+                ;;
+            forge__admin__cli__route__server__help,add)
+                cmd="forge__admin__cli__route__server__help__add"
+                ;;
+            forge__admin__cli__route__server__help,get)
+                cmd="forge__admin__cli__route__server__help__get"
+                ;;
+            forge__admin__cli__route__server__help,help)
+                cmd="forge__admin__cli__route__server__help__help"
+                ;;
+            forge__admin__cli__route__server__help,remove)
+                cmd="forge__admin__cli__route__server__help__remove"
+                ;;
             *)
                 ;;
         esac
@@ -934,7 +973,7 @@ _forge-admin-cli() {
 
     case "${cmd}" in
         forge__admin__cli)
-            opts="-c -f -o -d -h --version --carbide-api --format --output --forge-root-ca-path --client-cert-path --client-key-path --debug --help version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential help"
+            opts="-c -f -o -d -h --version --carbide-api --format --output --forge-root-ca-path --client-cert-path --client-key-path --debug --help version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential route-server help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1720,7 +1759,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help)
-            opts="version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential help"
+            opts="version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential route-server help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2896,6 +2935,62 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__resource__pool__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__route__server)
+            opts="get add remove"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__route__server__add)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__route__server__get)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__route__server__remove)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -5759,6 +5854,132 @@ _forge-admin-cli() {
             ;;
         forge__admin__cli__resource__pool__list)
             opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server)
+            opts="-h --help get add remove help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server__add)
+            opts="-h --help <IP>"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server__get)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server__help)
+            opts="get add remove help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server__help__add)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server__help__get)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server__help__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server__help__remove)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__route__server__remove)
+            opts="-h --help <IP>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
