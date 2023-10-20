@@ -79,5 +79,20 @@
 	],
 	"version": "1_0",
 	"whitelisted_images": [],
-	"whitelists": [ ]
+	"whitelists": [
+        {
+            "id": "c912eeed-4fe1-4ef2-b56d-765195df32b9", # meaningless random `uuidgen` output
+            "name": "Forge Allowlist", # For humans, doens't match anything
+            "comment": "My team's allow list.", # description for your allowlist
+            "version": "1_0", # version, yours to configure (last updated date is useful)
+            "items": [
+                {
+                "gate": "vulnerabilities", # copy verbatim, review policy docs for more options
+                "trigger_id": "CVE-2023-45853+*", # CVE+package format, supports regex
+                "id": "zlib", # unique ID for the rule, only unique within the allowlist
+                "expires_on": "2023-11-20T12:00:00Z" # expiry date, for reference only
+                }
+            ]
+        }
+    ]
 }
