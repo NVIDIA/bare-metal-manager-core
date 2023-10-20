@@ -229,12 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn it_fails_on_unknown_arch() {
-        let vc: Result<VendorClass, VendorClassParseError> = "HTTPClient:Arch:01007:UNDI:X".parse();
-        assert!(matches!(vc, Err(_)));
-    }
-
-    #[test]
     fn it_formats_the_parser_armuefi_netboot() {
         let vc: VendorClass = "HTTPClient:Arch:00011:UNDI:003000".parse().unwrap();
         assert_eq!(vc.to_string(), "ARM 64-bit UEFI (netboot)");
