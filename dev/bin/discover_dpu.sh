@@ -17,6 +17,13 @@ if [ $# -ne 1 ]; then
   exit 1
 fi
 
+export CERT_PATH=${CERT_PATH:=/tmp/localdev-certs}
+if [[ ! -e ${CERT_PATH}/tls.crt ]]; then
+    echo "pulling certs from pod"
+    mkdir -p ${CERT_PATH}
+    kubectl -n forge-system exec deploy/carbide-api -- tar cf - -C /var/run/secrets/spiffe.io/..data . | tar xf - -C ${CERT_PATH}
+fi
+
 export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
 
 DATA_DIR=$1
