@@ -21,6 +21,12 @@ _forge-admin-cli() {
             forge__admin__cli,boot-override)
                 cmd="forge__admin__cli__boot__override"
                 ;;
+            forge__admin__cli,c)
+                cmd="forge__admin__cli__credential"
+                ;;
+            forge__admin__cli,credential)
+                cmd="forge__admin__cli__credential"
+                ;;
             forge__admin__cli,d)
                 cmd="forge__admin__cli__domain"
                 ;;
@@ -123,6 +129,30 @@ _forge-admin-cli() {
             forge__admin__cli__boot__override__help,set)
                 cmd="forge__admin__cli__boot__override__help__set"
                 ;;
+            forge__admin__cli__credential,add-bmc)
+                cmd="forge__admin__cli__credential__add__bmc"
+                ;;
+            forge__admin__cli__credential,add-ufm)
+                cmd="forge__admin__cli__credential__add__ufm"
+                ;;
+            forge__admin__cli__credential,delete-ufm)
+                cmd="forge__admin__cli__credential__delete__ufm"
+                ;;
+            forge__admin__cli__credential,help)
+                cmd="forge__admin__cli__credential__help"
+                ;;
+            forge__admin__cli__credential__help,add-bmc)
+                cmd="forge__admin__cli__credential__help__add__bmc"
+                ;;
+            forge__admin__cli__credential__help,add-ufm)
+                cmd="forge__admin__cli__credential__help__add__ufm"
+                ;;
+            forge__admin__cli__credential__help,delete-ufm)
+                cmd="forge__admin__cli__credential__help__delete__ufm"
+                ;;
+            forge__admin__cli__credential__help,help)
+                cmd="forge__admin__cli__credential__help__help"
+                ;;
             forge__admin__cli__domain,help)
                 cmd="forge__admin__cli__domain__help"
                 ;;
@@ -192,6 +222,9 @@ _forge-admin-cli() {
             forge__admin__cli__help,boot-override)
                 cmd="forge__admin__cli__help__boot__override"
                 ;;
+            forge__admin__cli__help,credential)
+                cmd="forge__admin__cli__help__credential"
+                ;;
             forge__admin__cli__help,domain)
                 cmd="forge__admin__cli__help__domain"
                 ;;
@@ -245,6 +278,15 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__help__boot__override,set)
                 cmd="forge__admin__cli__help__boot__override__set"
+                ;;
+            forge__admin__cli__help__credential,add-bmc)
+                cmd="forge__admin__cli__help__credential__add__bmc"
+                ;;
+            forge__admin__cli__help__credential,add-ufm)
+                cmd="forge__admin__cli__help__credential__add__ufm"
+                ;;
+            forge__admin__cli__help__credential,delete-ufm)
+                cmd="forge__admin__cli__help__credential__delete__ufm"
                 ;;
             forge__admin__cli__help__domain,show)
                 cmd="forge__admin__cli__help__domain__show"
@@ -892,7 +934,7 @@ _forge-admin-cli() {
 
     case "${cmd}" in
         forge__admin__cli)
-            opts="-c -f -o -d -h --version --carbide-api --format --output --forge-root-ca-path --client-cert-path --client-key-path --debug --help version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine help"
+            opts="-c -f -o -d -h --version --carbide-api --format --output --forge-root-ca-path --client-cert-path --client-key-path --debug --help version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1174,6 +1216,152 @@ _forge-admin-cli() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential)
+            opts="-h --help add-ufm delete-ufm add-bmc help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential__add__bmc)
+            opts="-h --kind --password --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --kind)
+                    COMPREPLY=($(compgen -W "host dpu" -- "${cur}"))
+                    return 0
+                    ;;
+                --password)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential__add__ufm)
+            opts="-h --url --token --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --token)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential__delete__ufm)
+            opts="-h --url --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --url)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential__help)
+            opts="add-ufm delete-ufm add-bmc help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential__help__add__bmc)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential__help__add__ufm)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential__help__delete__ufm)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__credential__help__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;
@@ -1532,7 +1720,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help)
-            opts="version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine help"
+            opts="version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1616,6 +1804,62 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__boot__override__set)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__credential)
+            opts="add-ufm delete-ufm add-bmc"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__credential__add__bmc)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__credential__add__ufm)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__credential__delete__ufm)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

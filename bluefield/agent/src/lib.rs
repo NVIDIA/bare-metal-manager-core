@@ -354,6 +354,7 @@ async fn run(
     let mut version_check_time = Instant::now(); // check it on the first loop
     let mut seen_blank = false;
     let mut is_hbn_up = false;
+    let mut has_logged_stable = false;
     loop {
         let mut is_healthy = false;
         let mut has_changed_configs = false;
@@ -480,6 +481,10 @@ async fn run(
         let loop_period = if seen_blank || !is_healthy || has_changed_configs {
             main_loop_period_active
         } else {
+            if !has_logged_stable {
+                tracing::info!("HBN is healthy and network configuration is stable");
+                has_logged_stable = true;
+            }
             main_loop_period_idle
         };
         tokio::select! {
