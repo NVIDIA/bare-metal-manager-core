@@ -338,7 +338,7 @@ fn parse_mlxprivhost(s: &str) -> eyre::Result<String> {
     };
     // Example ouput:
     // level                         : RESTRICTED
-    let Some(level) = level_line.split(":").skip(1).next().map(|level| level.trim()) else {
+    let Some(level) = level_line.split(':').nth(1).map(|level| level.trim()) else {
         eyre::bail!("Invalid level line, needs a single colon: '{level_line}'");
     };
     Ok(level.to_string())
