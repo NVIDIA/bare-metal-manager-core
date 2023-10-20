@@ -2719,7 +2719,7 @@ where
 
                 // we update DPU firmware on first boot every time (determined by a missing machine id) or during reprovisioning.
                 let update_firmware = match &machine_interface.machine_id {
-                    None => true,
+                    None => self.machine_update_config.dpu_nic_firmware_update_enabled,
                     Some(machine_id) => {
                         let machine =
                             Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
