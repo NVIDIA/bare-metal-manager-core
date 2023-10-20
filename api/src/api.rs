@@ -3932,6 +3932,11 @@ where
     ) -> Result<tonic::Response<()>, Status> {
         log_request_data(&request);
 
+        if !self.eth_data.route_servers_enabled {
+            return Err(
+                CarbideError::InvalidArgument("Route servers are disabled".to_string()).into(),
+            );
+        }
         let route_servers: Vec<IpAddr> = request
             .into_inner()
             .route_servers
@@ -4431,6 +4436,7 @@ where
             asn: carbide_config.asn,
             dhcp_servers: carbide_config.dhcp_servers.clone(),
             route_servers,
+            route_servers_enabled: carbide_config.enable_route_servers,
             // Include the site fabric prefixes in the deny prefixes list, since
             // we treat them the same way from here.
             deny_prefixes: [
