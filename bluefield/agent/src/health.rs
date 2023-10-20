@@ -51,6 +51,7 @@ pub fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport {
     check_bgp_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
     check_network_stats(&mut hr, &container_id, host_routes);
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
+    check_restricted_mode(&mut hr);
 
     hr
 }
@@ -281,6 +282,68 @@ fn check_bgp_stats(name: &str, s: &BgpStats, ignored_peers: &[&str]) -> eyre::Re
     Ok(())
 }
 
+// A DPU should be in restricted mode
+fn check_restricted_mode(hr: &mut HealthReport) {
+    const EXPECTED_PRIV_LEVEL: &str = "RESTRICTED";
+    let mut cmd = Command::new("bash");
+    cmd.arg("-c")
+        .arg("mlxprivhost -d /dev/mst/mt*_pciconf0 query");
+    let out = match cmd.output() {
+        Ok(out) => out,
+        Err(err) => {
+            hr.failed(
+                HealthCheck::RestrictedMode,
+                format!("Error running {}. {err}", super::pretty_cmd(&cmd)),
+            );
+            return;
+        }
+    };
+    if !out.status.success() {
+        tracing::debug!(
+            "STDERR {}: {}",
+            super::pretty_cmd(&cmd),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        hr.failed(
+            HealthCheck::RestrictedMode,
+            format!("{} for cmd '{}'", out.status, super::pretty_cmd(&cmd)),
+        );
+        return;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    match parse_mlxprivhost(s.as_ref()) {
+        Ok(priv_level) if priv_level == EXPECTED_PRIV_LEVEL => {
+            hr.passed(HealthCheck::RestrictedMode);
+        }
+        Ok(priv_level) => {
+            hr.failed(
+                HealthCheck::RestrictedMode,
+                format!(
+                    "mlxprivhost reports level '{priv_level}', expected '{EXPECTED_PRIV_LEVEL}'"
+                ),
+            );
+        }
+        Err(err) => {
+            hr.failed(
+                HealthCheck::RestrictedMode,
+                format!("parse_mlxprivhost: {err}"),
+            );
+        }
+    }
+}
+
+fn parse_mlxprivhost(s: &str) -> eyre::Result<String> {
+    let Some(level_line) = s.lines().find(|line| line.contains("level")) else {
+        eyre::bail!("Invalid mlxprivhost output, missing 'level' line:\n{s}");
+    };
+    // Example ouput:
+    // level                         : RESTRICTED
+    let Some(level) = level_line.split(':').nth(1).map(|level| level.trim()) else {
+        eyre::bail!("Invalid level line, needs a single colon: '{level_line}'");
+    };
+    Ok(level.to_string())
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct BgpNetworks {
@@ -364,6 +427,7 @@ pub enum HealthCheck {
     FileExists(String),
     FileIsValid(String),
     BgpDaemonEnabled,
+    RestrictedMode,
 }
 
 impl fmt::Display for HealthReport {
@@ -402,6 +466,7 @@ impl fmt::Display for HealthCheck {
             Self::FileExists(file_name) => write!(f, "FileExists({})", file_name),
             Self::FileIsValid(file_name) => write!(f, "FileIsValid({})", file_name),
             Self::BgpDaemonEnabled => write!(f, "BgpDaemonEnabled"),
+            Self::RestrictedMode => write!(f, "RestrictedMode"),
         }
     }
 }
@@ -538,6 +603,19 @@ rsyslog                          RUNNING   pid 27, uptime 4:18:47
 sysctl-apply                     EXITED    Mar 06 06:24 PM
 "#;
 
+    const MLXPRIVHOST_OUT: &str = r#"Host configurations
+-------------------
+level                         : RESTRICTED
+
+Port functions status:
+-----------------------
+disable_rshim                 : TRUE
+disable_tracer                : TRUE
+disable_port_owner            : TRUE
+disable_counter_rd            : TRUE
+
+"#;
+
     const BGP_SUMMARY_JSON_SUCCESS: &str = include_str!("hbn_bgp_summary.json");
     const BGP_SUMMARY_JSON_FAIL: &str = include_str!("hbn_bgp_summary_fail.json");
     const BGP_SUMMARY_JSON_WITH_IGNORE: &str = include_str!("hbn_bgp_summary_with_ignore.json");
@@ -573,5 +651,13 @@ sysctl-apply                     EXITED    Mar 06 06:24 PM
     #[test]
     fn test_check_bgp_with_ignore() -> eyre::Result<()> {
         check_bgp(BGP_SUMMARY_JSON_WITH_IGNORE, &["10.217.4.78"])
+    }
+
+    #[test]
+    fn test_parse_mlxprivhost() {
+        assert_eq!(
+            super::parse_mlxprivhost(MLXPRIVHOST_OUT).unwrap(),
+            "RESTRICTED"
+        );
     }
 }
