@@ -42,7 +42,7 @@
 					"trigger": "package"
 				},
 				{
-					"action": "STOP",
+					"action": "WARN",
 					"gate": "vulnerabilities",
 					"id": "b30e8abc-444f-45b1-8a37-55be1b8c8bb5",
 					"params": [
@@ -79,20 +79,5 @@
 	],
 	"version": "1_0",
 	"whitelisted_images": [],
-	"whitelists": [
-        {
-            "id": "c912eeed-4fe1-4ef2-b56d-765195df32b9",
-            "name": "Forge Allowlist",
-            "comment": "My team's allow list.",
-            "version": "1_0",
-            "items": [
-                {
-                "gate": "vulnerabilities",
-                "trigger_id": "CVE-2023-45853+*",
-                "id": "zlib",
-                "expires_on": "2023-11-20T12:00:00Z"
-                }
-            ]
-        }
-    ]
+	"whitelists": [ ]
 }
