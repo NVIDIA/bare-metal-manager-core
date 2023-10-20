@@ -614,6 +614,11 @@ message InstanceAllocationRequest {
   // Desired configuration for the allocated instance
   InstanceConfig config = 2;
 
+  // Desired ID for this Instance. If the ID is not provided, Forge will generate
+  // a random ID.
+  // The Instance ID must be unique within the Forge site.
+  optional UUID instance_id = 3;
+
   //DEPRECATED -- use tenantKeysetId in InstanceConfig.TenantConfig instead.
   repeated string ssh_keys = 11;
 }

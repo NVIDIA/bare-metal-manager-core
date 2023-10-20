@@ -250,6 +250,117 @@ async fn test_crud_instance(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_create_instance_with_provided_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(rpc::TenantConfig {
+            user_data: Some("SomeRandomData".to_string()),
+            custom_ipxe: "SomeRandomiPxe".to_string(),
+            tenant_organization_id: "Tenant1".to_string(),
+            tenant_keyset_ids: vec![],
+            always_boot_with_custom_ipxe: false,
+        }),
+        network,
+        infiniband: None,
+    };
+
+    let instance_id = uuid::Uuid::new_v4();
+    let rpc_instance_id: rpc::Uuid = instance_id.into();
+
+    let instance = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: Some(rpc_instance_id.clone()),
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(config),
+            ssh_keys: vec![],
+        }))
+        .await
+        .expect("Create instance failed.")
+        .into_inner();
+
+    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+
+    let instance = env
+        .find_instances(Some(rpc_instance_id.clone()))
+        .await
+        .instances
+        .remove(0);
+    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let (host_machine_id_2, _dpu_machine_id_2) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(rpc::TenantConfig {
+            user_data: Some("SomeRandomData".to_string()),
+            custom_ipxe: "SomeRandomiPxe".to_string(),
+            tenant_organization_id: "Tenant1".to_string(),
+            tenant_keyset_ids: vec![],
+            always_boot_with_custom_ipxe: false,
+        }),
+        network,
+        infiniband: None,
+    };
+
+    let instance_id = uuid::Uuid::new_v4();
+    let rpc_instance_id: rpc::Uuid = instance_id.into();
+
+    let instance = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: Some(rpc_instance_id.clone()),
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(config.clone()),
+            ssh_keys: vec![],
+        }))
+        .await
+        .expect("Create instance failed.")
+        .into_inner();
+    assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+
+    let result = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: Some(rpc_instance_id.clone()),
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id_2.to_string(),
+            }),
+            config: Some(config),
+            ssh_keys: vec![],
+        }))
+        .await;
+
+    // TODO: Do not leak the full database error to users
+    let err = result.expect_err("Expect instance creation to fail");
+    assert!(err.message().contains("Database Error: error returned from database: duplicate key value violates unique constraint \"instances_pkey\""));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
@@ -539,6 +650,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
 
     let request = InstanceAllocationRequest {
+        instance_id: uuid::Uuid::new_v4(),
         machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),
         config: InstanceConfig {
             tenant: Some(TenantConfig {
@@ -805,6 +917,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
     let result = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
             machine_id: Some(rpc::MachineId {
                 id: host_machine_id.to_string(),
             }),
@@ -994,6 +1107,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
         create_ib_partition(&env, "test_ib_partition".to_string()).await;
 
     let request = InstanceAllocationRequest {
+        instance_id: uuid::Uuid::new_v4(),
         machine_id: host_machine_id.clone(),
         config: InstanceConfig {
             tenant: Some(TenantConfig {
@@ -1054,6 +1168,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
         create_ib_partition(&env, "test_ib_partition".to_string()).await;
 
     let request = InstanceAllocationRequest {
+        instance_id: uuid::Uuid::new_v4(),
         machine_id: host_machine_id.clone(),
         config: InstanceConfig {
             tenant: Some(TenantConfig {
@@ -1114,6 +1229,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
         create_ib_partition(&env, "test_ib_partition".to_string()).await;
 
     let request = InstanceAllocationRequest {
+        instance_id: uuid::Uuid::new_v4(),
         machine_id: host_machine_id.clone(),
         config: InstanceConfig {
             tenant: Some(TenantConfig {

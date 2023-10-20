@@ -65,6 +65,7 @@ pub struct InstanceList {
 
 pub struct NewInstance<'a> {
     pub machine_id: MachineId,
+    pub instance_id: uuid::Uuid,
     pub tenant_config: &'a TenantConfig,
     pub ssh_keys: Vec<String>,
     pub network_config: Versioned<&'a InstanceNetworkConfig>,
@@ -333,6 +334,7 @@ impl<'a> NewInstance<'a> {
         let ib_status_observation = Option::<InstanceInfinibandStatusObservation>::None;
 
         let query = "INSERT INTO instances (
+                        id,
                         machine_id,
                         user_data,
                         custom_ipxe,
@@ -348,9 +350,10 @@ impl<'a> NewInstance<'a> {
                         ib_status_observation,
                         keyset_ids
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6::text[], true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7::text[], true, $8::json, $9, $10::json, $11::json, $12, $13::json, $14)
                     RETURNING *";
         sqlx::query_as(query)
+            .bind(self.instance_id)
             .bind(self.machine_id.to_string())
             .bind(&self.tenant_config.user_data)
             .bind(&self.tenant_config.custom_ipxe)
