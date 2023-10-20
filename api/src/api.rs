@@ -29,7 +29,7 @@ use ::rpc::protos::forge::{
 };
 use chrono::Duration;
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
@@ -61,7 +61,7 @@ use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::ib;
-use crate::ib::IBFabricManager;
+use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
@@ -133,6 +133,9 @@ use crate::{
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
+
+/// Username for default site-wide BMC username.
+const FORGE_SITE_WIDE_BMC_USERNAME: &str = "root";
 
 // vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
 // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
@@ -3740,6 +3743,163 @@ where
         };
         Ok(tonic::Response::new(response))
     }
+
+    async fn create_credential(
+        &self,
+        request: tonic::Request<rpc::CredentialCreationRequest>,
+    ) -> Result<tonic::Response<rpc::CredentialCreationResult>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+        let password = req.password;
+
+        let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
+            CarbideError::NotFoundError {
+                kind: "credential_type",
+                id: req.credential_type.to_string(),
+            }
+        })?;
+
+        match credential_type {
+            rpc::CredentialType::HostBmc => {
+                if (self
+                    .credential_provider
+                    .get_credentials(CredentialKey::HostRedfish {
+                        credential_type: CredentialType::SiteDefault,
+                    })
+                    .await)
+                    .is_ok()
+                {
+                    // TODO: support reset credential
+                    return Err(tonic::Status::already_exists(
+                        "Not support to reset host BMC credential",
+                    ));
+                }
+
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::HostRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        Credentials::UsernamePassword {
+                            username: FORGE_SITE_WIDE_BMC_USERNAME.to_string(),
+                            password: password.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error setting credential for Host Bmc: {:?} ",
+                            e
+                        ))
+                    })?
+            }
+            rpc::CredentialType::Dpubmc => {
+                if (self
+                    .credential_provider
+                    .get_credentials(CredentialKey::DpuRedfish {
+                        credential_type: CredentialType::SiteDefault,
+                    })
+                    .await)
+                    .is_ok()
+                {
+                    // TODO: support reset credential
+                    return Err(tonic::Status::already_exists(
+                        "Not support to reset DPU BMC credential",
+                    ));
+                }
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        Credentials::UsernamePassword {
+                            username: FORGE_SITE_WIDE_BMC_USERNAME.to_string(),
+                            password: password.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error setting credential for DPU Bmc: {:?} ",
+                            e
+                        ))
+                    })?
+            }
+            rpc::CredentialType::Ufm => {
+                if let Some(username) = req.username {
+                    self.credential_provider
+                        .set_credentials(
+                            CredentialKey::UfmAuth {
+                                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                            },
+                            Credentials::UsernamePassword {
+                                username: username.clone(),
+                                password: password.clone(),
+                            },
+                        )
+                        .await
+                        .map_err(|e| {
+                            CarbideError::GenericError(format!(
+                                "Error setting credential for Ufm {}: {:?} ",
+                                username.clone(),
+                                e
+                            ))
+                        })?;
+                } else {
+                    return Err(tonic::Status::invalid_argument("missing UFM Url"));
+                }
+            }
+        };
+
+        Ok(Response::new(rpc::CredentialCreationResult {}))
+    }
+
+    async fn delete_credential(
+        &self,
+        request: tonic::Request<rpc::CredentialDeletionRequest>,
+    ) -> Result<tonic::Response<rpc::CredentialDeletionResult>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
+            CarbideError::NotFoundError {
+                kind: "credential_type",
+                id: req.credential_type.to_string(),
+            }
+        })?;
+
+        match credential_type {
+            rpc::CredentialType::Ufm => {
+                if let Some(username) = req.username {
+                    self.credential_provider
+                        .set_credentials(
+                            CredentialKey::UfmAuth {
+                                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                            },
+                            Credentials::UsernamePassword {
+                                username: username.clone(),
+                                password: "".to_string(),
+                            },
+                        )
+                        .await
+                        .map_err(|e| {
+                            CarbideError::GenericError(format!(
+                                "Error deleting credential for Ufm {}: {:?} ",
+                                username.clone(),
+                                e
+                            ))
+                        })?;
+                } else {
+                    return Err(tonic::Status::invalid_argument("missing UFM Url"));
+                }
+            }
+            rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
+                // Not support delete BMC credential
+            }
+        };
+
+        Ok(Response::new(rpc::CredentialDeletionResult {}))
+    }
 }
 
 ///
@@ -4131,16 +4291,12 @@ where
 
         let common_pools = CommonPools::create(database_connection.clone()).await?;
 
-        let ib_fabric_manager: Arc<dyn IBFabricManager> =
-            if let Some(fabric_manager) = carbide_config.ib_fabric_manager.as_ref() {
-                let token = carbide_config
-                    .ib_fabric_manager_token
-                    .as_ref()
-                    .ok_or(Status::invalid_argument("ib fabric manager token is empty"))?;
-                ib::connect(fabric_manager, token).await?
-            } else {
-                ib::local_ib_fabric_manager()
-            };
+        let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
+            credential_provider.clone(),
+            carbide_config.enable_ib_fabric.unwrap_or(false),
+        );
+
+        let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
         let authorizer = auth::Authorizer::build_casbin(
             &carbide_config

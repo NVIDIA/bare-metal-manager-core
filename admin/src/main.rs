@@ -18,13 +18,14 @@ use std::path::PathBuf;
 use ::rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
 use ::rpc::Uuid;
 use ::rpc::{
-    forge::{self as forgerpc, MachineType},
+    forge::{self as forgerpc, CredentialType, MachineType},
     MachineId,
 };
 use cfg::carbide_options::AgentUpgrade;
 use cfg::carbide_options::AgentUpgradePolicyChoice;
 use cfg::carbide_options::BmcMachine;
 use cfg::carbide_options::BootOverrideAction;
+use cfg::carbide_options::CredentialAction;
 use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuReprovision;
@@ -620,6 +621,35 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CarbideCommand::Inventory(action) => inventory::print_inventory(api_config, action).await?,
+        CarbideCommand::Credential(credential_action) => match credential_action {
+            CredentialAction::AddUFM(c) => {
+                let username = url_validator(c.url.clone()).await?;
+                let password = password_validator(c.token.clone()).await?;
+                let req = forgerpc::CredentialCreationRequest {
+                    credential_type: CredentialType::Ufm.into(),
+                    username: Some(username),
+                    password,
+                };
+                rpc::add_credential(&api_config, req).await?;
+            }
+            CredentialAction::DeleteUFM(c) => {
+                let username = url_validator(c.url.clone()).await?;
+                let req = forgerpc::CredentialDeletionRequest {
+                    credential_type: CredentialType::Ufm.into(),
+                    username: Some(username),
+                };
+                rpc::delete_credential(&api_config, req).await?;
+            }
+            CredentialAction::AddBMC(c) => {
+                let password = password_validator(c.password.clone()).await?;
+                let req = forgerpc::CredentialCreationRequest {
+                    credential_type: CredentialType::from(c.kind).into(),
+                    username: None,
+                    password,
+                };
+                rpc::add_credential(&api_config, req).await?;
+            }
+        },
     }
 
     Ok(())
@@ -632,4 +662,19 @@ pub async fn migrate_vpc_vni(api_config: &Config) -> color_eyre::eyre::Result<()
         result.updated_count, result.total_vpc_count
     );
     Ok(())
+}
+
+pub async fn url_validator(url: String) -> Result<String, CarbideCliError> {
+    let addr = tonic::transport::Uri::try_from(&url)
+        .map_err(|_| CarbideCliError::GenericError("invalid url".to_string()))?;
+    Ok(addr.to_string())
+}
+
+pub async fn password_validator(s: String) -> Result<String, CarbideCliError> {
+    // TODO: check password according BMC pwd rule.
+    if s.is_empty() {
+        return Err(CarbideCliError::GenericError("invalid input".to_string()));
+    }
+
+    Ok(s)
 }

@@ -27,15 +27,15 @@ use prost::Message;
 
 pub use crate::protos::forge::{
     self, forge_agent_control_response, machine_credentials_update_request::CredentialPurpose,
-    machine_discovery_info::DiscoveryData, Domain, DomainList, ForgeScoutErrorReport,
-    ForgeScoutErrorReportResult, Instance, InstanceAllocationRequest, InstanceConfig,
-    InstanceInterfaceConfig, InstanceInterfaceStatus, InstanceInterfaceStatusObservation,
-    InstanceList, InstanceNetworkConfig, InstanceNetworkStatus, InstanceNetworkStatusObservation,
-    InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus, InterfaceFunctionType, Machine,
-    MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent, MachineId, MachineInterface,
-    MachineList, NetworkPrefixEvent, NetworkSegment, NetworkSegmentList,
-    ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState, TenantConfig,
-    TenantState, Uuid,
+    machine_discovery_info::DiscoveryData, CredentialType, Domain, DomainList,
+    ForgeScoutErrorReport, ForgeScoutErrorReportResult, Instance, InstanceAllocationRequest,
+    InstanceConfig, InstanceInterfaceConfig, InstanceInterfaceStatus,
+    InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
+    InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
+    InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
+    MachineId, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
+    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState,
+    TenantConfig, TenantState, Uuid,
 };
 
 pub use crate::protos::forge::{
@@ -278,6 +278,19 @@ impl TryFrom<i32> for ResourcePoolType {
         match value {
             x if x == Self::Integer as i32 => Ok(Self::Integer),
             x if x == Self::Ipv4 as i32 => Ok(Self::Ipv4),
+            _ => Err(DiscriminantError(value)),
+        }
+    }
+}
+
+impl TryFrom<i32> for CredentialType {
+    type Error = DiscriminantError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            x if x == Self::HostBmc as i32 => Ok(Self::HostBmc),
+            x if x == Self::Dpubmc as i32 => Ok(Self::Dpubmc),
+            x if x == Self::Ufm as i32 => Ok(Self::Ufm),
             _ => Err(DiscriminantError(value)),
         }
     }

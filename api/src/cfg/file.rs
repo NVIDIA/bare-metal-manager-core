@@ -36,14 +36,8 @@ pub struct CarbideConfig {
     /// A connection string for the utilized postgres database
     pub database_url: String,
 
-    /// A connection string for the utilized IBFabricManager
-    /// TODO: Might become a fabrics section
-    pub ib_fabric_manager: Option<String>,
-
-    /// The token for IBFabricManager authentication.
-    /// TODO: Might become a fabrics section
-    /// TODO: Should be read from vault
-    pub ib_fabric_manager_token: Option<String>,
+    /// Enable IB fabric manager
+    pub enable_ib_fabric: Option<bool>,
 
     /// Set shorter timeouts and run background jobs more often. Appropriate
     /// for local development.

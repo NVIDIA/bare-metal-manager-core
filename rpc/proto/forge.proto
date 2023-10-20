@@ -183,6 +183,43 @@ service Forge {
 
   // Reset a BMC machine
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
+
+  // Create Credential in Vault
+  rpc CreateCredential(CredentialCreationRequest) returns (CredentialCreationResult);
+
+  // Delete Credential in Vault
+  rpc DeleteCredential(CredentialDeletionRequest) returns (CredentialDeletionResult);
+}
+
+enum CredentialType {
+  HostBMC = 0;
+  DPUBMC = 1;
+  UFM = 2;
+}
+
+message CredentialCreationRequest {
+  // Credential type
+  CredentialType credential_type = 1;
+  // The username of credential.
+  // No need specify it for HostBMC and DPUBMC.
+  // For UFM, the username is the URL of UFM.
+  optional string username = 2;
+  // The password of credential for HostBMC and DPUBMC.
+  // For UFM, the password is the token of UFM.
+  string password = 3;
+}
+
+message CredentialDeletionRequest {
+  CredentialType credential_type = 1;
+  optional string username = 2;
+}
+
+message CredentialCreationResult {
+
+}
+
+message CredentialDeletionResult {
+
 }
 
 message BuildInfo {

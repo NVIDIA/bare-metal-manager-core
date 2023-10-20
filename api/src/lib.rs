@@ -303,9 +303,6 @@ pub async fn run(
             let host = config.database_url.split_at(host_index).1;
             config.database_url = format!("postgres://redacted{}", host);
         }
-        if config.ib_fabric_manager_token.is_some() {
-            config.ib_fabric_manager_token = Some("redacted".to_string());
-        }
         config
     };
     tracing::info!("Using configuration: {:#?}", print_config);

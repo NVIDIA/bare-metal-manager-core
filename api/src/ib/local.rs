@@ -17,16 +17,16 @@ use async_trait::async_trait;
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBPortState};
-use super::IBFabricManager;
+use super::IBFabric;
 use crate::CarbideError;
 
-pub struct LocalIBFabricManager {
+pub struct LocalIBFabric {
     pub ibsubnets: Arc<Mutex<HashMap<String, IBNetwork>>>,
     pub ibports: Arc<Mutex<HashMap<String, IBPort>>>,
 }
 
 #[async_trait]
-impl IBFabricManager for LocalIBFabricManager {
+impl IBFabric for LocalIBFabric {
     /// Delete IBNetwork
     async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError> {
         let mut ibsubnets = self
