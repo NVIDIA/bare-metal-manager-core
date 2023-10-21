@@ -16,6 +16,7 @@ pub enum MachineArchitecture {
     BiosX86,
     EfiX64,
     Arm64,
+    Unknown,
 }
 
 // DHCP Option 60 vendor-class-identifier
@@ -48,8 +49,8 @@ impl FromStr for MachineArchitecture {
                     Ok(11) => Ok(MachineArchitecture::Arm64),
                     Ok(16) => Ok(MachineArchitecture::EfiX64), // HTTP version
                     Ok(19) => Ok(MachineArchitecture::Arm64),  // HTTP version
-                    Ok(_) => Err(VendorClassParseError::UnsupportedArchitecture), // Unknown
-                    Err(_) => Err(VendorClassParseError::InvalidFormat), // Better Error
+                    Ok(_) => Ok(MachineArchitecture::Unknown), // Unknown
+                    Err(_) => Ok(MachineArchitecture::Unknown), // No Errors, we always vend ips
                 }
             }
         }
@@ -80,6 +81,7 @@ impl Display for MachineArchitecture {
                 Self::Arm64 => "ARM 64-bit UEFI",
                 Self::EfiX64 => "x64 UEFI",
                 Self::BiosX86 => "x86 BIOS",
+                Self::Unknown => "Unknown",
             }
         )
     }
@@ -103,7 +105,7 @@ impl FromStr for VendorClass {
                     }),
                     _ => Ok(VendorClass {
                         id: format!("unknown: '{}'", colon),
-                        arch: MachineArchitecture::EfiX64,
+                        arch: MachineArchitecture::Unknown,
                     }),
                 }
             }
@@ -117,7 +119,7 @@ impl FromStr for VendorClass {
                     }),
                     _ => Ok(VendorClass {
                         id: format!("unknown: '{}'", space),
-                        arch: MachineArchitecture::EfiX64,
+                        arch: MachineArchitecture::Unknown,
                     }),
                 }
             }
@@ -135,7 +137,7 @@ impl FromStr for VendorClass {
             }),
             vc => Ok(VendorClass {
                 id: format!("unknown: '{}'", vc),
-                arch: MachineArchitecture::EfiX64,
+                arch: MachineArchitecture::Unknown,
             }),
         };
         out
@@ -224,12 +226,6 @@ mod tests {
         let vc: Result<VendorClass, VendorClassParseError> =
             "NothingClient:Arch:00011:UNDI:X".parse();
         assert_eq!(vc.unwrap().to_string(), "ARM 64-bit UEFI (basic)");
-    }
-
-    #[test]
-    fn it_fails_on_unknown_arch() {
-        let vc: Result<VendorClass, VendorClassParseError> = "HTTPClient:Arch:01007:UNDI:X".parse();
-        assert!(matches!(vc, Err(_)));
     }
 
     #[test]

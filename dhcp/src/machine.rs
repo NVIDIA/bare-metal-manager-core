@@ -223,6 +223,13 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
                 log::error!("Matched an HTTP client on a Legacy BIOS client, cannot provide HTTP boot URL {:?}", &machine);
                 return ptr::null();
             }
+            Unknown => {
+                log::error!(
+                    "Matched an unknown architecture, cannot provide HTTP boot URL {:?}",
+                    &machine
+                );
+                return ptr::null();
+            }
         }
     };
 
