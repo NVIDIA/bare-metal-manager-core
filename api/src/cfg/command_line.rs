@@ -70,14 +70,6 @@ pub struct Daemon {
     #[clap(long, require_equals(true), env = "DATABASE_URL")]
     pub datastore: Option<String>,
 
-    /// A connection string for the utilized IBFabricManager
-    #[clap(long, require_equals(true), env = "IBFABRIC_MANAGER_URL")]
-    pub ib_fabric_manager: Option<String>,
-
-    /// The token for IBFabricManager authentication.
-    #[clap(long, require_equals(true), env = "IBFABRIC_MANAGER_TOKEN")]
-    pub ib_fabric_manager_token: Option<String>,
-
     /// Set shorter timeouts and run background jobs more often. Appropriate
     /// for local development.
     /// See ServiceConfig type.

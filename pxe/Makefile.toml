@@ -18,6 +18,7 @@ HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_conta
 IPXE_BANNER_VERSION = { script = ["echo ${VERSION:-$(git describe --tags --first-parent --always)}"] }
 DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:1.5.0-doca2.2.0"
 DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.14.2-doca2.2.0"
+K8S_PAUSE_URI = "k8s.gcr.io/pause:3.2"
 DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always | cut -c 2-)"] }
 
 [tasks.build-boot-artifacts-x86_64]
@@ -275,10 +276,12 @@ dependencies = [
 	"bfb-download",
 	"bfbtools-download",
 	"bfb-hbn-download",
+	"k8s-pause-download",
 	"bfb-telemetry-download",
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-hbn-export",
+	"kubelet-pause-export",
 	"bfb-telemetry-export",
 	"bfb-add-scout-to-bfb-ci",
 	"bfb-add-debs-to-bfb",
@@ -309,10 +312,12 @@ dependencies = [
 	"bfb-download",
 	"bfbtools-download",
 	"bfb-hbn-download",
+	"k8s-pause-download",
 	"bfb-telemetry-download",
 	"bfb-extract",
 	"bfb-extract-efi",
 	"bfb-hbn-export",
+	"kubelet-pause-export",
 	"bfb-telemetry-export",
 	"bfb-add-scout-to-bfb",
 	"bfb-add-debs-to-bfb",
@@ -388,6 +393,16 @@ args = [
 	"${DOCA_TELEMETRY_URI}",
 ]
 
+[tasks.k8s-pause-download]
+category = "iPXE Kernel"
+description = "Download the kubelet pause container on aarch64 gitlab runner"
+command = "sudo"
+args = [
+	"docker",
+	"pull",
+	"${K8S_PAUSE_URI}",
+]
+
 [tasks.bfb-extract]
 category = "iPXE Kernel"
 description = "Extract the BFB on aarch64 gitlab runner"
@@ -422,6 +437,18 @@ args = [
 	"save",
 	"--output=doca_telemetry.tar",
 	"${DOCA_TELEMETRY_URI}",
+]
+cwd = "/tmp/bfb-dump/initramfs-tmp"
+
+[tasks.kubelet-pause-export]
+category = "iPXE Kernel"
+description = "export the kubelet pause container on aarch64 gitlab runner"
+command = "sudo"
+args = [
+	"docker",
+	"save",
+	"--output=pause.tar",
+	"${K8S_PAUSE_URI}",
 ]
 cwd = "/tmp/bfb-dump/initramfs-tmp"
 

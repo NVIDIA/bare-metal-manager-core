@@ -37,11 +37,15 @@ pub mod network_segment;
 pub mod network_segment_state_history;
 pub mod resource_pool;
 pub mod resource_record;
+pub mod route_servers;
 pub mod tenant;
 pub mod vpc;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+
+// Max values we can bind to a Postgres SQL statement;
+pub const BIND_LIMIT: usize = 65535;
 
 ///
 /// A parameter to find() to filter resources by Uuid;

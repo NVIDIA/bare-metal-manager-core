@@ -21,6 +21,7 @@ mv /doca_container_configs /mnt/opt/forge
 mv /forge_root.pem /mnt/opt/forge
 mv /doca_telemetry.tar /mnt/opt/forge
 mv /doca_hbn.tar /mnt/opt/forge
+mv /pause.tar /mnt/opt/forge
 
 #begin nvinit setup
 #this step is done in the BFB to ensure that we can always log in to the box, even if cloud-init fails.
@@ -288,6 +289,7 @@ runcmd:
   - [ cd, /opt/forge/doca_container_configs/scripts/ ]
   - [ ip, vrf, exec, mgmt, /bin/bash, hbn-dpu-setup.sh ]
   - [ /usr/bin/systemctl, enable, ssh@mgmt ]
+  - [ ctr, -n=k8s.io, image, import, /opt/forge/pause.tar ]
   - [ ctr, -n=k8s.io, image, import, /opt/forge/doca_telemetry.tar ]
   - [ ctr, -n=k8s.io, image, import, /opt/forge/doca_hbn.tar ]
   - [ cp, /opt/forge/doca_container_configs/configs/doca_hbn.yaml, /etc/kubelet.d/ ]

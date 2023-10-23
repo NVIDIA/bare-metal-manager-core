@@ -22,6 +22,8 @@ use uuid::Uuid;
 
 use crate::db::bmc_metadata::UserRoles;
 
+const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
+
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
     #[error("Failed to look up credentials {0}")]
@@ -197,7 +199,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         client: Box<dyn Redfish>,
         bmc_machine_id: Uuid,
     ) -> Result<(), RedfishClientCreationError> {
-        let username = "forge_admin";
+        let username = FORGE_DPU_BMC_USERNAME.clone();
         let password = Credentials::generate_password();
         self.credential_provider
             .set_credentials(

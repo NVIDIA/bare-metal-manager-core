@@ -139,27 +139,3 @@ macro_rules! version {
         );
     };
 }
-
-/// Carbide version as an object suitable for sending over gRPC
-pub fn for_rpc() -> rpc::forge::FullVersion {
-    rpc::forge::FullVersion {
-        build_version: option_env!("FORGE_BUILD_GIT_TAG")
-            .unwrap_or_default()
-            .to_string(),
-        build_date: option_env!("FORGE_BUILD_DATE")
-            .unwrap_or_default()
-            .to_string(),
-        git_sha: option_env!("FORGE_BUILD_GIT_HASH")
-            .unwrap_or_default()
-            .to_string(),
-        rust_version: option_env!("FORGE_BUILD_RUSTC_VERSION")
-            .unwrap_or_default()
-            .to_string(),
-        build_user: option_env!("FORGE_BUILD_USER")
-            .unwrap_or_default()
-            .to_string(),
-        build_hostname: option_env!("FORGE_BUILD_HOSTNAME")
-            .unwrap_or_default()
-            .to_string(),
-    }
-}

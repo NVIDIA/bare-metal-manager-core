@@ -25,7 +25,7 @@ use opentelemetry::metrics::Meter;
 use opentelemetry_api::metrics::{ObservableGauge, Observer};
 use opentelemetry_api::KeyValue;
 use sqlx::postgres::PgSslMode;
-use sqlx::{ConnectOptions, Postgres, Transaction};
+use sqlx::{ConnectOptions, Pool, Postgres, Transaction};
 use tokio::net::TcpListener;
 use tokio::time::Instant;
 use tokio_rustls::rustls::server::AllowAnyAnonymousOrAuthenticatedClient;
@@ -53,7 +53,7 @@ use ::rpc::protos::forge::{
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
@@ -63,8 +63,7 @@ use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
-use crate::ib;
-use crate::ib::IBFabricManager;
+use crate::ib::{self, IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
@@ -105,6 +104,7 @@ use crate::{
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment},
         resource_record::DnsQuestion,
+        route_servers::RouteServer,
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
         DatabaseError, ObjectFilter, UuidKeyedObjectFilter,
     },
@@ -139,6 +139,9 @@ use self::rpc::forge_server::Forge;
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
+/// Username for default site-wide BMC username.
+const FORGE_SITE_WIDE_BMC_USERNAME: &str = "root";
+
 // vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
 // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
@@ -158,6 +161,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
     tls_config: ApiTlsConfig,
+    machine_update_config: MachineUpdateConfig,
 }
 
 pub struct ApiRequestMetrics {
@@ -189,6 +193,10 @@ pub struct ApiTlsConfig {
     pub admin_root_cafile_path: String,
 }
 
+pub struct MachineUpdateConfig {
+    pub dpu_nic_firmware_update_enabled: bool,
+}
+
 #[tonic::async_trait]
 impl<C1, C2> Forge for Api<C1, C2>
 where
@@ -198,8 +206,16 @@ where
     async fn version(
         &self,
         _request: tonic::Request<()>,
-    ) -> Result<Response<rpc::FullVersion>, Status> {
-        Ok(Response::new(forge_version::for_rpc()))
+    ) -> Result<Response<rpc::BuildInfo>, Status> {
+        let v = rpc::BuildInfo {
+            build_version: forge_version::v!(build_version).to_string(),
+            build_date: forge_version::v!(build_date).to_string(),
+            git_sha: forge_version::v!(git_sha).to_string(),
+            rust_version: forge_version::v!(rust_version).to_string(),
+            build_user: forge_version::v!(build_user).to_string(),
+            build_hostname: forge_version::v!(build_hostname).to_string(),
+        };
+        Ok(Response::new(v))
     }
 
     async fn create_domain(
@@ -2733,7 +2749,7 @@ where
 
                 // we update DPU firmware on first boot every time (determined by a missing machine id) or during reprovisioning.
                 let update_firmware = match &machine_interface.machine_id {
-                    None => true,
+                    None => self.machine_update_config.dpu_nic_firmware_update_enabled,
                     Some(machine_id) => {
                         let machine =
                             Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
@@ -3355,6 +3371,12 @@ where
             ));
         }
 
+        if !self.machine_update_config.dpu_nic_firmware_update_enabled && req.update_firmware {
+            return Err(Status::invalid_argument(
+                "DPU NIC firmware update is disabled.",
+            ));
+        }
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin trigger_dpu_reprovisioning ", e)
         })?;
@@ -3748,9 +3770,282 @@ where
         };
         Ok(tonic::Response::new(response))
     }
+
+    async fn create_credential(
+        &self,
+        request: tonic::Request<rpc::CredentialCreationRequest>,
+    ) -> Result<tonic::Response<rpc::CredentialCreationResult>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+        let password = req.password;
+
+        let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
+            CarbideError::NotFoundError {
+                kind: "credential_type",
+                id: req.credential_type.to_string(),
+            }
+        })?;
+
+        match credential_type {
+            rpc::CredentialType::HostBmc => {
+                if (self
+                    .credential_provider
+                    .get_credentials(CredentialKey::HostRedfish {
+                        credential_type: CredentialType::SiteDefault,
+                    })
+                    .await)
+                    .is_ok()
+                {
+                    // TODO: support reset credential
+                    return Err(tonic::Status::already_exists(
+                        "Not support to reset host BMC credential",
+                    ));
+                }
+
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::HostRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        Credentials::UsernamePassword {
+                            username: FORGE_SITE_WIDE_BMC_USERNAME.to_string(),
+                            password: password.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error setting credential for Host Bmc: {:?} ",
+                            e
+                        ))
+                    })?
+            }
+            rpc::CredentialType::Dpubmc => {
+                if (self
+                    .credential_provider
+                    .get_credentials(CredentialKey::DpuRedfish {
+                        credential_type: CredentialType::SiteDefault,
+                    })
+                    .await)
+                    .is_ok()
+                {
+                    // TODO: support reset credential
+                    return Err(tonic::Status::already_exists(
+                        "Not support to reset DPU BMC credential",
+                    ));
+                }
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        Credentials::UsernamePassword {
+                            username: FORGE_SITE_WIDE_BMC_USERNAME.to_string(),
+                            password: password.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error setting credential for DPU Bmc: {:?} ",
+                            e
+                        ))
+                    })?
+            }
+            rpc::CredentialType::Ufm => {
+                if let Some(username) = req.username {
+                    self.credential_provider
+                        .set_credentials(
+                            CredentialKey::UfmAuth {
+                                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                            },
+                            Credentials::UsernamePassword {
+                                username: username.clone(),
+                                password: password.clone(),
+                            },
+                        )
+                        .await
+                        .map_err(|e| {
+                            CarbideError::GenericError(format!(
+                                "Error setting credential for Ufm {}: {:?} ",
+                                username.clone(),
+                                e
+                            ))
+                        })?;
+                } else {
+                    return Err(tonic::Status::invalid_argument("missing UFM Url"));
+                }
+            }
+        };
+
+        Ok(Response::new(rpc::CredentialCreationResult {}))
+    }
+
+    async fn delete_credential(
+        &self,
+        request: tonic::Request<rpc::CredentialDeletionRequest>,
+    ) -> Result<tonic::Response<rpc::CredentialDeletionResult>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
+            CarbideError::NotFoundError {
+                kind: "credential_type",
+                id: req.credential_type.to_string(),
+            }
+        })?;
+
+        match credential_type {
+            rpc::CredentialType::Ufm => {
+                if let Some(username) = req.username {
+                    self.credential_provider
+                        .set_credentials(
+                            CredentialKey::UfmAuth {
+                                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                            },
+                            Credentials::UsernamePassword {
+                                username: username.clone(),
+                                password: "".to_string(),
+                            },
+                        )
+                        .await
+                        .map_err(|e| {
+                            CarbideError::GenericError(format!(
+                                "Error deleting credential for Ufm {}: {:?} ",
+                                username.clone(),
+                                e
+                            ))
+                        })?;
+                } else {
+                    return Err(tonic::Status::invalid_argument("missing UFM Url"));
+                }
+            }
+            rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
+                // Not support delete BMC credential
+            }
+        };
+
+        Ok(Response::new(rpc::CredentialDeletionResult {}))
+    }
+
+    /// Returns a list of all configured route server addresses
+    async fn get_route_servers(
+        &self,
+        request: tonic::Request<()>,
+    ) -> Result<tonic::Response<rpc::RouteServers>, Status> {
+        log_request_data(&request);
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_route_servers", e))?;
+
+        let route_servers = RouteServer::get(&mut txn).await?;
+
+        Ok(tonic::Response::new(rpc::RouteServers {
+            route_servers: route_servers
+                .into_iter()
+                .map(|rs| rs.address.to_string())
+                .collect(),
+        }))
+    }
+
+    /// Overwrites all existing route server entries with the provided list
+    async fn add_route_servers(
+        &self,
+        request: tonic::Request<rpc::RouteServers>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        if !self.eth_data.route_servers_enabled {
+            return Err(
+                CarbideError::InvalidArgument("Route servers are disabled".to_string()).into(),
+            );
+        }
+        let route_servers: Vec<IpAddr> = request
+            .into_inner()
+            .route_servers
+            .iter()
+            .map(|rs| IpAddr::from_str(rs))
+            .collect::<Result<Vec<IpAddr>, _>>()
+            .map_err(CarbideError::AddressParseError)?;
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_route_servers", e))?;
+
+        RouteServer::add(&mut txn, &route_servers).await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_route_servers", e))?;
+
+        Ok(tonic::Response::new(()))
+    }
+
+    async fn remove_route_servers(
+        &self,
+        request: tonic::Request<rpc::RouteServers>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        let route_servers: Vec<IpAddr> = request
+            .into_inner()
+            .route_servers
+            .iter()
+            .map(|rs| IpAddr::from_str(rs))
+            .collect::<Result<Vec<IpAddr>, _>>()
+            .map_err(CarbideError::AddressParseError)?;
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_route_servers", e))?;
+
+        RouteServer::remove(&mut txn, &route_servers).await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_route_servers", e))?;
+
+        Ok(tonic::Response::new(()))
+    }
+
+    /// Overwrites all existing route server entries with the provided list
+    async fn replace_route_servers(
+        &self,
+        request: tonic::Request<rpc::RouteServers>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        let route_servers: Vec<IpAddr> = request
+            .into_inner()
+            .route_servers
+            .iter()
+            .map(|rs| IpAddr::from_str(rs))
+            .collect::<Result<Vec<IpAddr>, _>>()
+            .map_err(CarbideError::AddressParseError)?;
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_route_servers", e))?;
+
+        RouteServer::replace(&mut txn, &route_servers).await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_route_servers", e))?;
+
+        Ok(tonic::Response::new(()))
+    }
 }
 
-///
 /// this function blocks, don't use it in a raw async context
 fn get_tls_acceptor<S: AsRef<str>>(
     identity_pemfile_path: S,
@@ -4059,6 +4354,7 @@ where
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
         tls_config: ApiTlsConfig,
+        machine_update_config: MachineUpdateConfig,
     ) -> Self {
         Self {
             database_connection,
@@ -4069,6 +4365,7 @@ where
             eth_data,
             common_pools,
             tls_config,
+            machine_update_config,
         }
     }
 
@@ -4121,7 +4418,7 @@ where
             .await?;
 
         if let Some(domain_name) = &carbide_config.initial_domain_name {
-            if Self::create_first_domain(database_connection.clone(), domain_name).await? {
+            if Self::create_initial_domain(database_connection.clone(), domain_name).await? {
                 tracing::info!("Created initial domain {domain_name}");
             }
         }
@@ -4137,16 +4434,12 @@ where
 
         let common_pools = CommonPools::create(database_connection.clone()).await?;
 
-        let ib_fabric_manager: Arc<dyn IBFabricManager> =
-            if let Some(fabric_manager) = carbide_config.ib_fabric_manager.as_ref() {
-                let token = carbide_config
-                    .ib_fabric_manager_token
-                    .as_ref()
-                    .ok_or(Status::invalid_argument("ib fabric manager token is empty"))?;
-                ib::connect(fabric_manager, token).await?
-            } else {
-                ib::local_ib_fabric_manager()
-            };
+        let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
+            credential_provider.clone(),
+            carbide_config.enable_ib_fabric.unwrap_or(false),
+        );
+
+        let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
         let authorizer = auth::Authorizer::build_casbin(
             &carbide_config
@@ -4162,11 +4455,21 @@ where
         )
         .await?;
 
+        let route_servers =
+            Self::create_initial_route_servers(&database_connection, &carbide_config).await?;
+
         let eth_data = ethernet_virtualization::EthVirtData {
             asn: carbide_config.asn,
             dhcp_servers: carbide_config.dhcp_servers.clone(),
-            route_servers: carbide_config.route_servers.clone(),
-            deny_prefixes: carbide_config.deny_prefixes.clone(),
+            route_servers,
+            route_servers_enabled: carbide_config.enable_route_servers,
+            // Include the site fabric prefixes in the deny prefixes list, since
+            // we treat them the same way from here.
+            deny_prefixes: [
+                carbide_config.site_fabric_prefixes.as_slice(),
+                carbide_config.deny_prefixes.as_slice(),
+            ]
+            .concat(),
         };
 
         let health_pool = database_connection.clone();
@@ -4185,6 +4488,10 @@ where
             admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
         };
 
+        let machine_update_config = MachineUpdateConfig {
+            dpu_nic_firmware_update_enabled: carbide_config.dpu_nic_firmware_update_enabled,
+        };
+
         let api_service = Arc::new(Api {
             credential_provider: credential_provider.clone(),
             certificate_provider: certificate_provider.clone(),
@@ -4194,6 +4501,7 @@ where
             eth_data,
             common_pools: common_pools.clone(),
             tls_config,
+            machine_update_config,
         });
 
         if let Some(networks) = carbide_config.networks.as_ref() {
@@ -4233,6 +4541,7 @@ where
                 .iteration_time(service_config.machine_state_controller_iteration_time)
                 .state_handler(Arc::new(MachineStateHandler::new(
                     service_config.dpu_up_threshold,
+                    carbide_config.dpu_nic_firmware_update_enabled,
                 )))
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
@@ -4312,20 +4621,20 @@ where
 
     /// Create a Domain if we don't already have one.
     /// Returns true if we created an entry in the db (we had no domains yet), false otherwise.
-    async fn create_first_domain(
+    async fn create_initial_domain(
         db_pool: sqlx::pool::Pool<Postgres>,
         domain_name: &str,
     ) -> Result<bool, CarbideError> {
         let mut txn = db_pool
             .begin()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_first_domain", e))?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_initial_domain", e))?;
         let domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
         if domains.is_empty() {
             let domain = NewDomain::new(domain_name);
             domain.persist_first(&mut txn).await?;
             txn.commit().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "commit create_first_domain", e)
+                CarbideError::DatabaseError(file!(), "commit create_initial_domain", e)
             })?;
             Ok(true)
         } else {
@@ -4372,6 +4681,33 @@ where
             CarbideError::DatabaseError(file!(), "commit create_initial_networks", e)
         })?;
         Ok(())
+    }
+
+    pub async fn create_initial_route_servers(
+        database_connection: &Pool<Postgres>,
+        carbide_config: &Arc<CarbideConfig>,
+    ) -> Result<Vec<String>, CarbideError> {
+        let mut txn = database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin create_initial_route_servers", e)
+        })?;
+        let result = if carbide_config.enable_route_servers {
+            let route_servers: Vec<IpAddr> = carbide_config
+                .route_servers
+                .iter()
+                .map(|rs| IpAddr::from_str(rs))
+                .collect::<Result<Vec<IpAddr>, _>>()
+                .map_err(CarbideError::AddressParseError)?;
+
+            RouteServer::get_or_create(&mut txn, &route_servers).await?
+        } else {
+            RouteServer::replace(&mut txn, &vec![]).await?;
+            vec![]
+        };
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit create_initial_route_servers", e)
+        })?;
+        Ok(result.into_iter().map(|rs| rs.to_string()).collect())
     }
 
     async fn load_machine(

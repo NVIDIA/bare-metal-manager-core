@@ -36,14 +36,8 @@ pub struct CarbideConfig {
     /// A connection string for the utilized postgres database
     pub database_url: String,
 
-    /// A connection string for the utilized IBFabricManager
-    /// TODO: Might become a fabrics section
-    pub ib_fabric_manager: Option<String>,
-
-    /// The token for IBFabricManager authentication.
-    /// TODO: Might become a fabrics section
-    /// TODO: Should be read from vault
-    pub ib_fabric_manager_token: Option<String>,
+    /// Enable IB fabric manager
+    pub enable_ib_fabric: Option<bool>,
 
     /// Set shorter timeouts and run background jobs more often. Appropriate
     /// for local development.
@@ -63,9 +57,17 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub route_servers: Vec<String>,
 
+    #[serde(default)]
+    pub enable_route_servers: bool,
+
     /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
     #[serde(default)]
     pub deny_prefixes: Vec<Ipv4Network>,
+
+    /// List of IPv4 prefixes (in CIDR notation) that are assigned for tenant
+    /// use within this site.
+    #[serde(default)]
+    pub site_fabric_prefixes: Vec<Ipv4Network>,
 
     /// TLS related configuration
     pub tls: Option<TlsConfig>,
@@ -105,6 +107,10 @@ pub struct CarbideConfig {
     /// to make sure this value matches the version shipped with carbide.  If "None" updates
     /// during reprovisioning will be disabled
     pub dpu_nic_firmware_update_version: Option<String>,
+
+    /// Enable dpu firmware updates
+    #[serde(default)]
+    pub dpu_nic_firmware_update_enabled: bool,
 
     /// The maximum number of machines that have in-progress updates running.  This prevents
     /// too many machines from being put into maintenance at any given time.

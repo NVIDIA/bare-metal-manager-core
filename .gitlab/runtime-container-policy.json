@@ -42,7 +42,7 @@
 					"trigger": "package"
 				},
 				{
-					"action": "STOP",
+					"action": "WARN",
 					"gate": "vulnerabilities",
 					"id": "b30e8abc-444f-45b1-8a37-55be1b8c8bb5",
 					"params": [

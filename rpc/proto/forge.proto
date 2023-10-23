@@ -10,7 +10,7 @@ package forge;
 
 service Forge {
   // What version of Forge is this service running? Matches `--version` command line.
-  rpc Version(google.protobuf.Empty) returns (FullVersion);
+  rpc Version(google.protobuf.Empty) returns (BuildInfo);
 
   // Domain
   rpc CreateDomain(Domain) returns (Domain);
@@ -183,9 +183,52 @@ service Forge {
 
   // Reset a BMC machine
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
+
+  // Create Credential in Vault
+  rpc CreateCredential(CredentialCreationRequest) returns (CredentialCreationResult);
+
+  // Delete Credential in Vault
+  rpc DeleteCredential(CredentialDeletionRequest) returns (CredentialDeletionResult);
+
+  // Route Server Management
+  rpc GetRouteServers(google.protobuf.Empty) returns (RouteServers);
+  rpc AddRouteServers(RouteServers) returns (google.protobuf.Empty);
+  rpc RemoveRouteServers(RouteServers) returns (google.protobuf.Empty);
+  rpc ReplaceRouteServers(RouteServers) returns (google.protobuf.Empty);
 }
 
-message FullVersion {
+enum CredentialType {
+  HostBMC = 0;
+  DPUBMC = 1;
+  UFM = 2;
+}
+
+message CredentialCreationRequest {
+  // Credential type
+  CredentialType credential_type = 1;
+  // The username of credential.
+  // No need specify it for HostBMC and DPUBMC.
+  // For UFM, the username is the URL of UFM.
+  optional string username = 2;
+  // The password of credential for HostBMC and DPUBMC.
+  // For UFM, the password is the token of UFM.
+  string password = 3;
+}
+
+message CredentialDeletionRequest {
+  CredentialType credential_type = 1;
+  optional string username = 2;
+}
+
+message CredentialCreationResult {
+
+}
+
+message CredentialDeletionResult {
+
+}
+
+message BuildInfo {
     string build_version = 1; // v2023.06-rc2-1-gc5c05de3
     string build_date = 2; // 2023-06-05
     string git_sha = 3; // c5c05de3
@@ -576,6 +619,11 @@ message InstanceAllocationRequest {
 
   // Desired configuration for the allocated instance
   InstanceConfig config = 2;
+
+  // Desired ID for this Instance. If the ID is not provided, Forge will generate
+  // a random ID.
+  // The Instance ID must be unique within the Forge site.
+  optional UUID instance_id = 3;
 
   //DEPRECATED -- use tenantKeysetId in InstanceConfig.TenantConfig instead.
   repeated string ssh_keys = 11;
@@ -1154,6 +1202,10 @@ message FlatInterfaceConfig {
     // then this value is set and specifies the virtual function ID that is configured
     // for this network interface.
     optional uint32 virtual_function_id = 6;
+    // A list of IPv4 prefixes that belong to this VPC. Note this may contain
+    // the prefix from the network segment this interface is attached to (which
+    // could be independently derived from the `gateway` field).
+    repeated string vpc_prefixes = 7;
 }
 
 message ManagedHostNetworkStatusRequest {}
@@ -1795,4 +1847,8 @@ message NetworkTopologyRequest {
 
 message NetworkTopologyData {
   repeated NetworkDevice network_devices = 1;
+}
+
+message RouteServers {
+  repeated string route_servers = 1;
 }

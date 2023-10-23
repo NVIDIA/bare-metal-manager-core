@@ -21,17 +21,17 @@ use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, UFMConfig,
     UFMError, Ufm,
 };
-use super::IBFabricManager;
+use super::IBFabric;
 use crate::CarbideError;
 
-pub struct RestIBFabricManager {
+pub struct RestIBFabric {
     ufm: Ufm,
 }
 
 const DEFAULT_INDEX0: bool = true;
 const DEFAULT_MEMBERSHIP: PortMembership = PortMembership::Full;
 
-pub async fn connect(addr: &str, token: &str) -> Result<Arc<dyn IBFabricManager>, CarbideError> {
+pub async fn connect(addr: &str, token: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
     let conf = UFMConfig {
         address: addr.to_string(),
         username: None,
@@ -44,11 +44,11 @@ pub async fn connect(addr: &str, token: &str) -> Result<Arc<dyn IBFabricManager>
     let version = ufm.version().await.map_err(CarbideError::from)?;
     info!("The UFM version is {version}");
 
-    Ok(Arc::new(RestIBFabricManager { ufm }))
+    Ok(Arc::new(RestIBFabric { ufm }))
 }
 
 #[async_trait]
-impl IBFabricManager for RestIBFabricManager {
+impl IBFabric for RestIBFabric {
     /// Delete IBNetwork
     async fn delete_ib_network(&self, pkey: &str) -> Result<(), CarbideError> {
         self.ufm

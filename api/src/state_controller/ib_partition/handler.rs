@@ -12,7 +12,7 @@
 
 use crate::{
     db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus},
-    ib::types::IBNetwork,
+    ib::{types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::ib_partition::IBPartitionControllerState,
     state_controller::state_handler::{
         ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
@@ -47,6 +47,14 @@ impl StateHandler for IBPartitionStateHandler {
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let read_state: &IBPartitionControllerState = &*controller_state;
+
+        let ib_fabric = ctx
+            .services
+            .ib_fabric_manager
+            .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+            .await
+            .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+
         match read_state {
             IBPartitionControllerState::Provisioning => {
                 // TODO(k82cn): get IB network from IB Fabric Manager to avoid duplication.
@@ -63,11 +71,7 @@ impl StateHandler for IBPartitionStateHandler {
                         // When ib_partition is deleting, it should waiting for all instances are
                         // released. As releasing instance will also remove ib_port from ib_network,
                         // and the ib_network will be removed when no ports in it.
-                        let res = ctx
-                            .services
-                            .ib_fabric_manager
-                            .get_ib_network(pkey.to_string().as_ref())
-                            .await;
+                        let res = ib_fabric.get_ib_network(pkey.to_string().as_ref()).await;
                         if let Err(e) = res {
                             match e {
                                 // The IBPartition maybe deleted during controller cycle.
@@ -99,14 +103,9 @@ impl StateHandler for IBPartitionStateHandler {
                         *controller_state.modify() = IBPartitionControllerState::Deleting;
                     } else {
                         let pkey = pkey.to_string();
-                        let ibnetwork = ctx
-                            .services
-                            .ib_fabric_manager
-                            .get_ib_network(&pkey)
-                            .await
-                            .map_err(|_| {
-                                StateHandlerError::IBFabricError("get_ib_network".to_string())
-                            })?;
+                        let ibnetwork = ib_fabric.get_ib_network(&pkey).await.map_err(|_| {
+                            StateHandlerError::IBFabricError("get_ib_network".to_string())
+                        })?;
 
                         // If found the IBNetwork, update the status accordingly. And check
                         // it whether align with the config; if mismatched, return error.

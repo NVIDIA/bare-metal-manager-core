@@ -1699,6 +1699,149 @@ esac
     ;;
 esac
 ;;
+(credential)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__credential_commands" \
+"*::: :->credential" \
+&& ret=0
+
+    case $state in
+    (credential)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-credential-command-$line[1]:"
+        case $line[1] in
+            (add-ufm)
+_arguments "${_arguments_options[@]}" \
+'--url=[The UFM url]:URL: ' \
+'--token=[The UFM token]:TOKEN: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(delete-ufm)
+_arguments "${_arguments_options[@]}" \
+'--url=[The UFM url]:URL: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(add-bmc)
+_arguments "${_arguments_options[@]}" \
+'--kind=[The kind of BMC credential]:KIND:(host dpu)' \
+'--password=[The password of BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__credential__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-credential-help-command-$line[1]:"
+        case $line[1] in
+            (add-ufm)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(delete-ufm)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(add-bmc)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(route-server)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__route-server_commands" \
+"*::: :->route-server" \
+&& ret=0
+
+    case $state in
+    (route-server)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-route-server-command-$line[1]:"
+        case $line[1] in
+            (get)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(add)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+':ip -- The IP address we are looking to identify:' \
+&& ret=0
+;;
+(remove)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+':ip -- The IP address we are looking to identify:' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__route-server__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-route-server-help-command-$line[1]:"
+        case $line[1] in
+            (get)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(add)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(remove)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (help)
 _arguments "${_arguments_options[@]}" \
 ":: :_forge-admin-cli__help_commands" \
@@ -2247,6 +2390,62 @@ _arguments "${_arguments_options[@]}" \
     ;;
 esac
 ;;
+(credential)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__credential_commands" \
+"*::: :->credential" \
+&& ret=0
+
+    case $state in
+    (credential)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-credential-command-$line[1]:"
+        case $line[1] in
+            (add-ufm)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(delete-ufm)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(add-bmc)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(route-server)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__route-server_commands" \
+"*::: :->route-server" \
+&& ret=0
+
+    case $state in
+    (route-server)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-route-server-command-$line[1]:"
+        case $line[1] in
+            (get)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(add)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(remove)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (help)
 _arguments "${_arguments_options[@]}" \
 && ret=0
@@ -2284,12 +2483,60 @@ _forge-admin-cli_commands() {
 'ip:IP address handling' \
 'dpu:DPU specific handling' \
 'inventory:Generate Ansible Inventory' \
-'boot-override:Cloud init override' \
+'boot-override:Machine boot override' \
 'bmc-machine:BMC Machine related handling' \
 'bmc:BMC Machine related handling' \
+'credential:Credential related handling' \
+'c:Credential related handling' \
+'route-server:Route server handling' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'forge-admin-cli commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__route-server__add_commands] )) ||
+_forge-admin-cli__help__route-server__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help route-server add commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server__add_commands] )) ||
+_forge-admin-cli__route-server__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli route-server add commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server__help__add_commands] )) ||
+_forge-admin-cli__route-server__help__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli route-server help add commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__credential__add-bmc_commands] )) ||
+_forge-admin-cli__credential__add-bmc_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli credential add-bmc commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__credential__help__add-bmc_commands] )) ||
+_forge-admin-cli__credential__help__add-bmc_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli credential help add-bmc commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__credential__add-bmc_commands] )) ||
+_forge-admin-cli__help__credential__add-bmc_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help credential add-bmc commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__credential__add-ufm_commands] )) ||
+_forge-admin-cli__credential__add-ufm_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli credential add-ufm commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__credential__help__add-ufm_commands] )) ||
+_forge-admin-cli__credential__help__add-ufm_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli credential help add-ufm commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__credential__add-ufm_commands] )) ||
+_forge-admin-cli__help__credential__add-ufm_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help credential add-ufm commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__dpu__agent-upgrade-policy_commands] )) ||
 _forge-admin-cli__dpu__agent-upgrade-policy_commands() {
@@ -2530,6 +2777,40 @@ _forge-admin-cli__machine__network__help__config_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli machine network help config commands' commands "$@"
 }
+(( $+functions[_forge-admin-cli__credential_commands] )) ||
+_forge-admin-cli__credential_commands() {
+    local commands; commands=(
+'add-ufm:Add UFM credential' \
+'delete-ufm:Delete UFM credential' \
+'add-bmc:Add site-wide Host/DPU BMC default credential (NOTE\: this parameter can be set only once)' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli credential commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__credential_commands] )) ||
+_forge-admin-cli__help__credential_commands() {
+    local commands; commands=(
+'add-ufm:Add UFM credential' \
+'delete-ufm:Delete UFM credential' \
+'add-bmc:Add site-wide Host/DPU BMC default credential (NOTE\: this parameter can be set only once)' \
+    )
+    _describe -t commands 'forge-admin-cli help credential commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__credential__delete-ufm_commands] )) ||
+_forge-admin-cli__credential__delete-ufm_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli credential delete-ufm commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__credential__help__delete-ufm_commands] )) ||
+_forge-admin-cli__credential__help__delete-ufm_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli credential help delete-ufm commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__credential__delete-ufm_commands] )) ||
+_forge-admin-cli__help__credential__delete-ufm_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help credential delete-ufm commands' commands "$@"
+}
 (( $+functions[_forge-admin-cli__help__redfish__disable-secure-boot_commands] )) ||
 _forge-admin-cli__help__redfish__disable-secure-boot_commands() {
     local commands; commands=()
@@ -2751,6 +3032,21 @@ _forge-admin-cli__help__boot-override__get_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli help boot-override get commands' commands "$@"
 }
+(( $+functions[_forge-admin-cli__help__route-server__get_commands] )) ||
+_forge-admin-cli__help__route-server__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help route-server get commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server__get_commands] )) ||
+_forge-admin-cli__route-server__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli route-server get commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server__help__get_commands] )) ||
+_forge-admin-cli__route-server__help__get_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli route-server help get commands' commands "$@"
+}
 (( $+functions[_forge-admin-cli__help__redfish__get-bmc-ethernet-interface_commands] )) ||
 _forge-admin-cli__help__redfish__get-bmc-ethernet-interface_commands() {
     local commands; commands=()
@@ -2869,6 +3165,21 @@ _forge-admin-cli__boot-override__help__help_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli boot-override help help commands' commands "$@"
 }
+(( $+functions[_forge-admin-cli__credential__help_commands] )) ||
+_forge-admin-cli__credential__help_commands() {
+    local commands; commands=(
+'add-ufm:Add UFM credential' \
+'delete-ufm:Delete UFM credential' \
+'add-bmc:Add site-wide Host/DPU BMC default credential (NOTE\: this parameter can be set only once)' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli credential help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__credential__help__help_commands] )) ||
+_forge-admin-cli__credential__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli credential help help commands' commands "$@"
+}
 (( $+functions[_forge-admin-cli__domain__help_commands] )) ||
 _forge-admin-cli__domain__help_commands() {
     local commands; commands=(
@@ -2927,8 +3238,10 @@ _forge-admin-cli__help_commands() {
 'ip:IP address handling' \
 'dpu:DPU specific handling' \
 'inventory:Generate Ansible Inventory' \
-'boot-override:Cloud init override' \
+'boot-override:Machine boot override' \
 'bmc-machine:BMC Machine related handling' \
+'credential:Credential related handling' \
+'route-server:Route server handling' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'forge-admin-cli help commands' commands "$@"
@@ -3152,6 +3465,21 @@ _forge-admin-cli__resource-pool__help_commands() {
 _forge-admin-cli__resource-pool__help__help_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli resource-pool help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server__help_commands] )) ||
+_forge-admin-cli__route-server__help_commands() {
+    local commands; commands=(
+'get:' \
+'add:' \
+'remove:' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli route-server help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server__help__help_commands] )) ||
+_forge-admin-cli__route-server__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli route-server help help commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__help__instance_commands] )) ||
 _forge-admin-cli__help__instance_commands() {
@@ -3640,6 +3968,21 @@ _forge-admin-cli__instance__release_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli instance release commands' commands "$@"
 }
+(( $+functions[_forge-admin-cli__help__route-server__remove_commands] )) ||
+_forge-admin-cli__help__route-server__remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help route-server remove commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server__help__remove_commands] )) ||
+_forge-admin-cli__route-server__help__remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli route-server help remove commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server__remove_commands] )) ||
+_forge-admin-cli__route-server__remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli route-server remove commands' commands "$@"
+}
 (( $+functions[_forge-admin-cli__dpu__help__reprovision_commands] )) ||
 _forge-admin-cli__dpu__help__reprovision_commands() {
     local commands; commands=(
@@ -3699,6 +4042,25 @@ _forge-admin-cli__resource-pool_commands() {
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'forge-admin-cli resource-pool commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__route-server_commands] )) ||
+_forge-admin-cli__help__route-server_commands() {
+    local commands; commands=(
+'get:' \
+'add:' \
+'remove:' \
+    )
+    _describe -t commands 'forge-admin-cli help route-server commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__route-server_commands] )) ||
+_forge-admin-cli__route-server_commands() {
+    local commands; commands=(
+'get:' \
+'add:' \
+'remove:' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli route-server commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__help__redfish__serial-enable_commands] )) ||
 _forge-admin-cli__help__redfish__serial-enable_commands() {

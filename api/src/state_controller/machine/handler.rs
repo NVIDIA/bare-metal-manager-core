@@ -27,7 +27,7 @@ use crate::{
         machine_topology::MachineTopology,
     },
     ib,
-    ib::types::IBNetwork,
+    ib::{types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::{
         config_version::ConfigVersion,
         instance::config::infiniband::InstanceIbInterfaceConfig,
@@ -65,12 +65,12 @@ pub struct MachineStateHandler {
 }
 
 impl MachineStateHandler {
-    pub fn new(dpu_up_threshold: chrono::Duration) -> Self {
+    pub fn new(dpu_up_threshold: chrono::Duration, dpu_nic_firmware_enabled: bool) -> Self {
         MachineStateHandler {
             dpu_up_threshold,
             host_handler: Default::default(),
-            dpu_handler: Default::default(),
-            instance_handler: Default::default(),
+            dpu_handler: DpuMachineStateHandler::new(dpu_nic_firmware_enabled),
+            instance_handler: InstanceStateHandler::new(dpu_nic_firmware_enabled),
         }
     }
 }
@@ -78,7 +78,7 @@ impl MachineStateHandler {
 /// Conveninence function for the tests
 impl Default for MachineStateHandler {
     fn default() -> Self {
-        Self::new(chrono::Duration::minutes(5))
+        Self::new(chrono::Duration::minutes(5), false)
     }
 }
 
@@ -476,8 +476,17 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 
 /// A `StateHandler` implementation for DPU machines
 #[derive(Debug, Default)]
-pub struct DpuMachineStateHandler {}
+pub struct DpuMachineStateHandler {
+    dpu_nic_firmware_update_enabled: bool,
+}
 
+impl DpuMachineStateHandler {
+    pub fn new(dpu_nic_firmware_update_enabled: bool) -> Self {
+        DpuMachineStateHandler {
+            dpu_nic_firmware_update_enabled,
+        }
+    }
+}
 #[async_trait::async_trait]
 impl StateHandler for DpuMachineStateHandler {
     type State = ManagedHostStateSnapshot;
@@ -503,18 +512,29 @@ impl StateHandler for DpuMachineStateHandler {
                     return Ok(());
                 }
 
-                // the initial topology may be based on a different firmware version.  allow it to be
-                // updated once the reboot completes and sends new data.
-                MachineTopology::set_topology_update_needed(
-                    txn,
-                    &state.dpu_snapshot.machine_id,
-                    true,
-                )
-                .await?;
+                tracing::info!(
+                    "ManagedHostState::DPUNotReady::Init: firmware update enabled = {}",
+                    self.dpu_nic_firmware_update_enabled
+                );
 
-                *controller_state.modify() = ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::WaitingForNetworkInstall,
-                };
+                if self.dpu_nic_firmware_update_enabled {
+                    // the initial topology may be based on a different firmware version.  allow it to be
+                    // updated once the reboot completes and sends new data.
+                    MachineTopology::set_topology_update_needed(
+                        txn,
+                        &state.dpu_snapshot.machine_id,
+                        true,
+                    )
+                    .await?;
+
+                    *controller_state.modify() = ManagedHostState::DPUNotReady {
+                        machine_state: MachineState::WaitingForNetworkInstall,
+                    };
+                } else {
+                    *controller_state.modify() = ManagedHostState::DPUNotReady {
+                        machine_state: MachineState::WaitingForNetworkConfig,
+                    };
+                }
             }
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::WaitingForNetworkInstall,
@@ -732,7 +752,17 @@ impl StateHandler for HostMachineStateHandler {
 
 /// A `StateHandler` implementation for instances
 #[derive(Debug, Default)]
-pub struct InstanceStateHandler {}
+pub struct InstanceStateHandler {
+    dpu_nic_firmware_update_enabled: bool,
+}
+
+impl InstanceStateHandler {
+    pub fn new(dpu_nic_firmware_update_enabled: bool) -> Self {
+        InstanceStateHandler {
+            dpu_nic_firmware_update_enabled,
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl StateHandler for InstanceStateHandler {
@@ -843,6 +873,7 @@ impl StateHandler for InstanceStateHandler {
                                     instance_state: InstanceState::DPUReprovision {
                                         reprovision_state: if reprovisioning_requested
                                             .update_firmware
+                                            && self.dpu_nic_firmware_update_enabled
                                         {
                                             ReprovisionState::FirmwareUpgrade
                                         } else {
@@ -957,6 +988,13 @@ async fn record_infiniband_status_observation(
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
 
+    let ib_fabric = ctx
+        .services
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .await
+        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+
     for ib in &ib_interfaces {
         let guid = ib.guid.clone().ok_or(StateHandlerError::MissingData {
             object_id: instance.instance_id.to_string(),
@@ -993,9 +1031,7 @@ async fn record_infiniband_status_observation(
             guids: Some(v),
             pkey: ibpartition.config.pkey.map(|pkey| pkey as i32),
         };
-        let ports = ctx
-            .services
-            .ib_fabric_manager
+        let ports = ib_fabric
             .find_ib_port(Some(filter))
             .await
             .map_err(|err| StateHandlerError::GenericError(err.into()))?;
@@ -1033,6 +1069,13 @@ async fn bind_ib_ports(
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
 
+    let ib_fabric = ctx
+        .services
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .await
+        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+
     for ib in ib_interfaces {
         let guid = ib.guid.ok_or(StateHandlerError::MissingData {
             object_id: instance_id.to_string(),
@@ -1062,8 +1105,7 @@ async fn bind_ib_ports(
                 missing: "ib_partition not found",
             })?;
 
-        ctx.services
-            .ib_fabric_manager
+        ib_fabric
             .bind_ib_ports(IBNetwork::from(ibpartition), v)
             .await
             .map_err(|_| StateHandlerError::IBFabricError("bind_ib_ports".to_string()))?;
@@ -1079,6 +1121,13 @@ async fn unbind_ib_ports(
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
+
+    let ib_fabric = ctx
+        .services
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .await
+        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
 
     for ib in ib_interfaces {
         let guid = ib.guid.ok_or(StateHandlerError::MissingData {
@@ -1115,8 +1164,7 @@ async fn unbind_ib_ports(
                 missing: "ib_partition pkey",
             })?;
 
-        ctx.services
-            .ib_fabric_manager
+        ib_fabric
             .unbind_ib_ports(pkey as i32, v)
             .await
             .map_err(|_| StateHandlerError::IBFabricError("unbind_ib_ports".to_string()))?;
