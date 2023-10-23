@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Called from `include/Makefile-bootstrap.toml`
+
+# Stop on first failure
 set -eo pipefail
 
 # This script can be used to simulate discovering a DPU in the docker-compose setup
@@ -17,14 +20,19 @@ if [ $# -ne 1 ]; then
   exit 1
 fi
 
-export CERT_PATH=${CERT_PATH:=/tmp/localdev-certs}
-if [[ ! -e ${CERT_PATH}/tls.crt ]]; then
-    echo "pulling certs from pod"
-    mkdir -p ${CERT_PATH}
-    kubectl -n forge-system exec deploy/carbide-api -- tar cf - -C /var/run/secrets/spiffe.io/..data . | tar xf - -C ${CERT_PATH}
+# Kubernetes local env uses TLS, docker-compose doesn't
+if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
+	export CERT_PATH=${CERT_PATH:=/tmp/localdev-certs}
+	if [[ ! -e ${CERT_PATH}/tls.crt ]]; then
+		echo "pulling certs from pod"
+		mkdir -p ${CERT_PATH}
+		kubectl -n forge-system exec deploy/carbide-api -- tar cf - -C /var/run/secrets/spiffe.io/..data . | tar xf - -C ${CERT_PATH}
+	fi
+	export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
+else
+	export DISABLE_TLS_ENFORCEMENT=true
+	export GRPCURL="grpcurl -insecure"
 fi
-
-export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
 
 DATA_DIR=$1
 source $DATA_DIR/envrc
@@ -38,10 +46,12 @@ simulate_boot() {
   MACHINE_INTERFACE_ID=$(echo $RESULT | jq ".machineInterfaceId.value" | tr -d '"')
   echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
 
-  #HACK work-around for k8s NAT of outside network traffic
-  REAL_IP=$(${REPO_ROOT}/dev/bin/psql.sh "select address from machine_interface_addresses where interface_id='${MACHINE_INTERFACE_ID}';" | tr -d '[:space:]"')
-  echo "Machines real IP: ${REAL_IP}"
-  ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='10.244.0.1';"
+  if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
+	#HACK work-around for k8s NAT of outside network traffic
+	REAL_IP=$(${REPO_ROOT}/dev/bin/psql.sh "select address from machine_interface_addresses where interface_id='${MACHINE_INTERFACE_ID}';" | tr -d '[:space:]"')
+	echo "Machines real IP: ${REAL_IP}"
+	${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='10.244.0.1';"
+  fi
 
   echo "Sending pxe boot request"
   curl "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/pxe/boot?uuid=${MACHINE_INTERFACE_ID}&buildarch=arm64"
@@ -65,7 +75,9 @@ simulate_boot() {
   RESULT=$(${GRPCURL} -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
   echo "DPU discovery completed. Waiting for it reached in Host/WaitingForDiscovery state."
 
-  ${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${REAL_IP}';"
+  if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
+	${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${REAL_IP}';"
+  fi
 
   MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   echo "Created DPU Machine with ID $DPU_MACHINE_ID (state: ${MACHINE_STATE})"
@@ -135,11 +147,18 @@ mkdir -p ${HBN_ROOT}/etc/network
 mkdir -p ${HBN_ROOT}/etc/supervisor/conf.d
 mkdir -p ${HBN_ROOT}/etc/cumulus/acl/policy.d
 
+if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
+	# The one we got from kubectl earlier
+	export ROOT_CA="${CERT_PATH}/ca.crt"
+else
+	export ROOT_CA="./dev/certs/forge_developer_local_only_root_cert_pem"
+fi
+
 cat <<!> $DPU_CONFIG_FILE
 [forge-system]
 api-server = "https://$API_SERVER_HOST:$API_SERVER_PORT"
 pxe-server = "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT"
-root-ca = "${CERT_PATH}/ca.crt"
+root-ca = "${ROOT_CA}"
 
 [machine]
 interface-id = "$MACHINE_INTERFACE_ID"

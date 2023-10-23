@@ -11,6 +11,7 @@
 
 DELETE FROM instance_addresses;
 DELETE FROM instances;
+DELETE FROM port_to_network_device_map;
 DELETE FROM machine_topologies;
 DELETE FROM machine_interface_addresses;
 DELETE FROM machine_interfaces;
