@@ -176,6 +176,7 @@ pub fn update(
 /// Interfaces to report back to server
 pub fn interfaces(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
+    factory_mac_address: &str,
 ) -> eyre::Result<Vec<rpc::InstanceInterfaceStatusObservation>> {
     let mut interfaces = vec![];
     if network_config.use_admin_network {
@@ -185,15 +186,20 @@ pub fn interfaces(
         interfaces.push(rpc::InstanceInterfaceStatusObservation {
             function_type: iface.function_type,
             virtual_function_id: None,
-            mac_address: None, // TODO get this?
+            mac_address: Some(factory_mac_address.to_string()),
             addresses: vec![iface.ip.clone()],
         });
     } else {
         for iface in network_config.tenant_interfaces.iter() {
+            let mac = if iface.function_type == rpc::InterfaceFunctionType::Physical as i32 {
+                Some(factory_mac_address.to_string())
+            } else {
+                None // TODO get the vf MAC addresses
+            };
             interfaces.push(rpc::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: iface.virtual_function_id,
-                mac_address: None, // TODO get this?
+                mac_address: mac,
                 addresses: vec![iface.ip.clone()],
             });
         }

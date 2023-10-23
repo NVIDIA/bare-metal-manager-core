@@ -15,23 +15,22 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::{process::Command, time::Duration};
 
-use axum::Router;
-use opentelemetry::sdk;
-use opentelemetry::sdk::metrics;
-use opentelemetry_semantic_conventions as semcov;
-use rand::Rng;
-use tokio::signal::unix::{signal, SignalKind};
-use x509_parser::prelude::{FromDer, X509Certificate};
-
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
 use ::rpc::machine_discovery::DpuData;
+use axum::Router;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware, registration,
     registration::register_machine,
 };
+use opentelemetry::sdk;
+use opentelemetry::sdk::metrics;
+use opentelemetry_semantic_conventions as semcov;
+use rand::Rng;
+use tokio::signal::unix::{signal, SignalKind};
 pub use upgrade::upgrade_check;
+use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::frr::FrrVlanConfig;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
@@ -91,19 +90,42 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // TODO until Oct 2023 forge-dpu-agent in prod used this
         // Now the systemd service calls 'run'. Remove this in the future.
         None => {
-            let machine_id = register(&agent).await?;
-            run(&machine_id, forge_tls_config, agent, None).await?;
+            let Registration {
+                machine_id,
+                factory_mac_address,
+            } = register(&agent).await?;
+            run(
+                &machine_id,
+                &factory_mac_address,
+                forge_tls_config,
+                agent,
+                None,
+            )
+            .await?;
         }
 
         // "run" is the normal and default command
         Some(AgentCommand::Run(options)) => {
-            let machine_id = match &options.override_machine_id {
+            let Registration {
+                machine_id,
+                factory_mac_address,
+            } = match &options.override_machine_id {
                 // Normal case
                 None => register(&agent).await?,
                 // Dev / test override
-                Some(id) => id.to_string(),
+                Some(id) => Registration {
+                    machine_id: id.to_string(),
+                    factory_mac_address: "11:22:33:44:55:66".to_string(),
+                },
             };
-            run(&machine_id, forge_tls_config, agent, Some(options)).await?;
+            run(
+                &machine_id,
+                &factory_mac_address,
+                forge_tls_config,
+                agent,
+                Some(options),
+            )
+            .await?;
         }
 
         // enumerate hardware and exit
@@ -159,7 +181,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     status_out.network_config_error = Some(err.to_string());
                 }
             }
-            match ethernet_virtualization::interfaces(&conf) {
+            match ethernet_virtualization::interfaces(&conf, &params.mac_address) {
                 Ok(interfaces) => status_out.interfaces = interfaces,
                 Err(err) => status_out.network_config_error = Some(err.to_string()),
             }
@@ -257,8 +279,13 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     Ok(())
 }
 
+struct Registration {
+    machine_id: String,
+    factory_mac_address: String,
+}
+
 /// Discover hardware, register DPU with carbide-api, and return machine id
-async fn register(agent: &AgentConfig) -> Result<String, eyre::Report> {
+async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
     let interface_id = agent.machine.interface_id;
     let mut hardware_info = enumerate_hardware()?;
     tracing::debug!("Successfully enumerated DPU hardware");
@@ -284,7 +311,10 @@ async fn register(agent: &AgentConfig) -> Result<String, eyre::Report> {
             switches: vec![],
         });
     }
-
+    let factory_mac_address = match hardware_info.dpu_info.as_ref() {
+        Some(dpu_info) => dpu_info.factory_mac_address.clone(),
+        None => eyre::bail!("Missing dpu info, should be impossible"),
+    };
     let registration_data = register_machine(
         &agent.forge_system.api_server,
         agent.forge_system.root_ca.clone(),
@@ -294,14 +324,18 @@ async fn register(agent: &AgentConfig) -> Result<String, eyre::Report> {
     .await?;
 
     let machine_id = registration_data.machine_id;
-    tracing::info!(%machine_id, %interface_id, "Successfully discovered machine");
+    tracing::info!(%machine_id, %interface_id, %factory_mac_address, "Successfully discovered machine");
 
-    Ok(machine_id)
+    Ok(Registration {
+        machine_id,
+        factory_mac_address,
+    })
 }
 
 // main loop when running in daemon mode
 async fn run(
     machine_id: &str,
+    mac_address: &str,
     forge_tls_config: ForgeTlsConfig,
     agent: AgentConfig,
     options: Option<RunOptions>,
@@ -410,7 +444,7 @@ async fn run(
                                 status_out.instance_config_version =
                                     Some(conf.instance_config_version.clone());
                             }
-                            match ethernet_virtualization::interfaces(conf) {
+                            match ethernet_virtualization::interfaces(conf, mac_address) {
                                 Ok(interfaces) => status_out.interfaces = interfaces,
                                 Err(err) => status_out.network_config_error = Some(err.to_string()),
                             }
