@@ -18,9 +18,11 @@ environment.
 
    Arch - `sudo pacman -S base-devel`
 
-   Debian - `sudo apt-get -y install build-essential libudev-dev libssl-dev`
+   Debian - `sudo apt-get -y install build-essential libudev-dev libssl-dev binutils-aarch64-linux-gnu`
 
-   Fedora - `sudo dnf -y install gcc-c++ systemd-devel` (systemd-devel needed for libudev-devel)
+   Fedora - `sudo dnf -y install gcc-c++ systemd-devel binutils-aarch64-linux-gnu`
+    - systemd-devel is needed for libudev-devel
+    - binutils-aarch64-linux-gnu is for stripping the cross-compiled forge-dpu-agent - don't worry if you don't have this
 
 2. Install additional cargo utilities
 
