@@ -17,7 +17,12 @@ if [ $# -ne 4 ]; then
   exit 1
 fi
 
-export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
+if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
+	export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
+else
+	export DISABLE_TLS_ENFORCEMENT=true
+	export GRPCURL="grpcurl -insecure"
+fi
 
 API_SERVER_HOST=$1
 API_SERVER_PORT=$2
