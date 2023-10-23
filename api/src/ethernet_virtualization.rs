@@ -35,6 +35,7 @@ pub struct EthVirtData {
     pub asn: u32,
     pub dhcp_servers: Vec<String>,
     pub route_servers: Vec<String>,
+    pub route_servers_enabled: bool,
     pub deny_prefixes: Vec<Ipv4Network>,
 }
 

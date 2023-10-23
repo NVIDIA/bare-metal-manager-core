@@ -35,7 +35,7 @@ use itertools::Itertools;
 use opentelemetry::metrics::Meter;
 use opentelemetry_api::KeyValue;
 use sqlx::postgres::PgSslMode;
-use sqlx::{ConnectOptions, Postgres, Transaction};
+use sqlx::{ConnectOptions, Pool, Postgres, Transaction};
 use tokio::net::TcpListener;
 use tokio::time::Instant;
 use tokio_rustls::rustls::server::AllowAnyAnonymousOrAuthenticatedClient;
@@ -102,6 +102,7 @@ use crate::{
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment},
         resource_record::DnsQuestion,
+        route_servers::RouteServer,
         vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
         DatabaseError, ObjectFilter, UuidKeyedObjectFilter,
     },
@@ -3900,9 +3901,125 @@ where
 
         Ok(Response::new(rpc::CredentialDeletionResult {}))
     }
+
+    /// Returns a list of all configured route server addresses
+    async fn get_route_servers(
+        &self,
+        request: tonic::Request<()>,
+    ) -> Result<tonic::Response<rpc::RouteServers>, Status> {
+        log_request_data(&request);
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_route_servers", e))?;
+
+        let route_servers = RouteServer::get(&mut txn).await?;
+
+        Ok(tonic::Response::new(rpc::RouteServers {
+            route_servers: route_servers
+                .into_iter()
+                .map(|rs| rs.address.to_string())
+                .collect(),
+        }))
+    }
+
+    /// Overwrites all existing route server entries with the provided list
+    async fn add_route_servers(
+        &self,
+        request: tonic::Request<rpc::RouteServers>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        if !self.eth_data.route_servers_enabled {
+            return Err(
+                CarbideError::InvalidArgument("Route servers are disabled".to_string()).into(),
+            );
+        }
+        let route_servers: Vec<IpAddr> = request
+            .into_inner()
+            .route_servers
+            .iter()
+            .map(|rs| IpAddr::from_str(rs))
+            .collect::<Result<Vec<IpAddr>, _>>()
+            .map_err(CarbideError::AddressParseError)?;
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_route_servers", e))?;
+
+        RouteServer::add(&mut txn, &route_servers).await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_route_servers", e))?;
+
+        Ok(tonic::Response::new(()))
+    }
+
+    async fn remove_route_servers(
+        &self,
+        request: tonic::Request<rpc::RouteServers>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        let route_servers: Vec<IpAddr> = request
+            .into_inner()
+            .route_servers
+            .iter()
+            .map(|rs| IpAddr::from_str(rs))
+            .collect::<Result<Vec<IpAddr>, _>>()
+            .map_err(CarbideError::AddressParseError)?;
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_route_servers", e))?;
+
+        RouteServer::remove(&mut txn, &route_servers).await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_route_servers", e))?;
+
+        Ok(tonic::Response::new(()))
+    }
+
+    /// Overwrites all existing route server entries with the provided list
+    async fn replace_route_servers(
+        &self,
+        request: tonic::Request<rpc::RouteServers>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        let route_servers: Vec<IpAddr> = request
+            .into_inner()
+            .route_servers
+            .iter()
+            .map(|rs| IpAddr::from_str(rs))
+            .collect::<Result<Vec<IpAddr>, _>>()
+            .map_err(CarbideError::AddressParseError)?;
+
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin get_route_servers", e))?;
+
+        RouteServer::replace(&mut txn, &route_servers).await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "commit get_route_servers", e))?;
+
+        Ok(tonic::Response::new(()))
+    }
 }
 
-///
 /// this function blocks, don't use it in a raw async context
 fn get_tls_acceptor<S: AsRef<str>>(
     identity_pemfile_path: S,
@@ -4275,7 +4392,7 @@ where
             .await?;
 
         if let Some(domain_name) = &carbide_config.initial_domain_name {
-            if Self::create_first_domain(database_connection.clone(), domain_name).await? {
+            if Self::create_initial_domain(database_connection.clone(), domain_name).await? {
                 tracing::info!("Created initial domain {domain_name}");
             }
         }
@@ -4312,10 +4429,14 @@ where
         )
         .await?;
 
+        let route_servers =
+            Self::create_initial_route_servers(&database_connection, &carbide_config).await?;
+
         let eth_data = ethernet_virtualization::EthVirtData {
             asn: carbide_config.asn,
             dhcp_servers: carbide_config.dhcp_servers.clone(),
-            route_servers: carbide_config.route_servers.clone(),
+            route_servers,
+            route_servers_enabled: carbide_config.enable_route_servers,
             // Include the site fabric prefixes in the deny prefixes list, since
             // we treat them the same way from here.
             deny_prefixes: [
@@ -4474,20 +4595,20 @@ where
 
     /// Create a Domain if we don't already have one.
     /// Returns true if we created an entry in the db (we had no domains yet), false otherwise.
-    async fn create_first_domain(
+    async fn create_initial_domain(
         db_pool: sqlx::pool::Pool<Postgres>,
         domain_name: &str,
     ) -> Result<bool, CarbideError> {
         let mut txn = db_pool
             .begin()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_first_domain", e))?;
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_initial_domain", e))?;
         let domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
         if domains.is_empty() {
             let domain = NewDomain::new(domain_name);
             domain.persist_first(&mut txn).await?;
             txn.commit().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "commit create_first_domain", e)
+                CarbideError::DatabaseError(file!(), "commit create_initial_domain", e)
             })?;
             Ok(true)
         } else {
@@ -4534,6 +4655,33 @@ where
             CarbideError::DatabaseError(file!(), "commit create_initial_networks", e)
         })?;
         Ok(())
+    }
+
+    pub async fn create_initial_route_servers(
+        database_connection: &Pool<Postgres>,
+        carbide_config: &Arc<CarbideConfig>,
+    ) -> Result<Vec<String>, CarbideError> {
+        let mut txn = database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin create_initial_route_servers", e)
+        })?;
+        let result = if carbide_config.enable_route_servers {
+            let route_servers: Vec<IpAddr> = carbide_config
+                .route_servers
+                .iter()
+                .map(|rs| IpAddr::from_str(rs))
+                .collect::<Result<Vec<IpAddr>, _>>()
+                .map_err(CarbideError::AddressParseError)?;
+
+            RouteServer::get_or_create(&mut txn, &route_servers).await?
+        } else {
+            RouteServer::replace(&mut txn, &vec![]).await?;
+            vec![]
+        };
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "commit create_initial_route_servers", e)
+        })?;
+        Ok(result.into_iter().map(|rs| rs.to_string()).collect())
     }
 
     async fn load_machine(

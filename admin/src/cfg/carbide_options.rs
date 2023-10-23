@@ -98,7 +98,7 @@ pub enum CarbideCommand {
     Dpu(DpuAction),
     #[clap(about = "Generate Ansible Inventory")]
     Inventory(InventoryAction),
-    #[clap(about = "Cloud init override", subcommand)]
+    #[clap(about = "Machine boot override", subcommand)]
     BootOverride(BootOverrideAction),
     #[clap(
         about = "BMC Machine related handling",
@@ -108,6 +108,8 @@ pub enum CarbideCommand {
     BmcMachine(BmcMachine),
     #[clap(about = "Credential related handling", subcommand, visible_alias = "c")]
     Credential(CredentialAction),
+    #[clap(about = "Route server handling", subcommand)]
+    RouteServer(RouteServer),
 }
 
 #[derive(Parser, Debug)]
@@ -749,4 +751,11 @@ pub struct AddBMCredential {
         help = "The password of BMC"
     )]
     pub password: String,
+}
+
+#[derive(Parser, Debug)]
+pub enum RouteServer {
+    Get,
+    Add(IpFind),
+    Remove(IpFind),
 }

@@ -37,6 +37,7 @@ pub async fn start(
         asn: 65535,
         dhcp_servers: vec![],
         route_servers: vec![],
+        enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
         initial_domain_name: Some(DOMAIN_NAME.to_string()),

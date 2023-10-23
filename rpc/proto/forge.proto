@@ -189,6 +189,12 @@ service Forge {
 
   // Delete Credential in Vault
   rpc DeleteCredential(CredentialDeletionRequest) returns (CredentialDeletionResult);
+
+  // Route Server Management
+  rpc GetRouteServers(google.protobuf.Empty) returns (RouteServers);
+  rpc AddRouteServers(RouteServers) returns (google.protobuf.Empty);
+  rpc RemoveRouteServers(RouteServers) returns (google.protobuf.Empty);
+  rpc ReplaceRouteServers(RouteServers) returns (google.protobuf.Empty);
 }
 
 enum CredentialType {
@@ -1840,4 +1846,8 @@ message NetworkTopologyRequest {
 
 message NetworkTopologyData {
   repeated NetworkDevice network_devices = 1;
+}
+
+message RouteServers {
+  repeated string route_servers = 1;
 }

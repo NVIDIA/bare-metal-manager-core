@@ -30,6 +30,7 @@ use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuReprovision;
 use cfg::carbide_options::IpAction;
+use cfg::carbide_options::RouteServer;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     MigrateAction, NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
@@ -648,6 +649,18 @@ async fn main() -> color_eyre::Result<()> {
                     password,
                 };
                 rpc::add_credential(&api_config, req).await?;
+            }
+        },
+        CarbideCommand::RouteServer(action) => match action {
+            RouteServer::Get => {
+                let route_servers = rpc::get_route_servers(&api_config).await?;
+                println!("{}", serde_json::to_string(&route_servers)?);
+            }
+            RouteServer::Add(ip) => {
+                rpc::add_route_server(&api_config, ip.ip).await?;
+            }
+            RouteServer::Remove(ip) => {
+                rpc::remove_route_server(&api_config, ip.ip).await?;
             }
         },
     }

@@ -11,7 +11,9 @@
  */
 
 use std::future::Future;
+use std::net::IpAddr;
 use std::path::Path;
+use std::str::FromStr;
 
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{self as rpc, MachineBootOverride, MachineType, NetworkSegmentSearchConfig};
@@ -645,4 +647,61 @@ pub async fn delete_credential(
             .map_err(CarbideCliError::ApiInvocationError)
     })
     .await
+}
+
+pub async fn get_route_servers(api_config: &Config) -> CarbideCliResult<Vec<IpAddr>> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(());
+        let route_servers = client
+            .get_route_servers(request)
+            .await
+            .map(|response: tonic::Response<rpc::RouteServers>| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        route_servers
+            .route_servers
+            .iter()
+            .map(|rs| {
+                IpAddr::from_str(rs).map_err(|e| CarbideCliError::GenericError(e.to_string()))
+            })
+            .collect()
+    })
+    .await
+}
+
+pub async fn add_route_server(
+    api_config: &Config,
+    addr: std::net::Ipv4Addr,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(rpc::RouteServers {
+            route_servers: vec![addr.to_string()],
+        });
+        client
+            .add_route_servers(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await?;
+
+    Ok(())
+}
+
+pub async fn remove_route_server(
+    api_config: &Config,
+    addr: std::net::Ipv4Addr,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(rpc::RouteServers {
+            route_servers: vec![addr.to_string()],
+        });
+        client
+            .remove_route_servers(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(())
+    })
+    .await?;
+
+    Ok(())
 }
