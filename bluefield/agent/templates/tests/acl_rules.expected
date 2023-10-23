@@ -12,3 +12,7 @@
 -A FORWARD -i net2 -d 198.51.100.0/24 -j DROP
 -A FORWARD -i net1 -d 203.0.113.0/24 -j DROP
 -A FORWARD -i net2 -d 203.0.113.0/24 -j DROP
+
+[ebtables]
+# Suppress ARP packets before they get encapsulated.
+-A OUTPUT -o vxlan5555 -p ARP -j DROP

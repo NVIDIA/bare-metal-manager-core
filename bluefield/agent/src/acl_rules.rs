@@ -39,7 +39,9 @@ pub fn build(conf: AclConfig) -> Result<String, eyre::Report> {
     let iptables_rules = make_forge_rules(conf);
     let rules_file = RulesFile::new(iptables_rules);
 
-    let file_contents = rules_file.to_string();
+    let mut file_contents = rules_file.to_string();
+
+    append_arp_suppression_contents(&mut file_contents);
 
     // eprintln!("{}", &file_contents);
 
@@ -126,6 +128,16 @@ fn make_deny_prefix_rules(
     }
     rules
 }
+
+fn append_arp_suppression_contents(file_buffer: &mut String) {
+    file_buffer.push_str(ARP_SUPPRESSION_RULES);
+}
+
+const ARP_SUPPRESSION_RULES: &str = r"
+[ebtables]
+# Suppress ARP packets before they get encapsulated.
+-A OUTPUT -o vxlan5555 -p ARP -j DROP
+";
 
 #[cfg(test)]
 mod tests {
