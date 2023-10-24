@@ -32,9 +32,9 @@ pub async fn list(api_config: Config) -> CarbideCliResult<()> {
             pool.max,
             pool.total,
             format!(
-                "{} ({}%)",
+                "{} ({:.0}%)",
                 pool.allocated,
-                pool.allocated / pool.total * 100
+                pool.allocated as f64 / pool.total as f64 * 100.0
             ),
         ]);
     }
