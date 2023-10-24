@@ -177,8 +177,24 @@ pub async fn user_data(machine: Machine, config: RuntimeConfig) -> Template {
 }
 
 #[get("/meta-data")]
-pub async fn meta_data() -> Template {
-    Template::render("printcontext", HashMap::<String, String>::new())
+pub async fn meta_data(machine: Machine) -> Template {
+    let (template, context) = match machine.instructions.metadata {
+        None => print_and_generate_generic_error(format!(
+            "No metadata was found for machine {:?}",
+            machine
+        )),
+        Some(metadata) => {
+            let context = HashMap::from([
+                ("instance_id".to_string(), metadata.instance_id),
+                ("cloud_name".to_string(), metadata.cloud_name),
+                ("platform".to_string(), metadata.platform),
+            ]);
+
+            ("meta-data".to_string(), context)
+        }
+    };
+
+    Template::render(template, context)
 }
 
 #[get("/vendor-data")]

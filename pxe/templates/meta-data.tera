@@ -1,0 +1,7 @@
+{
+  "v1": {
+    "cloud_name": {{ cloud_name }},
+    "platform": {{ platform }},
+    "instance_id": {{ instance_id }}
+  }
+}
