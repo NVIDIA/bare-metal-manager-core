@@ -26,27 +26,35 @@ pub trait IPMITool: Send + Sync + 'static {
 
 pub struct IPMIToolImpl<C: CredentialProvider> {
     credential_provider: Arc<C>,
-    ipmi_reboot_args: Vec<String>,
+    ipmi_reboot_commands: Vec<Vec<String>>,
     attempts: u32,
 }
 
 impl<C: CredentialProvider> IPMIToolImpl<C> {
+    const DPU_IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 chassis power cycle";
+    const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
+
     pub fn new(
         credential_provider: Arc<C>,
-        ipmi_reboot_args: &Option<String>,
+        ipmi_reboot_args: &Option<Vec<String>>,
         attempts: &Option<u32>,
     ) -> Self {
         let ipmi_reboot_args = match ipmi_reboot_args {
-            Some(command) => command.split(' ').collect(),
-            None => vec!["-I", "lanplus", "-C", "17", "raw", "0x32", "0xA1", "0x01"],
-        }
-        .into_iter()
-        .map(|s| s.to_owned())
-        .collect();
+            Some(commands) => commands.to_owned(),
+            None => vec![
+                Self::DPU_IPMITOOL_COMMAND_ARGS.to_owned(),
+                Self::DPU_LEGACY_IPMITOOL_COMMAND_ARGS.to_owned(),
+            ],
+        };
+
+        let ipmi_reboot_args: Vec<Vec<String>> = ipmi_reboot_args
+            .into_iter()
+            .map(|s| s.split(' ').map(str::to_owned).collect())
+            .collect();
 
         IPMIToolImpl {
             credential_provider,
-            ipmi_reboot_args,
+            ipmi_reboot_commands: ipmi_reboot_args,
             attempts: attempts.unwrap_or(3),
         }
     }
@@ -75,17 +83,22 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
         };
 
         // cmd line args that are filled in from the db
-        let mut args = vec!["-H", &bmc_ip, "-U", &username, "-E"];
-        let ipmi_reboot_args: Vec<&str> = self.ipmi_reboot_args.iter().map(AsRef::as_ref).collect();
+        let prefix_args: Vec<String> = vec!["-H", &bmc_ip, "-U", &username, "-E"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
 
-        args.extend(ipmi_reboot_args);
+        for command in self.ipmi_reboot_commands.iter() {
+            let mut args = prefix_args.clone();
+            args.extend(command.clone());
 
-        Cmd::new("/usr/bin/ipmitool")
-            .env("IPMITOOL_PASSWORD", &password)
-            .args(&args)
-            .attempts(self.attempts)
-            .output()
-            .map_err(|e| eyre!("ipmitool error: {}", e))?;
+            Cmd::new("/usr/bin/ipmitool")
+                .env("IPMITOOL_PASSWORD", &password)
+                .args(&args)
+                .attempts(self.attempts)
+                .output()
+                .map_err(|e| eyre!("ipmitool error: {}", e))?;
+        }
 
         Ok(())
     }
