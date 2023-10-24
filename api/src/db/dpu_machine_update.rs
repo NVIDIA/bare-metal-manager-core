@@ -49,15 +49,15 @@ impl DpuMachineUpdate {
             return Ok(vec![]);
         }
 
-        let mut query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id, 
-            mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version 
+        let mut query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id,
+            mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version
             FROM machines m
             INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
             INNER JOIN machine_topologies mt ON m.id = mt.machine_id
-            WHERE m.reprovisioning_requested IS NULL 
-            AND mi.machine_id != mi.attached_dpu_machine_id 
-            AND m.controller_state = '{"state": "ready"}' 
-            AND m.maintenance_start_time IS NULL 
+            WHERE m.reprovisioning_requested IS NULL
+            AND mi.machine_id != mi.attached_dpu_machine_id
+            AND m.controller_state = '{"state": "ready"}'
+            AND m.maintenance_start_time IS NULL
             AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != $1"#.to_string();
 
         if limit.is_some() {
@@ -82,15 +82,15 @@ impl DpuMachineUpdate {
         txn: &mut Transaction<'_, Postgres>,
         expected_firmware_version: &str,
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
-        let query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id, 
-            mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version 
+        let query = r#"SELECT mi.machine_id as host_machine_id, m.id as dpu_machine_id,
+            mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version
             FROM machines m
             INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
             INNER JOIN machine_topologies mt ON m.id = mt.machine_id
-            WHERE m.reprovisioning_requested IS NULL 
-            AND mi.machine_id != mi.attached_dpu_machine_id 
-            AND m.controller_state != '{"state": "ready"}' 
-            AND m.maintenance_start_time IS NULL 
+            WHERE m.reprovisioning_requested IS NULL
+            AND mi.machine_id != mi.attached_dpu_machine_id
+            AND m.controller_state != '{"state": "ready"}'
+            AND m.maintenance_start_time IS NULL
             AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != $1"#;
 
         let result = sqlx::query_as::<_, DbDpuMachineUpdate>(query)
@@ -143,7 +143,7 @@ impl DpuMachineUpdate {
 
         let query = r#"SELECT mi.machine_id AS host_machine_id, m.id AS dpu_machine_id, '' AS firmware_version
             FROM machines m
-            INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id 
+            INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
             WHERE m.reprovisioning_requested->>'initiator' like $1
             AND mi.attached_dpu_machine_id != mi.machine_id;"#;
 
@@ -161,13 +161,13 @@ impl DpuMachineUpdate {
     ) -> Result<Vec<DpuMachineUpdate>, DatabaseError> {
         let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
 
-        let query = r#"SELECT mi.machine_id as host_machine_id, mi.attached_dpu_machine_id as dpu_machine_id, 
-        mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version 
+        let query = r#"SELECT mi.machine_id as host_machine_id, mi.attached_dpu_machine_id as dpu_machine_id,
+        mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version
         FROM machines m
         INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
-        INNER JOIN machine_topologies mt ON m.id = mt.machine_id 
-        WHERE mi.machine_id != mi.attached_dpu_machine_id 
-        AND m.controller_state = '{"state": "ready"}' 
+        INNER JOIN machine_topologies mt ON m.id = mt.machine_id
+        WHERE mi.machine_id != mi.attached_dpu_machine_id
+        AND m.controller_state = '{"state": "ready"}'
         AND m.maintenance_reference like $1
         AND m.reprovisioning_requested IS NULL"#;
 

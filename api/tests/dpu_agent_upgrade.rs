@@ -86,6 +86,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
                 addresses: vec!["1.2.3.4".to_string()],
             }],
             network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
         }))
         .await
         .unwrap();

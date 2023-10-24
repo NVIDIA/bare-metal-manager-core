@@ -15,6 +15,7 @@ pub struct MachineNetworkStatusObservation {
     pub observed_at: DateTime<Utc>,
     pub health_status: HealthStatus,
     pub network_config_version: Option<ConfigVersion>,
+    pub client_certificate_expiry: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +53,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
                 message: health.message,
             },
             network_config_version: obs.network_config_version.and_then(|n| n.parse().ok()),
+            client_certificate_expiry: obs.client_certificate_expiry_unix_epoch_secs,
         })
     }
 }
@@ -68,6 +70,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             instance_config_version: None,
             interfaces: vec![],
             network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
         }
     }
 }

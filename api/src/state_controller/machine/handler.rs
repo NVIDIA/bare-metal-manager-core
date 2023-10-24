@@ -157,6 +157,9 @@ impl StateHandler for MachineStateHandler {
             for failed in &observation.health_status.failed {
                 metrics.failed_dpu_healthchecks.insert(failed.clone());
             }
+
+            metrics.machine_id = Some(observation.machine_id.clone());
+            metrics.client_certificate_expiry = observation.client_certificate_expiry;
         }
 
         // If it's been more than 5 minutes since DPU reported status, consider it unhealthy

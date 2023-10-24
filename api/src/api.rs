@@ -16,20 +16,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::{
-    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
-    IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
-    IbPartitionList, IbPartitionQuery, InstanceList, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
-    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
-    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
-};
 use chrono::Duration;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
@@ -51,7 +38,20 @@ use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
 use uuid::Uuid;
 
-use self::rpc::forge_server::Forge;
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::{
+    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
+    IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
+    IbPartitionList, IbPartitionQuery, InstanceList, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
+    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
+    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+};
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
+
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -60,8 +60,7 @@ use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
-use crate::ib;
-use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
+use crate::ib::{self, IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
@@ -131,6 +130,8 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
+
+use self::rpc::forge_server::Forge;
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -1230,7 +1231,7 @@ where
             "Applied network configs",
         );
 
-        // We already peristed the machine parts of applied_config in
+        // We already persisted the machine parts of applied_config in
         // update_network_status_observation above. Now do the instance parts.
         if let Some(version_string) = request.instance_config_version {
             let Ok(version) = version_string.as_str().parse() else {
@@ -4944,6 +4945,7 @@ impl ServiceConfig {
 #[cfg(test)]
 mod tests {
     use super::truncate;
+
     #[test]
     fn test_truncate() {
         let s = "hello world".to_string();

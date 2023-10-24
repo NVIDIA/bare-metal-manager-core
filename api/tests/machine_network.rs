@@ -101,6 +101,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
                 addresses: vec!["1.2.3.4".to_string()],
             }],
             network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
         }))
         .await
         .unwrap();
