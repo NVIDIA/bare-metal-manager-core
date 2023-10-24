@@ -1486,6 +1486,12 @@ message CloudInitDiscoveryInstructions {
   bool update_firmware = 3;
 }
 
+message CloudInitMetaData {
+  string instance_id = 1;
+  string cloud_name = 2;
+  string platform = 3;
+}
+
 message CloudInitInstructionsRequest {
   string ip = 1;
 }
@@ -1493,6 +1499,7 @@ message CloudInitInstructionsRequest {
 message CloudInitInstructions {
   optional string custom_cloud_init = 1;
   optional CloudInitDiscoveryInstructions discovery_instructions = 2;
+  optional CloudInitMetaData metadata = 3;
 }
 
 // Specifies whether a network interface is physical network function (PF)

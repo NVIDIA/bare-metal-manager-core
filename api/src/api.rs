@@ -2664,6 +2664,8 @@ where
         request: Request<rpc::CloudInitInstructionsRequest>,
     ) -> Result<Response<rpc::CloudInitInstructions>, Status> {
         log_request_data(&request);
+        let cloud_name = "nvidia".to_string();
+        let platform = "forge".to_string();
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin get_cloud_init_instructions", e)
@@ -2745,6 +2747,15 @@ where
                     }
                 };
 
+                let metadata: Option<rpc::CloudInitMetaData> = machine_interface
+                    .machine_id
+                    .as_ref()
+                    .map(|machine_id| rpc::CloudInitMetaData {
+                        instance_id: machine_id.to_string(),
+                        cloud_name,
+                        platform,
+                    });
+
                 rpc::CloudInitInstructions {
                     custom_cloud_init,
                     discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
@@ -2752,8 +2763,10 @@ where
                         domain: Some(domain.into()),
                         update_firmware,
                     }),
+                    metadata,
                 }
             }
+
             Some(instance_address) => {
                 let instance = Instance::find(
                     &mut txn,
@@ -2773,6 +2786,11 @@ where
                 rpc::CloudInitInstructions {
                     custom_cloud_init: instance.tenant_config.user_data,
                     discovery_instructions: None,
+                    metadata: Some(rpc::CloudInitMetaData {
+                        instance_id: instance.id.to_string(),
+                        cloud_name,
+                        platform,
+                    }),
                 }
             }
         };
