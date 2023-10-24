@@ -10,19 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::any::Any;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use chrono::Duration;
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
-use opentelemetry_api::metrics::{ObservableGauge, Observer};
 use opentelemetry_api::KeyValue;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Pool, Postgres, Transaction};
@@ -162,28 +159,6 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     common_pools: Arc<CommonPools>,
     tls_config: ApiTlsConfig,
     machine_update_config: MachineUpdateConfig,
-}
-
-pub struct ApiRequestMetrics {
-    dpu_client_certificate_expiry_gauge: ObservableGauge<u64>,
-    dpu_client_certificate_expiry: ArcSwap<HashMap<MachineId, u64>>,
-}
-
-impl ApiRequestMetrics {
-    pub fn emit_observables(&self) -> Vec<Arc<dyn Any>> {
-        vec![self.dpu_client_certificate_expiry_gauge.as_any()]
-    }
-
-    pub fn observe_callback(&self, observer: &dyn Observer) {
-        let dpu_client_certificate_expiry = self.dpu_client_certificate_expiry.load_full();
-        for (machine_id, expiry) in dpu_client_certificate_expiry.iter() {
-            observer.observe_u64(
-                &self.dpu_client_certificate_expiry_gauge,
-                *expiry,
-                &[KeyValue::new("machine_id", machine_id.to_string())],
-            );
-        }
-    }
 }
 
 pub struct ApiTlsConfig {
