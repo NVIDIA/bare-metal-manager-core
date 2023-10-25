@@ -11,6 +11,9 @@ initial_dpu_agent_upgrade_policy="off"
 max_concurrent_machine_updates=1
 dpu_nic_firmware_update_version="2.0.1"
 dpu_nic_firmware_update_enabled=false
+dpu_ipmi_reboot_args=[ "arg-1a arg-1b", "arg-2a"]
+dpu_impi_tool_impl="fake"
+dpu_ipmi_reboot_attempts=1
 
 [tls]
 identity_pemfile_path="/path/to/cert"
