@@ -31,7 +31,7 @@ pub struct IPMIToolImpl<C: CredentialProvider> {
 }
 
 impl<C: CredentialProvider> IPMIToolImpl<C> {
-    const DPU_IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 chassis power cycle";
+    const DPU_IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 chassis power reset";
     const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
 
     pub fn new(
@@ -42,8 +42,8 @@ impl<C: CredentialProvider> IPMIToolImpl<C> {
         let ipmi_reboot_args = match ipmi_reboot_args {
             Some(commands) => commands.to_owned(),
             None => vec![
-                Self::DPU_IPMITOOL_COMMAND_ARGS.to_owned(),
                 Self::DPU_LEGACY_IPMITOOL_COMMAND_ARGS.to_owned(),
+                Self::DPU_IPMITOOL_COMMAND_ARGS.to_owned(),
             ],
         };
 
@@ -88,7 +88,6 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
             .map(str::to_owned)
             .collect();
 
-        let mut success_count = 0;
         let mut errors: Vec<CmdError> = Vec::default();
         for command in self.ipmi_reboot_commands.iter() {
             let mut args = prefix_args.clone();
@@ -100,33 +99,22 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
                 .attempts(self.attempts)
                 .output()
             {
-                Ok(_) => {
-                    success_count += 1;
-                }
+                Ok(_) => return Ok(()),
                 Err(e) => errors.push(e),
             }
         }
 
-        // if none of the commands worked, return the last error and log the others.  otherwise log all the errors and return Ok.
-        if success_count == 0 {
-            let result = errors.pop();
-            for e in errors.iter() {
-                tracing::warn!("ipmitool error restarting machine {machine_id}: {e}");
-            }
-
-            result.map_or(
-                Err(CmdError::Generic(
-                    "No commands were successful and no error reported".to_owned(),
-                )),
-                Err,
-            )?;
-        }
-
+        let result = errors.pop();
         for e in errors.iter() {
             tracing::warn!("ipmitool error restarting machine {machine_id}: {e}");
         }
 
-        Ok(())
+        result.map_or(
+            Err(CmdError::Generic(
+                "No commands were successful and no error reported".to_owned(),
+            )),
+            Err,
+        )?
     }
 }
 
@@ -172,13 +160,13 @@ mod test {
         let tool = super::IPMIToolImpl::new(cp, &None, &Some(1));
 
         let first_command: Vec<&str> =
-            super::IPMIToolImpl::<TestCredentialProvider>::DPU_IPMITOOL_COMMAND_ARGS
+            super::IPMIToolImpl::<TestCredentialProvider>::DPU_LEGACY_IPMITOOL_COMMAND_ARGS
                 .split(' ')
                 .collect();
         assert!(first_command.iter().eq(tool.ipmi_reboot_commands[0].iter()));
 
         let second_command: Vec<&str> =
-            super::IPMIToolImpl::<TestCredentialProvider>::DPU_LEGACY_IPMITOOL_COMMAND_ARGS
+            super::IPMIToolImpl::<TestCredentialProvider>::DPU_IPMITOOL_COMMAND_ARGS
                 .split(' ')
                 .collect();
         assert!(second_command
