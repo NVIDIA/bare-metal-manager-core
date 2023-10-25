@@ -108,12 +108,12 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
         }
 
         // if none of the commands worked, return the last error and log the others.  otherwise log all the errors and return Ok.
-        let result = errors.pop();
-        for e in errors.iter() {
-            tracing::warn!("ipmitool error restarting machine {machine_id}: {e}");
-        }
-
         if success_count == 0 {
+            let result = errors.pop();
+            for e in errors.iter() {
+                tracing::warn!("ipmitool error restarting machine {machine_id}: {e}");
+            }
+
             result.map_or(
                 Err(CmdError::Generic(
                     "No commands were successful and no error reported".to_owned(),
@@ -121,6 +121,11 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
                 Err,
             )?;
         }
+
+        for e in errors.iter() {
+            tracing::warn!("ipmitool error restarting machine {machine_id}: {e}");
+        }
+
         Ok(())
     }
 }
