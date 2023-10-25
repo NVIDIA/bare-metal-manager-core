@@ -15,7 +15,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-use utils::cmd::Cmd;
+use utils::cmd::{Cmd, CmdError};
 
 use crate::{db::bmc_metadata::UserRoles, model::machine::machine_id::MachineId};
 
@@ -88,18 +88,39 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
             .map(str::to_owned)
             .collect();
 
+        let mut success_count = 0;
+        let mut errors: Vec<CmdError> = Vec::default();
         for command in self.ipmi_reboot_commands.iter() {
             let mut args = prefix_args.clone();
             args.extend(command.clone());
 
-            Cmd::new("/usr/bin/ipmitool")
+            match Cmd::new("/usr/bin/ipmitool")
                 .env("IPMITOOL_PASSWORD", &password)
                 .args(&args)
                 .attempts(self.attempts)
                 .output()
-                .map_err(|e| eyre!("ipmitool error: {}", e))?;
+            {
+                Ok(_) => {
+                    success_count += 1;
+                }
+                Err(e) => errors.push(e),
+            }
         }
 
+        // if none of the commands worked, return the last error and log the others.  otherwise log all the errors and return Ok.
+        let result = errors.pop();
+        for e in errors.iter() {
+            tracing::warn!("ipmitool error restarting machine {machine_id}: {e}");
+        }
+
+        if success_count == 0 {
+            result.map_or(
+                Err(CmdError::Generic(
+                    "No commands were successful and no error reported".to_owned(),
+                )),
+                |e| Err(e),
+            )?;
+        }
         Ok(())
     }
 }
@@ -110,5 +131,55 @@ pub struct IPMIToolTestImpl {}
 impl IPMITool for IPMIToolTestImpl {
     async fn restart(&self, _machine_id: &MachineId, _bmc_ip: String) -> Result<(), eyre::Report> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+
+    struct TestCredentialProvider {}
+
+    #[async_trait]
+    impl CredentialProvider for TestCredentialProvider {
+        async fn get_credentials(&self, _key: CredentialKey) -> Result<Credentials, eyre::Report> {
+            Ok(Credentials::UsernamePassword {
+                username: "user".to_owned(),
+                password: "password".to_owned(),
+            })
+        }
+
+        async fn set_credentials(
+            &self,
+            _key: CredentialKey,
+            _credentials: Credentials,
+        ) -> Result<(), eyre::Report> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    pub fn test_ipmitool_new() {
+        let cp = Arc::new(TestCredentialProvider {});
+        let tool = super::IPMIToolImpl::new(cp, &None, &Some(1));
+
+        let first_command: Vec<&str> =
+            super::IPMIToolImpl::<TestCredentialProvider>::DPU_IPMITOOL_COMMAND_ARGS
+                .split(' ')
+                .collect();
+        assert!(first_command.iter().eq(tool.ipmi_reboot_commands[0].iter()));
+
+        let second_command: Vec<&str> =
+            super::IPMIToolImpl::<TestCredentialProvider>::DPU_LEGACY_IPMITOOL_COMMAND_ARGS
+                .split(' ')
+                .collect();
+        assert!(second_command
+            .iter()
+            .eq(tool.ipmi_reboot_commands[1].iter()));
+
+        assert!(tool.ipmi_reboot_commands.get(2).is_none());
     }
 }
