@@ -118,7 +118,7 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
                 Err(CmdError::Generic(
                     "No commands were successful and no error reported".to_owned(),
                 )),
-                |e| Err(e),
+                Err,
             )?;
         }
         Ok(())
