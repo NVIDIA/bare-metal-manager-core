@@ -464,6 +464,7 @@ pub async fn allocate_port_guid(
 
         if let Some(sorted_ibs) = ib_hw_map.get(&request.device) {
             if let Some(ib) = sorted_ibs.get(request.device_instance as usize) {
+                request.pf_guid = Some(ib.guid.clone());
                 request.guid = Some(ib.guid.clone());
                 tracing::debug!("select IB device GUID {}", ib.guid.clone());
             } else {

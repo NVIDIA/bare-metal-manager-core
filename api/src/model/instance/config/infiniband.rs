@@ -34,6 +34,7 @@ impl InstanceInfinibandConfig {
             ib_interfaces: vec![InstanceIbInterfaceConfig {
                 function_id: InterfaceFunctionId::Physical {},
                 ib_partition_id,
+                pf_guid: None,
                 guid: None,
                 device: "MT2910 Family [ConnectX-7]".to_string(), // only for test case
                 vendor: None,
@@ -104,6 +105,7 @@ impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
             ib_interfaces.push(InstanceIbInterfaceConfig {
                 function_id,
                 ib_partition_id,
+                pf_guid: None,
                 guid: None,
                 device: iface.device,
                 vendor: iface.vendor,
@@ -146,7 +148,14 @@ pub struct InstanceIbInterfaceConfig {
     pub function_id: InterfaceFunctionId,
     /// The IB partition this ib interface is attached to
     pub ib_partition_id: Uuid,
-    /// The guid of this ib interface
+    /// The GUID of the hardware device that this interface is attached to
+    pub pf_guid: Option<String>,
+    /// The GUID which has been assigned to this interface
+    /// In case the interface is a PF interface, the GUID will be equvalent to
+    /// `pf_guid` - which is the GUID that is stored on the hardware device.
+    /// For a VF interface, this is a GUID that has been allocated by Forge in order
+    /// be used for the VF.
+    // Tenants have to configure the VF device on their instances to use this GUID.
     pub guid: Option<String>,
     /// The name of this device
     pub device: String,
