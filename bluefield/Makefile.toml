@@ -17,7 +17,11 @@ category = "Build"
 description = "cross compile forge-dpu-agent locally"
 workspace = false
 script = '''
-cross build --bin forge-dpu-agent --target aarch64-unknown-linux-gnu
+cross build --bin forge-dpu-agent --target aarch64-unknown-linux-gnu --release
+# Install package `binutils-aarch64-linux-gnu` to get this one
+if command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
+	aarch64-linux-gnu-strip ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent
+fi
 '''
 dependencies = [
     { name = "check-cross-installed", path = "${REPO_ROOT}" },
