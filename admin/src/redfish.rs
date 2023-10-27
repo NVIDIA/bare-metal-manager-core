@@ -100,7 +100,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                     let status = dev.status.unwrap();
                     table.add_row(row![
                         dev.id.unwrap_or_default(),
-                        dev.manufacturer.unwrap(),
+                        dev.manufacturer.or(dev.gpu_vendor).unwrap_or_default(),
                         dev.name.unwrap_or_default(),
                         dev.firmware_version.unwrap_or_default(),
                         dev.part_number.unwrap_or_default(),
@@ -114,6 +114,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             Pending => {
                 let pending = redfish.pending()?;
                 println!("{:#?}", pending);
+            }
+            PowerMetrics => {
+                println!("{:?}", redfish.get_power_metrics()?);
             }
             ForceRestart => {
                 redfish.power(SystemPowerControl::ForceRestart)?;
@@ -130,6 +133,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             }
             GracefulShutdown => {
                 redfish.power(SystemPowerControl::GracefulShutdown)?;
+            }
+            ThermalMetrics => {
+                println!("{:?}", redfish.get_thermal_metrics()?);
             }
             TpmReset => {
                 redfish.clear_tpm()?;
@@ -231,7 +237,7 @@ pub fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(), Red
                 Ok(())
             }
             Err(err) => {
-                eprintln!("Firmware {} not found.", fw_id);
+                eprintln!("Error fetching firmware '{fw_id}'");
                 Err(err)
             }
         }
@@ -363,10 +369,13 @@ fn show_all_ports(
     let mut ports_info: Vec<NetworkPort> = Vec::new();
 
     for p in ports.iter() {
-        if let Ok(port) = redfish.get_port(&chassis_id, p) {
-            ports_info.push(port);
-        } else {
-            eprintln!("Port {} not found.", p);
+        match redfish.get_port(&chassis_id, p) {
+            Ok(port) => {
+                ports_info.push(port);
+            }
+            Err(err) => {
+                eprintln!("Error fetching port {p}: {err}");
+            }
         }
     }
 
@@ -374,10 +383,13 @@ fn show_all_ports(
     let mut netdev_funcs_info: Vec<NetworkDeviceFunction> = Vec::new();
 
     for n in netdev_funcs.iter() {
-        if let Ok(netdev) = redfish.get_network_device_function(&chassis_id, n) {
-            netdev_funcs_info.push(netdev);
-        } else {
-            println!("NetDev {} not found.", n);
+        match redfish.get_network_device_function(&chassis_id, n) {
+            Ok(netdev) => {
+                netdev_funcs_info.push(netdev);
+            }
+            Err(err) => {
+                eprintln!("Error fetching network device {n}: {err}");
+            }
         }
     }
     Ok((ports_info, netdev_funcs_info))
@@ -436,11 +448,14 @@ pub fn handle_ethernet_interface_show(redfish: Box<dyn Redfish>) -> Result<(), R
     let eth_ifs: Vec<String> = redfish.get_ethernet_interfaces()?;
     let mut eth_ifs_info: Vec<EthernetInterface> = Vec::new();
 
-    for e in eth_ifs.iter() {
-        if let Ok(iface) = redfish.get_ethernet_interface(e) {
-            eth_ifs_info.push(iface);
-        } else {
-            println!("Ethernet Interface {} not found.", e);
+    for iface_id in eth_ifs.iter() {
+        match redfish.get_ethernet_interface(iface_id) {
+            Ok(iface) => {
+                eth_ifs_info.push(iface);
+            }
+            Err(err) => {
+                eprintln!("Error fetching ethernet interface '{iface_id}': {err}");
+            }
         }
     }
     convert_ethernet_interfaces_to_nice_table(eth_ifs_info).printstd();
@@ -454,7 +469,7 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
         "Link Status",
         "MAC Address",
         "MTU Size",
-        "Speed (Gbps)",
+        "Speed (Mbps)",
     ]);
 
     for eth_if in &eth_ifs {
@@ -469,8 +484,14 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
                 .mac_address
                 .as_ref()
                 .map_or("None".to_string(), |mac| mac.clone()),
-            eth_if.mtu_size.unwrap_or(0),
-            "1".to_string(),
+            eth_if
+                .mtu_size
+                .map(|mtu| mtu.to_string())
+                .unwrap_or("N/A".to_string()),
+            eth_if
+                .speed_mbps
+                .map(|s| s.to_string())
+                .unwrap_or("N/A".to_string()),
         ]);
     }
     table.into()
@@ -481,10 +502,13 @@ pub fn handle_get_chassis_all(redfish: Box<dyn Redfish>) -> Result<(), RedfishEr
     let mut chassis_info: Vec<Chassis> = Vec::new();
 
     for c in chassis_vec.iter() {
-        if let Ok(chassis) = redfish.get_chassis(c) {
-            chassis_info.push(chassis);
-        } else {
-            println!("Ethernet Interface {} not found.", c);
+        match redfish.get_chassis(c) {
+            Ok(chassis) => {
+                chassis_info.push(chassis);
+            }
+            Err(err) => {
+                eprintln!("Error fetching chassis '{c}': {err}");
+            }
         }
     }
     convert_chassis_to_nice_table(chassis_info).printstd();

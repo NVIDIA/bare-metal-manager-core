@@ -441,11 +441,17 @@ _forge-admin-cli() {
             forge__admin__cli__help__redfish,pending)
                 cmd="forge__admin__cli__help__redfish__pending"
                 ;;
+            forge__admin__cli__help__redfish,power-metrics)
+                cmd="forge__admin__cli__help__redfish__power__metrics"
+                ;;
             forge__admin__cli__help__redfish,serial-enable)
                 cmd="forge__admin__cli__help__redfish__serial__enable"
                 ;;
             forge__admin__cli__help__redfish,serial-status)
                 cmd="forge__admin__cli__help__redfish__serial__status"
+                ;;
+            forge__admin__cli__help__redfish,thermal-metrics)
+                cmd="forge__admin__cli__help__redfish__thermal__metrics"
                 ;;
             forge__admin__cli__help__redfish,tpm-reset)
                 cmd="forge__admin__cli__help__redfish__tpm__reset"
@@ -741,11 +747,17 @@ _forge-admin-cli() {
             forge__admin__cli__redfish,pending)
                 cmd="forge__admin__cli__redfish__pending"
                 ;;
+            forge__admin__cli__redfish,power-metrics)
+                cmd="forge__admin__cli__redfish__power__metrics"
+                ;;
             forge__admin__cli__redfish,serial-enable)
                 cmd="forge__admin__cli__redfish__serial__enable"
                 ;;
             forge__admin__cli__redfish,serial-status)
                 cmd="forge__admin__cli__redfish__serial__status"
+                ;;
+            forge__admin__cli__redfish,thermal-metrics)
+                cmd="forge__admin__cli__redfish__thermal__metrics"
                 ;;
             forge__admin__cli__redfish,tpm-reset)
                 cmd="forge__admin__cli__redfish__tpm__reset"
@@ -894,11 +906,17 @@ _forge-admin-cli() {
             forge__admin__cli__redfish__help,pending)
                 cmd="forge__admin__cli__redfish__help__pending"
                 ;;
+            forge__admin__cli__redfish__help,power-metrics)
+                cmd="forge__admin__cli__redfish__help__power__metrics"
+                ;;
             forge__admin__cli__redfish__help,serial-enable)
                 cmd="forge__admin__cli__redfish__help__serial__enable"
                 ;;
             forge__admin__cli__redfish__help,serial-status)
                 cmd="forge__admin__cli__redfish__help__serial__status"
+                ;;
+            forge__admin__cli__redfish__help,thermal-metrics)
+                cmd="forge__admin__cli__redfish__help__thermal__metrics"
                 ;;
             forge__admin__cli__redfish__help,tpm-reset)
                 cmd="forge__admin__cli__redfish__help__tpm__reset"
@@ -2403,7 +2421,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__redfish)
-            opts="bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending serial-enable serial-status tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu"
+            opts="bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2864,6 +2882,20 @@ _forge-admin-cli() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        forge__admin__cli__help__redfish__power__metrics)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         forge__admin__cli__help__redfish__serial__enable)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
@@ -2879,6 +2911,20 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__redfish__serial__status)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__redfish__thermal__metrics)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -4071,7 +4117,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish)
-            opts="-h --address --username --password --help bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending serial-enable serial-status tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu help"
+            opts="-h --address --username --password --help bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5009,7 +5055,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__help)
-            opts="bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending serial-enable serial-status tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu help"
+            opts="bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5484,6 +5530,20 @@ _forge-admin-cli() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        forge__admin__cli__redfish__help__power__metrics)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         forge__admin__cli__redfish__help__serial__enable)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
@@ -5499,6 +5559,20 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__help__serial__status)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__redfish__help__thermal__metrics)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -5682,6 +5756,32 @@ _forge-admin-cli() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        forge__admin__cli__redfish__power__metrics)
+            opts="-h --address --username --password --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --address)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --username)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --password)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         forge__admin__cli__redfish__serial__enable)
             opts="-h --address --username --password --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -5709,6 +5809,32 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__serial__status)
+            opts="-h --address --username --password --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --address)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --username)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --password)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__redfish__thermal__metrics)
             opts="-h --address --username --password --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
