@@ -45,6 +45,7 @@ impl CmdError {
 
 pub type CmdResult<T> = std::result::Result<T, CmdError>;
 
+#[derive(Debug)]
 pub struct Cmd {
     command: Command,
     attempts: u32,

@@ -93,21 +93,30 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
             let mut args = prefix_args.clone();
             args.extend(command.clone());
 
-            match Cmd::new("/usr/bin/ipmitool")
-                .env("IPMITOOL_PASSWORD", &password)
+            let cmd = Cmd::new("/usr/bin/ipmitool")
                 .args(&args)
-                .attempts(self.attempts)
-                .output()
-            {
-                Ok(_) => return Ok(()),
-                Err(e) => errors.push(e),
+                .attempts(self.attempts);
+
+            tracing::info!("Running command: {:?}", cmd);
+
+            match cmd.env("IPMITOOL_PASSWORD", &password).output() {
+                Ok(output) => {
+                    tracing::info!("IPMITool succeeded with output: {}", output);
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::info!("IPMITool Failed with error: {e}");
+                    errors.push(e);
+                }
             }
         }
 
         let result = errors.pop();
+        /*
         for e in errors.iter() {
             tracing::warn!("ipmitool error restarting machine {machine_id}: {e}");
         }
+        */
 
         result.map_or(
             Err(CmdError::Generic(
