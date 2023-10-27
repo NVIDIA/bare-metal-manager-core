@@ -29,7 +29,6 @@ pub mod ib;
 mod tpm;
 
 const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
-const PCI_MODEL_ID: &str = "ID_MODEL_ID";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
 const PCI_SLOT_NAME: &str = "PCI_SLOT_NAME";
@@ -188,7 +187,7 @@ fn get_pci_properties_ext(
         pci_properties: rpc_discovery::PciDeviceProperties {
             vendor: convert_property_to_string(PCI_VENDOR_FROM_DB, "NO_VENDOR_NAME", device)?
                 .to_string(),
-            device: convert_property_to_string(PCI_MODEL_ID, "", device)?.to_string(),
+            device: convert_property_to_string(PCI_MODEL, "NO_PCI_MODEL", device)?.to_string(),
             path: convert_property_to_string(PCI_DEV_PATH, "", device)?.to_string(),
             numa_node: get_numa_node_from_syspath(device.syspath())?,
             description: Some(
