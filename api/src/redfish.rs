@@ -132,11 +132,9 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         };
 
         // Creating the client performs a HTTP request to determine the BMC vendor
-        // The request is blocking - therefore we need to offload it into a ThreadPool
         let pool = self.pool.clone();
-        tokio::task::spawn_blocking(move || pool.create_client(endpoint))
+        pool.create_client(endpoint)
             .await
-            .map_err(RedfishClientCreationError::SubtaskError)?
             .map_err(RedfishClientCreationError::RedfishError)
     }
 
@@ -188,12 +186,10 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        tokio::task::spawn_blocking(move || {
-            standard_client.change_password(username.as_str(), password.as_str())
-        })
-        .await
-        .map_err(RedfishClientCreationError::SubtaskError)?
-        .map_err(RedfishClientCreationError::RedfishError)
+        standard_client
+            .change_password(username.as_str(), password.as_str())
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)
     }
 
     async fn create_forge_admin_user(
@@ -217,12 +213,10 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             )
             .await
             .map_err(RedfishClientCreationError::MissingCredentials)?;
-        tokio::task::spawn_blocking(move || {
-            client.create_user(username, password.as_str(), RoleId::Administrator)
-        })
-        .await
-        .map_err(RedfishClientCreationError::SubtaskError)?
-        .map_err(RedfishClientCreationError::RedfishError)
+        client
+            .create_user(username, password.as_str(), RoleId::Administrator)
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)
     }
 }
 
@@ -247,149 +241,157 @@ struct RedfishSimClient {
     _port: Option<u16>,
 }
 
+#[async_trait]
 impl Redfish for RedfishSimClient {
-    fn get_power_state(&self) -> Result<libredfish::PowerState, RedfishError> {
+    async fn get_power_state(&self) -> Result<libredfish::PowerState, RedfishError> {
         todo!()
     }
 
-    fn get_power_metrics(&self) -> Result<libredfish::model::power::Power, RedfishError> {
+    async fn get_power_metrics(&self) -> Result<libredfish::model::power::Power, RedfishError> {
         todo!()
     }
 
-    fn power(&self, _action: libredfish::SystemPowerControl) -> Result<(), RedfishError> {
+    async fn power(&self, _action: libredfish::SystemPowerControl) -> Result<(), RedfishError> {
         // TODO: Only return Ok if the machine is actually known
         Ok(())
     }
 
-    fn bmc_reset(&self) -> Result<(), RedfishError> {
+    async fn bmc_reset(&self) -> Result<(), RedfishError> {
         Ok(())
     }
 
-    fn get_thermal_metrics(&self) -> Result<libredfish::model::thermal::Thermal, RedfishError> {
+    async fn get_thermal_metrics(
+        &self,
+    ) -> Result<libredfish::model::thermal::Thermal, RedfishError> {
         todo!()
     }
 
-    fn forge_setup(&self) -> Result<(), RedfishError> {
+    async fn forge_setup(&self) -> Result<(), RedfishError> {
         Ok(())
     }
 
-    fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
+    async fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
         Ok(())
     }
 
-    fn lockdown_status(&self) -> Result<libredfish::Status, RedfishError> {
+    async fn lockdown_status(&self) -> Result<libredfish::Status, RedfishError> {
         // TODO: Return the real lockdown status based on the simulated host
         Err(RedfishError::NoContent)
     }
 
-    fn setup_serial_console(&self) -> Result<(), RedfishError> {
+    async fn setup_serial_console(&self) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn serial_console_status(&self) -> Result<libredfish::Status, RedfishError> {
+    async fn serial_console_status(&self) -> Result<libredfish::Status, RedfishError> {
         todo!()
     }
 
-    fn get_boot_options(&self) -> Result<libredfish::BootOptions, RedfishError> {
+    async fn get_boot_options(&self) -> Result<libredfish::BootOptions, RedfishError> {
         todo!()
     }
 
-    fn get_boot_option(
+    async fn get_boot_option(
         &self,
         _option_id: &str,
     ) -> Result<libredfish::model::BootOption, RedfishError> {
         todo!()
     }
 
-    fn boot_once(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
+    async fn boot_once(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
         Ok(())
     }
 
-    fn boot_first(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
+    async fn boot_first(&self, _target: libredfish::Boot) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn clear_tpm(&self) -> Result<(), RedfishError> {
+    async fn clear_tpm(&self) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn bios(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
+    async fn bios(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
         todo!()
     }
 
-    fn pending(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
+    async fn pending(&self) -> Result<HashMap<String, serde_json::Value>, RedfishError> {
         todo!()
     }
 
-    fn clear_pending(&self) -> Result<(), RedfishError> {
+    async fn clear_pending(&self) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn pcie_devices(&self) -> Result<Vec<libredfish::PCIeDevice>, RedfishError> {
+    async fn pcie_devices(&self) -> Result<Vec<libredfish::PCIeDevice>, RedfishError> {
         todo!()
     }
 
-    fn change_password(&self, _user: &str, _new: &str) -> Result<(), RedfishError> {
+    async fn change_password(&self, _user: &str, _new: &str) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn get_firmware(
+    async fn get_firmware(
         &self,
         _id: &str,
     ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError> {
         todo!()
     }
 
-    fn update_firmware(
+    async fn update_firmware(
         &self,
-        _firmware: std::fs::File,
+        _firmware: tokio::fs::File,
     ) -> Result<libredfish::model::task::Task, RedfishError> {
         todo!()
     }
 
-    fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
+    async fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
         todo!()
     }
 
-    fn get_chassis(&self, _id: &str) -> Result<libredfish::model::chassis::Chassis, RedfishError> {
+    async fn get_chassis(
+        &self,
+        _id: &str,
+    ) -> Result<libredfish::model::chassis::Chassis, RedfishError> {
         todo!()
     }
 
-    fn get_ethernet_interfaces(&self) -> Result<Vec<std::string::String>, RedfishError> {
+    async fn get_ethernet_interfaces(&self) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
-    fn get_ethernet_interface(
+    async fn get_ethernet_interface(
         &self,
         _id: &str,
     ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError> {
         todo!()
     }
 
-    fn get_software_inventories(&self) -> Result<Vec<std::string::String>, RedfishError> {
+    async fn get_software_inventories(&self) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
-    fn get_system(&self) -> Result<libredfish::model::ComputerSystem, RedfishError> {
+    async fn get_system(&self) -> Result<libredfish::model::ComputerSystem, RedfishError> {
         todo!()
     }
 
-    fn get_secure_boot(&self) -> Result<libredfish::model::secure_boot::SecureBoot, RedfishError> {
+    async fn get_secure_boot(
+        &self,
+    ) -> Result<libredfish::model::secure_boot::SecureBoot, RedfishError> {
         todo!()
     }
 
-    fn disable_secure_boot(&self) -> Result<(), RedfishError> {
+    async fn disable_secure_boot(&self) -> Result<(), RedfishError> {
         Ok(())
     }
 
-    fn get_network_device_functions(
+    async fn get_network_device_functions(
         &self,
         _chassis_id: &str,
     ) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
-    fn get_network_device_function(
+    async fn get_network_device_function(
         &self,
         _chassis_id: &str,
         _id: &str,
@@ -398,11 +400,11 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    fn get_ports(&self, _chassis_id: &str) -> Result<Vec<std::string::String>, RedfishError> {
+    async fn get_ports(&self, _chassis_id: &str) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
-    fn get_port(
+    async fn get_port(
         &self,
         _chassis_id: &str,
         _id: &str,
@@ -410,7 +412,7 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    fn change_uefi_password(
+    async fn change_uefi_password(
         &self,
         _current_uefi_password: &str,
         _new_uefi_password: &str,
@@ -418,25 +420,25 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    fn change_boot_order(&self, _boot_array: Vec<String>) -> Result<(), RedfishError> {
+    async fn change_boot_order(&self, _boot_array: Vec<String>) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn set_internal_cpu_model(
+    async fn set_internal_cpu_model(
         &self,
         _model: libredfish::model::oem::nvidia::InternalCPUModel,
     ) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn set_host_privilege_level(
+    async fn set_host_privilege_level(
         &self,
         _level: libredfish::model::oem::nvidia::HostPrivilegeLevel,
     ) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn create_user(
+    async fn create_user(
         &self,
         _username: &str,
         _password: &str,
@@ -445,45 +447,47 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    fn get_service_root(
+    async fn get_service_root(
         &self,
     ) -> Result<libredfish::model::service_root::ServiceRoot, RedfishError> {
         todo!()
     }
 
-    fn get_systems(&self) -> Result<Vec<String>, RedfishError> {
+    async fn get_systems(&self) -> Result<Vec<String>, RedfishError> {
         todo!()
     }
 
-    fn get_managers(&self) -> Result<Vec<String>, RedfishError> {
+    async fn get_managers(&self) -> Result<Vec<String>, RedfishError> {
         todo!()
     }
 
-    fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
+    async fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
         todo!()
     }
 
-    fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {
+    async fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {
         todo!()
     }
 
-    fn get_system_event_log(&self) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
+    async fn get_system_event_log(
+        &self,
+    ) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
         todo!()
     }
 
-    fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
+    async fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
         todo!()
     }
 
-    fn get_tasks(&self) -> Result<Vec<String>, RedfishError> {
+    async fn get_tasks(&self) -> Result<Vec<String>, RedfishError> {
         todo!()
     }
 
-    fn add_secure_boot_certificate(&self, _: &str) -> Result<Task, RedfishError> {
+    async fn add_secure_boot_certificate(&self, _: &str) -> Result<Task, RedfishError> {
         todo!()
     }
 
-    fn enable_secure_boot(&self) -> Result<(), RedfishError> {
+    async fn enable_secure_boot(&self) -> Result<(), RedfishError> {
         todo!()
     }
 }

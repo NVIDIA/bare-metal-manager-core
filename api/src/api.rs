@@ -16,7 +16,20 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::{
+    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
+    IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
+    IbPartitionList, IbPartitionQuery, InstanceList, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
+    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
+    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+};
 use chrono::Duration;
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
@@ -38,20 +51,7 @@ use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
 use uuid::Uuid;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::{
-    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
-    IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
-    IbPartitionList, IbPartitionQuery, InstanceList, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
-    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
-    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
-};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
-
+use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -130,8 +130,6 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
-
-use self::rpc::forge_server::Forge;
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -1428,19 +1426,18 @@ where
             .await
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
-        // Since libredfish calls are thread blocking and we are inside an async function,
-        // we have to delegate the actual call into a threadpool
-        tokio::task::spawn_blocking(move || {
-            if boot_pxe {
-                client.boot_once(libredfish::Boot::Pxe)?;
-            }
-            client.power(libredfish::SystemPowerControl::ForceRestart)
-        })
-        .await
-        .map_err(|e| {
-            CarbideError::GenericError(format!("Failed redfish ForceRestart subtask: {}", e))
-        })?
-        .map_err(|e| CarbideError::GenericError(format!("Failed to restart machine: {}", e)))?;
+        if boot_pxe {
+            client
+                .boot_once(libredfish::Boot::Pxe)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+        client
+            .power(libredfish::SystemPowerControl::ForceRestart)
+            .await
+            .map_err(|e| {
+                CarbideError::GenericError(format!("Failed redfish ForceRestart subtask: {}", e))
+            })?;
 
         Ok(Response::new(rpc::InstancePowerResult {}))
     }
@@ -2463,28 +2460,32 @@ where
             }
         };
 
-        // libredfish uses reqwest in blocking mode, making and dropping a runtime
-        tokio::task::spawn_blocking(move || -> Result<(), libredfish::RedfishError> {
-            let endpoint = libredfish::Endpoint {
-                user: Some(user),
-                password: Some(password),
-                host: req.ip.clone(),
-                // Option<u32> -> Option<u16> because no uint16 in protobuf
-                port: req.port.map(|p| p as u16),
-            };
+        let endpoint = libredfish::Endpoint {
+            user: Some(user),
+            password: Some(password),
+            host: req.ip.clone(),
+            // Option<u32> -> Option<u16> because no uint16 in protobuf
+            port: req.port.map(|p| p as u16),
+        };
 
-            let pool = libredfish::RedfishClientPool::builder().build()?;
-            let redfish = pool.create_client(endpoint)?;
-            tracing::info!(ip = req.ip, "Switching boot order");
-            redfish.boot_once(libredfish::Boot::Pxe)?;
-            tracing::info!(ip = req.ip, "Force restarting");
-            redfish.power(libredfish::SystemPowerControl::ForceRestart)?;
-            tracing::info!(ip = req.ip, "Reboot request succeeded");
-            Ok(())
-        })
-        .await
-        .map_err(CarbideError::from)?
-        .map_err(CarbideError::from)?;
+        let pool = libredfish::RedfishClientPool::builder()
+            .build()
+            .map_err(CarbideError::from)?;
+        let redfish = pool
+            .create_client(endpoint)
+            .await
+            .map_err(CarbideError::from)?;
+        tracing::info!(ip = req.ip, "Switching boot order");
+        redfish
+            .boot_once(libredfish::Boot::Pxe)
+            .await
+            .map_err(CarbideError::from)?;
+        tracing::info!(ip = req.ip, "Force restarting");
+        redfish
+            .power(libredfish::SystemPowerControl::ForceRestart)
+            .await
+            .map_err(CarbideError::from)?;
+        tracing::info!(ip = req.ip, "Reboot request succeeded");
 
         Ok(Response::new(rpc::AdminRebootResponse {}))
     }
@@ -3056,35 +3057,29 @@ where
                 {
                     Ok(client) => {
                         let machine_id = machine.id().clone();
-                        match tokio::task::spawn_blocking(move || match client.lockdown_status() {
+                        match client.lockdown_status().await {
                             Ok(status) if status.is_fully_disabled() => {
                                 tracing::info!(%machine_id, "Bios is not locked down");
-                                (status.to_string(), false)
+                                response.initial_lockdown_state = status.to_string();
+                                response.machine_unlocked = false;
                             }
                             Ok(status) => {
                                 tracing::info!(%machine_id, ?status, "Unlocking BIOS");
                                 if let Err(e) =
-                                    client.lockdown(libredfish::EnabledDisabled::Disabled)
+                                    client.lockdown(libredfish::EnabledDisabled::Disabled).await
                                 {
                                     tracing::warn!(%machine_id, error = %e, "Failed to unlock");
-                                    (status.to_string(), false)
+                                    response.initial_lockdown_state = status.to_string();
+                                    response.machine_unlocked = false;
                                 } else {
-                                    (status.to_string(), true)
+                                    response.initial_lockdown_state = status.to_string();
+                                    response.machine_unlocked = true;
                                 }
                             }
                             Err(e) => {
                                 tracing::warn!(%machine_id, error = %e, "Failed to fetch lockdown status");
-                                ("".to_string(), false)
-                            }
-                        })
-                        .await
-                        {
-                            Ok((previous_state, unlocked)) => {
-                                response.initial_lockdown_state = previous_state;
-                                response.machine_unlocked = unlocked;
-                            }
-                            Err(e) => {
-                                tracing::error!(error = %e, "Failed to join tokio task");
+                                response.initial_lockdown_state = "".to_string();
+                                response.machine_unlocked = false;
                             }
                         }
                     }
@@ -3642,26 +3637,24 @@ where
             }
         };
 
-        // libredfish uses reqwest in blocking mode, making and dropping a runtime
-        tokio::task::spawn_blocking(move || -> Result<(), libredfish::RedfishError> {
-            let endpoint = libredfish::Endpoint {
-                user: Some(user),
-                password: Some(password),
-                host: req.ip.clone(),
-                // Option<u32> -> Option<u16> because no uint16 in protobuf
-                port: req.port.map(|p| p as u16),
-            };
+        let endpoint = libredfish::Endpoint {
+            user: Some(user),
+            password: Some(password),
+            host: req.ip.clone(),
+            // Option<u32> -> Option<u16> because no uint16 in protobuf
+            port: req.port.map(|p| p as u16),
+        };
 
-            let pool = libredfish::RedfishClientPool::builder().build()?;
-            let redfish = pool.create_client(endpoint)?;
-            tracing::info!(ip = req.ip, "BMC reseting");
-            redfish.bmc_reset()?;
-            tracing::info!(ip = req.ip, "Reset request succeeded");
-            Ok(())
-        })
-        .await
-        .map_err(CarbideError::from)?
-        .map_err(CarbideError::from)?;
+        let pool = libredfish::RedfishClientPool::builder()
+            .build()
+            .map_err(CarbideError::from)?;
+        let redfish = pool
+            .create_client(endpoint)
+            .await
+            .map_err(CarbideError::from)?;
+        tracing::info!(ip = req.ip, "BMC reseting");
+        redfish.bmc_reset().await.map_err(CarbideError::from)?;
+        tracing::info!(ip = req.ip, "Reset request succeeded");
 
         Ok(Response::new(rpc::AdminBmcResetResponse {}))
     }
@@ -4377,14 +4370,9 @@ where
             ServiceConfig::default()
         };
 
-        // RedfishClientPool uses reqwest in blocking mode.
-        // If it is called from an async function directly it will crash the runtime,
-        // therefore we have to wrap it inside spawn_blocking.
-        let rf_pool =
-            tokio::task::spawn_blocking(move || -> Result<_, libredfish::RedfishError> {
-                libredfish::RedfishClientPool::builder().build()
-            })
-            .await??;
+        let rf_pool = libredfish::RedfishClientPool::builder()
+            .build()
+            .map_err(CarbideError::from)?;
         let redfish_pool = RedfishClientPoolImpl::new(credential_provider.clone(), rf_pool);
         let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
 

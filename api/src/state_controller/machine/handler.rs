@@ -1212,20 +1212,15 @@ async fn restart_host(
         )
         .await?;
 
-    // Since libredfish calls are thread blocking and we are inside an async function,
-    // we have to delegate the actual call into a threadpool
-    tokio::task::spawn_blocking(move || {
-        if is_lenovo {
-            // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
-            client.boot_once(libredfish::Boot::Pxe)?;
-        }
-        client.power(libredfish::SystemPowerControl::ForceRestart)
-    })
-    .await
-    .map_err(|e| {
-        StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
-    })?
-    .map_err(|e| StateHandlerError::RedfishError {
+    let res = if is_lenovo {
+        // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
+        client.boot_once(libredfish::Boot::Pxe).await
+    } else {
+        client
+            .power(libredfish::SystemPowerControl::ForceRestart)
+            .await
+    };
+    res.map_err(|e| StateHandlerError::RedfishError {
         operation: "restart",
         error: e,
     })?;
@@ -1286,27 +1281,27 @@ async fn lockdown_host(
         )
         .await?;
 
-    // Since libredfish calls are thread blocking and we are inside an async function,
-    // we have to delegate the actual call into a threadpool
-    tokio::task::spawn_blocking(move || {
-        if enable {
-            // the forge_setup call includes the equivalent of these calls internally in libredfish
-            // 1. serial setup (bios, bmc)
-            // 2. tpm clear (bios)
-            // 3. lockdown (bios, bmc)
-            // 4. boot once to pxe
-            client.forge_setup()?;
-        }
-        client.power(libredfish::SystemPowerControl::ForceRestart)
-    })
-    .await
-    .map_err(|e| {
-        StateHandlerError::GenericError(eyre!("Failed redfish ForceRestart subtask: {}", e))
-    })?
-    .map_err(|e| StateHandlerError::RedfishError {
-        operation: "lockdown",
-        error: e,
-    })?;
+    if enable {
+        // the forge_setup call includes the equivalent of these calls internally in libredfish
+        // 1. serial setup (bios, bmc)
+        // 2. tpm clear (bios)
+        // 3. lockdown (bios, bmc)
+        // 4. boot once to pxe
+        client
+            .forge_setup()
+            .await
+            .map_err(|e| StateHandlerError::RedfishError {
+                operation: "lockdown",
+                error: e,
+            })?;
+    }
+    client
+        .power(libredfish::SystemPowerControl::ForceRestart)
+        .await
+        .map_err(|e| StateHandlerError::RedfishError {
+            operation: "lockdown",
+            error: e,
+        })?;
 
     Ok(())
 }

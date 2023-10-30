@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::fs::File;
-
 use color_eyre::eyre::eyre;
 use libredfish::model::oem::nvidia::HostPrivilegeLevel;
 use libredfish::model::software_inventory::SoftwareInventory;
@@ -39,174 +37,175 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         ..Default::default()
     };
     use RedfishCommand::*;
-    tokio::task::spawn_blocking(move || -> Result<(), libredfish::RedfishError> {
-        let pool = libredfish::RedfishClientPool::builder().build()?;
-        let redfish: Box<dyn Redfish> = pool.create_client(endpoint)?;
-        match action.command {
-            BiosAttrs => {
-                let bios = redfish.bios()?;
-                println!("{:#?}", bios);
-            }
-            BootHdd => {
-                redfish.boot_first(Boot::HardDisk)?;
-            }
-            BootPxe => {
-                redfish.boot_first(Boot::Pxe)?;
-            }
-            BootOnceHdd => {
-                redfish.boot_once(Boot::HardDisk)?;
-            }
-            BootOncePxe => {
-                redfish.boot_once(Boot::Pxe)?;
-            }
-            ClearPending => {
-                redfish.clear_pending()?;
-            }
-            ForgeSetup => {
-                redfish.forge_setup()?;
-            }
-            GetPowerState => {
-                println!("{}", redfish.get_power_state()?);
-            }
-            LockdownDisable => {
-                redfish.lockdown(EnabledDisabled::Disabled)?;
-                println!("BIOS settings changes require system restart");
-            }
-            LockdownEnable => {
-                redfish.lockdown(EnabledDisabled::Enabled)?;
-                println!("BIOS settings changes require system restart");
-            }
-            LockdownStatus => {
-                println!("{}", redfish.lockdown_status()?);
-            }
-            ForceOff => {
-                redfish.power(SystemPowerControl::ForceOff)?;
-            }
-            On => {
-                redfish.power(SystemPowerControl::On)?;
-            }
-            PcieDevices => {
-                let mut table = Table::new();
-                table.set_titles(row![
-                    "ID",
-                    "Manufacturer",
-                    "Name",
-                    "Firmware version",
-                    "Part",
-                    "Serial",
-                    "Status",
+    let pool = libredfish::RedfishClientPool::builder().build()?;
+    let redfish: Box<dyn Redfish> = pool.create_client(endpoint).await?;
+    match action.command {
+        BiosAttrs => {
+            let bios = redfish.bios().await?;
+            println!("{:#?}", bios);
+        }
+        BootHdd => {
+            redfish.boot_first(Boot::HardDisk).await?;
+        }
+        BootPxe => {
+            redfish.boot_first(Boot::Pxe).await?;
+        }
+        BootOnceHdd => {
+            redfish.boot_once(Boot::HardDisk).await?;
+        }
+        BootOncePxe => {
+            redfish.boot_once(Boot::Pxe).await?;
+        }
+        ClearPending => {
+            redfish.clear_pending().await?;
+        }
+        ForgeSetup => {
+            redfish.forge_setup().await?;
+        }
+        GetPowerState => {
+            println!("{}", redfish.get_power_state().await?);
+        }
+        LockdownDisable => {
+            redfish.lockdown(EnabledDisabled::Disabled).await?;
+            println!("BIOS settings changes require system restart");
+        }
+        LockdownEnable => {
+            redfish.lockdown(EnabledDisabled::Enabled).await?;
+            println!("BIOS settings changes require system restart");
+        }
+        LockdownStatus => {
+            println!("{}", redfish.lockdown_status().await?);
+        }
+        ForceOff => {
+            redfish.power(SystemPowerControl::ForceOff).await?;
+        }
+        On => {
+            redfish.power(SystemPowerControl::On).await?;
+        }
+        PcieDevices => {
+            let mut table = Table::new();
+            table.set_titles(row![
+                "ID",
+                "Manufacturer",
+                "Name",
+                "Firmware version",
+                "Part",
+                "Serial",
+                "Status",
+            ]);
+            for dev in redfish.pcie_devices().await? {
+                let status = dev.status.unwrap();
+                table.add_row(row![
+                    dev.id.unwrap_or_default(),
+                    dev.manufacturer.or(dev.gpu_vendor).unwrap_or_default(),
+                    dev.name.unwrap_or_default(),
+                    dev.firmware_version.unwrap_or_default(),
+                    dev.part_number.unwrap_or_default(),
+                    dev.serial_number.unwrap_or_default(),
+                    format!("{} {}", status.health, status.state),
                 ]);
-                for dev in redfish.pcie_devices()? {
-                    let status = dev.status.unwrap();
-                    table.add_row(row![
-                        dev.id.unwrap_or_default(),
-                        dev.manufacturer.or(dev.gpu_vendor).unwrap_or_default(),
-                        dev.name.unwrap_or_default(),
-                        dev.firmware_version.unwrap_or_default(),
-                        dev.part_number.unwrap_or_default(),
-                        dev.serial_number.unwrap_or_default(),
-                        format!("{} {}", status.health, status.state),
-                    ]);
+            }
+            table.set_format(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+            table.printstd();
+        }
+        Pending => {
+            let pending = redfish.pending().await?;
+            println!("{:#?}", pending);
+        }
+        PowerMetrics => {
+            println!("{:?}", redfish.get_power_metrics().await?);
+        }
+        ForceRestart => {
+            redfish.power(SystemPowerControl::ForceRestart).await?;
+        }
+        GracefulRestart => {
+            redfish.power(SystemPowerControl::GracefulRestart).await?;
+        }
+        SerialEnable => {
+            redfish.setup_serial_console().await?;
+            println!("BIOS settings changes require system restart");
+        }
+        SerialStatus => {
+            println!("{}", redfish.serial_console_status().await?);
+        }
+        GracefulShutdown => {
+            redfish.power(SystemPowerControl::GracefulShutdown).await?;
+        }
+        ThermalMetrics => {
+            println!("{:?}", redfish.get_thermal_metrics().await?);
+        }
+        TpmReset => {
+            redfish.clear_tpm().await?;
+            println!("BIOS settings changes require system restart");
+        }
+        BmcReset => {
+            redfish.bmc_reset().await?;
+        }
+        DisableSecureBoot => {
+            redfish.disable_secure_boot().await?;
+            println!("BIOS settings changes require system restart");
+        }
+        ChangeBmcPassword(bmc_password) => {
+            redfish
+                .change_password(&bmc_password.user, &bmc_password.new_password)
+                .await?;
+            println!("BIOS settings changes require system restart");
+        }
+        ChangeUefiPassword(uefi_password) => {
+            redfish
+                .change_uefi_password(&uefi_password.current_password, &uefi_password.new_password)
+                .await?;
+            println!("BIOS settings changes require system restart");
+        }
+        Dpu(dpu) => match dpu {
+            DpuOperations::SetHostLevelRestricted => {
+                redfish
+                    .set_host_privilege_level(HostPrivilegeLevel::Restricted)
+                    .await?;
+                println!("BIOS settings changes require system restart");
+            }
+            DpuOperations::SetHostLevelPrivileged => {
+                redfish
+                    .set_host_privilege_level(HostPrivilegeLevel::Privileged)
+                    .await?;
+                println!("BIOS settings changes require system restart");
+            }
+            DpuOperations::Firmware(fw) => match fw {
+                FwCommand::Status => {
+                    handle_fw_status(redfish).await?;
                 }
-                table.set_format(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
-                table.printstd();
-            }
-            Pending => {
-                let pending = redfish.pending()?;
-                println!("{:#?}", pending);
-            }
-            PowerMetrics => {
-                println!("{:?}", redfish.get_power_metrics()?);
-            }
-            ForceRestart => {
-                redfish.power(SystemPowerControl::ForceRestart)?;
-            }
-            GracefulRestart => {
-                redfish.power(SystemPowerControl::GracefulRestart)?;
-            }
-            SerialEnable => {
-                redfish.setup_serial_console()?;
-                println!("BIOS settings changes require system restart");
-            }
-            SerialStatus => {
-                println!("{}", redfish.serial_console_status()?);
-            }
-            GracefulShutdown => {
-                redfish.power(SystemPowerControl::GracefulShutdown)?;
-            }
-            ThermalMetrics => {
-                println!("{:?}", redfish.get_thermal_metrics()?);
-            }
-            TpmReset => {
-                redfish.clear_tpm()?;
-                println!("BIOS settings changes require system restart");
-            }
-            BmcReset => {
-                redfish.bmc_reset()?;
-            }
-            DisableSecureBoot => {
-                redfish.disable_secure_boot()?;
-                println!("BIOS settings changes require system restart");
-            }
-            ChangeBmcPassword(bmc_password) => {
-                redfish.change_password(&bmc_password.user, &bmc_password.new_password)?;
-                println!("BIOS settings changes require system restart");
-            }
-            ChangeUefiPassword(uefi_password) => {
-                redfish.change_uefi_password(
-                    &uefi_password.current_password,
-                    &uefi_password.new_password,
-                )?;
-                println!("BIOS settings changes require system restart");
-            }
-            Dpu(dpu) => match dpu {
-                DpuOperations::SetHostLevelRestricted => {
-                    redfish.set_host_privilege_level(HostPrivilegeLevel::Restricted)?;
-                    println!("BIOS settings changes require system restart");
+                FwCommand::Update(fw_package) => {
+                    let file_result = tokio::fs::File::open(fw_package.package).await;
+                    if let Ok(file) = file_result {
+                        redfish.update_firmware(file).await?;
+                        println!("Track update progress using firmware status");
+                    } else if let Err(err) = file_result {
+                        eprintln!("Error opening file: {}", err);
+                    }
                 }
-                DpuOperations::SetHostLevelPrivileged => {
-                    redfish.set_host_privilege_level(HostPrivilegeLevel::Privileged)?;
-                    println!("BIOS settings changes require system restart");
-                }
-                DpuOperations::Firmware(fw) => match fw {
-                    FwCommand::Status => {
-                        handle_fw_status(redfish)?;
-                    }
-                    FwCommand::Update(fw_package) => {
-                        let file_result = File::open(fw_package.package);
-                        if let Ok(file) = file_result {
-                            redfish.update_firmware(file)?;
-                            println!("Track update progress using firmware status");
-                        } else if let Err(err) = file_result {
-                            eprintln!("Error opening file: {}", err);
-                        }
-                    }
-                    FwCommand::Show(fw) => {
-                        handle_fw_show(redfish, fw)?;
-                    }
-                },
-                DpuOperations::Ports(ports) => {
-                    handle_port_show(redfish, ports)?;
+                FwCommand::Show(fw) => {
+                    handle_fw_show(redfish, fw).await?;
                 }
             },
-            GetChassisAll => {
-                handle_get_chassis_all(redfish)?;
+            DpuOperations::Ports(ports) => {
+                handle_port_show(redfish, ports).await?;
             }
-            GetBmcEthernetInterface => {
-                handle_ethernet_interface_show(redfish)?;
-            }
+        },
+        GetChassisAll => {
+            handle_get_chassis_all(redfish).await?;
         }
-        Ok(())
-    })
-    .await??;
+        GetBmcEthernetInterface => {
+            handle_ethernet_interface_show(redfish).await?;
+        }
+    }
     Ok(())
 }
 
-pub fn handle_fw_status(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
-    let tasks: Vec<String> = redfish.get_tasks()?;
+pub async fn handle_fw_status(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
+    let tasks: Vec<String> = redfish.get_tasks().await?;
     let mut tasks_info: Vec<Task> = Vec::new();
     for task in tasks.iter() {
-        if let Ok(t) = redfish.get_task(task) {
+        if let Ok(t) = redfish.get_task(task).await {
             tasks_info.push(t);
         } else {
             println!("Task {} not found.", task);
@@ -216,14 +215,14 @@ pub fn handle_fw_status(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
     Ok(())
 }
 
-pub fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(), RedfishError> {
+pub async fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(), RedfishError> {
     if args.all || args.bmc || args.dpu_os || args.uefi {
         let f = FwFilter {
             only_bmc: args.bmc,
             only_dpu_os: args.dpu_os,
             only_uefi: args.uefi,
         };
-        match show_all_fws(redfish, f) {
+        match show_all_fws(redfish, f).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 eprintln!("Error displaying firmware information: {}", e);
@@ -231,7 +230,7 @@ pub fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(), Red
             }
         }
     } else if let Some(fw_id) = args.fw {
-        match redfish.get_firmware(&fw_id) {
+        match redfish.get_firmware(&fw_id).await {
             Ok(firmware) => {
                 convert_fws_to_nice_table(vec![firmware]).printstd();
                 Ok(())
@@ -256,12 +255,12 @@ pub struct FwFilter {
     only_uefi: bool,
 }
 
-fn show_all_fws(redfish: Box<dyn Redfish>, f: FwFilter) -> Result<(), RedfishError> {
-    let fws: Vec<String> = redfish.get_software_inventories()?;
+async fn show_all_fws(redfish: Box<dyn Redfish>, f: FwFilter) -> Result<(), RedfishError> {
+    let fws: Vec<String> = redfish.get_software_inventories().await?;
     let mut fws_info: Vec<SoftwareInventory> = Vec::new();
 
     for fw in fws.iter() {
-        if let Ok(firmware) = redfish.get_firmware(fw) {
+        if let Ok(firmware) = redfish.get_firmware(fw).await {
             fws_info.push(firmware);
         } else {
             println!("Firmware {} not found.", fw);
@@ -331,12 +330,15 @@ fn convert_tasks_to_nice_table(tasks: Vec<Task>) -> Box<Table> {
     table.into()
 }
 
-pub fn handle_port_show(redfish: Box<dyn Redfish>, args: ShowPort) -> Result<(), RedfishError> {
+pub async fn handle_port_show(
+    redfish: Box<dyn Redfish>,
+    args: ShowPort,
+) -> Result<(), RedfishError> {
     if !args.all && args.port.is_none() {
         eprintln!("Please specify at least one option (e.g., --all, --port)");
         return Ok(());
     }
-    match show_all_ports(redfish) {
+    match show_all_ports(redfish).await {
         Ok((mut ports_info, netdev_funcs_info)) => {
             if let Some(port) = args.port {
                 ports_info.retain(|f| *f.id.as_ref().unwrap() == port);
@@ -348,8 +350,8 @@ pub fn handle_port_show(redfish: Box<dyn Redfish>, args: ShowPort) -> Result<(),
     }
 }
 
-fn get_bluefield_chassis(redfish: &dyn Redfish) -> Result<String, RedfishError> {
-    let chassis_vec: Vec<String> = redfish.get_chassis_all()?;
+async fn get_bluefield_chassis(redfish: &dyn Redfish) -> Result<String, RedfishError> {
+    let chassis_vec: Vec<String> = redfish.get_chassis_all().await?;
     if let Some(bluefield_bmc) = chassis_vec
         .iter()
         .find(|&chassis| chassis.contains("Bluefield"))
@@ -361,15 +363,15 @@ fn get_bluefield_chassis(redfish: &dyn Redfish) -> Result<String, RedfishError> 
     }
 }
 
-fn show_all_ports(
+async fn show_all_ports(
     redfish: Box<dyn Redfish>,
 ) -> Result<(Vec<NetworkPort>, Vec<NetworkDeviceFunction>), RedfishError> {
-    let chassis_id = get_bluefield_chassis(&*redfish)?;
-    let ports: Vec<String> = redfish.get_ports(&chassis_id)?;
+    let chassis_id = get_bluefield_chassis(&*redfish).await?;
+    let ports: Vec<String> = redfish.get_ports(&chassis_id).await?;
     let mut ports_info: Vec<NetworkPort> = Vec::new();
 
     for p in ports.iter() {
-        match redfish.get_port(&chassis_id, p) {
+        match redfish.get_port(&chassis_id, p).await {
             Ok(port) => {
                 ports_info.push(port);
             }
@@ -379,11 +381,11 @@ fn show_all_ports(
         }
     }
 
-    let netdev_funcs: Vec<String> = redfish.get_network_device_functions(&chassis_id)?;
+    let netdev_funcs: Vec<String> = redfish.get_network_device_functions(&chassis_id).await?;
     let mut netdev_funcs_info: Vec<NetworkDeviceFunction> = Vec::new();
 
     for n in netdev_funcs.iter() {
-        match redfish.get_network_device_function(&chassis_id, n) {
+        match redfish.get_network_device_function(&chassis_id, n).await {
             Ok(netdev) => {
                 netdev_funcs_info.push(netdev);
             }
@@ -444,12 +446,12 @@ fn convert_ports_to_nice_table(
     table.into()
 }
 
-pub fn handle_ethernet_interface_show(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
-    let eth_ifs: Vec<String> = redfish.get_ethernet_interfaces()?;
+pub async fn handle_ethernet_interface_show(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
+    let eth_ifs: Vec<String> = redfish.get_ethernet_interfaces().await?;
     let mut eth_ifs_info: Vec<EthernetInterface> = Vec::new();
 
     for iface_id in eth_ifs.iter() {
-        match redfish.get_ethernet_interface(iface_id) {
+        match redfish.get_ethernet_interface(iface_id).await {
             Ok(iface) => {
                 eth_ifs_info.push(iface);
             }
@@ -497,12 +499,12 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
     table.into()
 }
 
-pub fn handle_get_chassis_all(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
-    let chassis_vec: Vec<String> = redfish.get_chassis_all()?;
+pub async fn handle_get_chassis_all(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
+    let chassis_vec: Vec<String> = redfish.get_chassis_all().await?;
     let mut chassis_info: Vec<Chassis> = Vec::new();
 
     for c in chassis_vec.iter() {
-        match redfish.get_chassis(c) {
+        match redfish.get_chassis(c).await {
             Ok(chassis) => {
                 chassis_info.push(chassis);
             }

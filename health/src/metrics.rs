@@ -38,17 +38,17 @@ pub struct HealthHashData {
 
 /// get all the metrics we want from the bmc
 // none of these are a patch/post and will not affect the bmc doing other patch/post ops
-pub fn get_metrics(redfish: Box<dyn Redfish>) -> Result<HardwareHealth, HealthError> {
+pub async fn get_metrics(redfish: Box<dyn Redfish>) -> Result<HardwareHealth, HealthError> {
     // get the temperature, fans, voltages, power supplies data from the bmc
-    let thermal = redfish.get_thermal_metrics()?;
-    let power = redfish.get_power_metrics()?;
+    let thermal = redfish.get_thermal_metrics().await?;
+    let power = redfish.get_power_metrics().await?;
     // get the system/hardware event log
-    let logs = redfish.get_system_event_log()?;
+    let logs = redfish.get_system_event_log().await?;
     // get system firmware components versions, such as uefi, bmc, sbios, me, etc
-    let components = redfish.get_software_inventories()?;
+    let components = redfish.get_software_inventories().await?;
     let mut firmware = Vec::with_capacity(components.len());
     for component in components.iter() {
-        let version = redfish.get_firmware(component.as_str())?;
+        let version = redfish.get_firmware(component.as_str()).await?;
         firmware.push(version);
     }
     let health = HardwareHealth {
@@ -282,13 +282,9 @@ pub async fn scrape_machine_health(
     last_firmware_digest: String,
     last_sel_count: usize,
 ) -> Result<(String, usize), HealthError> {
-    let health = tokio::task::spawn_blocking(move || -> Result<HardwareHealth, HealthError> {
-        let pool = RedfishClientPool::builder().build()?;
-        let redfish = pool.create_client(endpoint.clone())?;
-        let health = get_metrics(redfish)?;
-        Ok(health)
-    })
-    .await??;
+    let pool = RedfishClientPool::builder().build()?;
+    let redfish = pool.create_client(endpoint.clone()).await?;
+    let health = get_metrics(redfish).await?;
 
     export_metrics(
         provider.clone(),
