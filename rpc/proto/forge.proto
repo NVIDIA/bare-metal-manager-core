@@ -1271,12 +1271,12 @@ message AdminForceDeleteMachineResponse {
     string managed_host_bmc_ip = 21;
     string dpu_bmc_ip = 22;
 
-    uint32 deleted_managed_resources = 31;
-    uint32 deleted_leafs = 32;
-    // Managed resource deletion has been started, but could not be finished
-    bool managed_resource_deletion_pending = 33;
-    // Leaf deletion has been started, but could not be finished
-    bool leaf_deletion_pending = 34;
+    reserved 31, 32, 33, 34; // Had been related to the deprecated forge-vpc service
+
+    // How many interfaces have been unregistered from UFM
+    uint32 ufm_unregistrations = 35;
+    // UFM unregistrations have been started, but could not be finished
+    bool ufm_unregistaration_pending = 36;
 
     // The Machines lockdown state before it was attempted to unlock the Machine
     string initial_lockdown_state = 41;
