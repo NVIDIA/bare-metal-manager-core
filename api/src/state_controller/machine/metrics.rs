@@ -106,6 +106,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             self.dpu_agent_version_gauge.as_any(),
             self.failed_dpu_healthchecks_gauge.as_any(),
             self.dpu_firmware_version_gauge.as_any(),
+            self.client_certificate_expiration_gauge.as_any(),
         ]
     }
 
