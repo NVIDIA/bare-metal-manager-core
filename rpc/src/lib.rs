@@ -31,9 +31,9 @@ pub use crate::protos::forge::{
     ForgeScoutErrorReport, ForgeScoutErrorReportResult, Instance, InstanceAllocationRequest,
     InstanceConfig, InstanceInterfaceConfig, InstanceInterfaceStatus,
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
-    InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
-    InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
-    MachineId, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
+    InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceSearchQuery, InstanceStatus,
+    InstanceTenantStatus, InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo,
+    MachineEvent, MachineId, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
     NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState,
     TenantConfig, TenantState, Uuid,
 };

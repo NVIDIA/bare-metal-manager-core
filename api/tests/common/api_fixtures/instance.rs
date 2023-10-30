@@ -51,7 +51,7 @@ pub async fn create_instance_with_config(
     host_machine_id: &MachineId,
     config: rpc::InstanceConfig,
 ) -> (uuid::Uuid, rpc::Instance) {
-    let mut info = env
+    let instance_id: uuid::Uuid = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
@@ -63,7 +63,11 @@ pub async fn create_instance_with_config(
         }))
         .await
         .expect("Create instance failed.")
-        .into_inner();
+        .into_inner()
+        .id
+        .expect("Missing instance ID")
+        .try_into()
+        .unwrap();
 
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
 
@@ -74,10 +78,7 @@ pub async fn create_instance_with_config(
     env.run_machine_state_controller_iteration(host_machine_id.clone(), &handler)
         .await;
     // - forge-dpu-agent gets an instance network to configure, reports it configured
-    let (_, instance_config_version) = super::network_configured(env, dpu_machine_id).await;
-    if let Some(icv) = instance_config_version {
-        info.network_config_version = icv;
-    }
+    super::network_configured(env, dpu_machine_id).await;
 
     // - third run: state controller runs again, advances state to Ready
     let mut txn = env.pool.begin().await.unwrap();
@@ -91,9 +92,21 @@ pub async fn create_instance_with_config(
         },
     )
     .await;
+
     txn.commit().await.unwrap();
 
-    let instance_id = uuid::Uuid::try_from(info.id.clone().expect("Missing instance ID")).unwrap();
+    // get the updated info with proper network config info added after the instance state is ready
+    let info = env
+        .api
+        .find_instances(tonic::Request::new(rpc::InstanceSearchQuery {
+            id: Some(instance_id.into()),
+        }))
+        .await
+        .expect("Find instance failed.")
+        .into_inner()
+        .instances
+        .remove(0);
+
     (instance_id, info)
 }
 
