@@ -301,10 +301,14 @@ pub enum RedfishCommand {
     PcieDevices,
     /// List pending operations
     Pending,
+    /// Display power metrics (volates, power supplies, etc)
+    PowerMetrics,
     /// Enable serial console
     SerialEnable,
     /// Serial console status
     SerialStatus,
+    /// Display thermal metrics (fans and temperatures)
+    ThermalMetrics,
     /// Clear Trusted Platform Module (TPM)
     TpmReset,
     /// Reboot the BMC itself

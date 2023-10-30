@@ -17,7 +17,9 @@ use std::{
 
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
-use libredfish::{standard::RedfishStandard, Endpoint, Redfish, RedfishError, RoleId};
+use libredfish::{
+    model::task::Task, standard::RedfishStandard, Endpoint, Redfish, RedfishError, RoleId,
+};
 use uuid::Uuid;
 
 use crate::db::bmc_metadata::UserRoles;
@@ -474,6 +476,14 @@ impl Redfish for RedfishSimClient {
     }
 
     fn get_tasks(&self) -> Result<Vec<String>, RedfishError> {
+        todo!()
+    }
+
+    fn add_secure_boot_certificate(&self, _: &str) -> Result<Task, RedfishError> {
+        todo!()
+    }
+
+    fn enable_secure_boot(&self) -> Result<(), RedfishError> {
         todo!()
     }
 }

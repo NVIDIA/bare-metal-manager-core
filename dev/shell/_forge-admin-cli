@@ -787,6 +787,15 @@ _arguments "${_arguments_options[@]}" \
 '--help[Print help]' \
 && ret=0
 ;;
+(power-metrics)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (serial-enable)
 _arguments "${_arguments_options[@]}" \
 '--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
@@ -797,6 +806,15 @@ _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
 (serial-status)
+_arguments "${_arguments_options[@]}" \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(thermal-metrics)
 _arguments "${_arguments_options[@]}" \
 '--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
 '--username=[Username for machine BMC]:USERNAME: ' \
@@ -1157,11 +1175,19 @@ _arguments "${_arguments_options[@]}" \
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
+(power-metrics)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
 (serial-enable)
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
 (serial-status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(thermal-metrics)
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
@@ -2134,11 +2160,19 @@ _arguments "${_arguments_options[@]}" \
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
+(power-metrics)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
 (serial-enable)
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
 (serial-status)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(thermal-metrics)
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
@@ -3433,8 +3467,10 @@ _forge-admin-cli__redfish__help_commands() {
 'on:Power on a machine' \
 'pcie-devices:List PCIe devices' \
 'pending:List pending operations' \
+'power-metrics:Display power metrics (volates, power supplies, etc)' \
 'serial-enable:Enable serial console' \
 'serial-status:Serial console status' \
+'thermal-metrics:Display thermal metrics (fans and temperatures)' \
 'tpm-reset:Clear Trusted Platform Module (TPM)' \
 'bmc-reset:Reboot the BMC itself' \
 'disable-secure-boot:Disable Secure Boot' \
@@ -3846,6 +3882,21 @@ _forge-admin-cli__redfish__help__dpu__ports_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli redfish help dpu ports commands' commands "$@"
 }
+(( $+functions[_forge-admin-cli__help__redfish__power-metrics_commands] )) ||
+_forge-admin-cli__help__redfish__power-metrics_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish power-metrics commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__power-metrics_commands] )) ||
+_forge-admin-cli__redfish__help__power-metrics_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help power-metrics commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__power-metrics_commands] )) ||
+_forge-admin-cli__redfish__power-metrics_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish power-metrics commands' commands "$@"
+}
 (( $+functions[_forge-admin-cli__help__instance__reboot_commands] )) ||
 _forge-admin-cli__help__instance__reboot_commands() {
     local commands; commands=()
@@ -3901,8 +3952,10 @@ _forge-admin-cli__help__redfish_commands() {
 'on:Power on a machine' \
 'pcie-devices:List PCIe devices' \
 'pending:List pending operations' \
+'power-metrics:Display power metrics (volates, power supplies, etc)' \
 'serial-enable:Enable serial console' \
 'serial-status:Serial console status' \
+'thermal-metrics:Display thermal metrics (fans and temperatures)' \
 'tpm-reset:Clear Trusted Platform Module (TPM)' \
 'bmc-reset:Reboot the BMC itself' \
 'disable-secure-boot:Disable Secure Boot' \
@@ -3939,8 +3992,10 @@ _forge-admin-cli__redfish_commands() {
 'on:Power on a machine' \
 'pcie-devices:List PCIe devices' \
 'pending:List pending operations' \
+'power-metrics:Display power metrics (volates, power supplies, etc)' \
 'serial-enable:Enable serial console' \
 'serial-status:Serial console status' \
+'thermal-metrics:Display thermal metrics (fans and temperatures)' \
 'tpm-reset:Clear Trusted Platform Module (TPM)' \
 'bmc-reset:Reboot the BMC itself' \
 'disable-secure-boot:Disable Secure Boot' \
@@ -4326,6 +4381,21 @@ _forge-admin-cli__redfish__dpu__help__firmware__status_commands() {
 _forge-admin-cli__redfish__help__dpu__firmware__status_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli redfish help dpu firmware status commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__redfish__thermal-metrics_commands] )) ||
+_forge-admin-cli__help__redfish__thermal-metrics_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish thermal-metrics commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__thermal-metrics_commands] )) ||
+_forge-admin-cli__redfish__help__thermal-metrics_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help thermal-metrics commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__thermal-metrics_commands] )) ||
+_forge-admin-cli__redfish__thermal-metrics_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish thermal-metrics commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__help__redfish__tpm-reset_commands] )) ||
 _forge-admin-cli__help__redfish__tpm-reset_commands() {

@@ -94,7 +94,10 @@ fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), Hea
         .with_unit(Unit::new("rpm"))
         .init();
     for fan in fans.iter() {
-        let sensor_name = fan.fan_name.clone().as_str().replace(' ', "_");
+        let sensor_name = match &fan.fan_name {
+            Some(fan_name) => fan_name.replace(' ', "_"),
+            None => continue,
+        };
         fan_sensors.observe(
             fan.reading,
             &[
@@ -153,9 +156,16 @@ fn export_power_supplies(
         .with_unit(Unit::new("V"))
         .init();
     for power_supply in power_supplies.iter() {
+        if power_supply.last_power_output_watts.is_none()
+            || power_supply.power_capacity_watts.is_none()
+        {
+            continue;
+        }
+        let last_power_output_watts = power_supply.last_power_output_watts.unwrap();
+        let power_capacity_watts = power_supply.power_capacity_watts.unwrap();
         let sensor_name = power_supply.name.clone().as_str().replace(' ', "_");
         power_supplies_output_watts_sensors.observe(
-            power_supply.last_power_output_watts,
+            last_power_output_watts,
             &[
                 KeyValue::new("hw.id", sensor_name.clone()),
                 KeyValue::new("hw.host.id", machine_id.to_string()),
@@ -169,10 +179,8 @@ fn export_power_supplies(
             ],
         );
         let mut utilization: f64 = 0.0;
-        if power_supply.power_capacity_watts > 0 {
-            utilization = (power_supply.last_power_output_watts
-                / power_supply.power_capacity_watts as f64)
-                * 100.0;
+        if power_capacity_watts > 0 {
+            utilization = (last_power_output_watts / power_capacity_watts as f64) * 100.0;
         }
         power_supplies_utilization_sensors.observe(
             utilization,
