@@ -359,6 +359,68 @@ async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_cloud_init_metadata(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await?
+        .unwrap();
+
+    let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
+        ip: machine.interfaces()[0].addresses()[0].address.to_string(),
+    });
+
+    let response = env.api.get_cloud_init_instructions(request).await?;
+
+    let Some(metadata) = response.into_inner().metadata else {
+        panic!("The value for metadata should not have been None");
+    };
+
+    assert_eq!(metadata.instance_id, host_machine_id.to_string());
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let (instance_id, instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
+
+    let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
+        ip: instance.status.unwrap().network.unwrap().interfaces[0].addresses[0].to_string(),
+    });
+
+    let response = env.api.get_cloud_init_instructions(request).await?;
+
+    let Some(metadata) = response.into_inner().metadata else {
+        panic!("The value for metadata should not have been None");
+    };
+
+    assert_eq!(metadata.instance_id, instance_id.to_string());
+
+    txn.commit().await.unwrap();
+    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
