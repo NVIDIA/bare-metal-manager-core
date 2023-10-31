@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::Ipv4Addr;
+
 use futures::StreamExt;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
@@ -168,6 +170,23 @@ impl BmcMachine {
         };
 
         Ok(machines)
+    }
+
+    pub async fn find_by_ip(
+        txn: &mut Transaction<'_, Postgres>,
+        ip: &Ipv4Addr,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = r#"SELECT bm.* FROM bmc_machine bm
+            JOIN machine_interfaces mi ON mi.id = bm.machine_interface_id
+            INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+            WHERE mia.address = $1::inet"#;
+        let bmc_machine: Option<Self> = sqlx::query_as(query)
+            .bind(ip.to_string())
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(bmc_machine)
     }
 
     /// Updates the BMC machine state that is owned by the state controller
