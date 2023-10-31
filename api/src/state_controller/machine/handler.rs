@@ -1212,18 +1212,22 @@ async fn restart_host(
         )
         .await?;
 
-    let res = if is_lenovo {
+    if is_lenovo {
         // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
-        client.boot_once(libredfish::Boot::Pxe).await
-    } else {
-        client
-            .power(libredfish::SystemPowerControl::ForceRestart)
-            .await
-    };
-    res.map_err(|e| StateHandlerError::RedfishError {
-        operation: "restart",
-        error: e,
-    })?;
+        client.boot_once(libredfish::Boot::Pxe).await.map_err(|e| {
+            StateHandlerError::RedfishError {
+                operation: "boot_once",
+                error: e,
+            }
+        })?;
+    }
+    client
+        .power(libredfish::SystemPowerControl::ForceRestart)
+        .await
+        .map_err(|e| StateHandlerError::RedfishError {
+            operation: "restart",
+            error: e,
+        })?;
 
     Ok(())
 }
