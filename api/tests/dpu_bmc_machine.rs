@@ -11,6 +11,10 @@
  */
 
 use carbide::{
+    db::{
+        bmc_machine::BmcMachine, machine_interface::MachineInterface,
+        machine_topology::MachineTopology,
+    },
     model::bmc_machine::BmcMachineState,
     state_controller::{
         bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
@@ -90,6 +94,85 @@ async fn dpu_bmc_machine_discovery_creates_bmc_machine(
         BmcMachineState::Initialized
     );
     txn.rollback().await?;
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn dpu_bmc_machine_links_with_dpu_machine(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+
+    let mut txn = pool.begin().await?;
+    let dpu_topology =
+        MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
+
+    assert!(
+        dpu_topology.contains_key(&dpu_machine_id) && !dpu_topology[&dpu_machine_id].is_empty()
+    );
+
+    let bmc_machine_id = dpu_topology[&dpu_machine_id]
+        .first()
+        .unwrap()
+        .topology()
+        .bmc_machine_id;
+
+    // Test there's new Bmc Machine id link
+    assert!(bmc_machine_id.is_some());
+
+    let bmc_machine = BmcMachine::get_by_id(&mut txn, bmc_machine_id.unwrap()).await?;
+    let bmc_network_interface =
+        MachineInterface::find_one(&mut txn, bmc_machine.machine_interface_id).await?;
+
+    assert!(!bmc_network_interface.addresses().is_empty());
+    let bmc_ip = bmc_network_interface
+        .addresses()
+        .first()
+        .unwrap()
+        .address
+        .to_string();
+
+    assert!(dpu_topology[&dpu_machine_id]
+        .first()
+        .unwrap()
+        .topology()
+        .bmc_info
+        .ip
+        .as_ref()
+        .is_some_and(|ip| *ip == bmc_ip));
+
+    let machine_id = MachineTopology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip.as_str()).await?;
+    assert!(machine_id.is_some_and(|id| id == dpu_machine_id));
+
+    let host_topology =
+        MachineTopology::find_by_machine_ids(&mut txn, &[host_machine_id.clone()]).await?;
+    assert!(
+        host_topology.contains_key(&host_machine_id) && !host_topology[&host_machine_id].is_empty()
+    );
+
+    // For host there's no BMC machine yet.
+    assert!(host_topology[&host_machine_id]
+        .first()
+        .unwrap()
+        .topology()
+        .bmc_machine_id
+        .is_none());
+
+    let host_bmc_ip = &host_topology[&host_machine_id]
+        .first()
+        .unwrap()
+        .topology()
+        .bmc_info
+        .ip
+        .as_ref();
+
+    assert!(host_bmc_ip.is_some());
+
+    let host_machine =
+        MachineTopology::find_machine_id_by_bmc_ip(&mut txn, host_bmc_ip.unwrap().as_str()).await?;
+    assert!(host_machine.is_some_and(|id| id == host_machine_id));
 
     Ok(())
 }
