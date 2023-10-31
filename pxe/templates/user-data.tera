@@ -189,6 +189,7 @@ runcmd:
   - [ systemctl, start, ntp ]
   - [ /opt/forge/run-scout.sh ]
 {% else %}
+  - [ systemctl, start, ntp@mgmt ]
   - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
   - [ bash, -c, '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1' ]
   - [ dpkg, -i, /opt/forge/forge-dpu_{{dpu_agent_pkg_version}}.deb ]
@@ -206,7 +207,6 @@ runcmd:
   - [ cp, /opt/forge/doca_container_configs/configs/doca_telemetry.yaml, /etc/kubelet.d/ ]
   - [ sum, /etc/kubelet.d/doca_telemetry.yaml ]
   - [ sync ]
-  - [ systemctl, start, ntp@mgmt ]
   - [ /opt/forge/run-scout.sh ]
 {% endif %}
 EOF
