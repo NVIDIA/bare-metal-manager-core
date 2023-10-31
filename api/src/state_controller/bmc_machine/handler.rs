@@ -10,14 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::{Arc, Mutex};
-
-use libredfish::{Boot, Redfish, RedfishError, SystemPowerControl};
+use libredfish::{Boot, SystemPowerControl};
 
 use crate::{
     db::{bmc_machine::BmcMachine, machine_interface::MachineInterface},
     model::bmc_machine::{BmcMachineError, BmcMachineState},
-    redfish::{RedfishClientCreationError, RedfishCredentialType},
+    redfish::RedfishCredentialType,
     state_controller::state_handler::{
         ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
     },
@@ -25,18 +23,6 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct BmcMachineStateHandler {}
-
-impl BmcMachineStateHandler {
-    async fn run_redfish_command<F>(&self, command: F) -> Result<(), RedfishClientCreationError>
-    where
-        F: FnOnce() -> Result<(), RedfishError> + Send + 'static,
-    {
-        tokio::task::spawn_blocking(command)
-            .await
-            .map_err(RedfishClientCreationError::SubtaskError)?
-            .map_err(RedfishClientCreationError::RedfishError)
-    }
-}
 
 #[async_trait::async_trait]
 impl StateHandler for BmcMachineStateHandler {
@@ -165,8 +151,8 @@ impl StateHandler for BmcMachineStateHandler {
                     )
                     .await;
 
-                let client_arc: Arc<Mutex<Box<dyn Redfish>>> = match client_result {
-                    Ok(redfish_client) => Arc::new(Mutex::new(redfish_client)),
+                let client = match client_result {
+                    Ok(redfish_client) => redfish_client,
                     Err(e) => {
                         tracing::error!(error = %e, "Failed to instantiate redfish client (forge-admin user)");
                         *controller_state.modify() =
@@ -177,11 +163,7 @@ impl StateHandler for BmcMachineStateHandler {
                     }
                 };
 
-                let client = client_arc.clone();
-                if let Err(e) = self
-                    .run_redfish_command(move || client.lock().unwrap().disable_secure_boot())
-                    .await
-                {
+                if let Err(e) = client.disable_secure_boot().await {
                     tracing::error!(error = %e, "Failed to disable secure boot");
                     *controller_state.modify() =
                         BmcMachineState::Error(BmcMachineError::RedfishCommand {
@@ -191,11 +173,7 @@ impl StateHandler for BmcMachineStateHandler {
                     return Ok(());
                 }
 
-                let client = client_arc.clone();
-                if let Err(e) = self
-                    .run_redfish_command(move || client.lock().unwrap().boot_once(Boot::UefiHttp))
-                    .await
-                {
+                if let Err(e) = client.boot_once(Boot::UefiHttp).await {
                     *controller_state.modify() =
                         BmcMachineState::Error(BmcMachineError::RedfishCommand {
                             command: "boot_once(UEFI http)".to_string(),
@@ -204,16 +182,7 @@ impl StateHandler for BmcMachineStateHandler {
                     return Ok(());
                 }
 
-                let client = client_arc.clone();
-                if let Err(e) = self
-                    .run_redfish_command(move || {
-                        client
-                            .lock()
-                            .unwrap()
-                            .power(SystemPowerControl::GracefulRestart)
-                    })
-                    .await
-                {
+                if let Err(e) = client.power(SystemPowerControl::GracefulRestart).await {
                     *controller_state.modify() =
                         BmcMachineState::Error(BmcMachineError::RedfishCommand {
                             command: "reboot".to_string(),
