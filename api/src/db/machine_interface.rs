@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
@@ -18,6 +18,7 @@ use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use super::dhcp_entry::DhcpEntry;
 use super::machine::{DbMachineId, MachineSearchConfig};
 use super::{DatabaseError, ObjectFilter, UuidKeyedObjectFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
@@ -43,6 +44,7 @@ pub struct MachineInterface {
     hostname: String,
     primary_interface: bool,
     addresses: Vec<MachineInterfaceAddress>,
+    vendor: Option<String>,
 }
 
 struct UsedAdminNetworkIpResolver {
@@ -65,6 +67,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterface {
             mac_address: row.try_get("mac_address")?,
             primary_interface: row.try_get("primary_interface")?,
             addresses: Vec::new(),
+            vendor: None,
         })
     }
 }
@@ -87,6 +90,7 @@ impl From<MachineInterface> for rpc::MachineInterface {
                 .iter()
                 .map(|addr| addr.address.to_string())
                 .collect(),
+            vendor: machine_interface.vendor,
         }
     }
 }
@@ -189,6 +193,16 @@ impl MachineInterface {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(interface)
+    }
+
+    pub async fn find_all(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Vec<MachineInterface>> {
+        let interfaces = MachineInterface::find_by(txn, ObjectFilter::All, "")
+            .await
+            .map_err(CarbideError::from)?;
+
+        Ok(interfaces)
     }
 
     pub async fn find_by_machine_ids(
@@ -450,6 +464,9 @@ impl MachineInterface {
     pub fn primary_interface(&self) -> bool {
         self.primary_interface
     }
+    pub fn vendor(&self) -> &Option<String> {
+        &self.vendor
+    }
 
     // Convenience function to load the machine which owns this interface
     pub async fn load_machine(
@@ -473,7 +490,7 @@ impl MachineInterface {
 
         let mut interfaces = match filter {
             ObjectFilter::All => {
-                sqlx::query_as::<_, MachineInterface>(&base_query.replace("{where}", ""))
+                sqlx::query_as::<_, MachineInterface>("SELECT * FROM machine_interfaces")
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| {
@@ -529,6 +546,11 @@ impl MachineInterface {
             ),
         )
         .await?;
+        let entrylist: Vec<DhcpEntry> = DhcpEntry::find_all(&mut *txn).await?;
+        let vendorslist = entrylist
+            .into_iter()
+            .map(|x| (x.machine_interface_id, x.vendor_string.clone()))
+            .collect::<BTreeMap<_, _>>();
 
         interfaces.iter_mut().for_each(|interface| {
             if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {
@@ -536,6 +558,7 @@ impl MachineInterface {
             } else {
                 tracing::warn!(interface_id = %interface.id, "Interface has no addresses");
             }
+            interface.vendor = vendorslist.get(&interface.id).cloned();
         });
 
         Ok(interfaces)

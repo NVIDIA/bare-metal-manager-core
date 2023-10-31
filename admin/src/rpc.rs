@@ -705,3 +705,19 @@ pub async fn remove_route_server(
 
     Ok(())
 }
+pub async fn get_all_machines_interfaces(
+    api_config: Config,
+    id: Option<Uuid>,
+) -> CarbideCliResult<rpc::InterfaceList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::InterfaceSearchQuery { id, ip: None });
+        let machine_interfaces = client
+            .find_interfaces(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(machine_interfaces)
+    })
+    .await
+}

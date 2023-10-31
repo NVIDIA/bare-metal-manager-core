@@ -230,6 +230,7 @@ mod tests {
             primary_interface: true,
             mac_address: "01:02:03:AA:BB:CC".to_string(),
             address: vec!["192.123.184.244".to_string()],
+            vendor: Some("xyz".to_string()),
         };
 
         let domain = rpc::Domain {

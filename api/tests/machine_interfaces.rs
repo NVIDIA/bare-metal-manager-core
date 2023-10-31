@@ -14,13 +14,15 @@ use std::str::FromStr;
 
 use carbide::{
     db::{
-        address_selection_strategy::AddressSelectionStrategy, machine::Machine,
-        machine_interface::MachineInterface, network_segment::NetworkSegment,
+        address_selection_strategy::AddressSelectionStrategy, dhcp_entry::DhcpEntry,
+        domain::Domain, machine::Machine, machine_interface::MachineInterface,
+        network_segment::NetworkSegment, UuidKeyedObjectFilter,
     },
     model::machine::machine_id::MachineId,
     CarbideError,
 };
 use mac_address::MacAddress;
+use rpc::forge::{forge_server::Forge, InterfaceSearchQuery};
 use sqlx::{Connection, Postgres};
 
 pub mod common;
@@ -210,6 +212,134 @@ async fn test_rename_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     txn.commit().await?;
 
     assert_eq!(updated_interface.hostname(), new_hostname);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn find_all_interfaces_test_cases(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = pool.begin().await?;
+
+    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let domain_ids = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    let domain_id = domain_ids[0].id;
+    let mut interfaces: Vec<MachineInterface> = Vec::new();
+    for i in 0..2 {
+        let interface = MachineInterface::create(
+            &mut txn,
+            &network_segment,
+            MacAddress::from_str(format!("ff:ff:ff:ff:ff:0{}", i).as_str())
+                .as_ref()
+                .unwrap(),
+            Some(domain_id),
+            format!("peppersmacker{}", i),
+            true,
+            AddressSelectionStrategy::Automatic,
+        )
+        .await?;
+        DhcpEntry {
+            machine_interface_id: interface.id,
+            vendor_string: "NVIDIA".to_string(),
+        }
+        .persist(&mut txn)
+        .await?;
+        interfaces.push(interface);
+    }
+
+    txn.commit().await?;
+    let response = env
+        .api
+        .find_interfaces(tonic::Request::new(InterfaceSearchQuery {
+            id: None,
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    // Assert members
+    for (idx, interface) in interfaces.iter().enumerate().take(2) {
+        assert_eq!(response.interfaces[idx].hostname, interface.hostname());
+        assert_eq!(
+            response.interfaces[idx].mac_address,
+            interface.mac_address.to_string()
+        );
+        assert_eq!(
+            response.interfaces[idx].vendor.clone().unwrap().to_string(),
+            "NVIDIA".to_string()
+        );
+        assert_eq!(
+            response.interfaces[idx]
+                .domain_id
+                .as_ref()
+                .unwrap()
+                .to_string(),
+            interface.domain_id.unwrap().to_string()
+        );
+    }
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+
+    let mut txn = pool.begin().await?;
+
+    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let domain_ids = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    let domain_id = domain_ids[0].id;
+    let new_interface = MachineInterface::create(
+        &mut txn,
+        &network_segment,
+        &host_sim.config.dpu_oob_mac_address,
+        Some(domain_id),
+        "peppersmacker2".to_string(),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await?;
+
+    DhcpEntry {
+        machine_interface_id: new_interface.id,
+        vendor_string: "NVIDIA".to_string(),
+    }
+    .persist(&mut txn)
+    .await?;
+    txn.commit().await?;
+
+    let response = env
+        .api
+        .find_interfaces(tonic::Request::new(InterfaceSearchQuery {
+            id: Some(new_interface.id.into()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    // Assert members
+    // For new_interface
+    assert_eq!(response.interfaces[0].hostname, new_interface.hostname());
+    assert_eq!(
+        response.interfaces[0].mac_address,
+        new_interface.mac_address.to_string()
+    );
+    assert_eq!(
+        response.interfaces[0].vendor.clone().unwrap().to_string(),
+        "NVIDIA".to_string()
+    );
+    assert_eq!(
+        response.interfaces[0]
+            .domain_id
+            .as_ref()
+            .unwrap()
+            .to_string(),
+        new_interface.domain_id.unwrap().to_string()
+    );
 
     Ok(())
 }

@@ -77,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.IBPartitionStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartition", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InterfaceList", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.NetworkSegmentStateHistory",
             "#[derive(serde::Serialize)]",

@@ -2208,6 +2208,20 @@ where
                 )
                 .into()),
             },
+            (None, None) => {
+                match MachineInterface::find_all(&mut txn)
+                    .await
+                    .map_err(CarbideError::from)
+                {
+                    Ok(machine_interfaces) => Ok(rpc::InterfaceList {
+                        interfaces: machine_interfaces
+                            .into_iter()
+                            .map(|i| i.into())
+                            .collect_vec(),
+                    }),
+                    Err(error) => return Err(error.into()),
+                }
+            }
             _ => Err(CarbideError::GenericError(
                 "Could not find an ID or IP in the request".to_string(),
             )

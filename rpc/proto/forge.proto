@@ -1036,6 +1036,7 @@ message MachineInterface {
   string mac_address = 8;
 
   repeated string address = 9;
+  optional string vendor = 10;
 }
 
 message DhcpDiscovery {

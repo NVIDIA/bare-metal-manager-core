@@ -1868,6 +1868,59 @@ esac
     ;;
 esac
 ;;
+(machine-interfaces)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_forge-admin-cli__machine-interfaces_commands" \
+"*::: :->machine-interfaces" \
+&& ret=0
+
+    case $state in
+    (machine-interfaces)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-machine-interfaces-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+'-i+[]:INTERFACE_ID: ' \
+'--interface-id=[]:INTERFACE_ID: ' \
+'-a[Show all machine interfaces]' \
+'--all[Show all machine interfaces]' \
+'--more[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__machine-interfaces__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-machine-interfaces-help-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (help)
 _arguments "${_arguments_options[@]}" \
 ":: :_forge-admin-cli__help_commands" \
@@ -2480,6 +2533,26 @@ _arguments "${_arguments_options[@]}" \
     ;;
 esac
 ;;
+(machine-interfaces)
+_arguments "${_arguments_options[@]}" \
+":: :_forge-admin-cli__help__machine-interfaces_commands" \
+"*::: :->machine-interfaces" \
+&& ret=0
+
+    case $state in
+    (machine-interfaces)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:forge-admin-cli-help-machine-interfaces-command-$line[1]:"
+        case $line[1] in
+            (show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (help)
 _arguments "${_arguments_options[@]}" \
 && ret=0
@@ -2523,6 +2596,8 @@ _forge-admin-cli_commands() {
 'credential:Credential related handling' \
 'c:Credential related handling' \
 'route-server:Route server handling' \
+'machine-interfaces:List of all Machine interfaces' \
+'mi:List of all Machine interfaces' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'forge-admin-cli commands' commands "$@"
@@ -3276,6 +3351,7 @@ _forge-admin-cli__help_commands() {
 'bmc-machine:BMC Machine related handling' \
 'credential:Credential related handling' \
 'route-server:Route server handling' \
+'machine-interfaces:List of all Machine interfaces' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'forge-admin-cli help commands' commands "$@"
@@ -3343,6 +3419,19 @@ _forge-admin-cli__machine__network__help_commands() {
 _forge-admin-cli__machine__network__help__help_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli machine network help help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine-interfaces__help_commands] )) ||
+_forge-admin-cli__machine-interfaces__help_commands() {
+    local commands; commands=(
+'show:List of all Machine interfaces' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli machine-interfaces help commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine-interfaces__help__help_commands] )) ||
+_forge-admin-cli__machine-interfaces__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine-interfaces help help commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__managed-host__help_commands] )) ||
 _forge-admin-cli__managed-host__help_commands() {
@@ -3663,6 +3752,21 @@ _forge-admin-cli__machine_commands() {
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'forge-admin-cli machine commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__machine-interfaces_commands] )) ||
+_forge-admin-cli__help__machine-interfaces_commands() {
+    local commands; commands=(
+'show:List of all Machine interfaces' \
+    )
+    _describe -t commands 'forge-admin-cli help machine-interfaces commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine-interfaces_commands] )) ||
+_forge-admin-cli__machine-interfaces_commands() {
+    local commands; commands=(
+'show:List of all Machine interfaces' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'forge-admin-cli machine-interfaces commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__help__managed-host__maintenance_commands] )) ||
 _forge-admin-cli__help__managed-host__maintenance_commands() {
@@ -4247,6 +4351,11 @@ _forge-admin-cli__help__machine__show_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli help machine show commands' commands "$@"
 }
+(( $+functions[_forge-admin-cli__help__machine-interfaces__show_commands] )) ||
+_forge-admin-cli__help__machine-interfaces__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help machine-interfaces show commands' commands "$@"
+}
 (( $+functions[_forge-admin-cli__help__managed-host__show_commands] )) ||
 _forge-admin-cli__help__managed-host__show_commands() {
     local commands; commands=()
@@ -4286,6 +4395,16 @@ _forge-admin-cli__machine__help__show_commands() {
 _forge-admin-cli__machine__show_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli machine show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine-interfaces__help__show_commands] )) ||
+_forge-admin-cli__machine-interfaces__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine-interfaces help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__machine-interfaces__show_commands] )) ||
+_forge-admin-cli__machine-interfaces__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli machine-interfaces show commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__managed-host__help__show_commands] )) ||
 _forge-admin-cli__managed-host__help__show_commands() {

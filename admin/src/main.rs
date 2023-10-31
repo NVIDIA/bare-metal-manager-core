@@ -30,6 +30,7 @@ use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuReprovision;
 use cfg::carbide_options::IpAction;
+use cfg::carbide_options::MachineInterfaces;
 use cfg::carbide_options::RouteServer;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
@@ -46,6 +47,7 @@ mod dpu;
 mod instance;
 mod inventory;
 mod machine;
+mod machine_interfaces;
 mod managed_host;
 mod network;
 mod network_devices;
@@ -661,6 +663,16 @@ async fn main() -> color_eyre::Result<()> {
             }
             RouteServer::Remove(ip) => {
                 rpc::remove_route_server(&api_config, ip.ip).await?;
+            }
+        },
+        CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
+            MachineInterfaces::Show(machine_interfaces) => {
+                machine_interfaces::handle_show(
+                    machine_interfaces,
+                    config.format == OutputFormat::Json,
+                    api_config,
+                )
+                .await?
             }
         },
     }
