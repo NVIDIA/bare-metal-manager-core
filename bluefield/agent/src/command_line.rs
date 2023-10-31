@@ -52,6 +52,12 @@ pub enum AgentCommand {
 pub struct NetconfParams {
     #[clap(long, short, help = "machine id of the DPU to configure")]
     pub dpu_machine_id: String,
+    #[clap(
+        long,
+        default_value = "11:22:33:44:55:66",
+        help = "Factory MAC address - pf interface"
+    )]
+    pub mac_address: String,
 }
 
 #[derive(Parser, Debug)]
