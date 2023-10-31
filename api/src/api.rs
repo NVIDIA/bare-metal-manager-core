@@ -1400,7 +1400,6 @@ where
             .await
             .map_err(CarbideError::from)?;
         }
-        let boot_pxe = always_boot_with_custom_ipxe || request.boot_with_custom_ipxe;
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -1426,7 +1425,11 @@ where
             .await
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
-        if boot_pxe {
+        // Lenovo does not yet provide a BMC lockdown so a user could
+        // change the boot order which we set in `libredfish::forge_setup`.
+        // We also can't call `boot_once` for other vendors because lockdown
+        // prevents it.
+        if snapshot.host_snapshot.bmc_vendor.is_lenovo() {
             client
                 .boot_once(libredfish::Boot::Pxe)
                 .await
@@ -2489,11 +2492,12 @@ where
             .create_client(endpoint)
             .await
             .map_err(CarbideError::from)?;
+
+        // Lenovo does not have BMC lockdown, so a user could switch the boot order. We need
+        // to switch it back. On other vendors the call will fail so ignore errors.
         tracing::info!(ip = req.ip, "Switching boot order");
-        redfish
-            .boot_once(libredfish::Boot::Pxe)
-            .await
-            .map_err(CarbideError::from)?;
+        let _ = redfish.boot_once(libredfish::Boot::Pxe).await;
+
         tracing::info!(ip = req.ip, "Force restarting");
         redfish
             .power(libredfish::SystemPowerControl::ForceRestart)
