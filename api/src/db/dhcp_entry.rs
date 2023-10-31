@@ -36,6 +36,15 @@ impl DhcpEntry {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+    pub async fn find_all(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<DhcpEntry>, DatabaseError> {
+        let query = "SELECT * FROM dhcp_entries";
+        sqlx::query_as(query)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
 
     pub async fn persist(
         &self,

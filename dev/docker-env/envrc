@@ -10,3 +10,4 @@ export NET_PREFIX=172.20.0.0/24
 export NET_GATEWAY=172.20.0.1
 
 export CONTAINER_REPO_ROOT=/app/code
+export PGSSLMODE=disable

@@ -57,11 +57,17 @@ _forge-admin-cli() {
             forge__admin__cli,machine)
                 cmd="forge__admin__cli__machine"
                 ;;
+            forge__admin__cli,machine-interfaces)
+                cmd="forge__admin__cli__machine__interfaces"
+                ;;
             forge__admin__cli,managed-host)
                 cmd="forge__admin__cli__managed__host"
                 ;;
             forge__admin__cli,mh)
                 cmd="forge__admin__cli__managed__host"
+                ;;
+            forge__admin__cli,mi)
+                cmd="forge__admin__cli__machine__interfaces"
                 ;;
             forge__admin__cli,migrate)
                 cmd="forge__admin__cli__migrate"
@@ -249,6 +255,9 @@ _forge-admin-cli() {
             forge__admin__cli__help,machine)
                 cmd="forge__admin__cli__help__machine"
                 ;;
+            forge__admin__cli__help,machine-interfaces)
+                cmd="forge__admin__cli__help__machine__interfaces"
+                ;;
             forge__admin__cli__help,managed-host)
                 cmd="forge__admin__cli__help__managed__host"
                 ;;
@@ -338,6 +347,9 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__help__machine,show)
                 cmd="forge__admin__cli__help__machine__show"
+                ;;
+            forge__admin__cli__help__machine__interfaces,show)
+                cmd="forge__admin__cli__help__machine__interfaces__show"
                 ;;
             forge__admin__cli__help__machine__network,config)
                 cmd="forge__admin__cli__help__machine__network__config"
@@ -569,6 +581,18 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__machine__help__network,status)
                 cmd="forge__admin__cli__machine__help__network__status"
+                ;;
+            forge__admin__cli__machine__interfaces,help)
+                cmd="forge__admin__cli__machine__interfaces__help"
+                ;;
+            forge__admin__cli__machine__interfaces,show)
+                cmd="forge__admin__cli__machine__interfaces__show"
+                ;;
+            forge__admin__cli__machine__interfaces__help,help)
+                cmd="forge__admin__cli__machine__interfaces__help__help"
+                ;;
+            forge__admin__cli__machine__interfaces__help,show)
+                cmd="forge__admin__cli__machine__interfaces__help__show"
                 ;;
             forge__admin__cli__machine__network,config)
                 cmd="forge__admin__cli__machine__network__config"
@@ -991,7 +1015,7 @@ _forge-admin-cli() {
 
     case "${cmd}" in
         forge__admin__cli)
-            opts="-c -f -o -d -h --version --carbide-api --format --output --forge-root-ca-path --client-cert-path --client-key-path --debug --help version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential route-server help"
+            opts="-c -f -o -d -h --version --carbide-api --format --output --forge-root-ca-path --client-cert-path --client-key-path --debug --help version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential route-server machine-interfaces help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1777,7 +1801,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help)
-            opts="version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential route-server help"
+            opts="version machine instance network-segment domain managed-host resource-pool redfish migrate network-device ip dpu inventory boot-override bmc-machine credential route-server machine-interfaces help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2157,6 +2181,34 @@ _forge-admin-cli() {
         forge__admin__cli__help__machine)
             opts="show dpu-ssh-credentials network reboot force-delete"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__machine__interfaces)
+            opts="show"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__machine__interfaces__show)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -3329,6 +3381,84 @@ _forge-admin-cli() {
                 return 0
             fi
             case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__machine__interfaces)
+            opts="-h --help show help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__machine__interfaces__help)
+            opts="show help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__machine__interfaces__help__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__machine__interfaces__help__show)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__machine__interfaces__show)
+            opts="-a -i -h --all --interface-id --more --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --interface-id)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -i)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;

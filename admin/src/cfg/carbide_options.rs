@@ -110,6 +110,12 @@ pub enum CarbideCommand {
     Credential(CredentialAction),
     #[clap(about = "Route server handling", subcommand)]
     RouteServer(RouteServer),
+    #[clap(
+        about = "List of all Machine interfaces",
+        subcommand,
+        visible_alias = "mi"
+    )]
+    MachineInterfaces(MachineInterfaces),
 }
 
 #[derive(Parser, Debug)]
@@ -762,4 +768,25 @@ pub enum RouteServer {
     Get,
     Add(IpFind),
     Remove(IpFind),
+}
+#[derive(Parser, Debug)]
+pub enum MachineInterfaces {
+    #[clap(about = "List of all Machine interfaces")]
+    Show(ShowMachineInterfaces),
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+        ArgGroup::new("show_machine_interfaces")
+        .required(true)
+        .args(&["all", "interface_id"])))]
+pub struct ShowMachineInterfaces {
+    #[clap(short, long, action, help = "Show all machine interfaces")]
+    pub all: bool,
+
+    #[clap(short, long)]
+    pub interface_id: Option<String>,
+
+    #[clap(long, action)]
+    pub more: bool,
 }
