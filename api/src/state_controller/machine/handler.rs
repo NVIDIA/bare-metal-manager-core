@@ -51,6 +51,7 @@ use crate::{
         machine::metrics::MachineMetrics,
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerServices,
         },
     },
 };
@@ -243,7 +244,7 @@ impl StateHandler for MachineStateHandler {
                 if let Some(reprovisioning_requested) =
                     dpu_reprovisioning_needed(&state.dpu_snapshot)
                 {
-                    restart_machine(&state.dpu_snapshot, ctx).await?;
+                    restart_machine(&state.dpu_snapshot, ctx.services).await?;
                     *controller_state.modify() = ManagedHostState::DPUReprovision {
                         reprovision_state: if reprovisioning_requested.update_firmware {
                             ReprovisionState::FirmwareUpgrade
@@ -304,7 +305,7 @@ impl StateHandler for MachineStateHandler {
                         }
 
                         // Reboot host
-                        restart_machine(&state.host_snapshot, ctx).await?;
+                        restart_machine(&state.host_snapshot, ctx.services).await?;
 
                         *controller_state.modify() = ManagedHostState::HostNotReady {
                             machine_state: MachineState::Discovered,
@@ -348,7 +349,7 @@ impl StateHandler for MachineStateHandler {
                 if let Some(new_state) = handle_dpu_reprovision(
                     reprovision_state,
                     state,
-                    ctx,
+                    ctx.services,
                     txn,
                     &MachineNextStateResolver,
                 )
@@ -367,7 +368,7 @@ impl StateHandler for MachineStateHandler {
 async fn handle_dpu_reprovision(
     reprovision_state: &ReprovisionState,
     state: &ManagedHostStateSnapshot,
-    ctx: &mut StateHandlerContext<'_>,
+    services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     next_state_resolver: &impl NextReprovisionState,
 ) -> Result<Option<ManagedHostState>, StateHandlerError> {
@@ -383,12 +384,12 @@ async fn handle_dpu_reprovision(
                 return Ok(None);
             }
 
-            restart_machine(&state.dpu_snapshot, ctx).await?;
+            restart_machine(&state.dpu_snapshot, services).await?;
             set_managed_host_topology_update_needed(txn, state).await?;
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
         }
         ReprovisionState::WaitingForNetworkInstall => {
-            if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
+            if (try_wait_for_dpu_discovery_and_reboot(state, services).await?).is_pending() {
                 return Ok(None);
             }
 
@@ -400,7 +401,7 @@ async fn handle_dpu_reprovision(
             // gap can cause host to restart before DPU comes up. This will fail Host
             // DHCP.
             // TODO: Reduce this duration to 2 mins.
-            if wait(state, ctx.services.reachability_params.dpu_wait_time) {
+            if wait(state, services.reachability_params.dpu_wait_time) {
                 return Ok(None);
             }
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
@@ -414,7 +415,7 @@ async fn handle_dpu_reprovision(
             Machine::clear_reprovisioning_request(txn, &state.dpu_snapshot.machine_id)
                 .await
                 .map_err(StateHandlerError::from)?;
-            restart_host(&state.host_snapshot, ctx).await?;
+            restart_host(&state.host_snapshot, services).await?;
 
             // We need to wait for the host to reboot and submit it's new Hardware information in
             // case of Ready.
@@ -426,7 +427,7 @@ async fn handle_dpu_reprovision(
 /// This function waits for DPU to finish discovery and reboots it.
 async fn try_wait_for_dpu_discovery_and_reboot(
     state: &ManagedHostStateSnapshot,
-    ctx: &mut StateHandlerContext<'_>,
+    services: &StateHandlerServices,
 ) -> Result<Poll<()>, StateHandlerError> {
     // We are waiting for the `DiscoveryCompleted` RPC call to update the
     // `last_discovery_time` timestamp.
@@ -440,7 +441,7 @@ async fn try_wait_for_dpu_discovery_and_reboot(
         return Ok(Poll::Pending);
     }
 
-    restart_machine(&state.dpu_snapshot, ctx).await?;
+    restart_machine(&state.dpu_snapshot, services).await?;
 
     Ok(Poll::Ready(()))
 }
@@ -508,7 +509,8 @@ impl StateHandler for DpuMachineStateHandler {
                 machine_state: MachineState::Init,
             } => {
                 // initial restart, firmware update and scout is run, first reboot of dpu discovery
-                if (try_wait_for_dpu_discovery_and_reboot(state, ctx).await?).is_pending() {
+                if (try_wait_for_dpu_discovery_and_reboot(state, ctx.services).await?).is_pending()
+                {
                     return Ok(());
                 }
 
@@ -550,7 +552,7 @@ impl StateHandler for DpuMachineStateHandler {
                 }
 
                 // hbn needs a restart to be able to come online, second reboot of dpu discovery
-                restart_machine(&state.dpu_snapshot, ctx).await?;
+                restart_machine(&state.dpu_snapshot, ctx.services).await?;
 
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkConfig,
@@ -676,7 +678,7 @@ impl StateHandler for HostMachineStateHandler {
                         return Ok(());
                     }
                     // Enable Bios/BMC lockdown now.
-                    lockdown_host(&state.host_snapshot, ctx, true).await?;
+                    lockdown_host(&state.host_snapshot, ctx.services, true).await?;
 
                     *controller_state.modify() = ManagedHostState::HostNotReady {
                         machine_state: MachineState::WaitingForLockdown {
@@ -727,7 +729,7 @@ impl StateHandler for HostMachineStateHandler {
                                 // During power cycle, DPU also reboots. Now DPU and Host are coming up together. Since DPU is not ready yet,
                                 // it does not forward DHCP discover from host and host goes into failure mode and stops sending further
                                 // DHCP Discover. A second reboot starts DHCP cycle again when DPU is already up.
-                                restart_machine(&state.host_snapshot, ctx).await?;
+                                restart_machine(&state.host_snapshot, ctx.services).await?;
                                 if LockdownMode::Enable == lockdown_info.mode {
                                     *controller_state.modify() = ManagedHostState::HostNotReady {
                                         machine_state: MachineState::Discovered,
@@ -815,7 +817,7 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     bind_ib_ports(
-                        ctx,
+                        ctx.services,
                         txn,
                         instance.instance_id,
                         instance.config.infiniband.ib_interfaces.clone(),
@@ -823,7 +825,7 @@ impl StateHandler for InstanceStateHandler {
                     .await?;
 
                     record_infiniband_status_observation(
-                        ctx,
+                        ctx.services,
                         txn,
                         instance,
                         instance.config.infiniband.ib_interfaces.clone(),
@@ -831,7 +833,7 @@ impl StateHandler for InstanceStateHandler {
                     .await?;
 
                     // Reboot host
-                    restart_machine(&state.host_snapshot, ctx).await?;
+                    restart_machine(&state.host_snapshot, ctx.services).await?;
 
                     // Instance is ready.
                     // We can not determine if machine is rebooted successfully or not. Just leave
@@ -846,14 +848,14 @@ impl StateHandler for InstanceStateHandler {
                         // Reboot host. Host will boot with carbide discovery image now. Changes
                         // are done in get_pxe_instructions api.
                         // User will loose all access to instance now.
-                        restart_machine(&state.host_snapshot, ctx).await?;
+                        restart_machine(&state.host_snapshot, ctx.services).await?;
 
                         *controller_state.modify() = ManagedHostState::Assigned {
                             instance_state: InstanceState::BootingWithDiscoveryImage,
                         };
                     } else {
                         record_infiniband_status_observation(
-                            ctx,
+                            ctx.services,
                             txn,
                             instance,
                             instance.config.infiniband.ib_interfaces.clone(),
@@ -868,7 +870,7 @@ impl StateHandler for InstanceStateHandler {
                             // TODO: If initiator is admin_cli, start re-provisioning immediately,
                             // else wait for user's approval.
                             if !reprovisioning_requested.initiator.contains("Automatic") {
-                                restart_machine(&state.dpu_snapshot, ctx).await?;
+                                restart_machine(&state.dpu_snapshot, ctx.services).await?;
                                 *controller_state.modify() = ManagedHostState::Assigned {
                                     instance_state: InstanceState::DPUReprovision {
                                         reprovision_state: if reprovisioning_requested
@@ -937,7 +939,7 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     unbind_ib_ports(
-                        ctx,
+                        ctx.services,
                         txn,
                         instance.instance_id,
                         instance.config.infiniband.ib_interfaces.clone(),
@@ -954,7 +956,7 @@ impl StateHandler for InstanceStateHandler {
 
                     // TODO: TPM cleanup
                     // Reboot host
-                    restart_machine(&state.host_snapshot, ctx).await?;
+                    restart_machine(&state.host_snapshot, ctx.services).await?;
 
                     *controller_state.modify() = ManagedHostState::WaitingForCleanup {
                         cleanup_state: CleanupState::HostCleanup,
@@ -964,7 +966,7 @@ impl StateHandler for InstanceStateHandler {
                     if let Some(new_state) = handle_dpu_reprovision(
                         reprovision_state,
                         state,
-                        ctx,
+                        ctx.services,
                         txn,
                         &InstanceNextStateResolver,
                     )
@@ -981,15 +983,14 @@ impl StateHandler for InstanceStateHandler {
 }
 
 async fn record_infiniband_status_observation(
-    ctx: &StateHandlerContext<'_>,
+    services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     instance: &InstanceSnapshot,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
 
-    let ib_fabric = ctx
-        .services
+    let ib_fabric = services
         .ib_fabric_manager
         .connect(DEFAULT_IB_FABRIC_NAME.to_string())
         .await
@@ -1062,15 +1063,14 @@ async fn record_infiniband_status_observation(
 }
 
 async fn bind_ib_ports(
-    ctx: &StateHandlerContext<'_>,
+    services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     instance_id: uuid::Uuid,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
 
-    let ib_fabric = ctx
-        .services
+    let ib_fabric = services
         .ib_fabric_manager
         .connect(DEFAULT_IB_FABRIC_NAME.to_string())
         .await
@@ -1115,15 +1115,14 @@ async fn bind_ib_ports(
 }
 
 async fn unbind_ib_ports(
-    ctx: &StateHandlerContext<'_>,
+    services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     instance_id: uuid::Uuid,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
 
-    let ib_fabric = ctx
-        .services
+    let ib_fabric = services
         .ib_fabric_manager
         .connect(DEFAULT_IB_FABRIC_NAME.to_string())
         .await
@@ -1176,18 +1175,18 @@ async fn unbind_ib_ports(
 /// Issues a reboot request command to a host or DPU
 async fn restart_machine(
     machine_snapshot: &MachineSnapshot,
-    ctx: &StateHandlerContext<'_>,
+    services: &StateHandlerServices,
 ) -> Result<(), StateHandlerError> {
     if machine_snapshot.machine_id.machine_type().is_dpu() {
-        restart_dpu(machine_snapshot, ctx).await
+        restart_dpu(machine_snapshot, services).await
     } else {
-        restart_host(machine_snapshot, ctx).await
+        restart_host(machine_snapshot, services).await
     }
 }
 
 async fn restart_host(
     machine_snapshot: &MachineSnapshot,
-    ctx: &StateHandlerContext<'_>,
+    services: &StateHandlerServices,
 ) -> Result<(), StateHandlerError> {
     let bmc_ip =
         machine_snapshot
@@ -1200,8 +1199,7 @@ async fn restart_host(
             })?;
     let is_lenovo = machine_snapshot.bmc_vendor.is_lenovo();
 
-    let client = ctx
-        .services
+    let client = services
         .redfish_client_pool
         .create_client(
             bmc_ip,
@@ -1234,7 +1232,7 @@ async fn restart_host(
 
 async fn restart_dpu(
     machine_snapshot: &MachineSnapshot,
-    ctx: &StateHandlerContext<'_>,
+    services: &StateHandlerServices,
 ) -> Result<(), StateHandlerError> {
     let bmc_ip =
         machine_snapshot
@@ -1246,7 +1244,7 @@ async fn restart_dpu(
                 missing: "bmc_info.ip",
             })?;
 
-    ctx.services
+    services
         .ipmi_tool
         .restart(&machine_snapshot.machine_id, bmc_ip)
         .await
@@ -1260,7 +1258,7 @@ async fn restart_dpu(
 /// Issues a lockdown and reboot request command to a host.
 async fn lockdown_host(
     machine_snapshot: &MachineSnapshot,
-    ctx: &StateHandlerContext<'_>,
+    services: &StateHandlerServices,
     enable: bool,
 ) -> Result<(), StateHandlerError> {
     let bmc_ip =
@@ -1273,8 +1271,7 @@ async fn lockdown_host(
                 missing: "bmc_info.ip",
             })?;
 
-    let client = ctx
-        .services
+    let client = services
         .redfish_client_pool
         .create_client(
             bmc_ip,
