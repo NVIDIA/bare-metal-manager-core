@@ -32,6 +32,7 @@ pub struct BmcMachine {
     pub machine_interface_id: Uuid,
     pub bmc_type: BmcMachineType,
     pub controller_state: Versioned<BmcMachineState>,
+    pub bmc_firmware_version: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for BmcMachine {
@@ -47,6 +48,7 @@ impl<'r> FromRow<'r, PgRow> for BmcMachine {
             machine_interface_id: row.try_get("machine_interface_id")?,
             bmc_type: row.try_get("bmc_type")?,
             controller_state: Versioned::new(controller_state.0, controller_state_version),
+            bmc_firmware_version: row.try_get("bmc_firmware_version")?,
         })
     }
 }
@@ -215,6 +217,28 @@ impl BmcMachine {
 
         match query_result {
             Ok(_machine_id) => Ok(true),
+            Err(sqlx::Error::RowNotFound) => Ok(false),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        }
+    }
+
+    pub async fn update_firmware_version(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+        fw_version: String,
+    ) -> Result<bool, DatabaseError> {
+        let query = "UPDATE bmc_machine SET bmc_firmware_version=$1 where id=$2::uuid returning id";
+        let query_result: Result<BmcMachineId, _> = sqlx::query_as(query)
+            .bind(&fw_version)
+            .bind(self.id)
+            .fetch_one(&mut **txn)
+            .await;
+
+        match query_result {
+            Ok(_machine_id) => {
+                self.bmc_firmware_version = Some(fw_version);
+                Ok(true)
+            }
             Err(sqlx::Error::RowNotFound) => Ok(false),
             Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
         }

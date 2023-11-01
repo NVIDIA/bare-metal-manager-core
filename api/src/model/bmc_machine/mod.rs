@@ -27,6 +27,8 @@ pub enum BmcMachineError {
     RedfishConnection { message: String },
     ///  An unrecoverable error has occurred during redfish command execution or max retries was exceeded.
     RedfishCommand { command: String, message: String },
+    /// Unsupported firmware version - The card is with a firmware version that is not supported, please manually upgrade and rediscover.
+    UnsupportedBmcFirmware,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

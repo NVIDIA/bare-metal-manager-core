@@ -334,7 +334,19 @@ impl Redfish for RedfishSimClient {
         &self,
         _id: &str,
     ) -> Result<libredfish::model::software_inventory::SoftwareInventory, RedfishError> {
-        todo!()
+        Ok(serde_json::from_str(
+            "{
+            \"@odata.id\": \"/redfish/v1/UpdateService/FirmwareInventory/BMC_Firmware\",
+            \"@odata.type\": \"#SoftwareInventory.v1_4_0.SoftwareInventory\",
+            \"Description\": \"BMC image\",
+            \"Id\": \"BMC_Firmware\",
+            \"Name\": \"Software Inventory\",
+            \"Updateable\": true,
+            \"Version\": \"BF-23.07-3\",
+            \"WriteProtected\": false
+          }",
+        )
+        .unwrap())
     }
 
     async fn update_firmware(
@@ -367,7 +379,10 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn get_software_inventories(&self) -> Result<Vec<std::string::String>, RedfishError> {
-        todo!()
+        Ok(vec![
+            "BMC_Firmware".to_string(),
+            "Bluefield_FW_ERoT".to_string(),
+        ])
     }
 
     async fn get_system(&self) -> Result<libredfish::model::ComputerSystem, RedfishError> {
