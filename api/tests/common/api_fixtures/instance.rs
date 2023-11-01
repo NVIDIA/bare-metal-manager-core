@@ -17,6 +17,8 @@ use carbide::state_controller::machine::handler::MachineStateHandler;
 use carbide::{db::machine::Machine, model::machine::ManagedHostState};
 use rpc::{forge::forge_server::Forge, InstanceReleaseRequest};
 
+use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
+
 use super::TestEnv;
 
 pub const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
@@ -43,6 +45,40 @@ pub async fn create_instance(
     };
 
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config).await
+}
+
+pub async fn create_instance_with_ib_config(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+    host_machine_id: &MachineId,
+    ib_config: rpc::forge::InstanceInfinibandConfig,
+) -> (uuid::Uuid, rpc::forge::Instance) {
+    let config = config_for_ib_config(ib_config);
+
+    create_instance_with_config(env, dpu_machine_id, host_machine_id, config).await
+}
+
+pub fn config_for_ib_config(
+    ib_config: rpc::forge::InstanceInfinibandConfig,
+) -> rpc::forge::InstanceConfig {
+    let network = rpc::forge::InstanceNetworkConfig {
+        interfaces: vec![rpc::forge::InstanceInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    };
+
+    rpc::forge::InstanceConfig {
+        tenant: Some(rpc::TenantConfig {
+            user_data: Some("SomeRandomData".to_string()),
+            custom_ipxe: "SomeRandomiPxe".to_string(),
+            tenant_organization_id: "Tenant1".to_string(),
+            tenant_keyset_ids: vec![],
+            always_boot_with_custom_ipxe: false,
+        }),
+        network: Some(network),
+        infiniband: Some(ib_config),
+    }
 }
 
 pub async fn create_instance_with_config(

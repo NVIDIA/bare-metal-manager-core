@@ -157,6 +157,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     common_pools: Arc<CommonPools>,
     tls_config: ApiTlsConfig,
     machine_update_config: MachineUpdateConfig,
+    ib_fabric_manager: Arc<dyn IBFabricManager>,
 }
 
 pub struct ApiTlsConfig {
@@ -3044,6 +3045,54 @@ where
         })?;
 
         if let Some(instance_id) = instance_id {
+            let instance = Instance::find(&mut txn, UuidKeyedObjectFilter::One(instance_id))
+                .await
+                .map_err(CarbideError::from)?
+                .first()
+                .ok_or_else(|| {
+                    CarbideError::GenericError(format!(
+                        "Could not find an instance for {}",
+                        instance_id
+                    ))
+                })?
+                .to_owned();
+
+            let ib_fabric = self
+                .ib_fabric_manager
+                .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+                .await?;
+
+            // Collect the ib partition and ib ports information about this machine
+            let mut ib_config_map: HashMap<Uuid, Vec<String>> = HashMap::new();
+            let infiniband = instance.ib_config.value.ib_interfaces;
+            for ib in &infiniband {
+                let ib_partition_id = ib.ib_partition_id;
+                if let Some(guid) = ib.guid.as_deref() {
+                    ib_config_map
+                        .entry(ib_partition_id)
+                        .or_insert(vec![])
+                        .push(guid.to_string());
+                }
+            }
+
+            response.ufm_unregistaration_pending = true;
+            // unbind ib ports from UFM
+            for (ib_partition_id, guids) in ib_config_map.iter() {
+                if let Some(pkey) =
+                    IBPartition::find_pkey_by_partition_id(&mut txn, *ib_partition_id)
+                        .await
+                        .map_err(CarbideError::from)?
+                {
+                    ib_fabric
+                        .unbind_ib_ports(pkey.into(), guids.to_vec())
+                        .await?;
+                    response.ufm_unregistrations += 1;
+
+                    //TODO: release VF GUID resource when VF supported.
+                }
+            }
+            response.ufm_unregistaration_pending = false;
+
             // Delete the instance and allocated address
             // TODO: This might need some changes with the new state machine
             let delete_instance = DeleteInstance { instance_id };
@@ -4355,6 +4404,7 @@ where
         common_pools: Arc<CommonPools>,
         tls_config: ApiTlsConfig,
         machine_update_config: MachineUpdateConfig,
+        ib_fabric_manager: Arc<dyn IBFabricManager>,
     ) -> Self {
         Self {
             database_connection,
@@ -4366,6 +4416,7 @@ where
             common_pools,
             tls_config,
             machine_update_config,
+            ib_fabric_manager,
         }
     }
 
@@ -4497,6 +4548,7 @@ where
             common_pools: common_pools.clone(),
             tls_config,
             machine_update_config,
+            ib_fabric_manager: ib_fabric_manager.clone(),
         });
 
         if let Some(networks) = carbide_config.networks.as_ref() {
