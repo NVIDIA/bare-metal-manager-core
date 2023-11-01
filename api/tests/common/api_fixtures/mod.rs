@@ -121,6 +121,7 @@ impl TestEnv {
             MachineUpdateConfig {
                 dpu_nic_firmware_update_enabled: true,
             },
+            self.ib_fabric_manager.clone(),
         ));
 
         StateHandlerServices {
@@ -354,6 +355,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         MachineUpdateConfig {
             dpu_nic_firmware_update_enabled: true,
         },
+        ib_fabric_manager.clone(),
     );
     TestEnv {
         api,

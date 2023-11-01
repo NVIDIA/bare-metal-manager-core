@@ -351,6 +351,24 @@ impl IBPartition {
         Ok(all_records)
     }
 
+    pub async fn find_pkey_by_partition_id(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        id: Uuid,
+    ) -> Result<Option<i16>, DatabaseError> {
+        #[derive(Debug, Clone, Copy, FromRow)]
+        pub struct Pkey(i16);
+
+        let query = "SELECT pkey FROM ib_partitions WHERE id = $1";
+
+        let pkey = sqlx::query_as::<_, Pkey>(query)
+            .bind(id)
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(pkey.map(|id| id.0))
+    }
+
     /// Updates the IB partition state that is owned by the state controller
     /// under the premise that the curren controller state version didn't change.
     pub async fn try_update_controller_state(

@@ -17,13 +17,17 @@ use carbide::{
         machine_state_history::MachineStateHistory,
         machine_topology::MachineTopology,
     },
-    model::machine::machine_id::{try_parse_machine_id, MachineId, MachineType},
+    ib::DEFAULT_IB_FABRIC_NAME,
+    model::machine::{
+        machine_id::{try_parse_machine_id, MachineId, MachineType},
+        InstanceState, ManagedHostState,
+    },
 };
 
 pub mod common;
 use common::api_fixtures::{
     create_managed_host, create_test_env, dpu::create_dpu_machine, host::host_discover_dhcp,
-    TestEnv,
+    ib_partition::create_ib_partition, instance::create_instance_with_ib_config, TestEnv,
 };
 
 #[ctor::ctor]
@@ -238,3 +242,122 @@ async fn validate_machine_deletion(env: &TestEnv, machine_id: &MachineId) {
 }
 
 // TODO: Test deletion for machines with active instances on them
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (ib_partition_id, _ib_partition) =
+        create_ib_partition(&env, "test_ib_partition".to_string()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    assert!(matches!(
+        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap()
+            .current_state(),
+        ManagedHostState::Ready
+    ));
+    txn.commit().await.unwrap();
+
+    let ib_config = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            virtual_function_id: None,
+            ib_partition_id: Some(ib_partition_id.into()),
+            device: "MT2910 Family [ConnectX-7]".to_string(),
+            vendor: None,
+            device_instance: 1,
+        }],
+    };
+
+    let (instance_id, _instance) =
+        create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config).await;
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    assert!(matches!(
+        Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap()
+            .current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    assert_eq!(
+        instance.machine_id.clone().unwrap().id,
+        host_machine_id.to_string()
+    );
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::TenantState::Ready
+    );
+
+    let ib_config = instance
+        .config
+        .as_ref()
+        .unwrap()
+        .infiniband
+        .as_ref()
+        .unwrap();
+
+    assert_eq!(ib_config.ib_interfaces.len(), 1);
+
+    let ib_fabric = env
+        .ib_fabric_manager
+        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .await
+        .unwrap();
+
+    // one ib port in UFM
+    assert_eq!(ib_fabric.find_ib_port(None).await.unwrap().len(), 1);
+
+    let response = force_delete(&env, &host_machine_id).await;
+    validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
+
+    // after host deleted, ib port should be removed from UFM
+    assert_eq!(ib_fabric.find_ib_port(None).await.unwrap().len(), 0);
+
+    assert!(env
+        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .is_empty());
+    assert!(env
+        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .is_empty());
+
+    assert_eq!(response.ufm_unregistrations, 1);
+    assert!(response.all_done, "Host and DPU must be deleted");
+
+    // Everything should be gone now
+    for id in [host_machine_id, dpu_machine_id] {
+        validate_machine_deletion(&env, &id).await;
+    }
+}

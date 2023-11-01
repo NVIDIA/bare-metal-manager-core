@@ -21,7 +21,7 @@ use carbide::{
 use common::api_fixtures::{
     create_managed_host, create_test_env,
     ib_partition::create_ib_partition,
-    instance::{create_instance_with_config, delete_instance},
+    instance::{config_for_ib_config, create_instance_with_ib_config, delete_instance},
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     TestEnv,
 };
@@ -79,7 +79,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     };
 
     let (instance_id, _instance) =
-        create_instance(&env, &dpu_machine_id, &host_machine_id, ib_config).await;
+        create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config).await;
 
     let mut txn = pool
         .clone()
@@ -312,17 +312,6 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     );
 }
 
-pub async fn create_instance(
-    env: &TestEnv,
-    dpu_machine_id: &MachineId,
-    host_machine_id: &MachineId,
-    ib_config: rpc::forge::InstanceInfinibandConfig,
-) -> (uuid::Uuid, rpc::forge::Instance) {
-    let config = config_for_ib_config(ib_config);
-
-    create_instance_with_config(env, dpu_machine_id, host_machine_id, config).await
-}
-
 /// Tries to create an Instance using the Forge API
 /// This does not drive the instance state machine until the ready state.
 pub async fn try_allocate_instance(
@@ -348,27 +337,4 @@ pub async fn try_allocate_instance(
     let instance_id =
         uuid::Uuid::try_from(instance.id.clone().expect("Missing instance ID")).unwrap();
     Ok((instance_id, instance))
-}
-
-fn config_for_ib_config(
-    ib_config: rpc::forge::InstanceInfinibandConfig,
-) -> rpc::forge::InstanceConfig {
-    let network = rpc::forge::InstanceNetworkConfig {
-        interfaces: vec![rpc::forge::InstanceInterfaceConfig {
-            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    };
-
-    rpc::forge::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_organization_id: "Tenant1".to_string(),
-            tenant_keyset_ids: vec![],
-            always_boot_with_custom_ipxe: false,
-        }),
-        network: Some(network),
-        infiniband: Some(ib_config),
-    }
 }
