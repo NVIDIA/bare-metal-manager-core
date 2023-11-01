@@ -439,20 +439,6 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    async fn set_internal_cpu_model(
-        &self,
-        _model: libredfish::model::oem::nvidia::InternalCPUModel,
-    ) -> Result<(), RedfishError> {
-        todo!()
-    }
-
-    async fn set_host_privilege_level(
-        &self,
-        _level: libredfish::model::oem::nvidia::HostPrivilegeLevel,
-    ) -> Result<(), RedfishError> {
-        todo!()
-    }
-
     async fn create_user(
         &self,
         _username: &str,

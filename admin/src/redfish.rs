@@ -11,7 +11,6 @@
  */
 
 use color_eyre::eyre::eyre;
-use libredfish::model::oem::nvidia::HostPrivilegeLevel;
 use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::task::Task;
 use libredfish::model::LinkStatus;
@@ -158,18 +157,6 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             println!("BIOS settings changes require system restart");
         }
         Dpu(dpu) => match dpu {
-            DpuOperations::SetHostLevelRestricted => {
-                redfish
-                    .set_host_privilege_level(HostPrivilegeLevel::Restricted)
-                    .await?;
-                println!("BIOS settings changes require system restart");
-            }
-            DpuOperations::SetHostLevelPrivileged => {
-                redfish
-                    .set_host_privilege_level(HostPrivilegeLevel::Privileged)
-                    .await?;
-                println!("BIOS settings changes require system restart");
-            }
             DpuOperations::Firmware(fw) => match fw {
                 FwCommand::Status => {
                     handle_fw_status(redfish).await?;

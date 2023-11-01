@@ -137,9 +137,12 @@ fn export_voltages(
 
 fn export_power_supplies(
     meter: Meter,
-    power_supplies: Vec<PowerSupply>,
+    power_supplies: Option<Vec<PowerSupply>>,
     machine_id: &str,
 ) -> Result<(), HealthError> {
+    if power_supplies.is_none() {
+        return Ok(());
+    }
     let power_supplies_output_watts_sensors = meter
         .f64_observable_gauge("hw.power_supply.output")
         .with_description("Last output Wattage for this hardware")
@@ -155,7 +158,7 @@ fn export_power_supplies(
         .with_description("Input line Voltage")
         .with_unit(Unit::new("V"))
         .init();
-    for power_supply in power_supplies.iter() {
+    for power_supply in power_supplies.unwrap().iter() {
         if power_supply.last_power_output_watts.is_none()
             || power_supply.power_capacity_watts.is_none()
         {
