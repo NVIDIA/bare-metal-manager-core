@@ -909,25 +909,7 @@ _arguments "${_arguments_options[@]}" \
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-dpu-command-$line[1]:"
         case $line[1] in
-            (set-host-level-restricted)
-_arguments "${_arguments_options[@]}" \
-'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
-'--username=[Username for machine BMC]:USERNAME: ' \
-'--password=[Password for machine BMC]:PASSWORD: ' \
-'-h[Print help]' \
-'--help[Print help]' \
-&& ret=0
-;;
-(set-host-level-privileged)
-_arguments "${_arguments_options[@]}" \
-'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
-'--username=[Username for machine BMC]:USERNAME: ' \
-'--password=[Password for machine BMC]:PASSWORD: ' \
-'-h[Print help]' \
-'--help[Print help]' \
-&& ret=0
-;;
-(firmware)
+            (firmware)
 _arguments "${_arguments_options[@]}" \
 '--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
 '--username=[Username for machine BMC]:USERNAME: ' \
@@ -1041,15 +1023,7 @@ _arguments "${_arguments_options[@]}" \
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-dpu-help-command-$line[1]:"
         case $line[1] in
-            (set-host-level-restricted)
-_arguments "${_arguments_options[@]}" \
-&& ret=0
-;;
-(set-host-level-privileged)
-_arguments "${_arguments_options[@]}" \
-&& ret=0
-;;
-(firmware)
+            (firmware)
 _arguments "${_arguments_options[@]}" \
 ":: :_forge-admin-cli__redfish__dpu__help__firmware_commands" \
 "*::: :->firmware" \
@@ -1233,15 +1207,7 @@ _arguments "${_arguments_options[@]}" \
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:forge-admin-cli-redfish-help-dpu-command-$line[1]:"
         case $line[1] in
-            (set-host-level-restricted)
-_arguments "${_arguments_options[@]}" \
-&& ret=0
-;;
-(set-host-level-privileged)
-_arguments "${_arguments_options[@]}" \
-&& ret=0
-;;
-(firmware)
+            (firmware)
 _arguments "${_arguments_options[@]}" \
 ":: :_forge-admin-cli__redfish__help__dpu__firmware_commands" \
 "*::: :->firmware" \
@@ -2271,15 +2237,7 @@ _arguments "${_arguments_options[@]}" \
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:forge-admin-cli-help-redfish-dpu-command-$line[1]:"
         case $line[1] in
-            (set-host-level-restricted)
-_arguments "${_arguments_options[@]}" \
-&& ret=0
-;;
-(set-host-level-privileged)
-_arguments "${_arguments_options[@]}" \
-&& ret=0
-;;
-(firmware)
+            (firmware)
 _arguments "${_arguments_options[@]}" \
 ":: :_forge-admin-cli__help__redfish__dpu__firmware_commands" \
 "*::: :->firmware" \
@@ -2972,8 +2930,6 @@ _forge-admin-cli__help__dpu_commands() {
 (( $+functions[_forge-admin-cli__help__redfish__dpu_commands] )) ||
 _forge-admin-cli__help__redfish__dpu_commands() {
     local commands; commands=(
-'set-host-level-restricted:Set host level to to restricted. Host will not be able to configure DPU' \
-'set-host-level-privileged:Set host level to to privilged. Allow host to configure the DPU' \
 'firmware:BMC'\''s FW Commands' \
 'ports:Show ports information' \
     )
@@ -2982,8 +2938,6 @@ _forge-admin-cli__help__redfish__dpu_commands() {
 (( $+functions[_forge-admin-cli__redfish__dpu_commands] )) ||
 _forge-admin-cli__redfish__dpu_commands() {
     local commands; commands=(
-'set-host-level-restricted:Set host level to to restricted. Host will not be able to configure DPU' \
-'set-host-level-privileged:Set host level to to privilged. Allow host to configure the DPU' \
 'firmware:BMC'\''s FW Commands' \
 'fw:BMC'\''s FW Commands' \
 'ports:Show ports information' \
@@ -2994,8 +2948,6 @@ _forge-admin-cli__redfish__dpu_commands() {
 (( $+functions[_forge-admin-cli__redfish__help__dpu_commands] )) ||
 _forge-admin-cli__redfish__help__dpu_commands() {
     local commands; commands=(
-'set-host-level-restricted:Set host level to to restricted. Host will not be able to configure DPU' \
-'set-host-level-privileged:Set host level to to privilged. Allow host to configure the DPU' \
 'firmware:BMC'\''s FW Commands' \
 'ports:Show ports information' \
     )
@@ -3520,8 +3472,6 @@ _forge-admin-cli__redfish__dpu__firmware__help__help_commands() {
 (( $+functions[_forge-admin-cli__redfish__dpu__help_commands] )) ||
 _forge-admin-cli__redfish__dpu__help_commands() {
     local commands; commands=(
-'set-host-level-restricted:Set host level to to restricted. Host will not be able to configure DPU' \
-'set-host-level-privileged:Set host level to to privilged. Allow host to configure the DPU' \
 'firmware:BMC'\''s FW Commands' \
 'ports:Show ports information' \
 'help:Print this message or the help of the given subcommand(s)' \
@@ -4287,46 +4237,6 @@ _forge-admin-cli__help__boot-override__set_commands() {
 _forge-admin-cli__help__dpu__reprovision__set_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli help dpu reprovision set commands' commands "$@"
-}
-(( $+functions[_forge-admin-cli__help__redfish__dpu__set-host-level-privileged_commands] )) ||
-_forge-admin-cli__help__redfish__dpu__set-host-level-privileged_commands() {
-    local commands; commands=()
-    _describe -t commands 'forge-admin-cli help redfish dpu set-host-level-privileged commands' commands "$@"
-}
-(( $+functions[_forge-admin-cli__redfish__dpu__help__set-host-level-privileged_commands] )) ||
-_forge-admin-cli__redfish__dpu__help__set-host-level-privileged_commands() {
-    local commands; commands=()
-    _describe -t commands 'forge-admin-cli redfish dpu help set-host-level-privileged commands' commands "$@"
-}
-(( $+functions[_forge-admin-cli__redfish__dpu__set-host-level-privileged_commands] )) ||
-_forge-admin-cli__redfish__dpu__set-host-level-privileged_commands() {
-    local commands; commands=()
-    _describe -t commands 'forge-admin-cli redfish dpu set-host-level-privileged commands' commands "$@"
-}
-(( $+functions[_forge-admin-cli__redfish__help__dpu__set-host-level-privileged_commands] )) ||
-_forge-admin-cli__redfish__help__dpu__set-host-level-privileged_commands() {
-    local commands; commands=()
-    _describe -t commands 'forge-admin-cli redfish help dpu set-host-level-privileged commands' commands "$@"
-}
-(( $+functions[_forge-admin-cli__help__redfish__dpu__set-host-level-restricted_commands] )) ||
-_forge-admin-cli__help__redfish__dpu__set-host-level-restricted_commands() {
-    local commands; commands=()
-    _describe -t commands 'forge-admin-cli help redfish dpu set-host-level-restricted commands' commands "$@"
-}
-(( $+functions[_forge-admin-cli__redfish__dpu__help__set-host-level-restricted_commands] )) ||
-_forge-admin-cli__redfish__dpu__help__set-host-level-restricted_commands() {
-    local commands; commands=()
-    _describe -t commands 'forge-admin-cli redfish dpu help set-host-level-restricted commands' commands "$@"
-}
-(( $+functions[_forge-admin-cli__redfish__dpu__set-host-level-restricted_commands] )) ||
-_forge-admin-cli__redfish__dpu__set-host-level-restricted_commands() {
-    local commands; commands=()
-    _describe -t commands 'forge-admin-cli redfish dpu set-host-level-restricted commands' commands "$@"
-}
-(( $+functions[_forge-admin-cli__redfish__help__dpu__set-host-level-restricted_commands] )) ||
-_forge-admin-cli__redfish__help__dpu__set-host-level-restricted_commands() {
-    local commands; commands=()
-    _describe -t commands 'forge-admin-cli redfish help dpu set-host-level-restricted commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__domain__help__show_commands] )) ||
 _forge-admin-cli__domain__help__show_commands() {
