@@ -117,7 +117,7 @@ write_files:
     content: |
       BOOT0=NET-OOB-IPV4-HTTP
       BOOT1=DISK
-      BOOT2=NET-OOB-IPV4
+      BOOT2=NET-OOB.4040-IPV4
 {% if update_firmware == "false" %}
   - path: /var/lib/hbn/etc/supervisor/conf.d/acltool.conf
     content: |
