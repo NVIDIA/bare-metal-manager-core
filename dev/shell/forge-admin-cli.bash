@@ -474,12 +474,6 @@ _forge-admin-cli() {
             forge__admin__cli__help__redfish__dpu,ports)
                 cmd="forge__admin__cli__help__redfish__dpu__ports"
                 ;;
-            forge__admin__cli__help__redfish__dpu,set-host-level-privileged)
-                cmd="forge__admin__cli__help__redfish__dpu__set__host__level__privileged"
-                ;;
-            forge__admin__cli__help__redfish__dpu,set-host-level-restricted)
-                cmd="forge__admin__cli__help__redfish__dpu__set__host__level__restricted"
-                ;;
             forge__admin__cli__help__redfish__dpu__firmware,show)
                 cmd="forge__admin__cli__help__redfish__dpu__firmware__show"
                 ;;
@@ -798,12 +792,6 @@ _forge-admin-cli() {
             forge__admin__cli__redfish__dpu,ports)
                 cmd="forge__admin__cli__redfish__dpu__ports"
                 ;;
-            forge__admin__cli__redfish__dpu,set-host-level-privileged)
-                cmd="forge__admin__cli__redfish__dpu__set__host__level__privileged"
-                ;;
-            forge__admin__cli__redfish__dpu,set-host-level-restricted)
-                cmd="forge__admin__cli__redfish__dpu__set__host__level__restricted"
-                ;;
             forge__admin__cli__redfish__dpu__firmware,help)
                 cmd="forge__admin__cli__redfish__dpu__firmware__help"
                 ;;
@@ -836,12 +824,6 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__redfish__dpu__help,ports)
                 cmd="forge__admin__cli__redfish__dpu__help__ports"
-                ;;
-            forge__admin__cli__redfish__dpu__help,set-host-level-privileged)
-                cmd="forge__admin__cli__redfish__dpu__help__set__host__level__privileged"
-                ;;
-            forge__admin__cli__redfish__dpu__help,set-host-level-restricted)
-                cmd="forge__admin__cli__redfish__dpu__help__set__host__level__restricted"
                 ;;
             forge__admin__cli__redfish__dpu__help__firmware,show)
                 cmd="forge__admin__cli__redfish__dpu__help__firmware__show"
@@ -950,12 +932,6 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__redfish__help__dpu,ports)
                 cmd="forge__admin__cli__redfish__help__dpu__ports"
-                ;;
-            forge__admin__cli__redfish__help__dpu,set-host-level-privileged)
-                cmd="forge__admin__cli__redfish__help__dpu__set__host__level__privileged"
-                ;;
-            forge__admin__cli__redfish__help__dpu,set-host-level-restricted)
-                cmd="forge__admin__cli__redfish__help__dpu__set__host__level__restricted"
                 ;;
             forge__admin__cli__redfish__help__dpu__firmware,show)
                 cmd="forge__admin__cli__redfish__help__dpu__firmware__show"
@@ -2627,7 +2603,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__redfish__dpu)
-            opts="set-host-level-restricted set-host-level-privileged firmware ports"
+            opts="firmware ports"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2697,34 +2673,6 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__redfish__dpu__ports)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        forge__admin__cli__help__redfish__dpu__set__host__level__privileged)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        forge__admin__cli__help__redfish__dpu__set__host__level__restricted)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -4549,7 +4497,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__dpu)
-            opts="-h --address --username --password --help set-host-level-restricted set-host-level-privileged firmware ports help"
+            opts="-h --address --username --password --help firmware ports help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4765,7 +4713,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__dpu__help)
-            opts="set-host-level-restricted set-host-level-privileged firmware ports help"
+            opts="firmware ports help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4862,34 +4810,6 @@ _forge-admin-cli() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        forge__admin__cli__redfish__dpu__help__set__host__level__privileged)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        forge__admin__cli__redfish__dpu__help__set__host__level__restricted)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
         forge__admin__cli__redfish__dpu__ports)
             opts="-a -p -h --all --port --address --username --password --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
@@ -4905,58 +4825,6 @@ _forge-admin-cli() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                --address)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --username)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --password)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        forge__admin__cli__redfish__dpu__set__host__level__privileged)
-            opts="-h --address --username --password --help"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --address)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --username)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --password)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        forge__admin__cli__redfish__dpu__set__host__level__restricted)
-            opts="-h --address --username --password --help"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
                 --address)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -5339,7 +5207,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__help__dpu)
-            opts="set-host-level-restricted set-host-level-privileged firmware ports"
+            opts="firmware ports"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5409,34 +5277,6 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__help__dpu__ports)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        forge__admin__cli__redfish__help__dpu__set__host__level__privileged)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        forge__admin__cli__redfish__help__dpu__set__host__level__restricted)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 5 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
