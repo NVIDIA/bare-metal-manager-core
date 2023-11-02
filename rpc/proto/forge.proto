@@ -88,11 +88,6 @@ service Forge {
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
 
-  // PRIVILEGED: Define and manage new instance types
-  rpc CreateInstanceType(InstanceType) returns (InstanceType);
-  rpc UpdateInstanceType(InstanceType) returns (InstanceType);
-  rpc DeleteInstanceType(InstanceTypeDeletion) returns (InstanceTypeDeletionResult);
-
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
   rpc UpdateBMCMetaData(BMCMetaDataUpdateRequest) returns (BMCMetaDataUpdateResponse);
@@ -556,10 +551,6 @@ message MachineState {
   string state = 1;
 }
 
-enum InstanceTypeCapabilities {
-  DEFAULT = 0;
-}
-
 message InstancePowerRequest {
   MachineId machine_id = 1;
 
@@ -586,26 +577,8 @@ message InstancePowerRequest {
   bool apply_updates_on_reboot = 4;
 }
 
-message InstanceType {
-  UUID id = 1;
-  string short_name = 2;
-  string description = 3;
-
-  repeated InstanceTypeCapabilities capabilities = 4;
-
-  bool active = 5;
-  google.protobuf.Timestamp created = 6;
-  google.protobuf.Timestamp updated = 7;
-}
-
-message InstanceTypeDeletion {
-  UUID id = 1;
-}
-
 message InstancePowerResult {
 }
-
-message InstanceTypeDeletionResult {}
 
 message InstanceSearchQuery {
   optional UUID id = 1;

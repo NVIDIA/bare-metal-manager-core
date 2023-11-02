@@ -1,9 +1,9 @@
--- Last updated Sep 06 2023
+-- Last updated Nov 02 2023
 
 --
 -- Carbide database schema with all migrations applied.
 --
--- Created like this and then maintained manually
+-- Created like this:
 -- PGPASSWORD=notforprod pg_dump -h 172.20.0.16 --schema-only -U carbide_development > ~/carbide_schema.sql
 
 --
@@ -86,6 +86,19 @@ CREATE TYPE public.console_type AS ENUM (
 ALTER TYPE public.console_type OWNER TO carbide_development;
 
 --
+-- Name: dpu_local_ports; Type: TYPE; Schema: public; Owner: carbide_development
+--
+
+CREATE TYPE public.dpu_local_ports AS ENUM (
+    'oob_net0',
+    'p0',
+    'p1'
+);
+
+
+ALTER TYPE public.dpu_local_ports OWNER TO carbide_development;
+
+--
 -- Name: instance_type_capabilities; Type: TYPE; Schema: public; Owner: carbide_development
 --
 
@@ -137,6 +150,49 @@ CREATE TYPE public.machine_state AS ENUM (
 
 
 ALTER TYPE public.machine_state OWNER TO carbide_development;
+
+--
+-- Name: mq_new_t; Type: TYPE; Schema: public; Owner: carbide_development
+--
+
+CREATE TYPE public.mq_new_t AS (
+	id uuid,
+	delay interval,
+	retries integer,
+	retry_backoff interval,
+	channel_name text,
+	channel_args text,
+	commit_interval interval,
+	ordered boolean,
+	name text,
+	payload_json text,
+	payload_bytes bytea
+);
+
+
+ALTER TYPE public.mq_new_t OWNER TO carbide_development;
+
+--
+-- Name: network_device_discovered_via; Type: TYPE; Schema: public; Owner: carbide_development
+--
+
+CREATE TYPE public.network_device_discovered_via AS ENUM (
+    'lldp'
+);
+
+
+ALTER TYPE public.network_device_discovered_via OWNER TO carbide_development;
+
+--
+-- Name: network_device_type; Type: TYPE; Schema: public; Owner: carbide_development
+--
+
+CREATE TYPE public.network_device_type AS ENUM (
+    'ethernet'
+);
+
+
+ALTER TYPE public.network_device_type OWNER TO carbide_development;
 
 --
 -- Name: network_segment_type_t; Type: TYPE; Schema: public; Owner: carbide_development
@@ -352,7 +408,8 @@ CREATE TABLE public.bmc_machine (
     machine_interface_id uuid NOT NULL,
     bmc_type public.bmc_machine_type_t NOT NULL,
     controller_state_version character varying(64) DEFAULT 'V1-T1666644937952268'::character varying NOT NULL,
-    controller_state jsonb DEFAULT '{"state": "init"}'::jsonb NOT NULL
+    controller_state jsonb DEFAULT '{"state": "initializing"}'::jsonb NOT NULL,
+    bmc_firmware_version text
 );
 
 
@@ -444,12 +501,23 @@ CREATE VIEW public.dns_records AS
 ALTER TABLE public.dns_records OWNER TO carbide_development;
 
 --
+-- Name: dpu_agent_upgrade_policy; Type: TABLE; Schema: public; Owner: carbide_development
+--
+
+CREATE TABLE public.dpu_agent_upgrade_policy (
+    policy character varying(32) DEFAULT 'Off'::character varying NOT NULL,
+    created timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.dpu_agent_upgrade_policy OWNER TO carbide_development;
+
+--
 -- Name: machines; Type: TABLE; Schema: public; Owner: carbide_development
 --
 
 CREATE TABLE public.machines (
     id character varying(64) DEFAULT 'INVALID_MACHINE'::character varying NOT NULL,
-    supported_instance_type uuid,
     created timestamp with time zone DEFAULT now() NOT NULL,
     updated timestamp with time zone DEFAULT now() NOT NULL,
     deployed timestamp with time zone,
@@ -463,7 +531,9 @@ CREATE TABLE public.machines (
     network_config jsonb DEFAULT '{}'::jsonb NOT NULL,
     failure_details jsonb DEFAULT '{"cause": "noerror", "source": "noerror", "failed_at": "2023-07-31T11:26:18.261228950+00:00"}'::jsonb NOT NULL,
     maintenance_reference character varying(256),
-    maintenance_start_time timestamp with time zone
+    maintenance_start_time timestamp with time zone,
+    reprovisioning_requested jsonb,
+    dpu_agent_upgrade_requested jsonb
 );
 
 
@@ -506,13 +576,23 @@ CREATE VIEW public.host_machines AS
 ALTER TABLE public.host_machines OWNER TO carbide_development;
 
 --
--- Name: ib_subnets; Type: TABLE; Schema: public; Owner: carbide_development
+-- Name: ib_partition_controller_lock; Type: TABLE; Schema: public; Owner: carbide_development
 --
 
-CREATE TABLE public.ib_subnets (
+CREATE TABLE public.ib_partition_controller_lock (
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+ALTER TABLE public.ib_partition_controller_lock OWNER TO carbide_development;
+
+--
+-- Name: ib_partitions; Type: TABLE; Schema: public; Owner: carbide_development
+--
+
+CREATE TABLE public.ib_partitions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     name character varying NOT NULL,
-    vpc_id uuid NOT NULL,
     config_version character varying(64) NOT NULL,
     status jsonb,
     created timestamp with time zone DEFAULT now() NOT NULL,
@@ -523,22 +603,12 @@ CREATE TABLE public.ib_subnets (
     pkey smallint NOT NULL,
     mtu integer NOT NULL,
     rate_limit integer NOT NULL,
-    service_level integer NOT NULL
+    service_level integer NOT NULL,
+    organization_id text DEFAULT ''::text NOT NULL
 );
 
 
-ALTER TABLE public.ib_subnets OWNER TO carbide_development;
-
---
--- Name: ibsubnet_controller_lock; Type: TABLE; Schema: public; Owner: carbide_development
---
-
-CREATE TABLE public.ibsubnet_controller_lock (
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
-ALTER TABLE public.ibsubnet_controller_lock OWNER TO carbide_development;
+ALTER TABLE public.ib_partitions OWNER TO carbide_development;
 
 --
 -- Name: instance_addresses; Type: TABLE; Schema: public; Owner: carbide_development
@@ -576,7 +646,8 @@ CREATE TABLE public.instances (
     ib_config_version character varying(64) DEFAULT 'V1-T1666644937952267'::character varying NOT NULL,
     ib_config jsonb DEFAULT '{"ib_interfaces": []}'::jsonb NOT NULL,
     ib_status_observation jsonb DEFAULT '{"observed_at": "2023-01-01T00:00:00.000000000Z", "config_version": "V1-T1666644937952267"}'::jsonb NOT NULL,
-    keyset_ids text[] DEFAULT '{}'::text[] NOT NULL
+    keyset_ids text[] DEFAULT '{}'::text[] NOT NULL,
+    always_boot_with_custom_ipxe boolean DEFAULT false
 );
 
 
@@ -658,23 +729,6 @@ CREATE VIEW public.instance_dhcp_records AS
 
 
 ALTER TABLE public.instance_dhcp_records OWNER TO carbide_development;
-
---
--- Name: instance_types; Type: TABLE; Schema: public; Owner: carbide_development
---
-
-CREATE TABLE public.instance_types (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    short_name character varying(32) NOT NULL,
-    description text NOT NULL,
-    capabilities public.instance_type_capabilities DEFAULT 'default'::public.instance_type_capabilities NOT NULL,
-    active boolean DEFAULT true NOT NULL,
-    created timestamp with time zone DEFAULT now() NOT NULL,
-    updated timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.instance_types OWNER TO carbide_development;
 
 --
 -- Name: machine_boot_override; Type: TABLE; Schema: public; Owner: carbide_development
@@ -778,11 +832,50 @@ CREATE TABLE public.machine_topologies (
     machine_id character varying(64) NOT NULL,
     topology jsonb NOT NULL,
     created timestamp with time zone DEFAULT now() NOT NULL,
-    updated timestamp with time zone DEFAULT now() NOT NULL
+    updated timestamp with time zone DEFAULT now() NOT NULL,
+    topology_update_needed boolean DEFAULT false
 );
 
 
 ALTER TABLE public.machine_topologies OWNER TO carbide_development;
+
+--
+-- Name: machine_update_lock; Type: TABLE; Schema: public; Owner: carbide_development
+--
+
+CREATE TABLE public.machine_update_lock (
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+ALTER TABLE public.machine_update_lock OWNER TO carbide_development;
+
+--
+-- Name: network_device_lock; Type: TABLE; Schema: public; Owner: carbide_development
+--
+
+CREATE TABLE public.network_device_lock (
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+ALTER TABLE public.network_device_lock OWNER TO carbide_development;
+
+--
+-- Name: network_devices; Type: TABLE; Schema: public; Owner: carbide_development
+--
+
+CREATE TABLE public.network_devices (
+    id character varying(30) NOT NULL,
+    name text NOT NULL,
+    description text,
+    ip_addresses inet[],
+    device_type public.network_device_type DEFAULT 'ethernet'::public.network_device_type NOT NULL,
+    discovered_via public.network_device_discovered_via DEFAULT 'lldp'::public.network_device_discovered_via NOT NULL
+);
+
+
+ALTER TABLE public.network_devices OWNER TO carbide_development;
 
 --
 -- Name: network_segment_state_history; Type: TABLE; Schema: public; Owner: carbide_development
@@ -825,6 +918,20 @@ CREATE TABLE public.network_segments_controller_lock (
 ALTER TABLE public.network_segments_controller_lock OWNER TO carbide_development;
 
 --
+-- Name: port_to_network_device_map; Type: TABLE; Schema: public; Owner: carbide_development
+--
+
+CREATE TABLE public.port_to_network_device_map (
+    dpu_id character varying(64) NOT NULL,
+    local_port public.dpu_local_ports NOT NULL,
+    network_device_id character varying(30),
+    remote_port text DEFAULT ''::text NOT NULL
+);
+
+
+ALTER TABLE public.port_to_network_device_map OWNER TO carbide_development;
+
+--
 -- Name: resource_pool; Type: TABLE; Schema: public; Owner: carbide_development
 --
 
@@ -857,17 +964,15 @@ ALTER TABLE public.resource_pool ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTIT
 
 
 --
--- Name: ssh_public_keys; Type: TABLE; Schema: public; Owner: carbide_development
+-- Name: route_servers; Type: TABLE; Schema: public; Owner: carbide_development
 --
 
-CREATE TABLE public.ssh_public_keys (
-    username character varying NOT NULL,
-    role public.user_roles NOT NULL,
-    pubkeys character varying[]
+CREATE TABLE public.route_servers (
+    address inet NOT NULL
 );
 
 
-ALTER TABLE public.ssh_public_keys OWNER TO carbide_development;
+ALTER TABLE public.route_servers OWNER TO carbide_development;
 
 --
 -- Name: tenant_keysets; Type: TABLE; Schema: public; Owner: carbide_development
@@ -963,27 +1068,19 @@ ALTER TABLE ONLY public.machine_interfaces
 
 
 --
--- Name: ib_subnets ib_subnets_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
+-- Name: ib_partitions ib_subnets_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
-ALTER TABLE ONLY public.ib_subnets
+ALTER TABLE ONLY public.ib_partitions
     ADD CONSTRAINT ib_subnets_pkey PRIMARY KEY (id);
 
 
 --
--- Name: ib_subnets ib_subnets_pkey_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
+-- Name: ib_partitions ib_subnets_pkey_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
-ALTER TABLE ONLY public.ib_subnets
+ALTER TABLE ONLY public.ib_partitions
     ADD CONSTRAINT ib_subnets_pkey_key UNIQUE (pkey);
-
-
---
--- Name: instance_types instance_types_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.instance_types
-    ADD CONSTRAINT instance_types_pkey PRIMARY KEY (id);
 
 
 --
@@ -1067,6 +1164,30 @@ ALTER TABLE ONLY public.machines
 
 
 --
+-- Name: port_to_network_device_map network_device_dpu_associations_primary; Type: CONSTRAINT; Schema: public; Owner: carbide_development
+--
+
+ALTER TABLE ONLY public.port_to_network_device_map
+    ADD CONSTRAINT network_device_dpu_associations_primary PRIMARY KEY (dpu_id, local_port);
+
+
+--
+-- Name: network_devices network_devices_name_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
+--
+
+ALTER TABLE ONLY public.network_devices
+    ADD CONSTRAINT network_devices_name_key UNIQUE (name);
+
+
+--
+-- Name: network_devices network_devices_pkey; Type: CONSTRAINT; Schema: public; Owner: carbide_development
+--
+
+ALTER TABLE ONLY public.network_devices
+    ADD CONSTRAINT network_devices_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: network_prefixes network_prefixes_circuit_id_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
@@ -1139,11 +1260,11 @@ ALTER TABLE ONLY public.resource_pool
 
 
 --
--- Name: ssh_public_keys ssh_public_keys_username_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
+-- Name: route_servers route_servers_address_key; Type: CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
-ALTER TABLE ONLY public.ssh_public_keys
-    ADD CONSTRAINT ssh_public_keys_username_key UNIQUE (username);
+ALTER TABLE ONLY public.route_servers
+    ADD CONSTRAINT route_servers_address_key UNIQUE (address);
 
 
 --
@@ -1250,14 +1371,6 @@ ALTER TABLE ONLY public.dhcp_entries
 
 
 --
--- Name: ib_subnets ib_subnets_vpc_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.ib_subnets
-    ADD CONSTRAINT ib_subnets_vpc_id_fkey FOREIGN KEY (vpc_id) REFERENCES public.vpcs(id);
-
-
---
 -- Name: instance_addresses instance_addresses_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
@@ -1338,14 +1451,6 @@ ALTER TABLE ONLY public.machine_topologies
 
 
 --
--- Name: machines machines_supported_instance_type_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
---
-
-ALTER TABLE ONLY public.machines
-    ADD CONSTRAINT machines_supported_instance_type_fkey FOREIGN KEY (supported_instance_type) REFERENCES public.instance_types(id);
-
-
---
 -- Name: network_prefixes network_prefixes_segment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
 --
 
@@ -1367,6 +1472,22 @@ ALTER TABLE ONLY public.network_segments
 
 ALTER TABLE ONLY public.network_segments
     ADD CONSTRAINT network_segments_vpc_id_fkey FOREIGN KEY (vpc_id) REFERENCES public.vpcs(id);
+
+
+--
+-- Name: port_to_network_device_map port_to_network_device_map_dpu_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
+--
+
+ALTER TABLE ONLY public.port_to_network_device_map
+    ADD CONSTRAINT port_to_network_device_map_dpu_id_fkey FOREIGN KEY (dpu_id) REFERENCES public.machines(id);
+
+
+--
+-- Name: port_to_network_device_map port_to_network_device_map_network_device_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: carbide_development
+--
+
+ALTER TABLE ONLY public.port_to_network_device_map
+    ADD CONSTRAINT port_to_network_device_map_network_device_id_fkey FOREIGN KEY (network_device_id) REFERENCES public.network_devices(id);
 
 
 --

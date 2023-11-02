@@ -95,7 +95,6 @@ use crate::{
         instance::{
             status::network::update_instance_network_status_observation, DeleteInstance, Instance,
         },
-        instance_type::{DeactivateInstanceType, NewInstanceType, UpdateInstanceType},
         machine::Machine,
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
@@ -2274,81 +2273,6 @@ where
         };
 
         response.map(Response::new)
-    }
-
-    async fn create_instance_type(
-        &self,
-        request: Request<rpc::InstanceType>,
-    ) -> Result<Response<rpc::InstanceType>, Status> {
-        log_request_data(&request);
-
-        let mut txn =
-            self.database_connection.begin().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "begin create_instance_type", e)
-            })?;
-
-        let response = Ok(NewInstanceType::try_from(request.into_inner())?
-            .persist(&mut txn)
-            .await
-            .map_err(CarbideError::from)
-            .map(rpc::InstanceType::from)
-            .map(Response::new)?);
-
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_instance_type", e))?;
-
-        response
-    }
-
-    async fn update_instance_type(
-        &self,
-        request: Request<rpc::InstanceType>,
-    ) -> Result<Response<rpc::InstanceType>, Status> {
-        log_request_data(&request);
-
-        let mut txn =
-            self.database_connection.begin().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "begin update_instance_type", e)
-            })?;
-
-        let response = Ok(UpdateInstanceType::try_from(request.into_inner())?
-            .update(&mut txn)
-            .await
-            .map_err(CarbideError::from)
-            .map(rpc::InstanceType::from)
-            .map(Response::new)?);
-
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit update_instance_type", e))?;
-
-        response
-    }
-
-    async fn delete_instance_type(
-        &self,
-        request: Request<rpc::InstanceTypeDeletion>,
-    ) -> Result<Response<rpc::InstanceTypeDeletionResult>, Status> {
-        log_request_data(&request);
-
-        let mut txn =
-            self.database_connection.begin().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "begin delete_instance_type", e)
-            })?;
-
-        let response = Ok(DeactivateInstanceType::try_from(request.into_inner())?
-            .deactivate(&mut txn)
-            .await
-            .map_err(CarbideError::from)
-            .map(rpc::InstanceTypeDeletionResult::from)
-            .map(Response::new)?);
-
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit delete_instance_type", e))?;
-
-        response
     }
 
     // Fetch the DPU admin SSH password from Vault.

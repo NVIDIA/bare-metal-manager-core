@@ -1,5 +1,4 @@
 [View SVG](schema.svg)
-
 ```mermaid
 erDiagram
     sqlx_migrations {
@@ -11,26 +10,16 @@ erDiagram
         bigint execution_time
     }
 
-    instance_types {
-        uuid id PK
-        character_varying short_name
-        text description
-        instance_type_capabilities capabilities
-        boolean active
-        timestamp_with_time_zone created
-        timestamp_with_time_zone updated
-    }
-
     machine_topologies {
         character_varying machine_id PK
         jsonb topology
         timestamp_with_time_zone created
         timestamp_with_time_zone updated
+        boolean topology_update_needed
     }
 
     machines {
         character_varying id PK
-        uuid supported_instance_type FK
         timestamp_with_time_zone created
         timestamp_with_time_zone updated
         timestamp_with_time_zone deployed
@@ -45,6 +34,8 @@ erDiagram
         jsonb failure_details
         character_varying maintenance_reference
         timestamp_with_time_zone maintenance_start_time
+        jsonb reprovisioning_requested
+        jsonb dpu_agent_upgrade_requested
     }
 
     instances {
@@ -66,6 +57,7 @@ erDiagram
         jsonb ib_config
         jsonb ib_status_observation
         ARRAY keyset_ids
+        boolean always_boot_with_custom_ipxe
     }
 
     domains {
@@ -136,12 +128,6 @@ erDiagram
         character_varying vendor_string PK
     }
 
-    ssh_public_keys {
-        character_varying username
-        user_roles role
-        ARRAY pubkeys
-    }
-
     machine_state_controller_lock {
         uuid id
     }
@@ -181,10 +167,9 @@ erDiagram
         console_type bmctype
     }
 
-    ib_subnets {
+    ib_partitions {
         uuid id PK
         character_varying name
-        uuid vpc_id FK
         character_varying config_version
         jsonb status
         timestamp_with_time_zone created
@@ -196,6 +181,7 @@ erDiagram
         integer mtu
         integer rate_limit
         integer service_level
+        text organization_id
     }
 
     tenants {
@@ -208,10 +194,6 @@ erDiagram
         text keyset_id PK
         jsonb content
         character_varying version
-    }
-
-    ibsubnet_controller_lock {
-        uuid id
     }
 
     resource_pool {
@@ -235,6 +217,11 @@ erDiagram
         bmc_machine_type_t bmc_type
         character_varying controller_state_version
         jsonb controller_state
+        text bmc_firmware_version
+    }
+
+    ib_partition_controller_lock {
+        uuid id
     }
 
     machine_boot_override {
@@ -243,21 +230,54 @@ erDiagram
         text custom_user_data
     }
 
-    machines }o--|| instance_types : "supported_instance_type"
+    network_devices {
+        character_varying id PK
+        text name
+        text description
+        ARRAY ip_addresses
+        network_device_type device_type
+        network_device_discovered_via discovered_via
+    }
+
+    dpu_agent_upgrade_policy {
+        character_varying policy
+        timestamp_with_time_zone created
+    }
+
+    network_device_lock {
+        uuid id
+    }
+
+    port_to_network_device_map {
+        character_varying dpu_id PK
+        dpu_local_ports local_port PK
+        character_varying network_device_id FK
+        text remote_port
+    }
+
+    machine_update_lock {
+        uuid id
+    }
+
+    route_servers {
+        inet address
+    }
+
     machine_topologies |o--|| machines : "machine_id"
     instances }o--|| machines : "machine_id"
     machine_interfaces }o--|| machines : "attached_dpu_machine_id"
     machine_console_metadata }o--|| machines : "machine_id"
     machine_interfaces }o--|| machines : "machine_id"
+    port_to_network_device_map }o--|| machines : "dpu_id"
     instance_addresses }o--|| instances : "instance_id"
     machine_interfaces }o--|| domains : "domain_id"
     network_segments }o--|| domains : "subdomain_id"
     network_prefixes }o--|| network_segments : "segment_id"
     network_segments }o--|| vpcs : "vpc_id"
-    ib_subnets }o--|| vpcs : "vpc_id"
     machine_interfaces }o--|| network_segments : "segment_id"
     machine_interface_addresses }o--|| machine_interfaces : "interface_id"
     dhcp_entries }o--|| machine_interfaces : "machine_interface_id"
     bmc_machine }o--|| machine_interfaces : "machine_interface_id"
     machine_boot_override |o--|| machine_interfaces : "machine_interface_id"
+    port_to_network_device_map }o--|| network_devices : "network_device_id"
 ```
