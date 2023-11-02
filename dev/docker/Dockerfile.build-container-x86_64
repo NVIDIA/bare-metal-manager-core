@@ -33,40 +33,40 @@ ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
 RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt upgrade -y && \
 	DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y \
-		automake \
-		binutils-aarch64-linux-gnu \
-		build-essential \
-		clang \
-		cmake \
-		curl \
-		fdisk dosfstools \
-		gcc-aarch64-linux-gnu \
-		iproute2 \
-		iputils-ping \
-		jq \
-		kea-dev \
-		kea-dhcp4-server \
-		libboost-dev \
-		libgrpc-dev \
-		libopenipmi-dev \
-		libprotobuf-dev \
-		libssh-dev \
-		libssl-dev \
-		libudev-dev \
-		libgrpc++-dev \
-		libaio-dev \
-		pkg-config \
-		protobuf-compiler-grpc \
-		postgresql-15 \
-		protobuf-compiler \
-		sudo \
-		unzip \
-		wget \
-		git && \
+	automake \
+	binutils-aarch64-linux-gnu \
+	build-essential \
+	clang \
+	cmake \
+	curl \
+	fdisk dosfstools \
+	gcc-aarch64-linux-gnu \
+	iproute2 \
+	iputils-ping \
+	jq \
+	kea-dev \
+	kea-dhcp4-server \
+	libboost-dev \
+	libgrpc-dev \
+	libopenipmi-dev \
+	libprotobuf-dev \
+	libssh-dev \
+	libssl-dev \
+	libudev-dev \
+	libgrpc++-dev \
+	libaio-dev \
+	pkg-config \
+	protobuf-compiler-grpc \
+	postgresql-15 \
+	protobuf-compiler \
+	sudo \
+	unzip \
+	wget \
+	git && \
 	rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add rustfmt
-RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache && cargo cache -r registry-index,registry-sources
+RUN cargo install cargo-cache cargo-make mdbook mdbook-mermaid sccache cargo-watch && cargo cache -r registry-index,registry-sources
 
 # install stuff that's not in debian
 RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh

@@ -174,7 +174,7 @@ category = "Docker Compose"
 description = "Build the runtime container base image for Carbide components"
 workspace = false
 command = "docker"
-args = ["build", "-t", "carbide-runtime:latest", "."]
+args = ["build", "-t", "carbide-runtime:latest", ".", "-f", "dev/docker/Dockerfile.build-container-x86_64"]
 env = { "DOCKER_BUILDKIT" = "1" }
 
 [tasks.fullstack-up]
