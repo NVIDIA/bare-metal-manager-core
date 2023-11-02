@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use libredfish::{Boot, SystemPowerControl};
+use libredfish::SystemPowerControl;
 
 use crate::{
     db::{bmc_machine::BmcMachine, machine_interface::MachineInterface},
@@ -204,20 +204,11 @@ impl StateHandler for BmcMachineStateHandler {
                     }
                 }
 
-                if let Err(e) = client.disable_secure_boot().await {
-                    tracing::error!(error = %e, "Failed to disable secure boot");
+                if let Err(e) = client.forge_setup().await {
+                    tracing::error!(error = %e, "Failed to run forge_setup call");
                     *controller_state.modify() =
                         BmcMachineState::Error(BmcMachineError::RedfishCommand {
-                            command: "disable_secure_boot".to_string(),
-                            message: e.to_string(),
-                        });
-                    return Ok(());
-                }
-
-                if let Err(e) = client.boot_once(Boot::UefiHttp).await {
-                    *controller_state.modify() =
-                        BmcMachineState::Error(BmcMachineError::RedfishCommand {
-                            command: "boot_once(UEFI http)".to_string(),
+                            command: "forge_setup".to_string(),
                             message: e.to_string(),
                         });
                     return Ok(());

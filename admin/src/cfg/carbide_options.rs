@@ -335,10 +335,6 @@ pub enum RedfishCommand {
 
 #[derive(clap::Parser, Debug)]
 pub enum DpuOperations {
-    /// Set host level to to restricted. Host will not be able to configure DPU
-    SetHostLevelRestricted,
-    /// Set host level to to privilged. Allow host to configure the DPU
-    SetHostLevelPrivileged,
     /// BMC's FW Commands
     #[clap(visible_alias = "fw", about = "BMC's FW Commands", subcommand)]
     Firmware(FwCommand),
