@@ -3201,7 +3201,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__instance__reboot)
-            opts="-i -c -h --instance --custom-pxe --help"
+            opts="-i -c -a -h --instance --custom-pxe --apply-updates-on-reboot --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

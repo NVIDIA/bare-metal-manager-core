@@ -1150,7 +1150,9 @@ SELECT m.id FROM
         Ok(())
     }
 
-    pub async fn trigger_reprovisioning_request(
+    // Trigger DPU reprovisioning. For machine assigned to user, needs user approval to start
+    // reprovisioning.
+    pub async fn trigger_dpu_reprovisioning_request(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
         initiator: &str,
@@ -1160,6 +1162,8 @@ SELECT m.id FROM
             requested_at: chrono::Utc::now(),
             initiator: initiator.to_string(),
             update_firmware,
+            started_at: None,
+            user_approval_received: false,
         };
 
         let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
@@ -1173,7 +1177,48 @@ SELECT m.id FROM
         Ok(())
     }
 
-    pub async fn clear_reprovisioning_request(
+    // Update reprovision start time.
+    pub async fn update_dpu_reprovision_start_time(
+        machine_id: &MachineId,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let current_time = chrono::Utc::now();
+        let query = r#"UPDATE machines 
+                        SET reprovisioning_requested=
+                                    jsonb_set(reprovisioning_requested, 
+                                                '{started_at}', $2, true) 
+                       WHERE id=$1 RETURNING id"#;
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(machine_id.to_string())
+            .bind(sqlx::types::Json(current_time))
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    // Update user's approval status in db.
+    pub async fn approve_dpu_reprovision_request(
+        machine_id: &MachineId,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query = r#"UPDATE machines 
+                        SET reprovisioning_requested=
+                                    jsonb_set(reprovisioning_requested, 
+                                                '{user_approval_received}', $2, true) 
+                       WHERE id=$1 RETURNING id"#;
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(machine_id.to_string())
+            .bind(sqlx::types::Json(true))
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn clear_dpu_reprovisioning_request(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: &MachineId,
     ) -> Result<(), DatabaseError> {

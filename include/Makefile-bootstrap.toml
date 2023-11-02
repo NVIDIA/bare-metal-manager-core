@@ -2,18 +2,21 @@
 category = "Bootstrap"
 workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
-run_task = { name = [ "build-bootstrap-forge-base",
-    "build-bootstrap-forge-dpu-discovery",
-    "build-bootstrap-forge-host-discovery" ] }
+run_task = { name = [
+  "build-bootstrap-forge-base",
+  "build-bootstrap-forge-dpu-discovery",
+  "build-bootstrap-forge-host-discovery",
+] }
 
 [tasks.build-bootstrap-forge-docker]
 category = "Bootstrap"
 workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
 run_task = { name = [
-    "build-bootstrap-forge-base",
-    "build-bootstrap-forge-dpu-discovery",
-    "build-bootstrap-forge-host-discovery" ] }
+  "build-bootstrap-forge-base",
+  "build-bootstrap-forge-dpu-discovery",
+  "build-bootstrap-forge-host-discovery",
+] }
 
 [tasks.build-bootstrap-forge-base-kube]
 category = "Bootstrap"
@@ -43,17 +46,21 @@ run_task = "build-bootstrap-forge-dpu-discovery"
 category = "Bootstrap"
 workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
-run_task = { name=["build-bootstrap-forge-base",
-    "build-bootstrap-forge-dpu-discovery",
-    "build-bootstrap-forge-vmhost-init"]}
+run_task = { name = [
+  "build-bootstrap-forge-base",
+  "build-bootstrap-forge-dpu-discovery",
+  "build-bootstrap-forge-vmhost-init",
+] }
 
 [tasks.build-bootstrap-forge-vmhost-init-docker]
 category = "Bootstrap"
 workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
-run_task = { name=["build-bootstrap-forge-base",
-    "build-bootstrap-forge-dpu-discovery",
-    "build-bootstrap-forge-vmhost-init"]}
+run_task = { name = [
+  "build-bootstrap-forge-base",
+  "build-bootstrap-forge-dpu-discovery",
+  "build-bootstrap-forge-vmhost-init",
+] }
 
 [tasks.build-bootstrap-forge-base]
 category = "Bootstrap"
@@ -94,7 +101,7 @@ else
   echo "$DPU_COUNT DPUs exist. skipping"
 fi
 '''
-cwd="${REPO_ROOT}"
+cwd = "${REPO_ROOT}"
 
 [tasks.build-bootstrap-forge-vmhost-init]
 category = "Bootstrap"
@@ -109,7 +116,7 @@ source ${DATA_PATH}/envrc
 
 ${REPO_ROOT}/dev/bin/discover_host.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_PATH} dhcp-only
 '''
-cwd="${REPO_ROOT}"
+cwd = "${REPO_ROOT}"
 
 [tasks.build-bootstrap-forge-host-discovery]
 category = "Bootstrap"
@@ -125,6 +132,16 @@ source ${DATA_PATH}/envrc
 ${REPO_ROOT}/dev/bin/discover_host.sh $API_SERVER_HOST $API_SERVER_PORT ${DATA_PATH} full
 '''
 
+[tasks.test-dpu-reprov-forge-docker]
+workspace = false
+script = '''
+#!/usr/bin/env bash
+
+source ${REPO_ROOT}/dev/docker-env/envrc
+${REPO_ROOT}/dev/bin/reprovision_dpu.sh ${API_SERVER_HOST} ${API_SERVER_PORT}
+'''
+cwd = "${REPO_ROOT}"
+
 [tasks.test-instance-forge-docker]
 workspace = false
 script = '''
@@ -134,7 +151,7 @@ source ${REPO_ROOT}/dev/docker-env/envrc
 echo "In case you don't want to delete instance for further testing, call script 'dev/bin/instance_handling.sh create' and 'dev/bin/instance_handling.sh delete'"
 ${REPO_ROOT}/dev/bin/instance_handling.sh test ${API_SERVER_HOST} ${API_SERVER_PORT}
 '''
-cwd="${REPO_ROOT}"
+cwd = "${REPO_ROOT}"
 
 [tasks.test-instance-forge-kube]
 workspace = false
@@ -145,4 +162,3 @@ source ${REPO_ROOT}/dev/kube-env/envrc
 echo "In case you don't want to delete instance for further testing, call script 'dev/bin/instance_handling.sh create' and 'dev/bin/instance_handling.sh delete'"
 ${REPO_ROOT}/dev/bin/instance_handling.sh test ${API_SERVER_HOST} ${API_SERVER_PORT}
 '''
-

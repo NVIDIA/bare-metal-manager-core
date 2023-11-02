@@ -79,6 +79,7 @@ complete -c forge-admin-cli -n "__fish_seen_subcommand_from instance; and __fish
 complete -c forge-admin-cli -n "__fish_seen_subcommand_from instance; and __fish_seen_subcommand_from show" -s h -l help -d 'Print help'
 complete -c forge-admin-cli -n "__fish_seen_subcommand_from instance; and __fish_seen_subcommand_from reboot" -s i -l instance -r
 complete -c forge-admin-cli -n "__fish_seen_subcommand_from instance; and __fish_seen_subcommand_from reboot" -s c -l custom-pxe
+complete -c forge-admin-cli -n "__fish_seen_subcommand_from instance; and __fish_seen_subcommand_from reboot" -s a -l apply-updates-on-reboot
 complete -c forge-admin-cli -n "__fish_seen_subcommand_from instance; and __fish_seen_subcommand_from reboot" -s h -l help -d 'Print help'
 complete -c forge-admin-cli -n "__fish_seen_subcommand_from instance; and __fish_seen_subcommand_from release" -s i -l instance -r
 complete -c forge-admin-cli -n "__fish_seen_subcommand_from instance; and __fish_seen_subcommand_from release" -s m -l machine -r

@@ -35,10 +35,9 @@ impl From<DbDpuMachineUpdate> for DpuMachineUpdate {
 impl DpuMachineUpdate {
     /// Find DPUs and the corresponding host that needs to have its firmware updated.
     /// DPUs can be updated when:
-    /// 1. the managed host is in the ready state.
-    /// 2. the installed firmware does not match the expected firmware
-    /// 3. the DPU is not marked for reprovisioning
-    /// 4. the DPU is not marked for maintenance.
+    /// 1. the installed firmware does not match the expected firmware
+    /// 2. the DPU is not marked for reprovisioning
+    /// 3. the DPU is not marked for maintenance.
     ///
     pub async fn find_available_outdated_dpus(
         txn: &mut Transaction<'_, Postgres>,
@@ -54,16 +53,13 @@ impl DpuMachineUpdate {
             FROM machines m
             INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
             INNER JOIN machine_topologies mt ON m.id = mt.machine_id
-            WHERE m.reprovisioning_requested IS NULL
-            AND mi.machine_id != mi.attached_dpu_machine_id
-            AND m.controller_state = '{"state": "ready"}'
-            AND m.maintenance_start_time IS NULL
+            WHERE m.reprovisioning_requested IS NULL 
+            AND mi.machine_id != mi.attached_dpu_machine_id 
+            AND m.maintenance_start_time IS NULL 
             AND mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' != $1"#.to_string();
 
         if limit.is_some() {
             query += r#" LIMIT $2;"#;
-        } else {
-            query += r#";"#;
         }
 
         let mut q = sqlx::query_as::<_, DbDpuMachineUpdate>(&query).bind(expected_firmware_version);
@@ -117,6 +113,8 @@ impl DpuMachineUpdate {
             requested_at: chrono::Utc::now(),
             initiator: initiator.to_string(),
             update_firmware: true,
+            started_at: None,
+            user_approval_received: false,
         };
 
         let machine_ids = vec![

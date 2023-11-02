@@ -242,6 +242,10 @@ pub struct ReprovisionRequest {
     pub requested_at: DateTime<Utc>,
     pub initiator: String,
     pub update_firmware: bool,
+    #[serde(default)]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub user_approval_received: bool,
 }
 
 /// Should a forge-dpu-agent upgrade itself?
@@ -250,6 +254,18 @@ pub struct UpgradeDecision {
     pub should_upgrade: bool,
     pub to_version: String,
     pub last_updated: DateTime<Utc>,
+}
+
+impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateParams {
+    fn from(value: ReprovisionRequest) -> Self {
+        ::rpc::forge::InstanceUpdateParams {
+            module: ::rpc::forge::instance_update_params::Module::Dpu as i32,
+            initiator: value.initiator,
+            trigger_received_at: Some(value.requested_at.into()),
+            update_triggered_at: value.started_at.map(|x| x.into()),
+            user_approval_received: value.user_approval_received,
+        }
+    }
 }
 
 impl Display for MachineState {
