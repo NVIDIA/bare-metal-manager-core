@@ -872,16 +872,22 @@ where
         let loader = DbSnapshotLoader {};
         let mut instances = Vec::with_capacity(raw_instances.len());
         for instance in raw_instances {
-            let snapshot = loader
+            let mh_snapshot = loader
                 .load_machine_snapshot(&mut txn, &instance.machine_id)
                 .await
-                .map_err(CarbideError::from)?
-                .instance
-                .ok_or(Status::invalid_argument(format!(
-                    "Snapshot not found for Instance {}",
-                    instance.id()
-                )))?;
-            instances.push(rpc::Instance::try_from(snapshot).map_err(CarbideError::from)?);
+                .map_err(CarbideError::from)?;
+
+            let mut snapshot =
+                rpc::Instance::try_from(mh_snapshot.instance.ok_or(Status::invalid_argument(
+                    format!("Snapshot not found for Instance {}", instance.id()),
+                ))?)
+                .map_err(CarbideError::from)?;
+
+            if let Some(reprovision_requested) = mh_snapshot.dpu_snapshot.reprovision_requested {
+                snapshot.update_params = Some(reprovision_requested.into());
+            }
+
+            instances.push(snapshot);
         }
 
         Ok(Response::new(InstanceList { instances }))
@@ -905,15 +911,22 @@ where
             ))
         })?;
 
-        let Some(snapshot) = DbSnapshotLoader {}
+        let mh_snapshot = DbSnapshotLoader {}
             .load_machine_snapshot(&mut txn, &machine_id)
             .await
-            .map_err(CarbideError::from)?.instance else {
-            return Ok(Response::new(rpc::InstanceList::default()));
-        };
+            .map_err(CarbideError::from)?;
+
+        let mut snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
+            Status::invalid_argument(format!("Snapshot not found for machine {}", machine_id)),
+        )?)
+        .map_err(CarbideError::from)?;
+
+        if let Some(reprovision_requested) = mh_snapshot.dpu_snapshot.reprovision_requested {
+            snapshot.update_params = Some(reprovision_requested.into());
+        }
 
         let response = Response::new(rpc::InstanceList {
-            instances: vec![snapshot.try_into().map_err(CarbideError::from)?],
+            instances: vec![snapshot],
         });
 
         txn.commit().await.map_err(|e| {
@@ -1400,6 +1413,37 @@ where
             )
             .await
             .map_err(CarbideError::from)?;
+        }
+
+        // Check if reprovision is requested.
+        if let Some(_rr) = snapshot.dpu_snapshot.reprovision_requested {
+            if request.apply_updates_on_reboot {
+                // This will trigger DPU reprovisioning/update via state machine.
+                Machine::approve_dpu_reprovision_request(
+                    &snapshot.dpu_snapshot.machine_id,
+                    &mut txn,
+                )
+                .await
+                .map_err(|err| {
+                    // print actual error for debugging, but don't leak internal info to user.
+                    tracing::error!(machine=%machine_id, "{:?}", err);
+                    CarbideError::GenericError(
+                        "Internal Failure. Try again after sometime.".to_string(),
+                    )
+                })?;
+
+                txn.commit().await.map_err(|e| {
+                    CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "commit invoke_instance_power",
+                        e,
+                    ))
+                })?;
+
+                // Host will reboot once DPU reprovisioning is successfully finished.
+                return Ok(Response::new(rpc::InstancePowerResult {}));
+            }
         }
 
         txn.commit().await.map_err(|e| {
@@ -3455,11 +3499,11 @@ where
         if let rpc::dpu_reprovisioning_request::Mode::Set = req.mode() {
             let initiator = req.initiator().as_str_name();
             machine
-                .trigger_reprovisioning_request(&mut txn, initiator, req.update_firmware)
+                .trigger_dpu_reprovisioning_request(&mut txn, initiator, req.update_firmware)
                 .await
                 .map_err(CarbideError::from)?;
         } else {
-            Machine::clear_reprovisioning_request(&mut txn, &dpu_id)
+            Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_id)
                 .await
                 .map_err(CarbideError::from)?;
         }

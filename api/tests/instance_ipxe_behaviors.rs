@@ -153,6 +153,7 @@ async fn invoke_instance_power(
             }),
             operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
             boot_with_custom_ipxe,
+            apply_updates_on_reboot: false,
         }))
         .await
         .unwrap();

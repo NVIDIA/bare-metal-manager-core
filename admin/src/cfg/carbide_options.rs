@@ -604,6 +604,9 @@ pub struct RebootInstance {
 
     #[clap(short, long, action)]
     pub custom_pxe: bool,
+
+    #[clap(short, long, action)]
+    pub apply_updates_on_reboot: bool,
 }
 
 #[derive(Parser, Debug)]

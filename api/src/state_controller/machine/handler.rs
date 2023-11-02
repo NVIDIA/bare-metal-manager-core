@@ -245,6 +245,8 @@ impl StateHandler for MachineStateHandler {
                     dpu_reprovisioning_needed(&state.dpu_snapshot)
                 {
                     restart_machine(&state.dpu_snapshot, ctx.services).await?;
+                    Machine::update_dpu_reprovision_start_time(&state.dpu_snapshot.machine_id, txn)
+                        .await?;
                     *controller_state.modify() = ManagedHostState::DPUReprovision {
                         reprovision_state: if reprovisioning_requested.update_firmware {
                             ReprovisionState::FirmwareUpgrade
@@ -412,7 +414,7 @@ async fn handle_dpu_reprovision(
             }
 
             // Clear reprovisioning state.
-            Machine::clear_reprovisioning_request(txn, &state.dpu_snapshot.machine_id)
+            Machine::clear_dpu_reprovisioning_request(txn, &state.dpu_snapshot.machine_id)
                 .await
                 .map_err(StateHandlerError::from)?;
             restart_host(&state.host_snapshot, services).await?;
@@ -866,11 +868,15 @@ impl StateHandler for InstanceStateHandler {
                         if let Some(reprovisioning_requested) =
                             dpu_reprovisioning_needed(&state.dpu_snapshot)
                         {
-                            // TODO: Replace with type safe enum.
-                            // TODO: If initiator is admin_cli, start re-provisioning immediately,
-                            // else wait for user's approval.
-                            if !reprovisioning_requested.initiator.contains("Automatic") {
+                            // Wait for user's approval. One user approved for dpu
+                            // reprovision/update firmware, trigger it.
+                            if reprovisioning_requested.user_approval_received {
                                 restart_machine(&state.dpu_snapshot, ctx.services).await?;
+                                Machine::update_dpu_reprovision_start_time(
+                                    &state.dpu_snapshot.machine_id,
+                                    txn,
+                                )
+                                .await?;
                                 *controller_state.modify() = ManagedHostState::Assigned {
                                     instance_state: InstanceState::DPUReprovision {
                                         reprovision_state: if reprovisioning_requested
@@ -885,19 +891,7 @@ impl StateHandler for InstanceStateHandler {
                                         },
                                     },
                                 };
-                            } else {
-                                //TODO: This block to be removed once Automatic reprovision is
-                                //implemented.
-
-                                // Clear reprovisioning state.
-                                Machine::clear_reprovisioning_request(
-                                    txn,
-                                    &state.dpu_snapshot.machine_id,
-                                )
-                                .await
-                                .map_err(StateHandlerError::from)?;
                             }
-
                             return Ok(());
                         }
                     }

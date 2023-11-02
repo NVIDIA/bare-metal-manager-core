@@ -85,7 +85,7 @@ fi
 # Check Instance state
 INSTANCE_ID=$(grpcurl -d '{}' -insecure ${API_SERVER} forge.Forge/FindInstances | jq ".instances[0].id.value" | tr -d '"')
 
-if [[ -z $INSTANCE_ID ]]; then
+if [[ "$INSTANCE_ID" == "null" ]]; then
 	echo "Could not find instance. Exiting."
 	exit 10
 fi

@@ -666,6 +666,17 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap();
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
+    env.api
+        .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+            machine_id: Some(::rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            apply_updates_on_reboot: true,
+            boot_with_custom_ipxe: false,
+            operation: 0,
+        }))
+        .await
+        .unwrap();
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
@@ -920,6 +931,17 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap();
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, false).await;
+    env.api
+        .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+            machine_id: Some(::rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            apply_updates_on_reboot: true,
+            boot_with_custom_ipxe: false,
+            operation: 0,
+        }))
+        .await
+        .unwrap();
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await

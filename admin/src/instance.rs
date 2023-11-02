@@ -332,7 +332,13 @@ pub async fn handle_reboot(args: RebootInstance, api_config: Config) -> CarbideC
             CarbideCliError::GenericError("Instance has no machine associated.".to_string())
         })?;
 
-    rpc::reboot_instance(api_config, machine_id.clone(), args.custom_pxe).await?;
+    rpc::reboot_instance(
+        api_config,
+        machine_id.clone(),
+        args.custom_pxe,
+        args.apply_updates_on_reboot,
+    )
+    .await?;
     println!(
         "Reboot for instance {} (machine {}) is requested successfully!",
         args.instance, machine_id

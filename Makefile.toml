@@ -9,24 +9,40 @@
 # its affiliates is strictly prohibited.
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
-REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"]}}
-CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = ["CARBIDE_ENVIRONMENT"] } }
+REPO_ROOT = { script = [
+  "echo ${CI_PROJECT_DIR}",
+], condition = { env_set = [
+  "CI_PROJECT_DIR",
+] } }
+CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
+  "CARBIDE_ENVIRONMENT",
+] } }
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
-FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
+FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
 
 [tasks.book]
 workspace = false
 command = "find"
 args = ["public"]
 dependencies = [
-	"book-compile",
-#	"generate-database-schema",  # - needs build image changes.  Will update later.
+  "book-compile",
+  #	"generate-database-schema",  # - needs build image changes.  Will update later.
 ]
 
 [tasks.generate-database-schema]
 workspace = false
 command = "mermerd" # not a typo. go install github.com/KarnerTh/mermerd@latest
-args = ['-c', "${DATABASE_URL}", '-s', 'public', '--useAllTables', '--showAllConstraints', '--encloseWithMermaidBackticks', '-o', 'book/src/development/schema.md']
+args = [
+  '-c',
+  "${DATABASE_URL}",
+  '-s',
+  'public',
+  '--useAllTables',
+  '--showAllConstraints',
+  '--encloseWithMermaidBackticks',
+  '-o',
+  'book/src/development/schema.md',
+]
 # To generate manually:
 # Start docker-compose and wait until all migrations are in the DB
 # mermerd -c postgresql://carbide_development:REPLACE_WITH_PW@172.20.0.16 -s public --useAllTables --showAllConstraints --encloseWithMermaidBackticks -o book/src/development/schema.md
@@ -95,10 +111,7 @@ workspace = false
 script = '''
 cross build --target aarch64-unknown-linux-gnu -p scout -p admin
 '''
-dependencies = [
-    "check-cross-installed",
-    "build-cross-docker-image",
-]
+dependencies = ["check-cross-installed", "build-cross-docker-image"]
 
 [tasks.build-cross-docker-image]
 category = "Build"
@@ -131,16 +144,30 @@ category = "Kind"
 description = "Build the x86 build container"
 workspace = false
 command = "docker"
-args = ["build", "-t", "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", "-f", "${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64", "."]
-cwd="${REPO_ROOT}/dev/docker"
+args = [
+  "build",
+  "-t",
+  "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest",
+  "-f",
+  "${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64",
+  ".",
+]
+cwd = "${REPO_ROOT}/dev/docker"
 
 [tasks.build-arm-build-container]
 category = "Kind"
 description = "Build the ARM build container"
 workspace = false
 command = "docker"
-args = ["build", "-t", "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest", "-f", "${REPO_ROOT}/dev/docker/Dockerfile.build-container-arm", "."]
-cwd="${REPO_ROOT}/dev/docker"
+args = [
+  "build",
+  "-t",
+  "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest",
+  "-f",
+  "${REPO_ROOT}/dev/docker/Dockerfile.build-container-arm",
+  ".",
+]
+cwd = "${REPO_ROOT}/dev/docker"
 
 [tasks.runtime-container]
 category = "Docker Compose"
@@ -157,8 +184,8 @@ workspace = false
 command = "docker-compose"
 args = ["up", "-d", "--build"]
 dependencies = [
-  { name = "mkdir-static-x86_64", path = "${REPO_ROOT}/pxe"},
-  { name = "mkdir-static-aarch64", path = "${REPO_ROOT}/pxe"}
+  { name = "mkdir-static-x86_64", path = "${REPO_ROOT}/pxe" },
+  { name = "mkdir-static-aarch64", path = "${REPO_ROOT}/pxe" },
 ]
 
 [tasks.fullstack-down]
@@ -171,10 +198,10 @@ args = ["down", "-v"]
 [tasks.fullstack-cert-renew]
 category = "Docker Compose"
 description = "Renews all the certificates in the containers and reloads the services"
-workspace=false
+workspace = false
 dependencies = [
-	{name="fullstack-terraform", path="include/Makefile-docker-compose.toml"},
-	{name="fullstack-refresh-postgresql", path="include/Makefile-docker-compose.toml"},
+  { name = "fullstack-terraform", path = "include/Makefile-docker-compose.toml" },
+  { name = "fullstack-refresh-postgresql", path = "include/Makefile-docker-compose.toml" },
 ]
 
 
@@ -189,67 +216,72 @@ command = "cargo"
 args = ["license", "--avoid-build-deps", "--avoid-dev-deps", "--json"]
 
 
-
 [tasks.bootstrap-forge-base-docker]
 category = "Bootstrap"
 workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "docker" }
 dependencies = [
-  {name="build-bootstrap-forge-base-docker", path="include/Makefile-bootstrap.toml"}
+  { name = "build-bootstrap-forge-base-docker", path = "include/Makefile-bootstrap.toml" },
 ]
 [tasks.bootstrap-forge-base-kube]
 category = "Bootstrap"
 workspace = false
 env = { "FORGE_BOOTSTRAP_KIND" = "kube" }
 dependencies = [
-  {name="build-bootstrap-forge-base-kube", path="include/Makefile-bootstrap.toml"}
+  { name = "build-bootstrap-forge-base-kube", path = "include/Makefile-bootstrap.toml" },
 ]
-
 
 [tasks.bootstrap-forge-dpu-discovery-docker]
 category = "Bootstrap"
 workspace = false
 dependencies = [
-  {name="build-bootstrap-forge-dpu-discovery-docker", path="include/Makefile-bootstrap.toml"}
+  { name = "build-bootstrap-forge-dpu-discovery-docker", path = "include/Makefile-bootstrap.toml" },
 ]
 [tasks.bootstrap-forge-dpu-discovery-kube]
 category = "Bootstrap"
 workspace = false
 dependencies = [
-  {name="build-bootstrap-forge-dpu-discovery-kube", path="include/Makefile-bootstrap.toml"}
+  { name = "build-bootstrap-forge-dpu-discovery-kube", path = "include/Makefile-bootstrap.toml" },
 ]
 
 [tasks.bootstrap-forge-vmhost-init-docker]
 category = "Bootstrap"
 workspace = false
 run_task = [
-  {name="build-bootstrap-forge-vmhost-init-docker", path="include/Makefile-bootstrap.toml"}
+  { name = "build-bootstrap-forge-vmhost-init-docker", path = "include/Makefile-bootstrap.toml" },
 ]
+
 [tasks.bootstrap-forge-vmhost-init-kube]
 category = "Bootstrap"
 workspace = false
 dependencies = [
-  {name="build-bootstrap-forge-vmhost-init-kube", path="include/Makefile-bootstrap.toml"}
+  { name = "build-bootstrap-forge-vmhost-init-kube", path = "include/Makefile-bootstrap.toml" },
 ]
 
 [tasks.bootstrap-forge-docker]
 category = "Bootstrap"
 workspace = false
 dependencies = [
-  {name="build-bootstrap-forge-docker", path="include/Makefile-bootstrap.toml"}
+  { name = "build-bootstrap-forge-docker", path = "include/Makefile-bootstrap.toml" },
 ]
 [tasks.bootstrap-forge-kube]
 category = "Bootstrap"
 workspace = false
 dependencies = [
-  {name="build-bootstrap-forge-kube", path="include/Makefile-bootstrap.toml"}
+  { name = "build-bootstrap-forge-kube", path = "include/Makefile-bootstrap.toml" },
 ]
 
 
 [tasks.test-instance-forge-docker]
 workspace = false
 dependencies = [
-  {name="test-instance-forge-docker", path="include/Makefile-bootstrap.toml"}
+  { name = "test-instance-forge-docker", path = "include/Makefile-bootstrap.toml" },
+]
+
+[tasks.test-dpu-reprov-forge-docker]
+workspace = false
+dependencies = [
+  { name = "test-dpu-reprov-forge-docker", path = "include/Makefile-bootstrap.toml" },
 ]
 
 [tasks.pre-commit-verify]
@@ -257,11 +289,7 @@ description = "Runs the same set of tasks CI will."
 category = "CI"
 # clippy-flow, check-format-flow and workspace-ci-flow are default targets provided by cargo-make.
 # workspace-ci-flow means run 'ci-flow' (you guessed it, default) on everything in the workspace.
-dependencies = [
-    "clippy-flow",
-    "check-format-flow",
-    "workspace-ci-flow",
-]
+dependencies = ["clippy-flow", "check-format-flow", "workspace-ci-flow"]
 
 [tasks.clippy]
 workspace = false
@@ -290,10 +318,7 @@ cargo build -p agent -p admin -p carbide-api
 workspace = false
 
 [tasks.correctly-execute-tests]
-dependencies = [
-  "build-debug-test-prerequisites",
-  "test",
-]
+dependencies = ["build-debug-test-prerequisites", "test"]
 workspace = false
 
 [tasks.workspace-ci-flow]
@@ -307,7 +332,7 @@ dependencies = [
   "pre-build",
   "check-format-ci-flow",
   "clippy-ci-flow",
-  "build-release",  # this the only change from cargo-make's src/lib/descriptor/makefiles/rust.toml
+  "build-release",        # this the only change from cargo-make's src/lib/descriptor/makefiles/rust.toml
   "post-build",
   "test-flow",
   "examples-ci-flow",
@@ -318,7 +343,7 @@ dependencies = [
 ]
 
 [tasks.clippy-ci-flow]
-condition = { env_set = [ "CARGO_MAKE_RUN_CLIPPY" ] }
+condition = { env_set = ["CARGO_MAKE_RUN_CLIPPY"] }
 
 [tasks.helmupdate]
 workspace = false
@@ -333,4 +358,3 @@ do
 done
 
 '''
-

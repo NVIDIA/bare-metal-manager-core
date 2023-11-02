@@ -580,6 +580,10 @@ message InstancePowerRequest {
   // Forge will also provide the `custom_ipxe` script on every reboot. Thereby the
   // `always_boot_with_custom_ipxe` takes precedence over `boot_with_custom_ipxe`.
   bool boot_with_custom_ipxe = 3;
+
+  // In case update is needed, and user wants to approve, they can inform via this flag.
+  // If this flag is true, first update will be performed and then host will be rebooted.
+  bool apply_updates_on_reboot = 4;
 }
 
 message InstanceType {
@@ -815,6 +819,21 @@ message Instance {
   // This field can be used in InstanceInfinibandConfigUpdateRequest::if_version_match
   // to only request updates if the version hasn't been updated in between.
   string ib_config_version = 202;
+
+  // This indicates if firmware update is needed on DPU.
+  optional InstanceUpdateParams update_params = 203;
+}
+
+message InstanceUpdateParams {
+  enum Module {
+    Dpu = 0;
+  }
+
+  Module module = 1;
+  string initiator = 2;
+  google.protobuf.Timestamp trigger_received_at = 3;
+  optional google.protobuf.Timestamp update_triggered_at = 4;
+  bool user_approval_received = 5;
 }
 
 // The configuration that a customer desires for an instances network interface
@@ -1783,6 +1802,7 @@ message FindIpAddressResponse {
 
 enum UpdateInitiator {
   AdminCli = 0;
+  Automatic = 1;
 }
 
 message DpuReprovisioningRequest {

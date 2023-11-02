@@ -160,12 +160,14 @@ pub async fn reboot_instance(
     api_config: Config,
     machine_id: MachineId,
     boot_with_custom_ipxe: bool,
+    apply_updates_on_reboot: bool,
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::InstancePowerRequest {
             machine_id: Some(machine_id),
             operation: rpc::instance_power_request::Operation::PowerReset as i32,
             boot_with_custom_ipxe,
+            apply_updates_on_reboot,
         });
 
         client

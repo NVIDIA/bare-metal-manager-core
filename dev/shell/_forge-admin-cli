@@ -253,6 +253,8 @@ _arguments "${_arguments_options[@]}" \
 '--instance=[]:INSTANCE: ' \
 '-c[]' \
 '--custom-pxe[]' \
+'-a[]' \
+'--apply-updates-on-reboot[]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
