@@ -82,6 +82,7 @@ impl InstanceSnapshot {
             Versioned::new(&self.config.infiniband, self.ib_config_version),
             &self.observations,
             self.machine_state.clone(),
+            self.delete_requested,
         )
     }
 }

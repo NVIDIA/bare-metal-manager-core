@@ -103,6 +103,7 @@ impl InstanceStatus {
         ib_config: Versioned<&InstanceInfinibandConfig>,
         observations: &InstanceStatusObservations,
         machine_state: ManagedHostState,
+        delete_requested: bool,
     ) -> Result<Self, RpcDataConversionError> {
         let network = network::InstanceNetworkStatus::from_config_and_observation(
             network_config,
@@ -120,9 +121,17 @@ impl InstanceStatus {
         };
 
         let tenant = tenant::InstanceTenantStatus {
-            state: match configs_synced {
-                SyncState::Synced => InstanceStatus::tenant_state(machine_state)?,
-                SyncState::Pending => tenant::TenantState::Provisioning,
+            state: match (delete_requested, configs_synced) {
+                (false, SyncState::Synced) => InstanceStatus::tenant_state(machine_state)?,
+                (false, SyncState::Pending) => tenant::TenantState::Provisioning,
+                (true, _) => {
+                    // If instance deletion was requested, we always confirm the
+                    // tenant that the instance is actually in progress of shutting down.
+                    // The instance might however still first need to run through
+                    // various provisioning steps to become "ready" before starting
+                    // to terminate
+                    tenant::TenantState::Terminating
+                }
             },
             state_details: String::new(),
         };

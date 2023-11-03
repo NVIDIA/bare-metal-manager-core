@@ -107,6 +107,22 @@ pub async fn create_instance_with_config(
         .try_into()
         .unwrap();
 
+    let instance = advance_created_instance_into_ready_state(
+        env,
+        dpu_machine_id,
+        host_machine_id,
+        instance_id,
+    )
+    .await;
+    (instance_id, instance)
+}
+
+pub async fn advance_created_instance_into_ready_state(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+    host_machine_id: &MachineId,
+    instance_id: uuid::Uuid,
+) -> rpc::Instance {
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
 
     // - first run: state controller moves state to WaitingForNetworkConfig
@@ -136,8 +152,7 @@ pub async fn create_instance_with_config(
     txn.commit().await.unwrap();
 
     // get the updated info with proper network config info added after the instance state is ready
-    let info = env
-        .api
+    env.api
         .find_instances(tonic::Request::new(rpc::InstanceSearchQuery {
             id: Some(instance_id.into()),
         }))
@@ -145,9 +160,7 @@ pub async fn create_instance_with_config(
         .expect("Find instance failed.")
         .into_inner()
         .instances
-        .remove(0);
-
-    (instance_id, info)
+        .remove(0)
 }
 
 pub async fn delete_instance(
@@ -162,6 +175,24 @@ pub async fn delete_instance(
         }))
         .await
         .expect("Delete instance failed.");
+
+    // The instance should show up immediatly as terminating - even if the state handler didn't yet run
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::TenantState::Terminating
+    );
 
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
 
@@ -189,6 +220,12 @@ pub async fn delete_instance(
         &mut iteration_metrics,
     )
     .await;
+
+    assert!(env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .is_empty());
 }
 
 pub async fn handle_delete_post_bootingwithdiscoveryimage(
