@@ -16,6 +16,7 @@ use std::sync::Arc;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::model::machine::{FailureDetails, ManagedHostState};
 use carbide::state_controller::machine::handler::MachineStateHandler;
+use carbide::state_controller::metrics::IterationMetrics;
 use common::api_fixtures::{create_managed_host, create_test_env};
 
 use crate::common::api_fixtures::run_state_controller_iteration;
@@ -66,12 +67,14 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
 
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
     let services = Arc::new(env.state_handler_services());
+    let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
         &services,
         &pool,
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -107,12 +110,14 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
     // Run the state state handler
     let services = Arc::new(env.state_handler_services());
+    let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
         &services,
         &pool,
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 

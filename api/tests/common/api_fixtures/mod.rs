@@ -37,7 +37,7 @@ use carbide::{
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         io::StateControllerIO,
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
-        metrics::MetricsEmitter,
+        metrics::{IterationMetrics, MetricsEmitter, ObjectHandlerMetrics},
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
         },
@@ -161,6 +161,7 @@ impl TestEnv {
         max_iterations: u32,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         expected_state: ManagedHostState,
+        iteration_metrics: &mut IterationMetrics<MachineStateControllerIO>,
     ) {
         let services = Arc::new(self.state_handler_services());
         for _ in 0..max_iterations {
@@ -170,6 +171,7 @@ impl TestEnv {
                 &self.machine_state_controller_io,
                 host_machine_id.clone(),
                 handler,
+                iteration_metrics,
             )
             .await;
 
@@ -210,12 +212,14 @@ impl TestEnv {
         handler: &MachineStateHandler,
     ) {
         let services = Arc::new(self.state_handler_services());
+        let mut iteration_metrics = IterationMetrics::default();
         run_state_controller_iteration(
             &services,
             &self.pool,
             &self.machine_state_controller_io,
             host_machine_id,
             handler,
+            &mut iteration_metrics,
         )
         .await
     }
@@ -228,12 +232,14 @@ impl TestEnv {
         handler: &NetworkSegmentStateHandler,
     ) {
         let services = Arc::new(self.state_handler_services());
+        let mut iteration_metrics = IterationMetrics::default();
         run_state_controller_iteration(
             &services,
             &self.pool,
             &self.network_segment_state_controller_io,
             segment_id,
             handler,
+            &mut iteration_metrics,
         )
         .await
     }
@@ -246,12 +252,14 @@ impl TestEnv {
         handler: &IBPartitionStateHandler,
     ) {
         let services = Arc::new(self.state_handler_services());
+        let mut iteration_metrics = IterationMetrics::default();
         run_state_controller_iteration(
             &services,
             &self.pool,
             &self.ib_partition_state_controller_io,
             segment_id,
             handler,
+            &mut iteration_metrics,
         )
         .await
     }
@@ -264,12 +272,14 @@ impl TestEnv {
         handler: &BmcMachineStateHandler,
     ) {
         let services = Arc::new(self.state_handler_services());
+        let mut iteration_metrics = IterationMetrics::default();
         run_state_controller_iteration(
             &services,
             &self.pool,
             &self.bmc_machine_state_controller_io,
             bmc_machine_id,
             handler,
+            &mut iteration_metrics,
         )
         .await
     }
@@ -370,6 +380,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params: ReachabilityParams {
             dpu_wait_time: Duration::seconds(0),
+            host_wait_time: Duration::seconds(0),
         },
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
         bmc_machine_state_controller_io: BmcMachineStateControllerIO::default(),
@@ -446,13 +457,14 @@ pub async fn run_state_controller_iteration<IO: StateControllerIO>(
         ObjectId = IO::ObjectId,
         ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
     >,
+    iteration_metrics: &mut IterationMetrics<IO>,
 ) {
     let mut handler_ctx = StateHandlerContext {
         services: handler_services,
     };
     let mut txn = pool.begin().await.unwrap();
 
-    let mut metrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics::default();
+    let mut metrics = ObjectHandlerMetrics::<IO>::default();
 
     let mut full_state = io.load_object_state(&mut txn, &object_id).await.unwrap();
     let mut controller_state = io
@@ -467,7 +479,7 @@ pub async fn run_state_controller_iteration<IO: StateControllerIO>(
             &mut full_state,
             &mut holder,
             &mut txn,
-            &mut metrics,
+            &mut metrics.specific,
             &mut handler_ctx,
         )
         .await
@@ -483,6 +495,7 @@ pub async fn run_state_controller_iteration<IO: StateControllerIO>(
         .await
         .unwrap();
     }
+    iteration_metrics.merge_object_handling_metrics(&metrics);
     txn.commit().await.unwrap();
 }
 

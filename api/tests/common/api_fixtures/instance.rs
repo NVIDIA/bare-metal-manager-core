@@ -14,6 +14,8 @@ use carbide::model::machine::machine_id::MachineId;
 use carbide::model::machine::CleanupState;
 use carbide::model::machine::MachineState;
 use carbide::state_controller::machine::handler::MachineStateHandler;
+use carbide::state_controller::machine::io::MachineStateControllerIO;
+use carbide::state_controller::metrics::IterationMetrics;
 use carbide::{db::machine::Machine, model::machine::ManagedHostState};
 use rpc::{forge::forge_server::Forge, InstanceReleaseRequest};
 
@@ -118,6 +120,7 @@ pub async fn create_instance_with_config(
 
     // - third run: state controller runs again, advances state to Ready
     let mut txn = env.pool.begin().await.unwrap();
+    let mut iteration_metrics = IterationMetrics::default();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         &handler,
@@ -126,6 +129,7 @@ pub async fn create_instance_with_config(
         ManagedHostState::Assigned {
             instance_state: carbide::model::machine::InstanceState::Ready,
         },
+        &mut iteration_metrics,
     )
     .await;
 
@@ -162,18 +166,38 @@ pub async fn delete_instance(
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
 
     let mut txn = env.pool.begin().await.unwrap();
+    let mut iteration_metrics = IterationMetrics::default();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
         &handler,
         1,
         &mut txn,
         ManagedHostState::Assigned {
-            instance_state: carbide::model::machine::InstanceState::BootingWithDiscoveryImage,
+            instance_state: carbide::model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: carbide::model::machine::RetryInfo { count: 0 },
+            },
         },
+        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
+    handle_delete_post_bootingwithdiscoveryimage(
+        env,
+        dpu_machine_id,
+        host_machine_id,
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+}
 
+pub async fn handle_delete_post_bootingwithdiscoveryimage(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+    host_machine_id: &MachineId,
+    handler: &MachineStateHandler,
+    iteration_metrics: &mut IterationMetrics<MachineStateControllerIO>,
+) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = Machine::find_one(
         &mut txn,
@@ -195,12 +219,13 @@ pub async fn delete_instance(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        &handler,
+        handler,
         2,
         &mut txn,
         ManagedHostState::Assigned {
             instance_state: carbide::model::machine::InstanceState::WaitingForNetworkReconfig,
         },
+        iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -211,12 +236,13 @@ pub async fn delete_instance(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        &handler,
+        handler,
         1,
         &mut txn,
         ManagedHostState::WaitingForCleanup {
             cleanup_state: CleanupState::HostCleanup,
         },
+        iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -240,12 +266,13 @@ pub async fn delete_instance(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        &handler,
+        handler,
         3,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::Discovered,
         },
+        iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -268,10 +295,11 @@ pub async fn delete_instance(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         host_machine_id,
-        &handler,
+        handler,
         3,
         &mut txn,
         ManagedHostState::Ready,
+        iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();

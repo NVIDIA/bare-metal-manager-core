@@ -75,7 +75,7 @@ impl InstanceStatus {
                 }
                 InstanceState::Ready => tenant::TenantState::Ready,
                 InstanceState::SwitchToAdminNetwork
-                | InstanceState::BootingWithDiscoveryImage
+                | InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
                 InstanceState::DPUReprovision { .. } => tenant::TenantState::DpuReprovisioning,
             },

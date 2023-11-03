@@ -238,6 +238,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             &self.state_handler,
             &self.handler_services,
             &self.config,
+            &self.metric_holder.emitter,
             iteration_metrics,
         )
         .await?;
@@ -260,6 +261,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
     >,
     handler_services: &Arc<StateHandlerServices>,
     config: &Config,
+    emitter: &Option<StateControllerMetricEmitter<IO>>,
     iteration_metrics: &mut IterationMetrics<IO>,
 ) -> Result<(), IterationError> {
     // We start by grabbing a list of objects that should be active
@@ -388,6 +390,10 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
         }
     }
 
+    if let Some(emitter) = emitter {
+        emitter.update_histograms(iteration_metrics);
+    }
+
     if let Some(err) = last_join_error.take() {
         return Err(err.into());
     }
@@ -465,6 +471,7 @@ pub struct Builder<IO: StateControllerIO> {
 #[derive(Clone)]
 pub struct ReachabilityParams {
     pub dpu_wait_time: chrono::Duration,
+    pub host_wait_time: chrono::Duration,
 }
 
 impl<IO: StateControllerIO> Builder<IO> {

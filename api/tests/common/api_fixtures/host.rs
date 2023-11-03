@@ -21,7 +21,7 @@ use carbide::{
             ManagedHostState,
         },
     },
-    state_controller::machine::handler::MachineStateHandler,
+    state_controller::{machine::handler::MachineStateHandler, metrics::IterationMetrics},
 };
 use rpc::{
     forge::{forge_agent_control_response::Action, forge_server::Forge, DhcpDiscovery},
@@ -159,6 +159,8 @@ pub async fn create_host_machine(
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
 
     let mut txn = env.pool.begin().await.unwrap();
+    let mut iteration_metrics = IterationMetrics::default();
+
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         &handler,
@@ -167,6 +169,7 @@ pub async fn create_host_machine(
         ManagedHostState::HostNotReady {
             machine_state: MachineState::WaitingForDiscovery,
         },
+        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -201,6 +204,7 @@ pub async fn create_host_machine(
                 },
             },
         },
+        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -218,6 +222,7 @@ pub async fn create_host_machine(
         ManagedHostState::HostNotReady {
             machine_state: MachineState::Discovered,
         },
+        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -231,6 +236,7 @@ pub async fn create_host_machine(
         1,
         &mut txn,
         ManagedHostState::Ready,
+        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();

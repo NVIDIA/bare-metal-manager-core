@@ -1,4 +1,4 @@
-/*
+/*api/tests/instance.rs
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
@@ -9,7 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{collections::HashMap, net::IpAddr, time::SystemTime};
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    time::{Duration, SystemTime},
+};
 
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
@@ -42,8 +46,10 @@ use carbide::{
         machine::{InstanceState, ManagedHostState},
         tenant::TenantOrganizationId,
     },
-    state_controller::snapshot_loader::{
-        DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader,
+    state_controller::{
+        machine::handler::MachineStateHandler,
+        metrics::IterationMetrics,
+        snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader},
     },
 };
 use chrono::Utc;
@@ -53,6 +59,7 @@ use common::api_fixtures::{
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
 use mac_address::MacAddress;
+use rpc::InstanceReleaseRequest;
 
 pub mod common;
 
@@ -964,4 +971,103 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
         panic!("Expected grpc code UNAVAILABLE, got {}", err.code());
     }
     Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
+
+    env.api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(instance_id.into()),
+        }))
+        .await
+        .expect("Delete instance failed.");
+
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let mut iteration_metrics = IterationMetrics::default();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        &handler,
+        1,
+        &mut txn,
+        ManagedHostState::Assigned {
+            instance_state: carbide::model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: carbide::model::machine::RetryInfo { count: 0 },
+            },
+        },
+        &mut iteration_metrics,
+    )
+    .await;
+    txn.commit().await.unwrap();
+    assert_eq!(
+        0,
+        iteration_metrics
+            .specific
+            .machine_reboot_attempts_in_booting_with_discovery_image()
+            .iter()
+            .sum::<u64>()
+    );
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        &handler,
+        1,
+        &mut txn,
+        ManagedHostState::Assigned {
+            instance_state: carbide::model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: carbide::model::machine::RetryInfo { count: 1 },
+            },
+        },
+        &mut iteration_metrics,
+    )
+    .await;
+    txn.commit().await.unwrap();
+    assert_eq!(
+        0, // State is still not changed. This counter will increase once state is changed.
+        iteration_metrics
+            .specific
+            .machine_reboot_attempts_in_booting_with_discovery_image()
+            .iter()
+            .sum::<u64>()
+    );
+
+    common::api_fixtures::instance::handle_delete_post_bootingwithdiscoveryimage(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+    assert_eq!(
+        2, // State is changed now.
+        iteration_metrics
+            .specific
+            .machine_reboot_attempts_in_booting_with_discovery_image()
+            .iter()
+            .sum::<u64>()
+    );
 }

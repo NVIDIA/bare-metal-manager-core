@@ -43,7 +43,7 @@ use crate::{
             LockdownMode::{self, Enable},
             LockdownState, MachineNextStateResolver, MachineSnapshot, MachineState,
             ManagedHostState, ManagedHostStateSnapshot, NextReprovisionState, ReprovisionRequest,
-            ReprovisionState,
+            ReprovisionState, RetryInfo,
         },
     },
     redfish::RedfishCredentialType,
@@ -402,7 +402,6 @@ async fn handle_dpu_reprovision(
             // dpu_agent sends heartbeat just before DPU goes down. A few microseconds
             // gap can cause host to restart before DPU comes up. This will fail Host
             // DHCP.
-            // TODO: Reduce this duration to 2 mins.
             if wait(state, services.reachability_params.dpu_wait_time) {
                 return Ok(None);
             }
@@ -781,7 +780,7 @@ impl StateHandler for InstanceStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _metrics: &mut Self::ObjectMetrics,
+        metrics: &mut Self::ObjectMetrics,
         ctx: &mut StateHandlerContext,
     ) -> Result<(), StateHandlerError> {
         let Some(ref instance) = state.instance else {
@@ -853,7 +852,9 @@ impl StateHandler for InstanceStateHandler {
                         restart_machine(&state.host_snapshot, ctx.services).await?;
 
                         *controller_state.modify() = ManagedHostState::Assigned {
-                            instance_state: InstanceState::BootingWithDiscoveryImage,
+                            instance_state: InstanceState::BootingWithDiscoveryImage {
+                                retry: RetryInfo { count: 0 },
+                            },
                         };
                     } else {
                         record_infiniband_status_observation(
@@ -896,16 +897,32 @@ impl StateHandler for InstanceStateHandler {
                         }
                     }
                 }
-                InstanceState::BootingWithDiscoveryImage => {
+                InstanceState::BootingWithDiscoveryImage { retry } => {
                     if !rebooted(
                         state.dpu_snapshot.current.version,
                         state.host_snapshot.last_reboot_time,
                     )
                     .await?
                     {
+                        let state_timestamp = state.host_snapshot.current.version.timestamp();
+                        let expected_timestamp =
+                            chrono::Utc::now() + ctx.services.reachability_params.host_wait_time;
+                        // Wait till reachability time is over and reboot only and only one time.
+                        if expected_timestamp > state_timestamp && retry.count == 0 {
+                            restart_machine(&state.host_snapshot, ctx.services).await?;
+                            *controller_state.modify() = ManagedHostState::Assigned {
+                                instance_state: InstanceState::BootingWithDiscoveryImage {
+                                    retry: RetryInfo {
+                                        count: retry.count + 1,
+                                    },
+                                },
+                            };
+                        }
                         return Ok(());
                     }
 
+                    metrics.machine_reboot_attempts_in_booting_with_discovery_image =
+                        retry.count + 1;
                     *controller_state.modify() = ManagedHostState::Assigned {
                         instance_state: InstanceState::SwitchToAdminNetwork,
                     };

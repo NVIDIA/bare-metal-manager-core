@@ -223,6 +223,13 @@ pub enum LockdownMode {
     Enable,
 }
 
+/// Whether lockdown should be enabled or disabled in an operation
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")] // No tag required - this will never be nested
+pub struct RetryInfo {
+    pub count: u64,
+}
+
 /// Possible Instance state-machine implementation
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -230,10 +237,15 @@ pub enum InstanceState {
     Init, // Instance is created but not picked by state machine yet.
     WaitingForNetworkConfig,
     Ready,
-    BootingWithDiscoveryImage,
+    BootingWithDiscoveryImage {
+        #[serde(default)]
+        retry: RetryInfo,
+    },
     SwitchToAdminNetwork,
     WaitingForNetworkReconfig,
-    DPUReprovision { reprovision_state: ReprovisionState },
+    DPUReprovision {
+        reprovision_state: ReprovisionState,
+    },
 }
 
 /// Struct to store information if Reprovision is requested.
@@ -463,6 +475,37 @@ mod tests {
                 instance_state: InstanceState::DPUReprovision {
                     reprovision_state: ReprovisionState::FirmwareUpgrade,
                 },
+            }
+        );
+    }
+
+    #[test]
+    fn test_json_deserialize_bootingwithdiscoveryimage_state_for_instance() {
+        let serialized =
+            r#"{"state":"assigned","instance_state":{"state":"bootingwithdiscoveryimage"}}"#;
+        let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            deserialized,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::BootingWithDiscoveryImage {
+                    retry: RetryInfo { count: 0 }
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn test_json_deserialize_bootingwithdiscoveryimage_state_with_retry_for_instance() {
+        let serialized = r#"{"state":"assigned","instance_state":{"state":"bootingwithdiscoveryimage", "retry":{"count": 10}}}"#;
+        let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            deserialized,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::BootingWithDiscoveryImage {
+                    retry: RetryInfo { count: 10 }
+                }
             }
         );
     }

@@ -212,6 +212,9 @@ pub trait MetricsEmitter: std::fmt::Debug + Send + Sync + 'static {
     /// Returns the list of instruments that are used by this emitter.
     /// Used for opentelemetry callback registration
     fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>>;
+
+    /// Once IterationMetrics are merged, call this to record these values into histograms.
+    fn update_histograms(&self, iteration_metrics: &Self::IterationMetrics);
 }
 
 /// A [MetricsEmitter] that can be used if no custom metrics are required.
@@ -246,6 +249,8 @@ impl MetricsEmitter for NoopMetricsEmitter {
     fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
         Vec::new()
     }
+
+    fn update_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
 }
 
 /// Holds the OpenTelemetry datastructures that are used to submit
@@ -373,6 +378,8 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
 
         observer.observe_u64(&self.total_objects_gauge, total_objects as u64, attributes);
     }
+
+    fn update_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
 }
 
 impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
@@ -568,6 +575,11 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
     ) {
         self.common
             .set_iteration_span_attributes(span, iteration_metrics)
+    }
+
+    /// Update histograms
+    pub fn update_histograms(&self, iteration_metrics: &IterationMetrics<IO>) {
+        self.specific.update_histograms(&iteration_metrics.specific);
     }
 }
 
