@@ -55,7 +55,10 @@ use carbide::{
 use chrono::Utc;
 use common::api_fixtures::{
     create_managed_host, create_test_env, dpu,
-    instance::{create_instance, delete_instance, FIXTURE_CIRCUIT_ID},
+    instance::{
+        advance_created_instance_into_ready_state, create_instance, delete_instance,
+        FIXTURE_CIRCUIT_ID,
+    },
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
 use mac_address::MacAddress;
@@ -69,7 +72,7 @@ fn setup() {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_crud_instance(pool: sqlx::PgPool) {
+async fn test_allocate_and_release_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -303,6 +306,111 @@ async fn test_create_instance_with_provided_id(pool: sqlx::PgPool) {
         .instances
         .remove(0);
     assert_eq!(instance.id.as_ref(), Some(&rpc_instance_id));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_deletion_before_provisioning_finishes(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+        }],
+    });
+
+    // Create an instance in non-ready state
+    let config = rpc::InstanceConfig {
+        tenant: Some(rpc::TenantConfig {
+            user_data: Some("SomeRandomData".to_string()),
+            custom_ipxe: "SomeRandomiPxe".to_string(),
+            tenant_organization_id: "Tenant1".to_string(),
+            tenant_keyset_ids: vec![],
+            always_boot_with_custom_ipxe: false,
+        }),
+        network,
+        infiniband: Default::default(),
+    };
+
+    let instance = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(config),
+            ssh_keys: vec![],
+        }))
+        .await
+        .expect("Create instance failed.")
+        .into_inner();
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::TenantState::Provisioning
+    );
+
+    let instance_id: uuid::Uuid = instance
+        .id
+        .expect("Missing instance ID")
+        .try_into()
+        .unwrap();
+
+    env.api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(instance_id.into()),
+        }))
+        .await
+        .expect("Delete instance failed.");
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::TenantState::Terminating
+    );
+
+    // Advance the instance into the "ready" state. To the tenant it will however
+    // still show up as terminating
+    let instance = advance_created_instance_into_ready_state(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        instance_id,
+    )
+    .await;
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::TenantState::Terminating
+    );
+
+    // Now go through regular deletion
+    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
