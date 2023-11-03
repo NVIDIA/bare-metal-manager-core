@@ -18,6 +18,7 @@ use std::{fs, io, net::Ipv4Addr, process::Command};
 
 use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
 use eyre::WrapErr;
+use serde::Deserialize;
 use tracing::{debug, error, trace};
 
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces};
@@ -127,7 +128,7 @@ pub fn update(
     let has_changes = !post_actions.is_empty();
     if !skip_post {
         for post in post_actions {
-            match in_container(post.cmd) {
+            match in_container_shell(post.cmd) {
                 Ok(_) => {
                     if post.path_bak.exists() {
                         if let Err(err) = fs::remove_file(&post.path_bak) {
@@ -190,11 +191,18 @@ pub fn interfaces(
             addresses: vec![iface.ip.clone()],
         });
     } else {
+        let container_id = hbn::get_hbn_container_id()?;
         for iface in network_config.tenant_interfaces.iter() {
             let mac = if iface.function_type == rpc::InterfaceFunctionType::Physical as i32 {
                 Some(factory_mac_address.to_string())
             } else {
-                None // TODO get the vf MAC addresses
+                match tenant_vf_mac(&container_id, iface.vlan_id) {
+                    Ok(mac) => Some(mac),
+                    Err(err) => {
+                        tracing::error!(%err, vlan_id=iface.vlan_id, "Error fetching tenant VF MAC");
+                        None
+                    }
+                }
             };
             interfaces.push(rpc::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
@@ -256,7 +264,7 @@ pub fn reset(
 
     if !skip_post {
         for post in post_actions {
-            if let Err(err) = in_container(post.cmd) {
+            if let Err(err) = in_container_shell(post.cmd) {
                 errs.push(format!("reload '{}': {err}", post.cmd))
             }
         }
@@ -532,8 +540,84 @@ fn write<P: AsRef<Path>>(
     }))
 }
 
-// Run the given command inside HBN container
-fn in_container(cmd: &'static str) -> Result<(), eyre::Report> {
+#[derive(Deserialize, Debug)]
+struct Fdb {
+    mac: String,
+    ifname: String,
+    state: String,
+}
+
+#[derive(Deserialize, Debug)]
+// This has many more fields, only parse the one we check
+struct IpShow {
+    address: String,
+}
+
+/// The host/tenant side MAC address of a VF
+///
+/// To use a VF a tenant needs to do this on their host:
+///  - echo 16 > /sys/class/net/eth0/device/sriov_numvfs
+///  - ip link set <name> up
+/// DPU side this must say 16 but discovery should take care of that:
+///  mlxconfig -d /dev/mst/mt41686_pciconf0 query NUM_OF_VFS
+fn tenant_vf_mac(container_id: &str, vlan_id: u32) -> eyre::Result<String> {
+    // This should give us four elements
+    let fdb_json = hbn::run_in_container(
+        container_id,
+        &["bridge", "-j", "fdb", "show", "vlan", &vlan_id.to_string()],
+        true,
+    )?;
+    let mut fdb: Vec<Fdb> = serde_json::from_str(&fdb_json)?;
+
+    // Two of them were permanent, ignore them, leaving only the host side and our side
+    fdb.retain(|f| f.state != "permanent");
+    if fdb.len() != 2 {
+        eyre::bail!("After 'permanent' removal expected 2 remaining elements, got {fdb:?}");
+    }
+    if fdb[0].ifname != fdb[1].ifname {
+        eyre::bail!(
+            "After 'permanent' removal expected two entries with same ifname, got '{}' and '{}'",
+            fdb[0].ifname,
+            fdb[1].ifname
+        );
+    }
+
+    // Find our side - both will have the same ifname
+    let ovs_side = format!("{}_r", fdb[0].ifname);
+    let mut cmd = Command::new("ip");
+    let cmd = cmd.args(["-j", "address", "show", &ovs_side.to_string()]);
+    let ip_out = cmd.output()?;
+    if !ip_out.status.success() {
+        debug!(
+            "STDERR {}: {}",
+            super::pretty_cmd(cmd),
+            String::from_utf8_lossy(&ip_out.stderr)
+        );
+        return Err(eyre::eyre!(
+            "{} for cmd '{}'",
+            ip_out.status, // includes the string "exit status"
+            super::pretty_cmd(cmd)
+        ));
+    }
+
+    let ip_json = String::from_utf8_lossy(&ip_out.stdout).to_string();
+    let ip_show: Vec<IpShow> = serde_json::from_str(&ip_json)?;
+    if ip_show.len() != 1 {
+        eyre::bail!("Getting local side MAC should return 1 entry, got {ip_show:?}");
+    }
+
+    // And ignore our side
+    fdb.retain(|f| f.mac != ip_show[0].address);
+
+    // And then there was one
+    if fdb.len() != 1 {
+        eyre::bail!("After all removals there should be 1 entry, {fdb:?}");
+    }
+    Ok(fdb.remove(0).mac) // And then there were none
+}
+
+// Run the given command inside HBN container in a shell. Ignore the output.
+fn in_container_shell(cmd: &'static str) -> Result<(), eyre::Report> {
     let container_id = hbn::get_hbn_container_id()?;
     let out = Command::new("/usr/bin/crictl")
         .args(["exec", &container_id, "bash", "-c", cmd])
@@ -547,6 +631,24 @@ fn in_container(cmd: &'static str) -> Result<(), eyre::Report> {
         ));
     }
     Ok(())
+}
+
+// std::fs::read_to_string but limited to 4k bytes for safety
+fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
+    let f = File::open(path)?;
+    let l = f.metadata()?.len();
+    if l > MAX_EXPECTED_SIZE {
+        return Err(io::Error::new(
+            // ErrorKind::FileTooLarge but it's nightly only
+            io::ErrorKind::Other,
+            format!("{l} > {MAX_EXPECTED_SIZE} bytes"),
+        ));
+    }
+    // in case it changes as we read
+    let mut f_limit = f.take(MAX_EXPECTED_SIZE);
+    let mut s = String::with_capacity(l as usize);
+    f_limit.read_to_string(&mut s)?;
+    Ok(s)
 }
 
 #[cfg(test)]
@@ -717,6 +819,25 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_parse_fdb() -> Result<(), Box<dyn std::error::Error>> {
+        let json = r#"[{"mac":"7e:f6:b2:b2:f0:97","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"4e:1f:bd:97:23:3e","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"00:04:4b:b7:e5:00","ifname":"br_default","vlan":21,"flags":[],"master":"br_default","state":"permanent"},{"mac":"16:3c:3d:a8:81:40","ifname":"vxlan5555","vlan":21,"flags":[],"master":"br_default","state":"permanent"}]"#;
+        let out: Vec<super::Fdb> = serde_json::from_str(json)?;
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0].mac, "7e:f6:b2:b2:f0:97");
+        assert_eq!(out[2].state, "permanent");
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_ip_show() -> Result<(), Box<dyn std::error::Error>> {
+        let json = r#"[{"ifindex":26,"ifname":"pf0vf0_sf_r","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":9216,"qdisc":"mq","master":"ovs-system","operstate":"UP","group":"default","txqlen":1000,"link_type":"ether","address":"4e:1f:bd:97:23:3e","broadcast":"ff:ff:ff:ff:ff:ff","altnames":["enp3s0f0npf0sf131072"],"addr_info":[{"family":"inet6","local":"fe80::4c1f:bdff:fe97:233e","prefixlen":64,"scope":"link","valid_life_time":4294967295,"preferred_life_time":4294967295}]}]"#;
+        let out: Vec<super::IpShow> = serde_json::from_str(json)?;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].address, "4e:1f:bd:97:23:3e");
+        Ok(())
+    }
+
     fn compare<P: AsRef<Path>>(p1: P, expected: &str) -> Result<(), Box<dyn std::error::Error>> {
         let contents = super::read_limited(p1.as_ref())?;
         // trim white space at end of line to match Go version
@@ -754,22 +875,4 @@ mod tests {
         assert!(r.is_identical());
         Ok(())
     }
-}
-
-// std::fs::read_to_string but limited to 4k bytes for safety
-fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
-    let f = File::open(path)?;
-    let l = f.metadata()?.len();
-    if l > MAX_EXPECTED_SIZE {
-        return Err(io::Error::new(
-            // ErrorKind::FileTooLarge but it's nightly only
-            io::ErrorKind::Other,
-            format!("{l} > {MAX_EXPECTED_SIZE} bytes"),
-        ));
-    }
-    // in case it changes as we read
-    let mut f_limit = f.take(MAX_EXPECTED_SIZE);
-    let mut s = String::with_capacity(l as usize);
-    f_limit.read_to_string(&mut s)?;
-    Ok(s)
 }
