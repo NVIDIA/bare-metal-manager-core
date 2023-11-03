@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet};
 
 use opentelemetry_api::{
-    metrics::{self, Meter, ObservableGauge},
+    metrics::{self, Histogram, Meter, ObservableGauge},
     KeyValue,
 };
 
@@ -30,6 +30,7 @@ pub struct MachineMetrics {
     pub dpu_firmware_version: Option<String>,
     pub client_certificate_expiry: Option<u64>,
     pub machine_id: Option<String>,
+    pub machine_reboot_attempts_in_booting_with_discovery_image: u64,
 }
 
 #[derive(Debug, Default)]
@@ -40,6 +41,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub failed_dpu_healthchecks: HashMap<String, usize>,
     pub dpu_firmware_versions: HashMap<String, usize>,
     pub client_certificate_expiration_times: HashMap<String, u64>,
+    pub machine_reboot_attempts_in_booting_with_discovery_image: Vec<u64>,
 }
 
 #[derive(Debug)]
@@ -50,6 +52,13 @@ pub struct MachineMetricsEmitter {
     dpu_agent_version_gauge: ObservableGauge<u64>,
     dpu_firmware_version_gauge: ObservableGauge<u64>,
     client_certificate_expiration_gauge: ObservableGauge<u64>,
+    machine_reboot_attempts_in_booting_with_discovery_image: Histogram<u64>,
+}
+
+impl MachineStateControllerIterationMetrics {
+    pub fn machine_reboot_attempts_in_booting_with_discovery_image(&self) -> &Vec<u64> {
+        &self.machine_reboot_attempts_in_booting_with_discovery_image
+    }
 }
 
 impl MetricsEmitter for MachineMetricsEmitter {
@@ -89,6 +98,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .with_description("The expiration time (epoch seconds) for the client certificate associated with a given DPU.")
             .init();
 
+        let machine_reboot_attempts_in_booting_with_discovery_image = meter
+            .u64_histogram("forge_reboot_attempts_in_booting_with_discovery_image")
+            .with_description("The amount of machines rebooted again in BootingWithDiscoveryImage since there is no response after a certain time from host.")
+            .init();
+
         Self {
             dpus_up_gauge,
             dpus_healthy_gauge,
@@ -96,6 +110,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             failed_dpu_healthchecks_gauge,
             dpu_firmware_version_gauge,
             client_certificate_expiration_gauge,
+            machine_reboot_attempts_in_booting_with_discovery_image,
         }
     }
 
@@ -120,6 +135,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
         if object_metrics.dpu_healthy {
             iteration_metrics.dpus_healthy += 1;
         }
+
+        iteration_metrics
+            .machine_reboot_attempts_in_booting_with_discovery_image
+            .push(object_metrics.machine_reboot_attempts_in_booting_with_discovery_image);
 
         for failed_healthcheck in &object_metrics.failed_dpu_healthchecks {
             *iteration_metrics
@@ -221,6 +240,16 @@ impl MetricsEmitter for MachineMetricsEmitter {
             );
         }
     }
+
+    fn update_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
+        iteration_metrics
+            .machine_reboot_attempts_in_booting_with_discovery_image
+            .iter()
+            .for_each(|x| {
+                self.machine_reboot_attempts_in_booting_with_discovery_image
+                    .record(*x, &[]);
+            });
+    }
 }
 
 #[cfg(test)]
@@ -238,6 +267,7 @@ mod tests {
                 dpu_firmware_version: None,
                 client_certificate_expiry: Some(1),
                 machine_id: Some("machine a".to_string()),
+                machine_reboot_attempts_in_booting_with_discovery_image: 0,
             },
             MachineMetrics {
                 agent_version: Some("v1".to_string()),
@@ -247,6 +277,7 @@ mod tests {
                 dpu_firmware_version: None,
                 client_certificate_expiry: Some(2),
                 machine_id: Some("machine a".to_string()),
+                machine_reboot_attempts_in_booting_with_discovery_image: 0,
             },
             MachineMetrics {
                 agent_version: Some("v3".to_string()),
@@ -256,6 +287,7 @@ mod tests {
                 dpu_firmware_version: Some("v4".to_string()),
                 client_certificate_expiry: Some(3),
                 machine_id: Some("machine b".to_string()),
+                machine_reboot_attempts_in_booting_with_discovery_image: 1,
             },
             MachineMetrics {
                 agent_version: Some("v3".to_string()),
@@ -265,6 +297,7 @@ mod tests {
                 dpu_firmware_version: Some("v2".to_string()),
                 client_certificate_expiry: None,
                 machine_id: Some("machine b".to_string()),
+                machine_reboot_attempts_in_booting_with_discovery_image: 1,
             },
             MachineMetrics {
                 agent_version: None,
@@ -274,6 +307,7 @@ mod tests {
                 dpu_firmware_version: Some("v4".to_string()),
                 client_certificate_expiry: Some(55),
                 machine_id: None,
+                machine_reboot_attempts_in_booting_with_discovery_image: 0,
             },
         ];
 
@@ -288,6 +322,13 @@ mod tests {
         );
         assert_eq!(iteration_metrics.dpus_up, 4);
         assert_eq!(iteration_metrics.dpus_healthy, 3);
+        assert_eq!(
+            iteration_metrics
+                .machine_reboot_attempts_in_booting_with_discovery_image
+                .iter()
+                .sum::<u64>(),
+            2
+        );
         assert_eq!(
             iteration_metrics.failed_dpu_healthchecks,
             HashMap::from_iter([

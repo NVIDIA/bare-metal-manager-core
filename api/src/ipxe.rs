@@ -220,7 +220,7 @@ exit ||
                         "exit".to_string()
                     }
                 }
-                InstanceState::BootingWithDiscoveryImage => {
+                InstanceState::BootingWithDiscoveryImage { .. } => {
                     PxeInstructions::get_pxe_instruction_for_arch(arch, interface_id, mac, console)
                 }
 

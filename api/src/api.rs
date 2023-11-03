@@ -4564,6 +4564,7 @@ where
                 )))
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
+                    host_wait_time: service_config.host_wait_time,
                 })
                 .ipmi_tool(ipmi_tool.clone())
                 .build()
@@ -4587,6 +4588,7 @@ where
             )))
             .reachability_params(ReachabilityParams {
                 dpu_wait_time: service_config.dpu_wait_time,
+                host_wait_time: service_config.host_wait_time,
             })
             .ipmi_tool(ipmi_tool.clone())
             .build()
@@ -4601,6 +4603,7 @@ where
                 .pool_pkey(common_pools.infiniband.pool_pkey.clone())
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
+                    host_wait_time: service_config.host_wait_time,
                 })
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.network_segment_state_controller_iteration_time)
@@ -4619,6 +4622,7 @@ where
                 .ib_fabric_manager(ib_fabric_manager.clone())
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,
+                    host_wait_time: service_config.host_wait_time,
                 })
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.network_segment_state_controller_iteration_time)
@@ -4951,6 +4955,8 @@ struct ServiceConfig {
     /// How long to wait for DPU to restart after BMC lockdown. Not a timeout, it's a forced wait.
     /// This will be replaced with querying lockdown state.
     dpu_wait_time: chrono::Duration,
+    /// How long to wait for Host to restart if it does not respond after reboot.
+    host_wait_time: chrono::Duration,
     /// How long to wait for a health report from the DPU before we assume it's down
     dpu_up_threshold: chrono::Duration,
 }
@@ -4963,6 +4969,7 @@ impl Default for ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
             max_db_connections: 1000,
             dpu_wait_time: Duration::minutes(5),
+            host_wait_time: Duration::minutes(15),
             dpu_up_threshold: Duration::minutes(5),
         }
     }
@@ -4980,6 +4987,7 @@ impl ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
             dpu_wait_time: Duration::seconds(1),
+            host_wait_time: Duration::seconds(1),
             // In local dev forge-dpu-agent probably isn't running, so no heartbeat
             dpu_up_threshold: Duration::weeks(52),
         }

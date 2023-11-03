@@ -15,6 +15,7 @@ use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::db::machine_interface::MachineInterface;
 use carbide::model::machine::{InstanceState, MachineState, ManagedHostState, ReprovisionState};
 use carbide::state_controller::machine::handler::MachineStateHandler;
+use carbide::state_controller::metrics::IterationMetrics;
 use common::api_fixtures::create_test_env;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
@@ -162,12 +163,14 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
     let services = Arc::new(env.state_handler_services());
+    let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
         &services,
         &env.pool,
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -209,6 +212,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -252,6 +256,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -290,6 +295,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -333,6 +339,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -363,6 +370,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -476,12 +484,14 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     let dpu_rpc_id = rpc::forge::MachineId {
         id: dpu_machine_id.to_string(),
     };
+    let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
         &services,
         &env.pool,
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -525,6 +535,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -554,6 +565,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -579,6 +591,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -609,6 +622,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -690,12 +704,14 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
     let services = Arc::new(env.state_handler_services());
+    let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
         &services,
         &env.pool,
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -739,6 +755,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -784,6 +801,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -824,6 +842,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -869,6 +888,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -955,12 +975,14 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
     let services = Arc::new(env.state_handler_services());
+    let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
         &services,
         &env.pool,
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -1009,6 +1031,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -1049,6 +1072,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 
@@ -1094,6 +1118,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         &env.machine_state_controller_io,
         host_machine_id.clone(),
         &handler,
+        &mut iteration_metrics,
     )
     .await;
 

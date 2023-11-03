@@ -26,7 +26,7 @@ use carbide::{
             ManagedHostState,
         },
     },
-    state_controller::machine::handler::MachineStateHandler,
+    state_controller::{machine::handler::MachineStateHandler, metrics::IterationMetrics},
 };
 use rpc::{
     forge::{
@@ -80,6 +80,7 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         rpc::forge_agent_control_response::Action::Noop as i32
     );
 
+    let mut iteration_metrics = IterationMetrics::default();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         &handler,
@@ -88,6 +89,7 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         ManagedHostState::DPUNotReady {
             machine_state: carbide::model::machine::MachineState::WaitingForNetworkConfig,
         },
+        &mut iteration_metrics,
     )
     .await;
 
@@ -100,6 +102,7 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         ManagedHostState::HostNotReady {
             machine_state: carbide::model::machine::MachineState::WaitingForDiscovery,
         },
+        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -169,6 +172,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         .id()
         .clone();
 
+    let mut iteration_metrics = IterationMetrics::default();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         &handler,
@@ -177,6 +181,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         ManagedHostState::DPUNotReady {
             machine_state: carbide::model::machine::MachineState::WaitingForNetworkInstall,
         },
+        &mut iteration_metrics,
     )
     .await;
 

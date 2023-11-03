@@ -106,7 +106,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 InstanceState::Init => "init",
                 InstanceState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 InstanceState::Ready => "ready",
-                InstanceState::BootingWithDiscoveryImage => "bootingwithdiscoveryimage",
+                InstanceState::BootingWithDiscoveryImage { .. } => "bootingwithdiscoveryimage",
                 InstanceState::SwitchToAdminNetwork => "switchtoadminnetwork",
                 InstanceState::WaitingForNetworkReconfig => "waitingfornetworkreconfig",
                 InstanceState::DPUReprovision { .. } => "dpureprovisioning",
