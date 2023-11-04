@@ -14,7 +14,11 @@ use rpc::forge as rpcf;
 use rpc::forge::forge_server::Forge;
 
 mod common;
-use common::api_fixtures::{create_test_env, network_segment::FIXTURE_NETWORK_SEGMENT_ID};
+use common::api_fixtures::{
+    create_test_env,
+    instance::{default_tenant_config, single_interface_network_config},
+    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+};
 
 use crate::common::api_fixtures::create_managed_host;
 
@@ -43,29 +47,17 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap();
 
-    // allocate: should fail
+    let instance_config = rpcf::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        infiniband: None,
+    };
 
-    let tenant = rpcf::TenantConfig {
-        user_data: Some("SomeRandomData".to_string()),
-        custom_ipxe: "SomeRandomiPxe".to_string(),
-        always_boot_with_custom_ipxe: false,
-        tenant_organization_id: "Tenant1".to_string(),
-        tenant_keyset_ids: vec![],
-    };
-    let network = rpcf::InstanceNetworkConfig {
-        interfaces: vec![rpcf::InstanceInterfaceConfig {
-            function_type: rpcf::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    };
+    // allocate: should fail
     let req = rpcf::InstanceAllocationRequest {
         instance_id: None,
         machine_id: Some(rpc_host_id.clone()),
-        config: Some(rpcf::InstanceConfig {
-            tenant: Some(tenant.clone()),
-            network: Some(network.clone()),
-            infiniband: None,
-        }),
+        config: Some(instance_config.clone()),
         ssh_keys: vec![],
     };
     match env.api.allocate_instance(tonic::Request::new(req)).await {
@@ -133,11 +125,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let req = rpcf::InstanceAllocationRequest {
         instance_id: None,
         machine_id: Some(rpc_host_id.clone()),
-        config: Some(rpcf::InstanceConfig {
-            tenant: Some(tenant.clone()),
-            network: Some(network.clone()),
-            infiniband: None,
-        }),
+        config: Some(instance_config),
         ssh_keys: vec![],
     };
     env.api.allocate_instance(tonic::Request::new(req)).await?;

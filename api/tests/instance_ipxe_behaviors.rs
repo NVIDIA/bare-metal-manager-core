@@ -16,7 +16,10 @@ use rpc::forge::{forge_server::Forge, PxeInstructions};
 
 pub mod common;
 use crate::common::api_fixtures::{
-    create_managed_host, instance::create_instance_with_config,
+    create_managed_host,
+    instance::{
+        create_instance_with_config, default_tenant_config, single_interface_network_config,
+    },
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
@@ -165,22 +168,12 @@ pub async fn create_instance(
     host_machine_id: &MachineId,
     always_boot_with_custom_ipxe: bool,
 ) -> (uuid::Uuid, rpc::Instance) {
-    let network = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    };
+    let mut tenant_config = default_tenant_config();
+    tenant_config.always_boot_with_custom_ipxe = always_boot_with_custom_ipxe;
 
     let config = rpc::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_organization_id: "Tenant1".to_string(),
-            tenant_keyset_ids: vec![],
-            always_boot_with_custom_ipxe,
-        }),
-        network: Some(network),
+        tenant: Some(tenant_config),
+        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 

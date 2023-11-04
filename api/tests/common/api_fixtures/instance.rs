@@ -34,14 +34,11 @@ pub async fn create_instance(
     infiniband: Option<rpc::InstanceInfinibandConfig>,
     keyset_ids: Vec<String>,
 ) -> (uuid::Uuid, rpc::Instance) {
+    let mut tenant_config = default_tenant_config();
+    tenant_config.tenant_keyset_ids = keyset_ids;
+
     let config = rpc::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_organization_id: "Tenant1".to_string(),
-            tenant_keyset_ids: keyset_ids,
-            always_boot_with_custom_ipxe: false,
-        }),
+        tenant: Some(tenant_config),
         network,
         infiniband,
     };
@@ -60,25 +57,31 @@ pub async fn create_instance_with_ib_config(
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config).await
 }
 
+pub fn single_interface_network_config(segment_id: uuid::Uuid) -> rpc::InstanceNetworkConfig {
+    rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(segment_id.into()),
+        }],
+    }
+}
+
+pub fn default_tenant_config() -> rpc::TenantConfig {
+    rpc::TenantConfig {
+        user_data: Some("SomeRandomData".to_string()),
+        custom_ipxe: "SomeRandomiPxe".to_string(),
+        tenant_organization_id: "Tenant1".to_string(),
+        tenant_keyset_ids: vec![],
+        always_boot_with_custom_ipxe: false,
+    }
+}
+
 pub fn config_for_ib_config(
     ib_config: rpc::forge::InstanceInfinibandConfig,
 ) -> rpc::forge::InstanceConfig {
-    let network = rpc::forge::InstanceNetworkConfig {
-        interfaces: vec![rpc::forge::InstanceInterfaceConfig {
-            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    };
-
     rpc::forge::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_organization_id: "Tenant1".to_string(),
-            tenant_keyset_ids: vec![],
-            always_boot_with_custom_ipxe: false,
-        }),
-        network: Some(network),
+        tenant: Some(default_tenant_config()),
+        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: Some(ib_config),
     }
 }

@@ -15,7 +15,9 @@ use common::api_fixtures::{create_test_env, TestEnv};
 use rpc::forge::{forge_server::Forge, CreateTenantKeysetResponse};
 
 use crate::common::api_fixtures::{
-    create_managed_host, instance::create_instance, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    create_managed_host,
+    instance::{create_instance, single_interface_network_config},
+    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
 #[ctor::ctor]
@@ -529,17 +531,11 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
 
     // Create instance
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
     )
@@ -619,17 +615,11 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
 async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
     )
