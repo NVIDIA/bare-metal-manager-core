@@ -23,7 +23,7 @@ use rpc::forge::forge_server::Forge;
 pub mod common;
 
 use crate::common::api_fixtures::dpu::create_dpu_machine;
-use crate::common::api_fixtures::instance::create_instance;
+use crate::common::api_fixtures::instance::{create_instance, single_interface_network_config};
 use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 use crate::common::api_fixtures::{
     create_managed_host, discovery_completed, forge_agent_control, network_configured,
@@ -640,18 +640,11 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let (_instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -911,18 +904,11 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let (_instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )

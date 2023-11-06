@@ -11,7 +11,7 @@
  */
 
 use common::api_fixtures::dpu;
-use common::api_fixtures::instance::create_instance;
+use common::api_fixtures::instance::{create_instance, single_interface_network_config};
 use common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 use common::api_fixtures::{
     create_managed_host, create_test_env, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
@@ -39,17 +39,11 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .machines
         .remove(0);
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
     let (_instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
     )

@@ -30,7 +30,6 @@ use carbide::{
             config::{
                 infiniband::InstanceInfinibandConfig,
                 network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
-                tenant_config::TenantConfig,
                 InstanceConfig,
             },
             status::{
@@ -44,7 +43,6 @@ use carbide::{
         },
         machine::machine_id::try_parse_machine_id,
         machine::{InstanceState, ManagedHostState},
-        tenant::TenantOrganizationId,
     },
     state_controller::{
         machine::handler::MachineStateHandler,
@@ -56,8 +54,8 @@ use chrono::Utc;
 use common::api_fixtures::{
     create_managed_host, create_test_env, dpu,
     instance::{
-        advance_created_instance_into_ready_state, create_instance, delete_instance,
-        FIXTURE_CIRCUIT_ID,
+        advance_created_instance_into_ready_state, create_instance, default_tenant_config,
+        delete_instance, single_interface_network_config, FIXTURE_CIRCUIT_ID,
     },
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
@@ -102,18 +100,11 @@ async fn test_allocate_and_release_instance(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -209,14 +200,8 @@ async fn test_allocate_and_release_instance(pool: sqlx::PgPool) {
         .as_ref()
         .expect("Expecting tenant status");
     assert_eq!(
-        tenant_config,
-        &TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            always_boot_with_custom_ipxe: false,
-            tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string()).unwrap(),
-            tenant_keyset_ids: vec![],
-        }
+        tenant_config.clone(),
+        default_tenant_config().try_into().unwrap()
     );
 
     assert!(matches!(
@@ -262,22 +247,9 @@ async fn test_create_instance_with_provided_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let config = rpc::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_organization_id: "Tenant1".to_string(),
-            tenant_keyset_ids: vec![],
-            always_boot_with_custom_ipxe: false,
-        }),
-        network,
+        tenant: Some(default_tenant_config()),
+        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 
@@ -313,23 +285,10 @@ async fn test_instance_deletion_before_provisioning_finishes(pool: sqlx::PgPool)
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     // Create an instance in non-ready state
     let config = rpc::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_organization_id: "Tenant1".to_string(),
-            tenant_keyset_ids: vec![],
-            always_boot_with_custom_ipxe: false,
-        }),
-        network,
+        tenant: Some(default_tenant_config()),
+        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: Default::default(),
     };
 
@@ -414,27 +373,80 @@ async fn test_instance_deletion_before_provisioning_finishes(pool: sqlx::PgPool)
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_deletion_is_idempotent(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
+        vec![],
+    )
+    .await;
+
+    // We can call `release_instance` multiple times
+    for i in 0..2 {
+        env.api
+            .release_instance(tonic::Request::new(InstanceReleaseRequest {
+                id: Some(instance_id.into()),
+            }))
+            .await
+            .unwrap_or_else(|_| panic!("Delete instance failed failed on attempt {}.", i));
+        let instance = env
+            .find_instances(Some(instance_id.into()))
+            .await
+            .instances
+            .remove(0);
+        assert_eq!(
+            instance
+                .status
+                .as_ref()
+                .unwrap()
+                .tenant
+                .as_ref()
+                .unwrap()
+                .state(),
+            rpc::TenantState::Terminating
+        );
+    }
+
+    // And finally delete the instance
+    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
+
+    // Release instance on non-existing instance
+    let err = env
+        .api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(instance_id.into()),
+        }))
+        .await
+        .expect_err("Expect deletion to fail");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    let err_msg = err.message();
+    assert!(
+        err_msg.contains("Supplied invalid UUID:"),
+        "Error message is: {}",
+        err_msg
+    );
+    assert!(
+        err_msg.contains("Could not find associated instance."),
+        "Error message is: {}",
+        err_msg
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
     let (host_machine_id_2, _dpu_machine_id_2) = create_managed_host(&env).await;
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let config = rpc::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            tenant_organization_id: "Tenant1".to_string(),
-            tenant_keyset_ids: vec![],
-            always_boot_with_custom_ipxe: false,
-        }),
-        network,
+        tenant: Some(default_tenant_config()),
+        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 
@@ -500,18 +512,11 @@ async fn test_instance_cloud_init_metadata(pool: sqlx::PgPool) -> eyre::Result<(
 
     assert_eq!(metadata.instance_id, host_machine_id.to_string());
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let (instance_id, instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -540,18 +545,11 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -762,18 +760,11 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
     );
     txn.commit().await.unwrap();
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -806,13 +797,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
 
     assert_eq!(
         instance_snapshot.config.tenant,
-        Some(TenantConfig {
-            user_data: Some("SomeRandomData".to_string()),
-            custom_ipxe: "SomeRandomiPxe".to_string(),
-            always_boot_with_custom_ipxe: false,
-            tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string()).unwrap(),
-            tenant_keyset_ids: vec![],
-        })
+        Some(default_tenant_config().try_into().unwrap())
     );
 
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
@@ -828,14 +813,7 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
         instance_id: uuid::Uuid::new_v4(),
         machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),
         config: InstanceConfig {
-            tenant: Some(TenantConfig {
-                user_data: Some("SomeRandomData".to_string()),
-                custom_ipxe: "SomeRandomiPxe".to_string(),
-                always_boot_with_custom_ipxe: false,
-                tenant_organization_id: TenantOrganizationId::try_from("Tenant1".to_string())
-                    .unwrap(),
-                tenant_keyset_ids: vec![],
-            }),
+            tenant: Some(default_tenant_config().try_into().unwrap()),
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
             infiniband: InstanceInfinibandConfig::default(),
         },
@@ -1044,13 +1022,6 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
     });
     env.api.record_dpu_network_status(netstat_req).await?;
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let result = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
@@ -1059,14 +1030,8 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
                 id: host_machine_id.to_string(),
             }),
             config: Some(rpc::InstanceConfig {
-                tenant: Some(rpc::TenantConfig {
-                    user_data: Some("SomeRandomData".to_string()),
-                    custom_ipxe: "SomeRandomiPxe".to_string(),
-                    always_boot_with_custom_ipxe: false,
-                    tenant_organization_id: "Tenant1".to_string(),
-                    tenant_keyset_ids: vec![],
-                }),
-                network,
+                tenant: Some(default_tenant_config()),
+                network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
                 infiniband: None,
             }),
             ssh_keys: vec!["mykey1".to_owned()],
@@ -1086,18 +1051,11 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
-        }],
-    });
-
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        network,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
