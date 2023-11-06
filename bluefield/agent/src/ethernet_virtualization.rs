@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -191,15 +191,39 @@ pub fn interfaces(
             addresses: vec![iface.ip.clone()],
         });
     } else {
-        let container_id = hbn::get_hbn_container_id()?;
+        // Only load virtual interface details if there are any
+        let fdb = if network_config
+            .tenant_interfaces
+            .iter()
+            .any(|iface| iface.function_type == rpc::InterfaceFunctionType::Virtual as i32)
+        {
+            let fdb_json = hbn::run_in_container(
+                &hbn::get_hbn_container_id()?,
+                &["bridge", "-j", "fdb", "show"],
+                true,
+            )?;
+            parse_fdb(&fdb_json)?
+        } else {
+            HashMap::new()
+        };
+
         for iface in network_config.tenant_interfaces.iter() {
             let mac = if iface.function_type == rpc::InterfaceFunctionType::Physical as i32 {
                 Some(factory_mac_address.to_string())
             } else {
-                match tenant_vf_mac(&container_id, iface.vlan_id) {
-                    Ok(mac) => Some(mac),
-                    Err(err) => {
-                        tracing::error!(%err, vlan_id=iface.vlan_id, "Error fetching tenant VF MAC");
+                match fdb.get(&iface.vlan_id) {
+                    Some(vlan_fdb) => match tenant_vf_mac(vlan_fdb) {
+                        Ok(mac) => Some(mac.to_string()),
+                        Err(err) => {
+                            tracing::error!(%err, vlan_id=iface.vlan_id, "Error fetching tenant VF MAC");
+                            None
+                        }
+                    },
+                    None => {
+                        tracing::error!(
+                            vlan_id = iface.vlan_id,
+                            "Missing fdb bridge info for vlan"
+                        );
                         None
                     }
                 }
@@ -540,17 +564,33 @@ fn write<P: AsRef<Path>>(
     }))
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Fdb {
     mac: String,
     ifname: String,
     state: String,
+    vlan: Option<u32>,
 }
 
 #[derive(Deserialize, Debug)]
 // This has many more fields, only parse the one we check
 struct IpShow {
     address: String,
+}
+
+fn parse_fdb(fdb_json: &str) -> eyre::Result<HashMap<u32, Vec<Fdb>>> {
+    let all_fdb: Vec<Fdb> = serde_json::from_str(fdb_json)?;
+    let mut out: HashMap<u32, Vec<Fdb>> = HashMap::new();
+    for fdb in all_fdb.into_iter() {
+        if fdb.vlan.is_none() || fdb.state == "permanent" {
+            continue;
+        }
+        out.entry(fdb.vlan.unwrap())
+            .and_modify(|v| v.push(fdb.clone()))
+            .or_insert_with(|| vec![fdb]);
+    }
+
+    Ok(out)
 }
 
 /// The host/tenant side MAC address of a VF
@@ -560,30 +600,21 @@ struct IpShow {
 ///  - ip link set <name> up
 /// DPU side this must say 16 but discovery should take care of that:
 ///  mlxconfig -d /dev/mst/mt41686_pciconf0 query NUM_OF_VFS
-fn tenant_vf_mac(container_id: &str, vlan_id: u32) -> eyre::Result<String> {
-    // This should give us four elements
-    let fdb_json = hbn::run_in_container(
-        container_id,
-        &["bridge", "-j", "fdb", "show", "vlan", &vlan_id.to_string()],
-        true,
-    )?;
-    let mut fdb: Vec<Fdb> = serde_json::from_str(&fdb_json)?;
-
-    // Two of them were permanent, ignore them, leaving only the host side and our side
-    fdb.retain(|f| f.state != "permanent");
-    if fdb.len() != 2 {
-        eyre::bail!("After 'permanent' removal expected 2 remaining elements, got {fdb:?}");
+fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
+    // We're expecting only the host side and our side
+    if vlan_fdb.len() != 2 {
+        eyre::bail!("Expected two fdb entries, got {vlan_fdb:?}");
     }
-    if fdb[0].ifname != fdb[1].ifname {
+    if vlan_fdb[0].ifname != vlan_fdb[1].ifname {
         eyre::bail!(
-            "After 'permanent' removal expected two entries with same ifname, got '{}' and '{}'",
-            fdb[0].ifname,
-            fdb[1].ifname
+            "Both entries must have the same ifname, got '{}' and '{}'",
+            vlan_fdb[0].ifname,
+            vlan_fdb[1].ifname
         );
     }
 
     // Find our side - both will have the same ifname
-    let ovs_side = format!("{}_r", fdb[0].ifname);
+    let ovs_side = format!("{}_r", vlan_fdb[0].ifname);
     let mut cmd = Command::new("ip");
     let cmd = cmd.args(["-j", "address", "show", &ovs_side.to_string()]);
     let ip_out = cmd.output()?;
@@ -606,14 +637,16 @@ fn tenant_vf_mac(container_id: &str, vlan_id: u32) -> eyre::Result<String> {
         eyre::bail!("Getting local side MAC should return 1 entry, got {ip_show:?}");
     }
 
-    // And ignore our side
-    fdb.retain(|f| f.mac != ip_show[0].address);
+    // Ignore our side
+    let remote_side: Vec<&Fdb> = vlan_fdb
+        .iter()
+        .filter(|&f| f.mac != ip_show[0].address)
+        .collect();
 
-    // And then there was one
-    if fdb.len() != 1 {
-        eyre::bail!("After all removals there should be 1 entry, {fdb:?}");
+    if remote_side.len() != 1 {
+        eyre::bail!("After all removals there should be 1 entry, got {remote_side:?}");
     }
-    Ok(fdb.remove(0).mac) // And then there were none
+    Ok(&remote_side[0].mac)
 }
 
 // Run the given command inside HBN container in a shell. Ignore the output.
@@ -821,11 +854,15 @@ mod tests {
 
     #[test]
     fn test_parse_fdb() -> Result<(), Box<dyn std::error::Error>> {
-        let json = r#"[{"mac":"7e:f6:b2:b2:f0:97","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"4e:1f:bd:97:23:3e","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"00:04:4b:b7:e5:00","ifname":"br_default","vlan":21,"flags":[],"master":"br_default","state":"permanent"},{"mac":"16:3c:3d:a8:81:40","ifname":"vxlan5555","vlan":21,"flags":[],"master":"br_default","state":"permanent"}]"#;
-        let out: Vec<super::Fdb> = serde_json::from_str(json)?;
-        assert_eq!(out.len(), 4);
-        assert_eq!(out[0].mac, "7e:f6:b2:b2:f0:97");
-        assert_eq!(out[2].state, "permanent");
+        let json = include_str!("hbn_bridge_fdb.json");
+        let out = super::parse_fdb(json)?;
+        let twenty_one = out.get(&21).unwrap();
+        assert_eq!(twenty_one.len(), 2); // interface both sides
+        if !twenty_one.iter().any(|f| f.mac == "7e:f6:b2:b2:f0:97") {
+            panic!("Expected MAC not found in vlan 21's parsed fdb");
+        }
+        // "permanent" were filtered out already
+        assert!(!twenty_one.iter().any(|f| f.state == "permanent"));
         Ok(())
     }
 
