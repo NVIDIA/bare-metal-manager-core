@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,7 @@ use std::{fs, io, net::Ipv4Addr, process::Command};
 
 use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
 use eyre::WrapErr;
+use serde::Deserialize;
 use tracing::{debug, error, trace};
 
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces};
@@ -127,7 +128,7 @@ pub fn update(
     let has_changes = !post_actions.is_empty();
     if !skip_post {
         for post in post_actions {
-            match in_container(post.cmd) {
+            match in_container_shell(post.cmd) {
                 Ok(_) => {
                     if post.path_bak.exists() {
                         if let Err(err) = fs::remove_file(&post.path_bak) {
@@ -190,11 +191,42 @@ pub fn interfaces(
             addresses: vec![iface.ip.clone()],
         });
     } else {
+        // Only load virtual interface details if there are any
+        let fdb = if network_config
+            .tenant_interfaces
+            .iter()
+            .any(|iface| iface.function_type == rpc::InterfaceFunctionType::Virtual as i32)
+        {
+            let fdb_json = hbn::run_in_container(
+                &hbn::get_hbn_container_id()?,
+                &["bridge", "-j", "fdb", "show"],
+                true,
+            )?;
+            parse_fdb(&fdb_json)?
+        } else {
+            HashMap::new()
+        };
+
         for iface in network_config.tenant_interfaces.iter() {
             let mac = if iface.function_type == rpc::InterfaceFunctionType::Physical as i32 {
                 Some(factory_mac_address.to_string())
             } else {
-                None // TODO get the vf MAC addresses
+                match fdb.get(&iface.vlan_id) {
+                    Some(vlan_fdb) => match tenant_vf_mac(vlan_fdb) {
+                        Ok(mac) => Some(mac.to_string()),
+                        Err(err) => {
+                            tracing::error!(%err, vlan_id=iface.vlan_id, "Error fetching tenant VF MAC");
+                            None
+                        }
+                    },
+                    None => {
+                        tracing::error!(
+                            vlan_id = iface.vlan_id,
+                            "Missing fdb bridge info for vlan"
+                        );
+                        None
+                    }
+                }
             };
             interfaces.push(rpc::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
@@ -256,7 +288,7 @@ pub fn reset(
 
     if !skip_post {
         for post in post_actions {
-            if let Err(err) = in_container(post.cmd) {
+            if let Err(err) = in_container_shell(post.cmd) {
                 errs.push(format!("reload '{}': {err}", post.cmd))
             }
         }
@@ -532,8 +564,93 @@ fn write<P: AsRef<Path>>(
     }))
 }
 
-// Run the given command inside HBN container
-fn in_container(cmd: &'static str) -> Result<(), eyre::Report> {
+#[derive(Deserialize, Debug, Clone)]
+struct Fdb {
+    mac: String,
+    ifname: String,
+    state: String,
+    vlan: Option<u32>,
+}
+
+#[derive(Deserialize, Debug)]
+// This has many more fields, only parse the one we check
+struct IpShow {
+    address: String,
+}
+
+fn parse_fdb(fdb_json: &str) -> eyre::Result<HashMap<u32, Vec<Fdb>>> {
+    let all_fdb: Vec<Fdb> = serde_json::from_str(fdb_json)?;
+    let mut out: HashMap<u32, Vec<Fdb>> = HashMap::new();
+    for fdb in all_fdb.into_iter() {
+        if fdb.vlan.is_none() || fdb.state == "permanent" {
+            continue;
+        }
+        out.entry(fdb.vlan.unwrap())
+            .and_modify(|v| v.push(fdb.clone()))
+            .or_insert_with(|| vec![fdb]);
+    }
+
+    Ok(out)
+}
+
+/// The host/tenant side MAC address of a VF
+///
+/// To use a VF a tenant needs to do this on their host:
+///  - echo 16 > /sys/class/net/eth0/device/sriov_numvfs
+///  - ip link set <name> up
+/// DPU side this must say 16 but discovery should take care of that:
+///  mlxconfig -d /dev/mst/mt41686_pciconf0 query NUM_OF_VFS
+fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
+    // We're expecting only the host side and our side
+    if vlan_fdb.len() != 2 {
+        eyre::bail!("Expected two fdb entries, got {vlan_fdb:?}");
+    }
+    if vlan_fdb[0].ifname != vlan_fdb[1].ifname {
+        eyre::bail!(
+            "Both entries must have the same ifname, got '{}' and '{}'",
+            vlan_fdb[0].ifname,
+            vlan_fdb[1].ifname
+        );
+    }
+
+    // Find our side - both will have the same ifname
+    let ovs_side = format!("{}_r", vlan_fdb[0].ifname);
+    let mut cmd = Command::new("ip");
+    let cmd = cmd.args(["-j", "address", "show", &ovs_side.to_string()]);
+    let ip_out = cmd.output()?;
+    if !ip_out.status.success() {
+        debug!(
+            "STDERR {}: {}",
+            super::pretty_cmd(cmd),
+            String::from_utf8_lossy(&ip_out.stderr)
+        );
+        return Err(eyre::eyre!(
+            "{} for cmd '{}'",
+            ip_out.status, // includes the string "exit status"
+            super::pretty_cmd(cmd)
+        ));
+    }
+
+    let ip_json = String::from_utf8_lossy(&ip_out.stdout).to_string();
+    let ip_show: Vec<IpShow> = serde_json::from_str(&ip_json)?;
+    if ip_show.len() != 1 {
+        eyre::bail!("Getting local side MAC should return 1 entry, got {ip_show:?}");
+    }
+
+    // Ignore our side
+    let remote_side: Vec<&Fdb> = vlan_fdb
+        .iter()
+        .filter(|&f| f.mac != ip_show[0].address)
+        .collect();
+
+    if remote_side.len() != 1 {
+        eyre::bail!("After all removals there should be 1 entry, got {remote_side:?}");
+    }
+    Ok(&remote_side[0].mac)
+}
+
+// Run the given command inside HBN container in a shell. Ignore the output.
+fn in_container_shell(cmd: &'static str) -> Result<(), eyre::Report> {
     let container_id = hbn::get_hbn_container_id()?;
     let out = Command::new("/usr/bin/crictl")
         .args(["exec", &container_id, "bash", "-c", cmd])
@@ -547,6 +664,24 @@ fn in_container(cmd: &'static str) -> Result<(), eyre::Report> {
         ));
     }
     Ok(())
+}
+
+// std::fs::read_to_string but limited to 4k bytes for safety
+fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
+    let f = File::open(path)?;
+    let l = f.metadata()?.len();
+    if l > MAX_EXPECTED_SIZE {
+        return Err(io::Error::new(
+            // ErrorKind::FileTooLarge but it's nightly only
+            io::ErrorKind::Other,
+            format!("{l} > {MAX_EXPECTED_SIZE} bytes"),
+        ));
+    }
+    // in case it changes as we read
+    let mut f_limit = f.take(MAX_EXPECTED_SIZE);
+    let mut s = String::with_capacity(l as usize);
+    f_limit.read_to_string(&mut s)?;
+    Ok(s)
 }
 
 #[cfg(test)]
@@ -717,6 +852,29 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_parse_fdb() -> Result<(), Box<dyn std::error::Error>> {
+        let json = include_str!("hbn_bridge_fdb.json");
+        let out = super::parse_fdb(json)?;
+        let twenty_one = out.get(&21).unwrap();
+        assert_eq!(twenty_one.len(), 2); // interface both sides
+        if !twenty_one.iter().any(|f| f.mac == "7e:f6:b2:b2:f0:97") {
+            panic!("Expected MAC not found in vlan 21's parsed fdb");
+        }
+        // "permanent" were filtered out already
+        assert!(!twenty_one.iter().any(|f| f.state == "permanent"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_ip_show() -> Result<(), Box<dyn std::error::Error>> {
+        let json = r#"[{"ifindex":26,"ifname":"pf0vf0_sf_r","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":9216,"qdisc":"mq","master":"ovs-system","operstate":"UP","group":"default","txqlen":1000,"link_type":"ether","address":"4e:1f:bd:97:23:3e","broadcast":"ff:ff:ff:ff:ff:ff","altnames":["enp3s0f0npf0sf131072"],"addr_info":[{"family":"inet6","local":"fe80::4c1f:bdff:fe97:233e","prefixlen":64,"scope":"link","valid_life_time":4294967295,"preferred_life_time":4294967295}]}]"#;
+        let out: Vec<super::IpShow> = serde_json::from_str(json)?;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].address, "4e:1f:bd:97:23:3e");
+        Ok(())
+    }
+
     fn compare<P: AsRef<Path>>(p1: P, expected: &str) -> Result<(), Box<dyn std::error::Error>> {
         let contents = super::read_limited(p1.as_ref())?;
         // trim white space at end of line to match Go version
@@ -754,22 +912,4 @@ mod tests {
         assert!(r.is_identical());
         Ok(())
     }
-}
-
-// std::fs::read_to_string but limited to 4k bytes for safety
-fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
-    let f = File::open(path)?;
-    let l = f.metadata()?.len();
-    if l > MAX_EXPECTED_SIZE {
-        return Err(io::Error::new(
-            // ErrorKind::FileTooLarge but it's nightly only
-            io::ErrorKind::Other,
-            format!("{l} > {MAX_EXPECTED_SIZE} bytes"),
-        ));
-    }
-    // in case it changes as we read
-    let mut f_limit = f.take(MAX_EXPECTED_SIZE);
-    let mut s = String::with_capacity(l as usize);
-    f_limit.read_to_string(&mut s)?;
-    Ok(s)
 }

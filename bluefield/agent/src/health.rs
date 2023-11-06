@@ -13,7 +13,7 @@
 use std::{collections::HashMap, fmt, path::Path, process::Command, str::FromStr};
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use tracing::warn;
 
 use crate::hbn;
 
@@ -65,7 +65,7 @@ fn check_hbn_services_running(
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
-    let sctl = match run_in_container(container_id, &["supervisorctl", "status"], false) {
+    let sctl = match hbn::run_in_container(container_id, &["supervisorctl", "status"], false) {
         Ok(s) => s,
         Err(err) => {
             warn!("check_hbn_services_running supervisorctl status: {err}");
@@ -104,7 +104,7 @@ fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
-    let sctl = match run_in_container(container_id, &["supervisorctl", "status"], false) {
+    let sctl = match hbn::run_in_container(container_id, &["supervisorctl", "status"], false) {
         Ok(s) => s,
         Err(err) => {
             warn!("check_hbn_services_running supervisorctl status: {err}");
@@ -133,7 +133,7 @@ fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
 // Check HBN BGP stats
 fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_routes: &[&str]) {
     // `vtysh` is HBN's shell.
-    let bgp_stats = match run_in_container(
+    let bgp_stats = match hbn::run_in_container(
         container_id,
         &["vtysh", "-c", "show bgp summary json"],
         true,
@@ -156,7 +156,7 @@ fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_routes: &
 
 // `ifreload` should exit code 0 and have no output
 fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
-    match run_in_container(container_id, &["ifreload", "--all", "--syntax-check"], true) {
+    match hbn::run_in_container(container_id, &["ifreload", "--all", "--syntax-check"], true) {
         Ok(stdout) => {
             if stdout.is_empty() {
                 hr.passed(HealthCheck::Ifreload);
@@ -469,32 +469,6 @@ impl fmt::Display for HealthCheck {
             Self::RestrictedMode => write!(f, "RestrictedMode"),
         }
     }
-}
-
-fn run_in_container(
-    container_id: &str,
-    command: &[&str],
-    need_success: bool,
-) -> eyre::Result<String> {
-    let mut crictl = Command::new("crictl");
-    let mut args = vec!["exec", container_id];
-    args.extend_from_slice(command);
-
-    let cmd = crictl.args(args);
-    let out = cmd.output()?;
-    if need_success && !out.status.success() {
-        debug!(
-            "STDERR {}: {}",
-            super::pretty_cmd(cmd),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        return Err(eyre::eyre!(
-            "{} for cmd '{}'",
-            out.status, // includes the string "exit status"
-            super::pretty_cmd(cmd)
-        ));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {

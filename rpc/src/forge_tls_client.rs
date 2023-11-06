@@ -49,6 +49,7 @@ impl ServerCertVerifier for DummyTlsVerifier {
         _ocsp_response: &[u8],
         _now: SystemTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
+        #[cfg(not(test))]
         println!("IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS.");
         Ok(ServerCertVerified::assertion())
     }

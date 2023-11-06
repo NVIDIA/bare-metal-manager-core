@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# forge-dpu-agent needs these commands to succeed:
+# forge-dpu-agent needs various crictl commands to succeed - examples:
 # $ crictl ps --name=doca-hbn -o=json
-# $ crictl exec <id-from-previous-cmd> supervisorctl status
+# $ crictl exec <container-id> supervisorctl status
 # $ crictl exec <container-id> ifreload --all --syntax-check
 #
 # The integration tests puts this path, hence this script, on the front of the PATH to ensure they do.
@@ -182,6 +182,8 @@ BGP_SUMMARY='{
 }
 }'
 
+FDB='[{"mac":"7e:f6:b2:b2:f0:97","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"4e:1f:bd:97:23:3e","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"00:04:4b:b7:e5:00","ifname":"br_default","vlan":21,"flags":[],"master":"br_default","state":"permanent"},{"mac":"16:3c:3d:a8:81:40","ifname":"vxlan5555","vlan":21,"flags":[],"master":"br_default","state":"permanent"}]'
+
 case "$1" in
 	# crictl ps --name=doca-hbn -o=json
 	"ps" )
@@ -189,7 +191,7 @@ case "$1" in
 		;;
 	"exec" )
 		case "$3" in
-			# crictl exec <id-from-previous-cmd> supervisorctl status
+			# crictl exec <container-id> supervisorctl status
 			"supervisorctl" )
 				printf "$EXEC_OUT"
 				;;
@@ -200,6 +202,11 @@ case "$1" in
 			# crictl exec <container-id> vtysh -c show bgp summary json
 			"vtysh" )
 				printf "$BGP_SUMMARY"
+				;;
+			# crictl exec -it <container-id> bridge -j fdb show vlan 21
+			# NOT USED YET - need to add instance creation to integration test
+			"bridge" )
+				printf "$FDB"
 				;;
 		esac
 esac

@@ -45,6 +45,32 @@ fn parse_container_id(json: &str) -> eyre::Result<String> {
     Ok(o.containers[0].id.clone())
 }
 
+pub fn run_in_container(
+    container_id: &str,
+    command: &[&str],
+    need_success: bool,
+) -> eyre::Result<String> {
+    let mut crictl = Command::new("crictl");
+    let mut args = vec!["exec", container_id];
+    args.extend_from_slice(command);
+
+    let cmd = crictl.args(args);
+    let out = cmd.output()?;
+    if need_success && !out.status.success() {
+        debug!(
+            "STDERR {}: {}",
+            super::pretty_cmd(cmd),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return Err(eyre::eyre!(
+            "{} for cmd '{}'",
+            out.status, // includes the string "exit status"
+            super::pretty_cmd(cmd)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
 #[derive(Deserialize, Debug)]
 struct CrictlOut {
     containers: Vec<Container>,
