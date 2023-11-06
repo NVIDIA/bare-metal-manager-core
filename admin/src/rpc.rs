@@ -723,3 +723,46 @@ pub async fn get_all_machines_interfaces(
     })
     .await
 }
+
+pub async fn get_all_bmc_machines(api_config: Config) -> CarbideCliResult<rpc::BmcMachineList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::BmcMachineSearchQuery {
+            id: None,
+            search_config: Some(rpc::BmcMachineSearchConfig {
+                include_dpus: true,
+                include_hosts: true,
+            }),
+        });
+        let bmc_machine_details = client
+            .find_bmc_machines(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(bmc_machine_details)
+    })
+    .await
+}
+
+pub async fn get_bmc_machine(
+    api_config: Config,
+    machine_id: String,
+) -> CarbideCliResult<rpc::BmcMachineList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::BmcMachineSearchQuery {
+            id: Some(rpc::Uuid { value: machine_id }),
+            search_config: Some(rpc::BmcMachineSearchConfig {
+                include_dpus: true,
+                include_hosts: true,
+            }),
+        });
+        let bmc_machine_details = client
+            .find_bmc_machines(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(bmc_machine_details)
+    })
+    .await
+}

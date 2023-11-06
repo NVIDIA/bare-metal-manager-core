@@ -11,17 +11,13 @@
  */
 
 use carbide::{
-    db::{
-        bmc_machine::BmcMachine, machine_interface::MachineInterface,
-        machine_topology::MachineTopology,
-    },
-    model::bmc_machine::BmcMachineState,
+    db::{bmc_machine::BmcMachine, machine_topology::MachineTopology},
+    model::bmc_machine::{BmcMachineState, RpcBmcMachineTypeWrapper},
     state_controller::{
         bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
         io::StateControllerIO,
     },
 };
-
 pub mod common;
 use common::api_fixtures::{create_test_env, dpu::dpu_bmc_discover_dhcp};
 
@@ -123,16 +119,7 @@ async fn dpu_bmc_machine_links_with_dpu_machine(
     assert!(bmc_machine_id.is_some());
 
     let bmc_machine = BmcMachine::get_by_id(&mut txn, bmc_machine_id.unwrap()).await?;
-    let bmc_network_interface =
-        MachineInterface::find_one(&mut txn, bmc_machine.machine_interface_id).await?;
-
-    assert!(!bmc_network_interface.addresses().is_empty());
-    let bmc_ip = bmc_network_interface
-        .addresses()
-        .first()
-        .unwrap()
-        .address
-        .to_string();
+    let bmc_ip = bmc_machine.ip_address.to_string();
 
     assert!(dpu_topology[&dpu_machine_id]
         .first()
@@ -145,6 +132,35 @@ async fn dpu_bmc_machine_links_with_dpu_machine(
 
     let machine_id = MachineTopology::find_machine_id_by_bmc_ip(&mut txn, bmc_ip.as_str()).await?;
     assert!(machine_id.is_some_and(|id| id == dpu_machine_id));
+
+    // Test list machines
+    let response = env
+        .find_bmc_machines(Some(bmc_machine.id.into()), true)
+        .await;
+    assert_eq!(response.bmc_machines.len(), 1);
+    let rpc_bmc = &response.bmc_machines[0];
+    assert_eq!(rpc_bmc.id, bmc_machine.id.to_string());
+    assert_eq!(
+        rpc_bmc.bmc_type,
+        *RpcBmcMachineTypeWrapper::from(bmc_machine.bmc_type) as i32
+    );
+    assert_eq!(
+        rpc_bmc.hostname,
+        bmc_machine.hostname.unwrap_or("".to_string())
+    );
+    assert_eq!(rpc_bmc.mac_address, bmc_machine.mac_address.to_string());
+    assert_eq!(
+        rpc_bmc.machine_id,
+        bmc_machine.machine_id.unwrap().to_string()
+    );
+    assert_eq!(
+        rpc_bmc.state,
+        bmc_machine.controller_state.value.to_string()
+    );
+    assert_eq!(
+        rpc_bmc.fw_version,
+        bmc_machine.bmc_firmware_version.unwrap_or("".to_string())
+    );
 
     let host_topology =
         MachineTopology::find_by_machine_ids(&mut txn, &[host_machine_id.clone()]).await?;

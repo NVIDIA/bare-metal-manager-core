@@ -84,6 +84,7 @@ service Forge {
   rpc GetMachine(MachineId) returns (Machine);
 
   // PRIVILEGED: Find things
+  rpc FindBmcMachines(BmcMachineSearchQuery) returns (BmcMachineList);
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
@@ -932,11 +933,21 @@ message InstanceReleaseRequest {
 message InstanceReleaseResult {
 }
 
+message BmcMachineSearchConfig {
+  bool include_dpus = 1;
+  bool include_hosts = 2;
+}
+
 message MachineSearchConfig {
   bool include_dpus = 1;
   bool include_history = 2;
   bool include_predicted_host = 3;
   bool only_maintenance = 4;
+}
+
+message BmcMachineSearchQuery {
+  optional UUID id = 1;
+  optional BmcMachineSearchConfig search_config = 3;
 }
 
 message MachineSearchQuery {
@@ -947,6 +958,10 @@ message MachineSearchQuery {
 
 message InterfaceList {
   repeated MachineInterface interfaces = 1;
+}
+
+message BmcMachineList {
+  repeated BmcMachine bmc_machines = 1;
 }
 
 message MachineList {
@@ -969,6 +984,24 @@ message BmcInfo {
   optional string mac = 2;
   optional string version = 3;
   optional string firmware_version = 4;
+}
+
+enum BmcMachineType {
+  DPU_BMC = 0;
+  HOST_BMC = 1;
+}
+
+message BmcMachine {
+  string id = 1;
+  string hostname = 2;
+  string ip_address = 3;
+  string mac_address = 4;
+  
+  BmcMachineType bmc_type = 5;
+  // The current lifecycle state of the bmc machine
+  string state = 6;
+  string fw_version = 7;
+  string machine_id = 8;
 }
 
 message Machine {

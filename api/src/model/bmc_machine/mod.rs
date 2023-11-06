@@ -1,3 +1,5 @@
+use std::{fmt::Display, ops::Deref};
+
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -69,5 +71,35 @@ mod tests {
             serde_json::from_str::<BmcMachineState>(&error_state_serialized).unwrap(),
             error_state
         );
+    }
+}
+
+impl Display for BmcMachineState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BmcMachineState::Initializing => write!(f, "BMC/Initializing"),
+            BmcMachineState::Error(error_type) => write!(f, "BMC/Error({:#?})", error_type),
+            BmcMachineState::Configuring => write!(f, "BMC/Configuring"),
+            BmcMachineState::DpuReboot => write!(f, "BMC/DpuReboot"),
+            BmcMachineState::Initialized => write!(f, "BMC/Initialized"),
+        }
+    }
+}
+
+pub struct RpcBmcMachineTypeWrapper(rpc::forge::BmcMachineType);
+
+impl From<BmcMachineType> for RpcBmcMachineTypeWrapper {
+    fn from(value: BmcMachineType) -> Self {
+        RpcBmcMachineTypeWrapper(match value {
+            BmcMachineType::Dpu => rpc::forge::BmcMachineType::DpuBmc,
+            BmcMachineType::Host => rpc::forge::BmcMachineType::HostBmc,
+        })
+    }
+}
+
+impl Deref for RpcBmcMachineTypeWrapper {
+    type Target = rpc::forge::BmcMachineType;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }

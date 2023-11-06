@@ -10,20 +10,25 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 
+pub use ::rpc::forge as rpc;
 use futures::StreamExt;
+use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use crate::model::bmc_machine::RpcBmcMachineTypeWrapper;
 use crate::model::config_version::ConfigVersion;
+use crate::model::machine::machine_id::MachineId;
 use crate::model::{
     bmc_machine::{BmcMachineState, BmcMachineType},
     config_version::Versioned,
 };
 use crate::{CarbideError, CarbideResult};
 
+use super::machine::DbMachineId;
 use super::{DatabaseError, ObjectFilter};
 
 #[derive(Debug, Clone)]
@@ -33,6 +38,10 @@ pub struct BmcMachine {
     pub bmc_type: BmcMachineType,
     pub controller_state: Versioned<BmcMachineState>,
     pub bmc_firmware_version: Option<String>,
+    pub ip_address: IpAddr,
+    pub mac_address: MacAddress,
+    pub hostname: Option<String>,
+    pub machine_id: Option<MachineId>,
 }
 
 impl<'r> FromRow<'r, PgRow> for BmcMachine {
@@ -43,12 +52,18 @@ impl<'r> FromRow<'r, PgRow> for BmcMachine {
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let controller_state: sqlx::types::Json<BmcMachineState> =
             row.try_get("controller_state")?;
+        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
+
         Ok(BmcMachine {
             id: row.try_get("id")?,
             machine_interface_id: row.try_get("machine_interface_id")?,
             bmc_type: row.try_get("bmc_type")?,
             controller_state: Versioned::new(controller_state.0, controller_state_version),
             bmc_firmware_version: row.try_get("bmc_firmware_version")?,
+            ip_address: row.try_get("address")?,
+            mac_address: row.try_get("mac_address")?,
+            hostname: row.try_get("hostname")?,
+            machine_id: machine_id.map(|id| id.into_inner()),
         })
     }
 }
@@ -73,7 +88,7 @@ impl BmcMachine {
     }
 
     pub async fn get_by_id(txn: &mut Transaction<'_, Postgres>, id: Uuid) -> CarbideResult<Self> {
-        BmcMachine::find_by(txn, ObjectFilter::One(id.to_string()), "id")
+        BmcMachine::find_by(txn, ObjectFilter::One(id.to_string()), "bm.id")
             .await?
             .first()
             .ok_or_else(|| CarbideError::NotFoundError {
@@ -123,12 +138,20 @@ impl BmcMachine {
         Ok(results)
     }
 
-    async fn find_by<'a>(
+    pub async fn find_by<'a>(
         txn: &mut Transaction<'_, Postgres>,
         filter: ObjectFilter<'_, String>,
         column: &'a str,
     ) -> Result<Vec<BmcMachine>, DatabaseError> {
-        let base_query = "SELECT * FROM bmc_machine bm {where}".to_owned();
+        let base_query = "SELECT 
+        bm.id, bm.machine_interface_id, bm.bmc_type, bm.controller_state_version, bm.controller_state,
+        bm.bmc_firmware_version, mia.address, mi.hostname, mi.mac_address, mt.machine_id
+        FROM bmc_machine bm
+        JOIN machine_interfaces mi ON mi.id = bm.machine_interface_id
+        INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+        LEFT JOIN machine_topologies mt ON (mt.topology->>'bmc_machine_id')::uuid=bm.id 
+        {where}"
+            .to_owned();
 
         let machines = match filter {
             ObjectFilter::All => {
@@ -139,7 +162,7 @@ impl BmcMachine {
             }
             ObjectFilter::One(id) => {
                 let query = base_query
-                    .replace("{where}", &format!("WHERE bm.{column}='{}'", id))
+                    .replace("{where}", &format!("WHERE {column}='{}'", id))
                     .replace("{column}", column);
                 sqlx::query_as::<_, BmcMachine>(&query)
                     .fetch_all(&mut **txn)
@@ -178,9 +201,13 @@ impl BmcMachine {
         txn: &mut Transaction<'_, Postgres>,
         ip: &Ipv4Addr,
     ) -> Result<Option<Self>, DatabaseError> {
-        let query = r#"SELECT bm.* FROM bmc_machine bm
+        let query = r#"SELECT 
+            bm.id, bm.machine_interface_id, bm.bmc_type, bm.controller_state_version, bm.controller_state,
+            bm.bmc_firmware_version, mia.address, mi.hostname, mi.mac_address, mt.machine_id
+            FROM bmc_machine bm
             JOIN machine_interfaces mi ON mi.id = bm.machine_interface_id
             INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+            LEFT JOIN machine_topologies mt ON (mt.topology->>'bmc_machine_id')::uuid=bm.id
             WHERE mia.address = $1::inet"#;
         let bmc_machine: Option<Self> = sqlx::query_as(query)
             .bind(ip.to_string())
@@ -251,5 +278,26 @@ pub struct BmcMachineId(uuid::Uuid);
 impl From<BmcMachineId> for uuid::Uuid {
     fn from(id: BmcMachineId) -> Self {
         id.0
+    }
+}
+
+///
+/// Implements conversion from a database-backed `BmcMachine` to a Protobuf representation of the
+/// BmcMachine.
+///
+impl From<BmcMachine> for rpc::BmcMachine {
+    fn from(machine: BmcMachine) -> Self {
+        rpc::BmcMachine {
+            id: machine.id.to_string(),
+            hostname: machine.hostname.unwrap_or("".to_string()),
+            ip_address: machine.ip_address.to_string(),
+            mac_address: machine.mac_address.to_string(),
+            bmc_type: *RpcBmcMachineTypeWrapper::from(machine.bmc_type) as i32,
+            fw_version: machine.bmc_firmware_version.unwrap_or("".to_string()),
+            state: machine.controller_state.value.to_string(),
+            machine_id: machine
+                .machine_id
+                .map_or_else(|| "".to_string(), |m| m.to_string()),
+        }
     }
 }

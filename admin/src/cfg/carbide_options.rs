@@ -698,6 +698,28 @@ pub struct ResourcePoolDefinition {
 pub enum BmcMachine {
     #[clap(about = "Reset a BMC machine")]
     Reset(BMCConfigForReset),
+
+    #[clap(about = "Display BMC Machine information")]
+    Show(ShowBmcMachine),
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(
+    ArgGroup::new("show_bmc_machine")
+    .required(true)
+    .args(&["all", "dpus", "hosts", "bmc_machine"])))]
+pub struct ShowBmcMachine {
+    #[clap(short, long, action, help = "Show all BMC machines")]
+    pub all: bool,
+
+    #[clap(long, action, help = "Show only DPUs BMC machines")]
+    pub dpus: bool,
+
+    #[clap(long, action, help = "Show only hosts BMC machines")]
+    pub hosts: bool,
+
+    #[clap(short, long)]
+    pub bmc_machine: Option<String>,
 }
 
 #[derive(ValueEnum, Parser, Debug, Clone)]

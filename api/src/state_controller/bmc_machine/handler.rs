@@ -13,7 +13,7 @@
 use libredfish::SystemPowerControl;
 
 use crate::{
-    db::{bmc_machine::BmcMachine, machine_interface::MachineInterface},
+    db::bmc_machine::BmcMachine,
     model::bmc_machine::{BmcMachineError, BmcMachineState},
     redfish::RedfishCredentialType,
     state_controller::state_handler::{
@@ -44,31 +44,11 @@ impl StateHandler for BmcMachineStateHandler {
         match read_state {
             BmcMachineState::Initializing => {
                 tracing::info!("Starting machine discovery with redfish.");
-                let bmc_network_interface =
-                    MachineInterface::find_one(txn, state.machine_interface_id)
-                        .await
-                        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
-
-                let redfish_ip = match bmc_network_interface.addresses().first() {
-                    Some(machine_address) => machine_address.address.to_string(),
-                    None => {
-                        let msg = format!(
-                            "No IP address for BMC network interface interface: {:#?}",
-                            bmc_network_interface
-                        );
-                        tracing::error!(msg);
-                        *controller_state.modify() =
-                            BmcMachineState::Error(BmcMachineError::RedfishConnection {
-                                message: msg,
-                            });
-                        return Ok(());
-                    }
-                };
 
                 let standard_client = ctx
                     .services
                     .redfish_client_pool
-                    .create_standard_client(redfish_ip.as_str(), None)
+                    .create_standard_client(state.ip_address.to_string().as_str(), None)
                     .await;
                 // Try to instantiate standard client with a hardware default password, but ignore error
                 // since it might be already changed to site-default
@@ -92,7 +72,7 @@ impl StateHandler for BmcMachineStateHandler {
                     .services
                     .redfish_client_pool
                     .create_client(
-                        redfish_ip.as_str(),
+                        state.ip_address.to_string().as_str(),
                         None,
                         RedfishCredentialType::SiteDefault,
                     )
@@ -127,23 +107,11 @@ impl StateHandler for BmcMachineStateHandler {
                 *controller_state.modify() = BmcMachineState::Configuring;
             }
             BmcMachineState::Configuring => {
-                let bmc_network_interface =
-                    MachineInterface::find_one(txn, state.machine_interface_id)
-                        .await
-                        .map_err(|e| StateHandlerError::GenericError(e.into()))?;
-
-                let redfish_ip = bmc_network_interface
-                    .addresses()
-                    .first()
-                    .unwrap()
-                    .address
-                    .to_string();
-
                 let client_result = ctx
                     .services
                     .redfish_client_pool
                     .create_client(
-                        redfish_ip.as_str(),
+                        state.ip_address.to_string().as_str(),
                         None,
                         RedfishCredentialType::BmcMachine {
                             bmc_machine_id: machine_id.to_string(),

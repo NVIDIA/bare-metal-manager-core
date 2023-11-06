@@ -41,6 +41,7 @@ use prettytable::{row, Table};
 use serde::Deserialize;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 
+mod bmc_machine;
 mod cfg;
 mod domain;
 mod dpu;
@@ -621,6 +622,10 @@ async fn main() -> color_eyre::Result<()> {
                     }
                 };
                 rpc::bmc_reset(api_config, c.address, c.port, bmc_auth).await?;
+            }
+            BmcMachine::Show(show_bmc) => {
+                bmc_machine::handle_show(show_bmc, config.format == OutputFormat::Json, api_config)
+                    .await?
             }
         },
         CarbideCommand::Inventory(action) => inventory::print_inventory(api_config, action).await?,

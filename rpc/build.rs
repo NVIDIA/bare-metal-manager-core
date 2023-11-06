@@ -64,6 +64,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.BmcInfo", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.BmcMachine", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.BmcMachineList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Machine", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineEvent", "#[derive(serde::Serialize)]")
