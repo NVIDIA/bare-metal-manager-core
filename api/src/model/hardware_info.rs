@@ -651,11 +651,9 @@ impl HardwareInfo {
             return false;
         }
 
-        // Bluefield's dmi data should return a special string that identifies it as a DPU
-        match dmi_data {
-            None => false,
-            Some(dmi) => dmi.board_name.eq("BlueField SoC"),
-        }
+        dmi_data.as_ref().map_or(false, |dmi| {
+            ["BlueField SoC", "BlueField-3 SmartNIC Main Card"].contains(&dmi.board_name.as_str())
+        })
     }
 
     /// This function returns factory_mac_address from dpu_info.
@@ -819,6 +817,14 @@ mod tests {
     #[test]
     fn deserialize_dpu_info() {
         let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
+        let data = std::fs::read(path).unwrap();
+        let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+        assert!(info.is_dpu());
+    }
+
+    #[test]
+    fn deserialize_dpu_bf3_info() {
+        let path = format!("{}/dpu_bf3_info.json", TEST_DATA_DIR);
         let data = std::fs::read(path).unwrap();
         let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
         assert!(info.is_dpu());
