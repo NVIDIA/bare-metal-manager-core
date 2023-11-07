@@ -63,13 +63,17 @@ Host pdxjump 10.217.0.131
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
-Host azurejump 20.237.179.67
-  Hostname 20.237.179.67
+# Azure Colo jump hosts from https://gitlab-master.nvidia.com/nsvmc/mc-ssh-configs
+
+# For az01
+Host wus-jb-admin01 10.45.32.84
+  Hostname 10.45.32.84
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
-Host gavlejump 20.240.41.178 
-  Hostname 20.240.41.178 
+# For az20
+Host sdc-jb-admin01 10.45.33.84
+  Hostname 10.45.33.84
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
@@ -136,11 +140,11 @@ Host pdx01
 
 Host az01
   Hostname 10.45.2.5
-  ProxyJump azurejump
+  ProxyJump wus-jb-admin01
 
 Host az20
   Hostname 10.45.10.3
-  ProxyJump gavlejump
+  ProxyJump sdc-jb-admin01
 
 Host demo1
   Hostname 10.217.5.193
