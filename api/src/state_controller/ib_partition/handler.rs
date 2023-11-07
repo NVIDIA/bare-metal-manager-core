@@ -14,8 +14,11 @@ use crate::{
     db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus},
     ib::{types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::ib_partition::IBPartitionControllerState,
-    state_controller::state_handler::{
-        ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+    state_controller::{
+        ib_partition::context::IBPartitionStateHandlerContextObjects,
+        state_handler::{
+            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+        },
     },
     CarbideError,
 };
@@ -35,7 +38,7 @@ impl StateHandler for IBPartitionStateHandler {
     type ObjectId = uuid::Uuid;
     type State = IBPartition;
     type ControllerState = IBPartitionControllerState;
-    type ObjectMetrics = ();
+    type ContextObjects = IBPartitionStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
@@ -43,8 +46,7 @@ impl StateHandler for IBPartitionStateHandler {
         state: &mut IBPartition,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _metrics: &mut Self::ObjectMetrics,
-        ctx: &mut StateHandlerContext,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         let read_state: &IBPartitionControllerState = &*controller_state;
 

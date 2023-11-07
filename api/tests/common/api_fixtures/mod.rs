@@ -37,7 +37,7 @@ use carbide::{
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         io::StateControllerIO,
         machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
-        metrics::{IterationMetrics, MetricsEmitter, ObjectHandlerMetrics},
+        metrics::{IterationMetrics, ObjectHandlerMetrics},
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
         },
@@ -455,16 +455,16 @@ pub async fn run_state_controller_iteration<IO: StateControllerIO>(
         State = IO::State,
         ControllerState = IO::ControllerState,
         ObjectId = IO::ObjectId,
-        ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
+        ContextObjects = IO::ContextObjects,
     >,
     iteration_metrics: &mut IterationMetrics<IO>,
 ) {
+    let mut metrics = ObjectHandlerMetrics::<IO>::default();
     let mut handler_ctx = StateHandlerContext {
         services: handler_services,
+        metrics: &mut metrics.specific,
     };
     let mut txn = pool.begin().await.unwrap();
-
-    let mut metrics = ObjectHandlerMetrics::<IO>::default();
 
     let mut full_state = io.load_object_state(&mut txn, &object_id).await.unwrap();
     let mut controller_state = io
@@ -479,7 +479,6 @@ pub async fn run_state_controller_iteration<IO: StateControllerIO>(
             &mut full_state,
             &mut holder,
             &mut txn,
-            &mut metrics.specific,
             &mut handler_ctx,
         )
         .await

@@ -20,7 +20,7 @@ use crate::{
     },
     state_controller::{
         io::StateControllerIO,
-        machine::metrics::MachineMetricsEmitter,
+        machine::{context::MachineStateHandlerContextObjects, metrics::MachineMetricsEmitter},
         snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError},
     },
 };
@@ -37,6 +37,7 @@ impl StateControllerIO for MachineStateControllerIO {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type MetricsEmitter = MachineMetricsEmitter;
+    type ContextObjects = MachineStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "machine_state_controller_lock";
 

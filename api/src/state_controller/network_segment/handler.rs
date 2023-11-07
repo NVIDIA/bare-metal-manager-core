@@ -21,8 +21,11 @@ use crate::{
     },
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     resource_pool::DbResourcePool,
-    state_controller::state_handler::{
-        ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+    state_controller::{
+        network_segment::context::NetworkSegmentStateHandlerContextObjects,
+        state_handler::{
+            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+        },
     },
 };
 
@@ -56,7 +59,7 @@ impl StateHandler for NetworkSegmentStateHandler {
     type ObjectId = uuid::Uuid;
     type State = NetworkSegment;
     type ControllerState = NetworkSegmentControllerState;
-    type ObjectMetrics = ();
+    type ContextObjects = NetworkSegmentStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
@@ -64,8 +67,7 @@ impl StateHandler for NetworkSegmentStateHandler {
         state: &mut NetworkSegment,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _metrics: &mut Self::ObjectMetrics,
-        _ctx: &mut StateHandlerContext,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         let read_state: &NetworkSegmentControllerState = &*controller_state;
         match read_state {

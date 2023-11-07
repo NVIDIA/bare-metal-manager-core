@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-//! State Controller implementation for IBSubnet.
+//! State Controller implementation for IB Partitions.
 
+pub mod context;
 pub mod handler;
 pub mod io;

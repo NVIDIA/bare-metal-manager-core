@@ -25,7 +25,7 @@ use carbide::{
     redfish::RedfishSim,
     state_controller::{
         controller::{ReachabilityParams, StateController},
-        machine::{io::MachineStateControllerIO, metrics::MachineMetrics},
+        machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
         },
@@ -52,7 +52,7 @@ impl StateHandler for TestMachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
-    type ObjectMetrics = MachineMetrics;
+    type ContextObjects = MachineStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
@@ -60,8 +60,7 @@ impl StateHandler for TestMachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _metrics: &mut MachineMetrics,
-        _ctx: &mut StateHandlerContext,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         assert_eq!(state.host_snapshot.machine_id, *machine_id);
         self.count.fetch_add(1, Ordering::SeqCst);

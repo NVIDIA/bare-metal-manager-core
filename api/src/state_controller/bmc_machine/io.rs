@@ -17,7 +17,8 @@ use crate::{
         config_version::{ConfigVersion, Versioned},
     },
     state_controller::{
-        io::StateControllerIO, metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
+        bmc_machine::context::BmcMachineStateHandlerContextObjects, io::StateControllerIO,
+        metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
     },
 };
 
@@ -31,6 +32,7 @@ impl StateControllerIO for BmcMachineStateControllerIO {
     type State = BmcMachine;
     type ControllerState = BmcMachineState;
     type MetricsEmitter = NoopMetricsEmitter;
+    type ContextObjects = BmcMachineStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "bmc_machine_controller_lock";
 
