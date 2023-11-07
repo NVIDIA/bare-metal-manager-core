@@ -64,6 +64,17 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         GetPowerState => {
             println!("{}", redfish.get_power_state().await?);
         }
+        GetBootOption(selector) => {
+            if let Some(boot_id) = selector.id {
+                println!("{:?}", redfish.get_boot_option(&boot_id).await?)
+            } else {
+                let all = redfish.get_boot_options().await?;
+                for b in all.members {
+                    let id = b.odata_id.split('/').last().unwrap();
+                    println!("{:?}", redfish.get_boot_option(id).await?)
+                }
+            }
+        }
         LockdownDisable => {
             redfish.lockdown(EnabledDisabled::Disabled).await?;
             println!("BIOS settings changes require system restart");

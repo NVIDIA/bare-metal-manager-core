@@ -690,6 +690,17 @@ _arguments "${_arguments_options[@]}" \
 '--help[Print help]' \
 && ret=0
 ;;
+(get-boot-option)
+_arguments "${_arguments_options[@]}" \
+'--id=[]:ID: ' \
+'--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
+'--username=[Username for machine BMC]:USERNAME: ' \
+'--password=[Password for machine BMC]:PASSWORD: ' \
+'--all[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (get-power-state)
 _arguments "${_arguments_options[@]}" \
 '--address=[IP\:port of machine BMC. Port is optional and defaults to 443]:ADDRESS: ' \
@@ -1104,6 +1115,10 @@ _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
 (forge-setup)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(get-boot-option)
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
@@ -2137,6 +2152,10 @@ _arguments "${_arguments_options[@]}" \
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
+(get-boot-option)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
 (get-power-state)
 _arguments "${_arguments_options[@]}" \
 && ret=0
@@ -3125,6 +3144,21 @@ _forge-admin-cli__redfish__help__get-bmc-ethernet-interface_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli redfish help get-bmc-ethernet-interface commands' commands "$@"
 }
+(( $+functions[_forge-admin-cli__help__redfish__get-boot-option_commands] )) ||
+_forge-admin-cli__help__redfish__get-boot-option_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help redfish get-boot-option commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__get-boot-option_commands] )) ||
+_forge-admin-cli__redfish__get-boot-option_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish get-boot-option commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__redfish__help__get-boot-option_commands] )) ||
+_forge-admin-cli__redfish__help__get-boot-option_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli redfish help get-boot-option commands' commands "$@"
+}
 (( $+functions[_forge-admin-cli__help__redfish__get-chassis-all_commands] )) ||
 _forge-admin-cli__help__redfish__get-chassis-all_commands() {
     local commands; commands=()
@@ -3493,6 +3527,7 @@ _forge-admin-cli__redfish__help_commands() {
 'boot-once-pxe:On next boot only, boot from PXE' \
 'clear-pending:Delete all pending jobs' \
 'forge-setup:Setup host for Forge use' \
+'get-boot-option:List one or all BIOS boot options' \
 'get-power-state:Is this thing on?' \
 'lockdown-disable:Disable BMC/BIOS lockdown' \
 'lockdown-enable:Enable BMC/BIOS lockdown' \
@@ -3993,6 +4028,7 @@ _forge-admin-cli__help__redfish_commands() {
 'boot-once-pxe:On next boot only, boot from PXE' \
 'clear-pending:Delete all pending jobs' \
 'forge-setup:Setup host for Forge use' \
+'get-boot-option:List one or all BIOS boot options' \
 'get-power-state:Is this thing on?' \
 'lockdown-disable:Disable BMC/BIOS lockdown' \
 'lockdown-enable:Enable BMC/BIOS lockdown' \
@@ -4033,6 +4069,7 @@ _forge-admin-cli__redfish_commands() {
 'boot-once-pxe:On next boot only, boot from PXE' \
 'clear-pending:Delete all pending jobs' \
 'forge-setup:Setup host for Forge use' \
+'get-boot-option:List one or all BIOS boot options' \
 'get-power-state:Is this thing on?' \
 'lockdown-disable:Disable BMC/BIOS lockdown' \
 'lockdown-enable:Enable BMC/BIOS lockdown' \
