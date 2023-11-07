@@ -277,6 +277,8 @@ pub enum RedfishCommand {
     ClearPending,
     /// Setup host for Forge use
     ForgeSetup,
+    /// List one or all BIOS boot options
+    GetBootOption(BootOptionSelector),
     /// Is this thing on?
     GetPowerState,
     /// Disable BMC/BIOS lockdown
@@ -331,6 +333,15 @@ pub enum RedfishCommand {
     ChangeUefiPassword(UefiPassword),
     #[clap(about = "DPU specific operations", subcommand)]
     Dpu(DpuOperations),
+}
+
+#[derive(Parser, Debug)]
+#[clap(group(ArgGroup::new("selector").required(true).args(&["all", "id"])))]
+pub struct BootOptionSelector {
+    #[clap(long)]
+    pub all: bool,
+    #[clap(long)]
+    pub id: Option<String>,
 }
 
 #[derive(clap::Parser, Debug)]

@@ -423,6 +423,9 @@ _forge-admin-cli() {
             forge__admin__cli__help__redfish,get-bmc-ethernet-interface)
                 cmd="forge__admin__cli__help__redfish__get__bmc__ethernet__interface"
                 ;;
+            forge__admin__cli__help__redfish,get-boot-option)
+                cmd="forge__admin__cli__help__redfish__get__boot__option"
+                ;;
             forge__admin__cli__help__redfish,get-chassis-all)
                 cmd="forge__admin__cli__help__redfish__get__chassis__all"
                 ;;
@@ -732,6 +735,9 @@ _forge-admin-cli() {
             forge__admin__cli__redfish,get-bmc-ethernet-interface)
                 cmd="forge__admin__cli__redfish__get__bmc__ethernet__interface"
                 ;;
+            forge__admin__cli__redfish,get-boot-option)
+                cmd="forge__admin__cli__redfish__get__boot__option"
+                ;;
             forge__admin__cli__redfish,get-chassis-all)
                 cmd="forge__admin__cli__redfish__get__chassis__all"
                 ;;
@@ -878,6 +884,9 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__redfish__help,get-bmc-ethernet-interface)
                 cmd="forge__admin__cli__redfish__help__get__bmc__ethernet__interface"
+                ;;
+            forge__admin__cli__redfish__help,get-boot-option)
+                cmd="forge__admin__cli__redfish__help__get__boot__option"
                 ;;
             forge__admin__cli__redfish__help,get-chassis-all)
                 cmd="forge__admin__cli__redfish__help__get__chassis__all"
@@ -2449,7 +2458,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__redfish)
-            opts="bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu"
+            opts="bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-boot-option get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2729,6 +2738,20 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__redfish__get__bmc__ethernet__interface)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__redfish__get__boot__option)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -4195,7 +4218,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish)
-            opts="-h --address --username --password --help bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu help"
+            opts="-h --address --username --password --help bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-boot-option get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -4948,6 +4971,36 @@ _forge-admin-cli() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        forge__admin__cli__redfish__get__boot__option)
+            opts="-h --all --id --address --username --password --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --id)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --address)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --username)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --password)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         forge__admin__cli__redfish__get__chassis__all)
             opts="-h --address --username --password --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -5053,7 +5106,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__help)
-            opts="bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu help"
+            opts="bios-attrs boot-hdd boot-pxe boot-once-hdd boot-once-pxe clear-pending forge-setup get-boot-option get-power-state lockdown-disable lockdown-enable lockdown-status force-off force-restart graceful-restart graceful-shutdown on pcie-devices pending power-metrics serial-enable serial-status thermal-metrics tpm-reset bmc-reset disable-secure-boot get-chassis-all get-bmc-ethernet-interface change-bmc-password change-uefi-password dpu help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -5333,6 +5386,20 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__redfish__help__get__bmc__ethernet__interface)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__redfish__help__get__boot__option)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
