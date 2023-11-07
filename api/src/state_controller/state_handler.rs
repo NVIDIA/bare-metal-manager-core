@@ -52,10 +52,23 @@ pub struct StateHandlerServices {
     pub ipmi_tool: Arc<dyn IPMITool>,
 }
 
+/// The collection of generic objects which are referenced in StateHandlerContext
+pub trait StateHandlerContextObjects: Send + Sync + 'static {
+    /// The type that can hold metrics specific to a single object.
+    ///
+    /// These metrics can be produced by code inside the state handler by writing
+    /// them to `ObjectMetrics`.
+    /// After state has been processed for all all objects, the various metrics
+    /// are merged into an `IterationMetrics` object.
+    type ObjectMetrics: std::fmt::Debug + Default + Send + Sync + 'static;
+}
+
 /// Context parameter passed to `StateHandler`
-pub struct StateHandlerContext<'a> {
+pub struct StateHandlerContext<'a, T: StateHandlerContextObjects> {
     /// Services that are available to the `StateHandler`
     pub services: &'a Arc<StateHandlerServices>,
+    /// Metrics that are produced as a result of acting on an object
+    pub metrics: &'a mut T::ObjectMetrics,
 }
 
 /// An object which makes the current controller state available to a state handler
@@ -134,7 +147,7 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
     type ObjectId: Clone + std::fmt::Display + std::fmt::Debug;
     type State;
     type ControllerState;
-    type ObjectMetrics;
+    type ContextObjects: StateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
@@ -142,8 +155,7 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         state: &mut Self::State,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        metrics: &mut Self::ObjectMetrics,
-        ctx: &mut StateHandlerContext,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError>;
 }
 
@@ -217,17 +229,17 @@ impl StateHandlerError {
 }
 
 /// A `StateHandler` implementation which does nothing
-pub struct NoopStateHandler<I, S, CS, OM> {
-    _phantom_data: std::marker::PhantomData<Option<(I, S, CS, OM)>>,
+pub struct NoopStateHandler<I, S, CS, CO> {
+    _phantom_data: std::marker::PhantomData<Option<(I, S, CS, CO)>>,
 }
 
-impl<I, S, CS, OM> std::fmt::Debug for NoopStateHandler<I, S, CS, OM> {
+impl<I, S, CS, CO> std::fmt::Debug for NoopStateHandler<I, S, CS, CO> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NoopStateHandler").finish()
     }
 }
 
-impl<I, S, CS, OM> Default for NoopStateHandler<I, S, CS, OM> {
+impl<I, S, CS, CO> Default for NoopStateHandler<I, S, CS, CO> {
     fn default() -> Self {
         Self {
             _phantom_data: Default::default(),
@@ -240,13 +252,13 @@ impl<
         I: Clone + std::fmt::Display + std::fmt::Debug + Send + Sync + 'static,
         S: Send + Sync + 'static,
         CS: Send + Sync + 'static,
-        OM: Send + Sync + 'static,
-    > StateHandler for NoopStateHandler<I, S, CS, OM>
+        CO: StateHandlerContextObjects,
+    > StateHandler for NoopStateHandler<I, S, CS, CO>
 {
     type State = S;
     type ControllerState = CS;
     type ObjectId = I;
-    type ObjectMetrics = OM;
+    type ContextObjects = CO;
 
     async fn handle_object_state(
         &self,
@@ -254,8 +266,7 @@ impl<
         _state: &mut Self::State,
         _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _metrics: &mut Self::ObjectMetrics,
-        _ctx: &mut StateHandlerContext,
+        _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         Ok(())
     }

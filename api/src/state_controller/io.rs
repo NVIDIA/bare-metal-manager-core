@@ -12,7 +12,10 @@
 
 use crate::{
     model::config_version::{ConfigVersion, Versioned},
-    state_controller::{metrics::MetricsEmitter, snapshot_loader::SnapshotLoaderError},
+    state_controller::{
+        metrics::MetricsEmitter, snapshot_loader::SnapshotLoaderError,
+        state_handler::StateHandlerContextObjects,
+    },
 };
 
 /// This trait defines on what objects a state controller instance will act,
@@ -32,6 +35,10 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     type ControllerState: std::fmt::Debug + Send + Sync + 'static + Clone;
     /// Defines how metrics that are specific to this kind of object are handled
     type MetricsEmitter: MetricsEmitter;
+    /// The collection of generic objects which are referenced in StateHandlerContext
+    type ContextObjects: StateHandlerContextObjects<
+        ObjectMetrics = <Self::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
+    >;
 
     /// The name of the table in the database that will be used for advisory locking
     ///

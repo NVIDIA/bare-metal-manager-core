@@ -30,9 +30,7 @@ use crate::{
     resource_pool::DbResourcePool,
     state_controller::{
         io::StateControllerIO,
-        metrics::{
-            IterationMetrics, MetricsEmitter, ObjectHandlerMetrics, StateControllerMetricEmitter,
-        },
+        metrics::{IterationMetrics, ObjectHandlerMetrics, StateControllerMetricEmitter},
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
             ControllerStateReader, NoopStateHandler, StateHandler, StateHandlerContext,
@@ -57,7 +55,7 @@ pub struct StateController<IO: StateControllerIO> {
         dyn StateHandler<
             State = IO::State,
             ControllerState = IO::ControllerState,
-            ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
+            ContextObjects = IO::ContextObjects,
             ObjectId = IO::ObjectId,
         >,
     >,
@@ -255,7 +253,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
         dyn StateHandler<
             State = IO::State,
             ControllerState = IO::ControllerState,
-            ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
+            ContextObjects = IO::ContextObjects,
             ObjectId = IO::ObjectId,
         >,
     >,
@@ -318,6 +316,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
 
                     let mut ctx = StateHandlerContext {
                         services: &services,
+                        metrics: &mut metrics.specific,
                     };
 
                     let mut state_holder = ControllerStateReader::new(&mut controller_state.value);
@@ -328,7 +327,6 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                             &mut snapshot,
                             &mut state_holder,
                             &mut txn,
-                            &mut metrics.specific,
                             &mut ctx,
                         )
                         .await
@@ -458,7 +456,7 @@ pub struct Builder<IO: StateControllerIO> {
         dyn StateHandler<
             State = IO::State,
             ControllerState = IO::ControllerState,
-            ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
+            ContextObjects = IO::ContextObjects,
             ObjectId = IO::ObjectId,
         >,
     >,
@@ -489,7 +487,7 @@ impl<IO: StateControllerIO> Builder<IO> {
                 IO::ObjectId,
                 IO::State,
                 IO::ControllerState,
-                <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
+                IO::ContextObjects,
             >::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
             meter: None,
@@ -675,7 +673,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             dyn StateHandler<
                 State = IO::State,
                 ControllerState = IO::ControllerState,
-                ObjectMetrics = <IO::MetricsEmitter as MetricsEmitter>::ObjectMetrics,
+                ContextObjects = IO::ContextObjects,
                 ObjectId = IO::ObjectId,
             >,
         >,

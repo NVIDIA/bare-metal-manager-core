@@ -9,8 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-//! State Controller implementation for BmcMachine.
 
-pub mod context;
-pub mod handler;
-pub mod io;
+use crate::state_controller::state_handler::StateHandlerContextObjects;
+
+pub struct BmcMachineStateHandlerContextObjects {}
+
+impl StateHandlerContextObjects for BmcMachineStateHandlerContextObjects {
+    type ObjectMetrics = ();
+}

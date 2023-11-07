@@ -19,7 +19,9 @@ use crate::{
         network_segment::NetworkSegmentControllerState,
     },
     state_controller::{
-        io::StateControllerIO, metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
+        io::StateControllerIO, metrics::NoopMetricsEmitter,
+        network_segment::context::NetworkSegmentStateHandlerContextObjects,
+        snapshot_loader::SnapshotLoaderError,
     },
 };
 
@@ -33,6 +35,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     type State = NetworkSegment;
     type ControllerState = NetworkSegmentControllerState;
     type MetricsEmitter = NoopMetricsEmitter;
+    type ContextObjects = NetworkSegmentStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "network_segments_controller_lock";
 

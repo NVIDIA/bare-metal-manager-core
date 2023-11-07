@@ -20,7 +20,8 @@ use crate::{
     model::config_version::{ConfigVersion, Versioned},
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
-        io::StateControllerIO, metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
+        ib_partition::context::IBPartitionStateHandlerContextObjects, io::StateControllerIO,
+        metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
     },
 };
 
@@ -34,6 +35,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
     type State = IBPartition;
     type ControllerState = IBPartitionControllerState;
     type MetricsEmitter = NoopMetricsEmitter;
+    type ContextObjects = IBPartitionStateHandlerContextObjects;
 
     const DB_LOCK_NAME: &'static str = "ib_partition_controller_lock";
 

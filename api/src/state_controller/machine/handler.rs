@@ -48,7 +48,7 @@ use crate::{
     },
     redfish::RedfishCredentialType,
     state_controller::{
-        machine::metrics::MachineMetrics,
+        machine::context::MachineStateHandlerContextObjects,
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
             StateHandlerServices,
@@ -130,7 +130,7 @@ impl StateHandler for MachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
-    type ObjectMetrics = MachineMetrics;
+    type ContextObjects = MachineStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
@@ -138,29 +138,28 @@ impl StateHandler for MachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        metrics: &mut Self::ObjectMetrics,
-        ctx: &mut StateHandlerContext,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         let managed_state = &state.managed_state;
 
-        metrics.dpu_firmware_version = state
+        ctx.metrics.dpu_firmware_version = state
             .dpu_snapshot
             .hardware_info
             .as_ref()
             .and_then(|hi| hi.dpu_info.as_ref().map(|di| di.firmware_version.clone()));
 
         // Update DPU network health Prometheus metrics
-        metrics.dpu_healthy = state.dpu_snapshot.has_healthy_network();
+        ctx.metrics.dpu_healthy = state.dpu_snapshot.has_healthy_network();
         if let Some(observation) = state.dpu_snapshot.network_status_observation.as_ref() {
-            metrics.agent_version = observation.agent_version.clone();
-            metrics.dpu_up =
+            ctx.metrics.agent_version = observation.agent_version.clone();
+            ctx.metrics.dpu_up =
                 Utc::now().signed_duration_since(observation.observed_at) <= self.dpu_up_threshold;
             for failed in &observation.health_status.failed {
-                metrics.failed_dpu_healthchecks.insert(failed.clone());
+                ctx.metrics.failed_dpu_healthchecks.insert(failed.clone());
             }
 
-            metrics.machine_id = Some(observation.machine_id.clone());
-            metrics.client_certificate_expiry = observation.client_certificate_expiry;
+            ctx.metrics.machine_id = Some(observation.machine_id.clone());
+            ctx.metrics.client_certificate_expiry = observation.client_certificate_expiry;
         }
 
         // If it's been more than 5 minutes since DPU reported status, consider it unhealthy
@@ -215,27 +214,13 @@ impl StateHandler for MachineStateHandler {
         match &managed_state {
             ManagedHostState::DPUNotReady { .. } => {
                 self.dpu_handler
-                    .handle_object_state(
-                        host_machine_id,
-                        state,
-                        controller_state,
-                        txn,
-                        metrics,
-                        ctx,
-                    )
+                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
                     .await?;
             }
 
             ManagedHostState::HostNotReady { .. } => {
                 self.host_handler
-                    .handle_object_state(
-                        host_machine_id,
-                        state,
-                        controller_state,
-                        txn,
-                        metrics,
-                        ctx,
-                    )
+                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
                     .await?;
             }
 
@@ -283,14 +268,7 @@ impl StateHandler for MachineStateHandler {
             ManagedHostState::Assigned { instance_state: _ } => {
                 // Process changes needed for instance.
                 self.instance_handler
-                    .handle_object_state(
-                        host_machine_id,
-                        state,
-                        controller_state,
-                        txn,
-                        metrics,
-                        ctx,
-                    )
+                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
                     .await?;
             }
 
@@ -494,7 +472,7 @@ impl StateHandler for DpuMachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
-    type ObjectMetrics = MachineMetrics;
+    type ContextObjects = MachineStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
@@ -502,8 +480,7 @@ impl StateHandler for DpuMachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _metrics: &mut Self::ObjectMetrics,
-        ctx: &mut StateHandlerContext,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         match &state.managed_state {
             ManagedHostState::DPUNotReady {
@@ -644,7 +621,7 @@ impl StateHandler for HostMachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
-    type ObjectMetrics = MachineMetrics;
+    type ContextObjects = MachineStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
@@ -652,8 +629,7 @@ impl StateHandler for HostMachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _metrics: &mut Self::ObjectMetrics,
-        ctx: &mut StateHandlerContext,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         if let ManagedHostState::HostNotReady { machine_state } = &state.managed_state {
             match machine_state {
@@ -772,7 +748,7 @@ impl StateHandler for InstanceStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
     type ObjectId = MachineId;
-    type ObjectMetrics = MachineMetrics;
+    type ContextObjects = MachineStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
@@ -780,8 +756,7 @@ impl StateHandler for InstanceStateHandler {
         state: &mut ManagedHostStateSnapshot,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        metrics: &mut Self::ObjectMetrics,
-        ctx: &mut StateHandlerContext,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         let Some(ref instance) = state.instance else {
             return Err(StateHandlerError::GenericError(eyre!("Instance is empty at this point. Cleanup is needed for host: {}.", host_machine_id)));
@@ -921,8 +896,8 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(());
                     }
 
-                    metrics.machine_reboot_attempts_in_booting_with_discovery_image =
-                        retry.count + 1;
+                    ctx.metrics
+                        .machine_reboot_attempts_in_booting_with_discovery_image = retry.count + 1;
                     *controller_state.modify() = ManagedHostState::Assigned {
                         instance_state: InstanceState::SwitchToAdminNetwork,
                     };

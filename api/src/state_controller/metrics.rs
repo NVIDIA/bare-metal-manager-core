@@ -174,7 +174,9 @@ impl<IO: StateControllerIO> IterationMetrics<IO> {
 /// as required.
 pub trait MetricsEmitter: std::fmt::Debug + Send + Sync + 'static {
     /// The type that can hold metrics specific to a single object.
-    /// These metrics by custom code inside the state handler and written to `ObjectMetrics`.
+    ///
+    /// These metrics can be produced by code inside the state handler by writing
+    /// them to `ObjectMetrics`.
     /// After state has been processed for all all objects, the various metrics
     /// are merged into an `IterationMetrics` object.
     type ObjectMetrics: std::fmt::Debug + Default + Send + Sync + 'static;

@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-//! State Controller implementation for Machines
+//! State Controller implementation for Network Segments
 
+pub mod context;
 pub mod handler;
 pub mod io;
