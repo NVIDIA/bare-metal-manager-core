@@ -68,7 +68,6 @@ impl TryFrom<InstanceSnapshot> for rpc::Instance {
             status: Some(status.try_into()?),
             network_config_version: snapshot.network_config_version.version_string(),
             ib_config_version: snapshot.ib_config_version.version_string(),
-            update_params: None,
         })
     }
 }

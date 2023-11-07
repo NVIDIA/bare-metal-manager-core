@@ -904,7 +904,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (_instance_id, _instance) = create_instance(
+    let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
@@ -948,6 +948,24 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         }))
         .await
         .unwrap();
+
+    let current_instance = env
+        .api
+        .find_instances(tonic::Request::new(rpc::InstanceSearchQuery {
+            id: Some(rpc::Uuid {
+                value: instance_id.to_string(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(current_instance.instances[0]
+        .status
+        .as_ref()
+        .unwrap()
+        .update
+        .is_some());
 
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await

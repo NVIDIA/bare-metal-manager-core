@@ -54,6 +54,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
             network: Some(status.network.try_into()?),
             infiniband: Some(status.infiniband.try_into()?),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+            update: None,
         })
     }
 }

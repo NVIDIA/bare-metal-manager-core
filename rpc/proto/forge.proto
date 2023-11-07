@@ -718,6 +718,9 @@ message InstanceStatus {
   // At this time it equals `InstanceNetworkStatus::configs_synced`,
   // but might in the future also include readiness for other subsystems.
   SyncState configs_synced = 101;
+
+  // This indicates if updates are pending for the instance
+  optional InstanceUpdateStatus update = 102;
 }
 
 // State of the networking subsystem of an instance
@@ -792,12 +795,9 @@ message Instance {
   // This field can be used in InstanceInfinibandConfigUpdateRequest::if_version_match
   // to only request updates if the version hasn't been updated in between.
   string ib_config_version = 202;
-
-  // This indicates if firmware update is needed on DPU.
-  optional InstanceUpdateParams update_params = 203;
 }
 
-message InstanceUpdateParams {
+message InstanceUpdateStatus {
   enum Module {
     Dpu = 0;
   }
