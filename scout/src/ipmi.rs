@@ -13,17 +13,16 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::time::Instant;
 
-use regex::Regex;
-use tokio::time::{sleep, Duration};
-use tracing::{debug, error};
-use utils::cmd::Cmd;
-
 use ::rpc::forge::{self as rpc, BmcInfo, BmcMetaDataUpdateRequest};
 use ::rpc::forge_tls_client::ForgeClientT;
 use forge_host_support::hardware_enumeration::{
     HardwareEnumerationError, HardwareEnumerationResult,
 };
 use forge_secrets::credentials::Credentials;
+use regex::Regex;
+use tokio::time::{sleep, Duration};
+use tracing::{debug, error};
+use utils::cmd::Cmd;
 
 use crate::CarbideClientError;
 use crate::CarbideClientResult;
@@ -335,6 +334,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles, sys_vendor: &str) -> Carbide
         "Lenovo" => issue_onecli_user_commands(id),
         "Dell Inc." => issue_racadm_user_commands(id),
         "https://www.mellanox.com" => Ok(()),
+        "Supermicro" => Ok(()),
         other => {
             return Err(CarbideClientError::GenericError(format!(
                 "The chassis vendor was an unexpected result - {other}"
