@@ -268,10 +268,10 @@ pub struct UpgradeDecision {
     pub last_updated: DateTime<Utc>,
 }
 
-impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateParams {
+impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateStatus {
     fn from(value: ReprovisionRequest) -> Self {
-        ::rpc::forge::InstanceUpdateParams {
-            module: ::rpc::forge::instance_update_params::Module::Dpu as i32,
+        ::rpc::forge::InstanceUpdateStatus {
+            module: ::rpc::forge::instance_update_status::Module::Dpu as i32,
             initiator: value.initiator,
             trigger_received_at: Some(value.requested_at.into()),
             update_triggered_at: value.started_at.map(|x| x.into()),

@@ -883,7 +883,10 @@ where
                 .map_err(CarbideError::from)?;
 
             if let Some(reprovision_requested) = mh_snapshot.dpu_snapshot.reprovision_requested {
-                snapshot.update_params = Some(reprovision_requested.into());
+                if let Some(mut status) = snapshot.status {
+                    status.update = Some(reprovision_requested.into());
+                    snapshot.status = Some(status);
+                }
             }
 
             instances.push(snapshot);
@@ -921,7 +924,10 @@ where
         .map_err(CarbideError::from)?;
 
         if let Some(reprovision_requested) = mh_snapshot.dpu_snapshot.reprovision_requested {
-            snapshot.update_params = Some(reprovision_requested.into());
+            if let Some(mut status) = snapshot.status {
+                status.update = Some(reprovision_requested.into());
+                snapshot.status = Some(status);
+            }
         }
 
         let response = Response::new(rpc::InstanceList {
