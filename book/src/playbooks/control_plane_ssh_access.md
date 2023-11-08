@@ -63,6 +63,11 @@ Host pdxjump 10.217.0.131
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
+Host tpejump 198.100.173.0
+  Hostname 198.100.173.0
+  Compression yes
+  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+
 # Azure Colo jump hosts from https://gitlab-master.nvidia.com/nsvmc/mc-ssh-configs
 
 # For az01
@@ -153,6 +158,10 @@ Host demo1
 Host demo2
   Hostname 10.217.5.195
   ProxyJump renojump
+
+Host tpe01
+  Hostname 10.225.4.69
+  ProxyJump tpejump
 ```
 
 Then you can simply execute
