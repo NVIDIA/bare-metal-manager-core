@@ -14,7 +14,7 @@ clap = { workspace = true }
 eyre = "*"
 hyper = "*"
 http = "*"
-libredfish = { version = "0.12.4", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.12.5", registry = "sw-ngc-forge-cargo-local" }
 opentelemetry-prometheus = "*"
 opentelemetry = "*"
 opentelemetry_api = "*"
