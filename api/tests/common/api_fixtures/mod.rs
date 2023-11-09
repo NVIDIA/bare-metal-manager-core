@@ -381,6 +381,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         reachability_params: ReachabilityParams {
             dpu_wait_time: Duration::seconds(0),
             host_wait_time: Duration::seconds(0),
+            power_down_wait: Duration::seconds(0),
         },
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
         bmc_machine_state_controller_io: BmcMachineStateControllerIO::default(),

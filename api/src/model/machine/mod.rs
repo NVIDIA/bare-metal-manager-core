@@ -147,6 +147,7 @@ impl ManagedHostState {
 #[serde(rename_all = "lowercase")]
 pub enum ReprovisionState {
     FirmwareUpgrade,
+    PowerDown,
     BufferTime,
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
@@ -380,6 +381,9 @@ impl NextReprovisionState for MachineNextStateResolver {
     fn next_state(&self, current_state: &ReprovisionState) -> ManagedHostState {
         match current_state {
             ReprovisionState::FirmwareUpgrade => ManagedHostState::DPUReprovision {
+                reprovision_state: ReprovisionState::PowerDown,
+            },
+            ReprovisionState::PowerDown => ManagedHostState::DPUReprovision {
                 reprovision_state: ReprovisionState::WaitingForNetworkInstall,
             },
             ReprovisionState::WaitingForNetworkInstall => ManagedHostState::DPUReprovision {
@@ -399,6 +403,11 @@ impl NextReprovisionState for InstanceNextStateResolver {
     fn next_state(&self, current_state: &ReprovisionState) -> ManagedHostState {
         match current_state {
             ReprovisionState::FirmwareUpgrade => ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision {
+                    reprovision_state: ReprovisionState::PowerDown,
+                },
+            },
+            ReprovisionState::PowerDown => ManagedHostState::Assigned {
                 instance_state: InstanceState::DPUReprovision {
                     reprovision_state: ReprovisionState::WaitingForNetworkInstall,
                 },

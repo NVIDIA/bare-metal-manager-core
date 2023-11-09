@@ -470,6 +470,7 @@ pub struct Builder<IO: StateControllerIO> {
 pub struct ReachabilityParams {
     pub dpu_wait_time: chrono::Duration,
     pub host_wait_time: chrono::Duration,
+    pub power_down_wait: chrono::Duration,
 }
 
 impl<IO: StateControllerIO> Builder<IO> {
