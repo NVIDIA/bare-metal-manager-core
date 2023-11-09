@@ -257,14 +257,14 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
+args = [ "bin-x86_64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=tls"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
-args = [ "bin-arm64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe"]
+args = [ "bin-arm64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=tls"]
 cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
