@@ -16,6 +16,7 @@ use std::{collections::HashMap, task::Poll};
 
 use chrono::{DateTime, Duration, Utc};
 use eyre::eyre;
+use libredfish::SystemPowerControl;
 
 use crate::{
     db::{
@@ -364,8 +365,16 @@ async fn handle_dpu_reprovision(
                 return Ok(None);
             }
 
-            restart_machine(&state.dpu_snapshot, services).await?;
+            host_power_control(&state.host_snapshot, services, SystemPowerControl::ForceOff)
+                .await?;
             set_managed_host_topology_update_needed(txn, state).await?;
+            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+        }
+        ReprovisionState::PowerDown => {
+            if wait(state, services.reachability_params.power_down_wait) {
+                return Ok(None);
+            }
+            host_power_control(&state.host_snapshot, services, SystemPowerControl::On).await?;
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
         }
         ReprovisionState::WaitingForNetworkInstall => {
@@ -394,7 +403,12 @@ async fn handle_dpu_reprovision(
             Machine::clear_dpu_reprovisioning_request(txn, &state.dpu_snapshot.machine_id)
                 .await
                 .map_err(StateHandlerError::from)?;
-            restart_host(&state.host_snapshot, services).await?;
+            host_power_control(
+                &state.host_snapshot,
+                services,
+                SystemPowerControl::ForceRestart,
+            )
+            .await?;
 
             // We need to wait for the host to reboot and submit it's new Hardware information in
             // case of Ready.
@@ -1166,13 +1180,14 @@ async fn restart_machine(
     if machine_snapshot.machine_id.machine_type().is_dpu() {
         restart_dpu(machine_snapshot, services).await
     } else {
-        restart_host(machine_snapshot, services).await
+        host_power_control(machine_snapshot, services, SystemPowerControl::ForceRestart).await
     }
 }
 
-async fn restart_host(
+async fn host_power_control(
     machine_snapshot: &MachineSnapshot,
     services: &StateHandlerServices,
+    action: SystemPowerControl,
 ) -> Result<(), StateHandlerError> {
     let bmc_ip =
         machine_snapshot
@@ -1206,7 +1221,7 @@ async fn restart_host(
         })?;
     }
     client
-        .power(libredfish::SystemPowerControl::ForceRestart)
+        .power(action)
         .await
         .map_err(|e| StateHandlerError::RedfishError {
             operation: "restart",

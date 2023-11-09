@@ -224,6 +224,28 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     assert!(matches!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
+            reprovision_state: ReprovisionState::PowerDown,
+            ..
+        }
+    ));
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
             reprovision_state: ReprovisionState::WaitingForNetworkInstall,
             ..
         }
@@ -742,6 +764,32 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     };
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     discovery_completed(&env, dpu_rpc_id.clone(), None).await;
+
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                reprovision_state: ReprovisionState::PowerDown,
+                ..
+            }
+        }
+    ));
+
     run_state_controller_iteration(
         &services,
         &env.pool,
