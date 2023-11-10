@@ -1,0 +1,3 @@
+[submodule "mkosi"]
+	path = pxe/mkosi
+	url = https://github.com/systemd/mkosi.git
