@@ -8,10 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 [env]
-REPO_ROOT = { script = ["echo ${CI_PROJECT_DIR}"], condition = {env_set = ["CI_PROJECT_DIR"], env_not_set = ["REPO_ROOT"]}}
-FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
-FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem"}
-IPXE_CA_PATH = { value = "${REPO_ROOT}/dev/ipxe-root.pem"}
+REPO_ROOT = { script = ["dirname $(cargo locate-project --message-format plain --workspace)"] }
+FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem"}
+
+# BFB stuff
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/Ubuntu22.04"
 BFB_NAME = "DOCA_2.2.0_BSP_4.2.0_Ubuntu_22.04-1.20230918.prod.bfb"
 HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/2.2.0v3/zip"
@@ -65,27 +65,14 @@ dependencies = [
 [tasks.create-ephemeral-image-x86_64]
 category = "Ephemeral Image"
 dependencies = [
-	"mkosi-generate-zipapp",
 	"mkosi-clean-artifacts",
-	"mkosi-clean-artifacts-qcow",
 	"copy-debug-artifacts",
-	"copy-forge-root-ca",
-	"mkosi-build-image",
-	"mkosi-build-qcow-imaging",
-	"mkosi-remove-unnecessary-files",
-]
+	"copy-forge-prod-root-ca",
+	"mkosi-build-scout",
+	"mkosi-build-qcow-imager",
+	"mkosi-copy-qcow-imager-to-webroot",
+	"mkosi-copy-scout-to-webroot",
 
-[tasks.create-ephemeral-image-x86_64-ci]
-category = "Ephemeral Image"
-dependencies = [
-	"mkosi-generate-zipapp",
-	"mkosi-clean-artifacts-x86_64-ci",
-	"mkosi-clean-artifacts-qcow",
-	"copy-debug-artifacts",
-	"copy-forge-root-ca-ci",
-	"mkosi-build-image-x86_64-ci",
-	"mkosi-build-qcow-imaging",
-	"mkosi-remove-unnecessary-files",
 ]
 
 [tasks.mkdir-static-aarch64]
@@ -102,22 +89,22 @@ script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
 '''
 
-[tasks.copy-forge-root-ca-ci]
+[tasks.copy-forge-prod-root-ca]
 category = "Copy Forge Root CA in CI"
 command = "cp"
 args = [
-    "-f",
+	"-f",
 	"${FORGE_CA_PATH}",
-	"mkosi.extra/opt/forge/forge_root.pem",
+	"mkosi.profiles/scout/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
-[tasks.copy-forge-root-ca]
+[tasks.copy-forge-dev-root-ca]
 category = "Copy Forge Root CA"
 command = "cp"
 args = [
-    "-f",
+	"-f",
 	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
-	"mkosi.extra/opt/forge/forge_root.pem",
+	"mkosi.profiles/scout/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
 [tasks.copy-debug-artifacts]
@@ -125,86 +112,69 @@ category = "Copy Debug Artifacts"
 command = "cp"
 args = [
 	"${REPO_ROOT}/target/debug/forge-scout",
-	"mkosi.extra/opt/forge/",
-]
-
-# We don't need the Disk image it creates yet
-[tasks.mkosi-remove-unnecessary-files]
-category = "Ephemeral Image"
-command = "rm"
-args = [
-	"-f",
-	"static/blobs/internal/x86_64/carbide",
-	"static/blobs/internal/x86_64/carbide.changelog",
+	"mkosi.profiles/scout/mkosi.extra/opt/forge/",
 ]
 
 [tasks.mkosi-clean-artifacts]
 category = "Ephemeral Image"
-command = "sudo"
+dependencies = [
+	"mkosi-clean-qcow-imager",
+	"mkosi-clean-scout"
+]
+
+[tasks.mkosi-clean-qcow-imager]
+category = "Ephemeral Image"
+command = "mkosi/bin/mkosi"
 args = [
-	"mkosi/builddir/mkosi",
-	"--split-artifacts",
-	"--output", "static/blobs/internal/x86_64/carbide",
+	"--profile", "qcow-imager",
 	"clean"
 ]
 
-[tasks.mkosi-build-image]
+[tasks.mkosi-clean-scout]
 category = "Ephemeral Image"
-command = "sudo"
+command = "mkosi/bin/mkosi"
 args = [
-	"mkosi/builddir/mkosi",
-	"--split-artifacts",
-	"--output", "static/blobs/internal/x86_64/carbide",
-	"build"
-]
-
-[tasks.mkosi-clean-artifacts-x86_64-ci]
-category = "Ephemeral Image"
-command = "sudo"
-args = [
-	"mkosi/builddir/mkosi",
-	"--split-artifacts",
-	"--output", "static/blobs/internal/x86_64/carbide",
+	"--profile", "scout",
 	"clean"
 ]
 
-[tasks.mkosi-build-image-x86_64-ci]
+[tasks.mkosi-build-scout]
 category = "Ephemeral Image"
-command = "sudo"
+command = "mkosi/bin/mkosi"
 args = [
-	"mkosi/builddir/mkosi",
-	"--split-artifacts",
-	"--output", "static/blobs/internal/x86_64/carbide",
+	"--profile", "scout",
 	"build"
 ]
 
-[tasks.mkosi-build-qcow-imaging]
+[tasks.mkosi-build-qcow-imager]
 category = "Ephemeral Image"
-command = "sudo"
+command = "mkosi/bin/mkosi"
 args = [
-	"../mkosi/builddir/mkosi",
-	"--split-artifacts",
-	"--output", "../static/blobs/internal/x86_64/qcow-imaging",
+	"--profile", "qcow-imager",
 	"build"
 ]
-cwd = "imaging"
 
-[tasks.mkosi-clean-artifacts-qcow]
+[tasks.mkosi-copy-qcow-imager-to-webroot]
 category = "Ephemeral Image"
-command = "sudo"
+command = "cp"
 args = [
-	"../mkosi/builddir/mkosi",
-	"--split-artifacts",
-	"--output", "../static/blobs/internal/x86_64/qcow-imaging",
-	"clean"
+	"mkosi.output/qcow-imager.efi",
+	"static/blobs/internal/x86_64/qcow-imager.efi"
 ]
-cwd = "imaging"
+dependencies = [
+	"mkdir-static-x86_64"
+]
 
-[tasks.mkosi-generate-zipapp]
+[tasks.mkosi-copy-scout-to-webroot]
 category = "Ephemeral Image"
-description = "Compile the mkosi executable from the mkosi sources"
-command = "tools/generate-zipapp.sh"
-cwd = "mkosi"
+command = "cp"
+args = [
+	"mkosi.output/scout.efi",
+	"static/blobs/internal/x86_64/scout.efi"
+]
+dependencies = [
+	"mkdir-static-x86_64"
+]
 
 [tasks.ipxe-x86_64]
 category = "iPXE Kernel"
@@ -645,10 +615,10 @@ cwd = "static/blobs/internal/aarch64"
 category = "iPXE Kernel"
 description = "Pacakge x86_64 EFI ipxe kernel and rootdisk"
 command = "docker"
-args = ["-t", "boot-artifacts-${FORGE_CA}-x86_64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
+args = ["-t", "boot-artifacts-prod-x86_64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
 
 [tasks.container-boot-artifacts-aarch64-ci]
 category = "iPXE Kernel"
 description = "Pacakge aarch64 EFI ipxe kernel and rootdisk"
 command = "docker"
-args = ["-t", "boot-artifacts-${FORGE_CA}-aarch64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]
+args = ["-t", "boot-artifacts-prod-aarch64:${CI_JOB_ID}", "-f", "${CI_PROJECT_DIR}/pxe/Dockerfile", "${CI_PROJECT_DIR}/pxe"]

@@ -219,5 +219,4 @@ if [ ! -z "$rootfs_uuid" ]; then
 fi
 
 echo "Rebooting"
-reboot
-
+systemctl reboot

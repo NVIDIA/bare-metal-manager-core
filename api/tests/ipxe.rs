@@ -154,7 +154,7 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
     )
     .await;
     assert_ne!(instructions.pxe_script, "exit".to_string());
-    assert!(instructions.pxe_script.contains("x86_64/carbide.root"));
+    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
@@ -186,7 +186,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         rpc::forge::MachineArchitecture::X86,
     )
     .await;
-    assert!(instructions.pxe_script.contains("x86_64/carbide.root"));
+    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
 
     move_machine_to_needed_state(
         host_id.clone(),
@@ -203,7 +203,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         rpc::forge::MachineArchitecture::X86,
     )
     .await;
-    assert!(instructions.pxe_script.contains("x86_64/carbide.root"));
+    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
 
     move_machine_to_needed_state(
         host_id.clone(),
@@ -220,7 +220,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         rpc::forge::MachineArchitecture::X86,
     )
     .await;
-    assert!(instructions.pxe_script.contains("x86_64/carbide.root"));
+    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
