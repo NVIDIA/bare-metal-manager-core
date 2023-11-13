@@ -17,6 +17,7 @@ use std::{
 
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
+use http::StatusCode;
 use libredfish::{
     model::task::Task, standard::RedfishStandard, Endpoint, Redfish, RedfishError, RoleId,
 };
@@ -213,16 +214,27 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             )
             .await
             .map_err(RedfishClientCreationError::MissingCredentials)?;
-        client
+        if let Err(e) = client
             .create_user(username, password.as_str(), RoleId::Administrator)
             .await
-            .map_err(RedfishClientCreationError::RedfishError)
+        {
+            if e.to_string().to_uppercase().contains("ALREADY EXISTS") {
+                return client
+                    .change_password(username, password.as_str())
+                    .await
+                    .map_err(RedfishClientCreationError::RedfishError);
+            } else {
+                return Err(RedfishClientCreationError::RedfishError(e));
+            }
+        }
+        Ok(())
     }
 }
 
 #[derive(Debug, Default)]
 struct RedfishSimState {
     _hosts: HashMap<String, RedfishSimHostState>,
+    users: HashMap<String, String>,
 }
 
 #[derive(Debug, Default)]
@@ -326,8 +338,13 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    async fn change_password(&self, _user: &str, _new: &str) -> Result<(), RedfishError> {
-        todo!()
+    async fn change_password(&self, user: &str, new: &str) -> Result<(), RedfishError> {
+        let mut state = self._state.lock().unwrap();
+        if !state.users.contains_key(&user.to_string()) {
+            return Err(RedfishError::UserNotFound(user.to_string()));
+        }
+        state.users.insert(user.to_string(), new.to_string());
+        Ok(())
     }
 
     async fn get_firmware(
@@ -441,11 +458,40 @@ impl Redfish for RedfishSimClient {
 
     async fn create_user(
         &self,
-        _username: &str,
-        _password: &str,
+        username: &str,
+        password: &str,
         _role_id: libredfish::RoleId,
     ) -> Result<(), RedfishError> {
-        todo!()
+        let mut state = self._state.lock().unwrap();
+        if state.users.contains_key(username) {
+            return Err(RedfishError::HTTPErrorCode {
+                url: "AccountService/Accounts".to_string(),
+                status_code: StatusCode::BAD_REQUEST,
+                response_body: format!(
+                    r##"{{
+                "UserName@Message.ExtendedInfo": [
+                  {{
+                    "@odata.type": "#Message.v1_1_1.Message",
+                    "Message": "The requested resource of type ManagerAccount with the property UserName with the value {username} already exists.",
+                    "MessageArgs": [
+                      "ManagerAccount",
+                      "UserName",
+                      "{username}"
+                    ],
+                    "MessageId": "Base.1.15.0.ResourceAlreadyExists",
+                    "MessageSeverity": "Critical",
+                    "Resolution": "Do not repeat the create operation as the resource has already been created."
+                  }}
+                ]
+              }}"##
+                ),
+            });
+        }
+
+        state
+            .users
+            .insert(username.to_string(), password.to_string());
+        Ok(())
     }
 
     async fn get_service_root(
@@ -526,9 +572,24 @@ impl RedfishClientPool for RedfishSim {
 
     async fn create_forge_admin_user(
         &self,
-        _client: Box<dyn Redfish>,
+        client: Box<dyn Redfish>,
         _bmc_machine_id: Uuid,
     ) -> Result<(), RedfishClientCreationError> {
+        let username = FORGE_DPU_BMC_USERNAME.clone();
+        let password = Credentials::generate_password();
+        if let Err(e) = client
+            .create_user(username, password.as_str(), RoleId::Administrator)
+            .await
+        {
+            if e.to_string().to_uppercase().contains("ALREADY EXISTS") {
+                return client
+                    .change_password(username, password.as_str())
+                    .await
+                    .map_err(RedfishClientCreationError::RedfishError);
+            } else {
+                return Err(RedfishClientCreationError::RedfishError(e));
+            }
+        }
         Ok(())
     }
 }

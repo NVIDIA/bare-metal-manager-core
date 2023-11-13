@@ -13,6 +13,7 @@
 use carbide::{
     db::{bmc_machine::BmcMachine, machine_topology::MachineTopology},
     model::bmc_machine::{BmcMachineState, RpcBmcMachineTypeWrapper},
+    redfish::RedfishCredentialType,
     state_controller::{
         bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
         io::StateControllerIO,
@@ -20,6 +21,7 @@ use carbide::{
 };
 pub mod common;
 use common::api_fixtures::{create_test_env, dpu::dpu_bmc_discover_dhcp};
+use uuid::Uuid;
 
 #[ctor::ctor]
 fn setup() {
@@ -190,5 +192,33 @@ async fn dpu_bmc_machine_links_with_dpu_machine(
         MachineTopology::find_machine_id_by_bmc_ip(&mut txn, host_bmc_ip.unwrap().as_str()).await?;
     assert!(host_machine.is_some_and(|id| id == host_machine_id));
 
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn dpu_bmc_machine_not_fail_if_user_exists(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let state_hander_services = env.state_handler_services();
+    let client = state_hander_services
+        .redfish_client_pool
+        .create_client("123", Some(123), RedfishCredentialType::SiteDefault)
+        .await?;
+
+    state_hander_services
+        .redfish_client_pool
+        .create_forge_admin_user(client, Uuid::new_v4())
+        .await?;
+    // Run for the second time to create forge_admin user and make sure no error occurs.
+    let client = state_hander_services
+        .redfish_client_pool
+        .create_client("123", Some(123), RedfishCredentialType::SiteDefault)
+        .await?;
+    let result = state_hander_services
+        .redfish_client_pool
+        .create_forge_admin_user(client, Uuid::new_v4())
+        .await;
+    assert!(result.is_ok());
     Ok(())
 }
