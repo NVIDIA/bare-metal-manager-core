@@ -70,7 +70,7 @@ lazy_static::lazy_static! {
 #[derive(Deserialize, Debug)]
 struct NvmeParams {
     // size of NVME drive in bytes
-    tnvmcap: u64,
+    tnvmcap: String,
 
     // controller ID
     cntlid: u64,
@@ -186,7 +186,11 @@ fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
         }
 
         if namespaces_supported {
-            let sectors = nvme_drive_params.tnvmcap / 512;
+            let sectors = nvme_drive_params
+                .tnvmcap
+                .parse::<u64>()
+                .map_err(CarbideClientError::from)?
+                / 512;
             // creating new namespace with all available sectors
             tracing::debug!("Creating namespace on {}", nvmename);
             let line_created_ns_id = cmdrun::run_prog(format!(
