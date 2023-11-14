@@ -28,7 +28,7 @@ pub struct MachineMetrics {
     pub dpu_healthy: bool,
     pub failed_dpu_healthchecks: HashSet<String>,
     pub dpu_firmware_version: Option<String>,
-    pub client_certificate_expiry: Option<u64>,
+    pub client_certificate_expiry: Option<i64>,
     pub machine_id: Option<String>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: u64,
 }
@@ -40,7 +40,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub dpus_healthy: usize,
     pub failed_dpu_healthchecks: HashMap<String, usize>,
     pub dpu_firmware_versions: HashMap<String, usize>,
-    pub client_certificate_expiration_times: HashMap<String, u64>,
+    pub client_certificate_expiration_times: HashMap<String, i64>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Vec<u64>,
 }
 
@@ -51,7 +51,7 @@ pub struct MachineMetricsEmitter {
     failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
     dpu_agent_version_gauge: ObservableGauge<u64>,
     dpu_firmware_version_gauge: ObservableGauge<u64>,
-    client_certificate_expiration_gauge: ObservableGauge<u64>,
+    client_certificate_expiration_gauge: ObservableGauge<i64>,
     machine_reboot_attempts_in_booting_with_discovery_image: Histogram<u64>,
 }
 
@@ -94,7 +94,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .init();
 
         let client_certificate_expiration_gauge = meter
-            .u64_observable_gauge("forge_dpu_client_certificate_expiration_time")
+            .i64_observable_gauge("forge_dpu_client_certificate_expiration_time")
             .with_description("The expiration time (epoch seconds) for the client certificate associated with a given DPU.")
             .init();
 
@@ -233,7 +233,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
         dpu_machine_id_attributes.push(KeyValue::new("dpu_machine_id", "".to_string()));
         for (id, time) in &iteration_metrics.client_certificate_expiration_times {
             dpu_machine_id_attributes.last_mut().unwrap().value = id.clone().into();
-            observer.observe_u64(
+            observer.observe_i64(
                 &self.client_certificate_expiration_gauge,
                 *time,
                 dpu_machine_id_attributes.as_slice(),

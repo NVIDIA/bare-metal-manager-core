@@ -310,7 +310,7 @@ mod tests {
         let encoded = proto_ts.encode_to_vec();
 
         let decoded = Timestamp::decode(&encoded[..]).unwrap();
-        let decoded_system_time = decoded.try_into().unwrap();
+        let decoded_system_time: std::time::SystemTime = decoded.try_into().unwrap();
         assert_eq!(ts, decoded_system_time);
     }
 
@@ -349,8 +349,10 @@ mod tests {
         let decoded = Domain::decode(&encoded[..]).unwrap();
 
         let deserialized_uuid: uuid::Uuid = decoded.id.unwrap().try_into().unwrap();
-        let created_system_time = decoded.created.unwrap().try_into().unwrap();
-        let updated_system_time = decoded.updated.unwrap().try_into().unwrap();
+        let created_system_time: std::time::SystemTime =
+            decoded.created.unwrap().try_into().unwrap();
+        let updated_system_time: std::time::SystemTime =
+            decoded.updated.unwrap().try_into().unwrap();
         assert_eq!(uuid, deserialized_uuid);
         assert_eq!(ts, created_system_time);
         assert_eq!(ts2, updated_system_time);

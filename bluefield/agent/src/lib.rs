@@ -30,7 +30,6 @@ use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
 pub use upgrade::upgrade_check;
-use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::frr::FrrVlanConfig;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
@@ -396,22 +395,7 @@ async fn run(
         let mut is_healthy = false;
         let mut has_changed_configs = false;
 
-        let client_certificate_expiry_unix_epoch_secs = if let Some((client_certs, _key)) =
-            forge_tls_config.read_client_cert().await
-        {
-            if let Some(client_public_key) = client_certs.first() {
-                if let Ok((_rem, cert)) = X509Certificate::from_der(client_public_key.0.as_slice())
-                {
-                    Some(cert.validity.not_after.timestamp() as u64)
-                } else {
-                    None // couldn't parse certificate to x509
-                }
-            } else {
-                None // no cert in client certs vec
-            }
-        } else {
-            None // no certs parsed from disk
-        };
+        let client_certificate_expiry_unix_epoch_secs = forge_tls_config.client_cert_expiry().await;
 
         let mut status_out = rpc::DpuNetworkStatus {
             dpu_machine_id: Some(machine_id.to_string().into()),

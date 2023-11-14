@@ -15,7 +15,7 @@ pub struct MachineNetworkStatusObservation {
     pub observed_at: DateTime<Utc>,
     pub health_status: HealthStatus,
     pub network_config_version: Option<ConfigVersion>,
-    pub client_certificate_expiry: Option<u64>,
+    pub client_certificate_expiry: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

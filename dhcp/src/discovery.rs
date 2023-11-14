@@ -16,12 +16,10 @@ use std::primitive::u32;
 use derive_builder::Builder;
 use mac_address::MacAddress;
 
-use ::rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
-
 use crate::machine::Machine;
 use crate::vendor_class::VendorClass;
-use crate::CONFIG;
 use crate::{cache, CarbideDhcpContext};
+use crate::{tls, CONFIG};
 
 /// Enumerates results of setting discovery options on the Builder
 #[repr(C)]
@@ -365,29 +363,7 @@ unsafe fn discovery_fetch_machine_at(
         //
         let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
 
-        let forge_root_ca_path = &CONFIG
-            .read()
-            .unwrap() // safety: the only way this will panic is if the lock is poisoned,
-            // which happens when another holder panics. we're already done at that point.
-            .forge_root_ca_path;
-        let forge_client_key_path = &CONFIG
-            .read()
-            .unwrap() // safety: the only way this will panic is if the lock is poisoned,
-            // which happens when another holder panics. we're already done at that point.
-            .forge_client_key_path;
-        let forge_client_cert_path = &CONFIG
-            .read()
-            .unwrap() // safety: the only way this will panic is if the lock is poisoned,
-            // which happens when another holder panics. we're already done at that point.
-            .forge_client_cert_path;
-
-        let forge_tls_config = ForgeTlsConfig {
-            root_ca_path: forge_root_ca_path.clone(),
-            client_cert: Some(ForgeClientCert {
-                cert_path: forge_client_cert_path.clone(),
-                key_path: forge_client_key_path.clone(),
-            }),
-        };
+        let forge_tls_config = tls::build_forge_tls_config();
 
         match runtime.block_on(Machine::try_fetch(
             discovery,
