@@ -53,6 +53,7 @@ use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
+use crate::db::bmc_machine::BmcMachine;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionSearchConfig};
@@ -65,6 +66,7 @@ use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
 use crate::machine_update_manager::MachineUpdateManager;
+use crate::model::bmc_machine::BmcMachineType;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
@@ -2148,6 +2150,54 @@ where
             .await?;
 
         Ok(Response::new(rpc::Machine::from(machine)))
+    }
+
+    async fn find_bmc_machines(
+        &self,
+        request: Request<rpc::BmcMachineSearchQuery>,
+    ) -> Result<Response<rpc::BmcMachineList>, Status> {
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_bmc_machines", e))?;
+
+        let rpc::BmcMachineSearchQuery {
+            id, search_config, ..
+        } = request.into_inner();
+
+        let include_dpus = search_config
+            .as_ref()
+            .map(|x| x.include_dpus)
+            .unwrap_or(false);
+
+        let include_hosts = search_config
+            .as_ref()
+            .map(|x| x.include_hosts)
+            .unwrap_or(false);
+
+        let bmc_machines = match id {
+            Some(id) => {
+                BmcMachine::find_by(&mut txn, ObjectFilter::One(id.to_string()), "bm.id").await
+            }
+            None => BmcMachine::find_by(&mut txn, ObjectFilter::All, "").await,
+        };
+
+        let result = bmc_machines
+            .map(|bmc_machines| rpc::BmcMachineList {
+                bmc_machines: bmc_machines
+                    .into_iter()
+                    .filter(|x| match x.bmc_type {
+                        BmcMachineType::Dpu => include_dpus,
+                        BmcMachineType::Host => include_hosts,
+                    })
+                    .map(rpc::BmcMachine::from)
+                    .collect(),
+            })
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
+
+        Ok(result)
     }
 
     async fn find_machines(

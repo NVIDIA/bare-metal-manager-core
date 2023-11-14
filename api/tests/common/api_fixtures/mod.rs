@@ -284,6 +284,25 @@ impl TestEnv {
         .await
     }
 
+    // Returns all bmc machines using FindBmcMachines call.
+    pub async fn find_bmc_machines(
+        &self,
+        id: Option<rpc::forge::Uuid>,
+        include_dpus: bool,
+    ) -> rpc::forge::BmcMachineList {
+        self.api
+            .find_bmc_machines(tonic::Request::new(rpc::forge::BmcMachineSearchQuery {
+                id,
+                search_config: Some(rpc::forge::BmcMachineSearchConfig {
+                    include_dpus,
+                    ..Default::default()
+                }),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+    }
+
     // Returns all machines using FindMachines call.
     pub async fn find_machines(
         &self,
