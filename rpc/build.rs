@@ -102,6 +102,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.ConnectedDevice", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkDevice", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkTopologyData", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.InstanceInterfaceStatusObservation",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.DpuNetworkStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.ResourcePool", "#[derive(serde::Serialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

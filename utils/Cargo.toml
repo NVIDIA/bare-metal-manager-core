@@ -8,4 +8,10 @@ authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+byte-unit = "4.0.19"
+chrono = "0.4.26"
+serde = { version = "1", features = ["derive"] }
 thiserror = "1.0.44"
+tracing = "*"
+
+rpc = { path = "../rpc" }

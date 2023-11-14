@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 arc-swap = "1.6"
 async-trait = "*"
+axum = "0.6.18"
 base64 = "0.13"
 casbin = { version = "2.0", features = ["glob"] }
 chrono = "0.4.19"
@@ -69,7 +70,7 @@ tonic = { workspace = true }
 tonic-reflection = "0.5.0"
 url = { version = "2", features = ["serde"] }
 tower = "0.4"
-tower-http = { version = "0.3", features = ["add-extension", "auth"] }
+tower-http = { version = "0.4", features = ["add-extension", "auth", "normalize-path"] }
 tower-layer = "0.3"
 tracing = "*"
 tracing-opentelemetry = "0.20.0"
@@ -84,6 +85,7 @@ forge_secrets = { path = "../forge_secrets" }
 forge-version = { path = "../version" }
 rpc = { path = "../rpc" }
 utils = { path = "../utils" }
+askama = "0.12.1"
 
 [build-dependencies]
 tonic-build = "0.8"

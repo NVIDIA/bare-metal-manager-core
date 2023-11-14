@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Network Segment Detail{% endblock %}
+
+{% block content %}
+<h1>Network Segment Detail</h1>
+
+<table>
+	<th>ID</th><td>{{ id }}</td></tr>
+	<th>Name</th><td>{{ name }}</td></tr>
+	<th>Created </th><td>{{ created }}</td></tr>
+	<th>Updated</th><td>{{ updated }}</td></tr>
+	<th>Deleted</th><td>{{ deleted }}</td></tr>
+	<th>State</th><td>{{ state }}</td></tr>
+	<th>Domain id</th><td><a href="/admin/domain">{{ domain_id }}</a></td></tr>
+	<th>Domain name</th><td>{{ domain_name }}</td></tr>
+	<th>Type</th><td>{{ segment_type }}</td></tr>
+</table>
+
+<h3>Prefixes</h3>
+{% for prefix in prefixes %}
+<table>
+	<th>SN</th><td>{{ prefix.sn }}</td></tr>
+	<th>ID</th><td>{{ prefix.id }}</td></tr>
+	<th>Prefix</th><td>{{ prefix.prefix }}</td></tr>
+	<th>Gateway</th><td>{{ prefix.gateway }}</td></tr>
+	<th>Reserve first</th><td>{{ prefix.reserve_first }}</td></tr>
+	<th>Circuit ID</th><td>{{ prefix.circuit_id }}</td></tr>
+</table>
+{% endfor %}
+
+<h3>History</h3>
+<table>
+	<thead>
+		<tr>
+			<th>State</th>
+			<th>Version</th>
+			<th>Time</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for event in history %}
+		<tr>
+			<td>{{event.state}}</td>
+			<td>{{event.version}}</td>
+			<td>{{event.time}}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+{% endblock %}

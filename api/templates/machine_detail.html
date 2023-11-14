@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}{{ id }}{% endblock %}
+
+{% block content %}
+<h1>{{ machine_type }} {{ hostname }}</h1>
+
+<table>
+	<tr><th>ID</th><td>{{ id }}</td></tr>
+	<tr><th>State</th><td>{{ state }}</td></tr>
+	<tr><th>State Version</th><td>{{ state_version }}</td></tr>
+	{% if !network_config.is_empty() %}
+	<tr>
+		<th>Network config (sent to forge-dpu-agent)</th>
+		<td style="height: 10em"><div style="height: 100%; overflow: auto; margin: 0; padding: 0;">{{ network_config|safe }}</div></td>
+	</tr>
+	{% endif %}
+</table>
+
+<h3>Interfaces</h3>
+{% for interface in interfaces %}
+<table>
+	<tr><th>SN</th><td>{{ interface.sn }}</td></tr>
+	<tr><th>ID</th><td>{{ interface.id }}</td></tr>
+	{% if is_host %}
+		<tr><th>DPU ID</th><td><a href="/admin/machine/{{ interface.dpu_id }}">{{ interface.dpu_id }}</a></td></tr>
+	{% endif %}
+	<tr><th>Segment ID</th><td><a href="/admin/network-segment/{{ interface.segment_id }}">{{ interface.segment_id }}</a></td></tr>
+	<tr><th>Domain ID</th><td>{{ interface.domain_id }}</td></tr>
+	<tr><th>Hostname </th><td>{{ interface.hostname }}</td></tr>
+	<tr><th>Primary</th><td>{{ interface.primary }}</td></tr>
+	<tr><th>MAC Address</th><td>{{ interface.mac_address }}</td></tr>
+	<tr><th>Addresses</th><td>{{ interface.addresses }}</td></tr>
+</table>
+{% endfor %}
+
+<h3>History</h3>
+<table>
+	<thead>
+		<tr>
+			<th>State</th>
+			<th>Version</th>
+			<th>Time</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for event in history %}
+		<tr>
+			<td>{{event.event}}</td>
+			<td>{{event.version}}</td>
+			<td>{{event.time}}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+{% endblock %}
