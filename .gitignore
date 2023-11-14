@@ -22,3 +22,5 @@ forged
 
 pxe/debs/*
 !pxe/debs/libnss-exec_0.2.0-1_arm64.deb
+
+dev/shell/*
