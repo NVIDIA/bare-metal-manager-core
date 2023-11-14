@@ -21,7 +21,14 @@ pub fn grpcurl<T: ToString>(
 ) -> eyre::Result<String> {
     let address = addr.to_string();
     let grpc_endpoint = format!("forge.Forge/{endpoint}");
-    let mut args = vec!["-insecure", "-max-time", "5", &address, &grpc_endpoint];
+    let mut args = vec![
+        "-insecure",
+        "-emit-defaults",
+        "-max-time",
+        "5",
+        &address,
+        &grpc_endpoint,
+    ];
     let post_data;
     if let Some(d) = data {
         post_data = d.to_string();

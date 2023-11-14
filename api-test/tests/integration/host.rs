@@ -82,7 +82,7 @@ fn discover_dhcp(addr: SocketAddr) -> eyre::Result<String> {
     Ok(machine_interface_id.to_string())
 }
 
-fn discover_machine(addr: SocketAddr, machine_interface_id: &str) -> eyre::Result<String> {
+pub fn discover_machine(addr: SocketAddr, machine_interface_id: &str) -> eyre::Result<String> {
     let data = include_str!("../../../dev/docker-env/host_machine_discovery.json")
         .replace("$MACHINE_INTERFACE_ID", machine_interface_id);
     let resp = grpcurl(addr, "DiscoverMachine", Some(data))?;

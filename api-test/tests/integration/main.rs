@@ -27,8 +27,11 @@ pub mod grpcurl;
 mod host;
 mod instance;
 mod machine;
+mod metrics;
+mod subnet;
 mod upgrade;
 mod vault;
+mod vpc;
 use grpcurl::grpcurl;
 
 /// Integration test that shells out to start the real carbide-api, and then does all the steps
@@ -91,6 +94,8 @@ async fn test_integration() -> eyre::Result<()> {
         let l = TcpListener::bind("127.0.0.1:0")?;
         l.local_addr()?
     };
+    // TODO: Also pick a free port for metrics
+    let carbide_metrics_addr: SocketAddr = "127.0.0.1:1080".parse().unwrap();
 
     let vault_token = vault.token().to_string();
     let root_dir_clone = root_dir.to_str().unwrap().to_string();
@@ -116,7 +121,22 @@ async fn test_integration() -> eyre::Result<()> {
         &root_dir,
     )
     .await?;
-    host_boostrap(carbide_api_addr).await?;
+    let host_machine_id = host_boostrap(carbide_api_addr).await?;
+
+    // Metrics are only updated after the machine state controller run one more
+    // time since the emitted metrics are for states at the start of the iteration.
+    // Therefore wait for the updated metrics to show up.
+    let metrics = metrics::wait_for_metric_line(
+        carbide_metrics_addr,
+        r#"forge_machines_per_state{fresh="true",state="ready",substate=""} 1"#,
+    )
+    .await?;
+    metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+    metrics::assert_not_metric_line(
+        &metrics,
+        "machine_reboot_attempts_in_booting_with_discovery_image",
+    );
+
     upgrade::upgrade_dpu(
         upgrade_indicator_file.path(),
         carbide_api_addr,
@@ -136,14 +156,56 @@ async fn test_integration() -> eyre::Result<()> {
     tokio::time::sleep(Duration::from_secs(1)).await;
     upgrade::confirm_upgraded(db_pool, &dpu_info.machine_id).await?;
 
-    //instance::create(&host_machine_id, &segment_id)?;
+    let vpc_id = vpc::create(carbide_api_addr)?;
+    let segment_id = subnet::create(carbide_api_addr, &vpc_id)?;
+
+    let instance_id = instance::create(carbide_api_addr, &host_machine_id, &segment_id)?;
+    let metrics = metrics::wait_for_metric_line(
+        carbide_metrics_addr,
+        r#"forge_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
+    )
+    .await?;
+    metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+    metrics::assert_not_metric_line(
+        &metrics,
+        r#"forge_machines_per_state{fresh="true",state="ready",substate=""}"#,
+    );
+    metrics::assert_not_metric_line(
+        &metrics,
+        "machine_reboot_attempts_in_booting_with_discovery_image",
+    );
+
+    instance::release(carbide_api_addr, &host_machine_id, &instance_id)?;
+    let metrics = metrics::wait_for_metric_line(carbide_metrics_addr, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
+    metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+    metrics::assert_not_metric_line(
+        &metrics,
+        r#"forge_machines_per_state{fresh="true",state="assigned""#,
+    );
+    metrics::assert_metric_line(
+        &metrics,
+        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="0"} 0"#,
+    );
+    metrics::assert_metric_line(
+        &metrics,
+        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="5"} 1"#,
+    );
+    metrics::assert_metric_line(
+        &metrics,
+        "forge_reboot_attempts_in_booting_with_discovery_image_sum 2",
+    );
+    metrics::assert_metric_line(
+        &metrics,
+        "forge_reboot_attempts_in_booting_with_discovery_image_count 1",
+    );
 
     sleep(time::Duration::from_millis(500)).await;
     fs::remove_dir_all(dpu_info.hbn_root)?;
     Ok(())
 }
 
-async fn host_boostrap(carbide_api_addr: SocketAddr) -> eyre::Result<()> {
+/// Bootstraps a Host in `ready` state. Returns the `machine_id`
+async fn host_boostrap(carbide_api_addr: SocketAddr) -> eyre::Result<String> {
     let host_machine_id = host::bootstrap(carbide_api_addr)?;
 
     // Wait until carbide-api is prepared to admit the DPU might have rebooted.
@@ -165,7 +227,7 @@ async fn host_boostrap(carbide_api_addr: SocketAddr) -> eyre::Result<()> {
     )?;
     machine::wait_for_state(carbide_api_addr, &host_machine_id, "Ready")?;
     tracing::info!("ManagedHost is up in Ready state.");
-    Ok(())
+    Ok(host_machine_id)
 }
 
 fn find_prerequisites() -> (HashMap<String, path::PathBuf>, bool) {
@@ -173,6 +235,7 @@ fn find_prerequisites() -> (HashMap<String, path::PathBuf>, bool) {
     let paths: Vec<path::PathBuf> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
     bins.insert("vault", find_first_in("vault", &paths));
     bins.insert("grpcurl", find_first_in("grpcurl", &paths));
+    bins.insert("curl", find_first_in("curl", &paths));
 
     let mut has_all = true;
     let mut full_paths = HashMap::with_capacity(bins.len());
