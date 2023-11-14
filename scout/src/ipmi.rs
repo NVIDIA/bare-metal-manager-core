@@ -80,6 +80,7 @@ fn get_lan_print() -> CarbideClientResult<String> {
             .map_err(|x| CarbideClientError::GenericError(x.to_string()))
     } else {
         Cmd::new("ipmitool")
+            .attempts(5)
             .args(vec!["lan", "print"])
             .output()
             .map_err(CarbideClientError::from)
@@ -91,6 +92,7 @@ fn get_bmc_info() -> CarbideClientResult<String> {
             .map_err(|x| CarbideClientError::GenericError(x.to_string()))
     } else {
         Cmd::new("ipmitool")
+            .attempts(5)
             .args(vec!["bmc", "info"])
             .output()
             .map_err(CarbideClientError::from)
@@ -173,6 +175,7 @@ fn get_user_list(test_list: Option<&str>) -> CarbideClientResult<String> {
         Ok(fs::read_to_string(test_list).unwrap())
     } else {
         Cmd::new("ipmitool")
+            .attempts(5)
             .args(vec!["user", "list", "1", "-c"])
             .output()
             .map_err(CarbideClientError::from)
@@ -259,6 +262,7 @@ fn create_ipmi_user(id: &str, user: &str, sys_vendor: &str) -> HardwareEnumerati
         }
         _other => {
             let _ = Cmd::new("ipmitool")
+                .attempts(5)
                 .args(vec!["user", "set", "name", id, user])
                 .output()
                 .map_err(HardwareEnumerationError::from)?;
@@ -293,6 +297,7 @@ fn set_ipmi_password(id: &String, sys_vendor: &str) -> CarbideClientResult<Strin
         }
         _other => {
             let _ = Cmd::new("ipmitool")
+                .attempts(5)
                 .args(vec!["user", "set", "password", id, &password])
                 .output()?;
         }
@@ -307,11 +312,13 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles, sys_vendor: &str) -> Carbide
 
     // Enable user
     let _ = Cmd::new("ipmitool")
+        .attempts(5)
         .args(vec!["user", "enable", id])
         .output()?;
 
     // Set user privilege and channel access
     let _ = Cmd::new("ipmitool")
+        .attempts(5)
         .args(vec![
             "channel",
             "setaccess",
@@ -326,6 +333,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles, sys_vendor: &str) -> Carbide
 
     // Enable TCP/LAN access
     let _ = Cmd::new("ipmitool")
+        .attempts(5)
         .args(vec!["lan", "set", "1", "access", "on"])
         .output(); // Ignore it as this command might fail in some cards.
 
@@ -392,14 +400,17 @@ fn issue_racadm_user_commands(id: &String) -> CarbideClientResult<()> {
 fn set_ipmi_sol(id: &String) -> CarbideClientResult<()> {
     // failures for these 3 commands are okay to ignore, some BMCs may not handle them correctly.
     let _ = Cmd::new("ipmitool")
+        .attempts(5)
         .args(vec!["sol", "set", "set-in-progress", "set-complete", "1"])
         .output()?;
 
     let _ = Cmd::new("ipmitool")
+        .attempts(5)
         .args(vec!["sol", "set", "enabled", "true", "1"])
         .output()?;
 
     let _ = Cmd::new("ipmitool")
+        .attempts(5)
         .args(vec!["sol", "payload", "enable", "1", id])
         .output()?;
 
