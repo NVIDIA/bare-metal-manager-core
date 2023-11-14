@@ -911,7 +911,8 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     ctx.metrics
-                        .machine_reboot_attempts_in_booting_with_discovery_image = retry.count + 1;
+                        .machine_reboot_attempts_in_booting_with_discovery_image =
+                        Some(retry.count + 1);
                     *controller_state.modify() = ManagedHostState::Assigned {
                         instance_state: InstanceState::SwitchToAdminNetwork,
                     };
