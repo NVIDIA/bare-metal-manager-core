@@ -182,13 +182,27 @@ async fn test_integration() -> eyre::Result<()> {
         &metrics,
         r#"forge_machines_per_state{fresh="true",state="assigned""#,
     );
-    metrics::assert_metric_line(
+    // Explicitly test that the histogram for `forge_reboot_attempts_in_booting_with_discovery_image_bucket`
+    // uses the custom buckets we defined for retries/attempts
+    for &(bucket, count) in &[(0, 0), (1, 0), (2, 1), (3, 1), (5, 1), (10, 1)] {
+        metrics::assert_metric_line(
+            &metrics,
+            &format!(
+                r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{{le="{bucket}"}} {count}"#
+            ),
+        );
+    }
+    metrics::assert_not_metric_line(
         &metrics,
-        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="0"} 0"#,
+        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="4"}"#,
+    );
+    metrics::assert_not_metric_line(
+        &metrics,
+        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="6"}"#,
     );
     metrics::assert_metric_line(
         &metrics,
-        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="5"} 1"#,
+        r#"forge_reboot_attempts_in_booting_with_discovery_image_bucket{le="+Inf"} 1"#,
     );
     metrics::assert_metric_line(
         &metrics,
