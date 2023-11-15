@@ -28,6 +28,7 @@ use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
 use crate::{
+    api::MAX_IB_PARTITION_PER_TENANT,
     db::{DatabaseError, UuidKeyedObjectFilter},
     model::config_version::{ConfigVersion, Versioned},
     model::ib_partition::{
@@ -263,7 +264,8 @@ impl IBPartition {
                 config_version,
                 controller_state_version,
                 controller_state)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+            WHERE (SELECT COUNT(*) FROM ib_partitions WHERE organization_id = $3) < $10
             RETURNING *";
         let segment: IBPartition = sqlx::query_as(query)
             .bind(&conf.name)
@@ -275,6 +277,7 @@ impl IBPartition {
             .bind(&version_string)
             .bind(&version_string)
             .bind(sqlx::types::Json(state))
+            .bind(MAX_IB_PARTITION_PER_TENANT)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
