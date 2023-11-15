@@ -148,6 +148,8 @@ const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 // Only used if `--manage-vpc` on command line.
 const ETH_VIRT_PRODUCTION_MODE: bool = true;
 
+pub const MAX_IB_PARTITION_PER_TENANT: i64 = 3;
+
 pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) database_connection: sqlx::PgPool,
     credential_provider: Arc<C1>,

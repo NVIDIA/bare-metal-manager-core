@@ -12,6 +12,7 @@
 
 use carbide::{
     api::rpc::IbPartitionConfig, api::rpc::IbPartitionSearchConfig,
+    api::MAX_IB_PARTITION_PER_TENANT,
     state_controller::ib_partition::handler::IBPartitionStateHandler,
 };
 
@@ -23,7 +24,10 @@ use tonic::Request;
 const FIXTURE_CREATED_IB_PARTITION_NAME: &str = "ib_partition_1";
 const FIXTURE_TENANT_ORG_ID: &str = "tenant";
 
-async fn create_ib_partition_with_api(api: &TestApi, name: String) -> rpc::forge::IbPartition {
+async fn create_ib_partition_with_api(
+    api: &TestApi,
+    name: String,
+) -> Result<tonic::Response<rpc::IbPartition>, tonic::Status> {
     let request = rpc::forge::IbPartitionCreationRequest {
         config: Some(IbPartitionConfig {
             name,
@@ -31,10 +35,7 @@ async fn create_ib_partition_with_api(api: &TestApi, name: String) -> rpc::forge
         }),
     };
 
-    api.create_ib_partition(Request::new(request))
-        .await
-        .expect("Unable to create ib partition")
-        .into_inner()
+    api.create_ib_partition(Request::new(request)).await
 }
 
 async fn get_partition_state(api: &TestApi, ib_partition_id: uuid::Uuid) -> TenantState {
@@ -61,7 +62,10 @@ async fn test_ib_partition_lifecycle_impl(
     let env = create_test_env(pool.clone()).await;
 
     let segment =
-        create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string()).await;
+        create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
+            .await
+            .unwrap()
+            .into_inner();
 
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
     // The TenantState only switches after the state controller recognized the update
@@ -127,7 +131,10 @@ async fn test_find_ib_partition_for_tenant(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
     let created_ib_partition =
-        create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string()).await;
+        create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
+            .await
+            .unwrap()
+            .into_inner();
     let created_ib_partition_id: uuid::Uuid =
         created_ib_partition.id.clone().unwrap().try_into().unwrap();
 
@@ -145,5 +152,33 @@ async fn test_find_ib_partition_for_tenant(
         find_ib_partition.id.clone().unwrap().try_into().unwrap();
 
     assert_eq!(created_ib_partition_id, find_ib_partition_id);
+    Ok(())
+}
+
+#[sqlx::test]
+async fn test_create_ib_partition_over_max_limit(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    // create max number of ib partitions for the tenant
+    for _i in 1..=MAX_IB_PARTITION_PER_TENANT {
+        let _ =
+            create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
+                .await?;
+    }
+
+    // create one more ib partition for this tenant, should be fail with no rows retruned from DB.
+    let response =
+        create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string()).await;
+
+    let error = response
+        .expect_err("expected create ibpartition to fail")
+        .to_string();
+    assert!(
+        error.contains("no rows returned"),
+        "Error message should contain 'no rows returned', but is {}",
+        error
+    );
+
     Ok(())
 }
