@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::num::ParseIntError;
 use utils::cmd::CmdError;
 
 #[derive(thiserror::Error, Debug)]
@@ -45,6 +46,9 @@ pub enum CarbideClientError {
 
     #[error("Subprocess failed: {0}")]
     SubprocessError(#[from] CmdError),
+
+    #[error("NVME parsing failed: {0}")]
+    NvmeParsingError(#[from] ParseIntError),
 }
 
 pub type CarbideClientResult<T> = Result<T, CarbideClientError>;

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [ "$1" != "final" ]; then
+exit 0
+fi
+
+set -Eeux
+
+mkdir -p /opt/forge/xclarity
+curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2023/03/09/57046/lnvgy_utl_lxce_onecli01w-4.0.1_rhel_x86-64.tgz | tar -zxf - -C /opt/forge/xclarity
+curl -fS --progress-meter -vL https://download.lenovo.com/servers/mig/2020/06/11/22050/lnvgy_utl_bootstor_mnvcli-1.0.20.1040-0_linux_x86-64.tgz | tar -zxf - --wildcards --no-anchored --strip-components=2 -C /opt/forge 64/mnv_cli
+chmod +x /opt/forge/mnv_cli
