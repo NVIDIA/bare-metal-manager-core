@@ -54,6 +54,7 @@ pub mod redfish;
 pub mod resource_pool;
 pub mod setup;
 pub mod state_controller;
+pub mod web;
 
 /// Represents various Errors that can occur throughout the system.
 ///

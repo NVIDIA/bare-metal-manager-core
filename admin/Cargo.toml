@@ -27,8 +27,9 @@ tonic = { workspace = true }
 uuid = "1.0"
 
 # local crate dependencies
-rpc = { path = "../rpc" }
 forge-version = { path = "../version" }
+rpc = { path = "../rpc" }
+utils = { path = "../utils" }
 
 [build-dependencies]
 forge-version = { path = "../version" }

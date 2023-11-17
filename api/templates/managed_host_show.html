@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Managed Hosts{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>Managed Hosts</h1>
+{% if !maintenance.is_empty() %}
+<h2>Maintenance</h2>
+<table>
+	<thead>
+		<tr>
+			<th>Hostname</th>
+			<th>Maintenance Ref</th>
+			<th>Maintenance Start</th>
+			<th>Host ID</th>
+			<th>DPU ID</th>
+			<th>State</th>
+			<th>Host BMC IP</th>
+			<th>DPU BMC IP</th>
+			<th>ADMIN/OOB IP</th>
+		<tr/>
+	</thead>
+	<tbody>
+	{% for host in maintenance %}
+		<tr>
+			<td><a href="/admin/managed-host/{{host.machine_id}}">{{ host.hostname }}</a></td>
+      <td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
+			<td>{{ host.maintenance_start_time }}</td>
+			<td><a href="/admin/machine/{{ host.machine_id }}"> {{ host.machine_id|short_machine_id() }}</a></td>
+			<td><a href="/admin/machine/{{ host.dpu_machine_id }}"> {{ host.dpu_machine_id|short_machine_id() }}</a></td>
+			<td>{{ host.state }}</td>
+			<td>{{ host.host_bmc_ip }}</td>
+			<td>{{ host.dpu_bmc_ip }}</td>
+			<td>{{ host.host_admin_ip }}</td>
+		<tr/>
+	{% endfor %}
+	</tbody>
+</table>
+
+<h2>Active</h2>
+{% endif %}
+<table>
+	<thead>
+		<tr>
+			<th>Hostname</th>
+			<th>Host ID</th>
+			<th>DPU ID</th>
+			<th>State</th>
+			<th>Host BMC IP</th>
+			<th>DPU BMC IP</th>
+			<th>Admin/OOB IP</th>
+			<th>GPU #</th>
+			<th>Host Memory</th>
+		<tr/>
+	</thead>
+	<tbody>
+	{% for host in active %}
+		<tr>
+			<td><a href="/admin/managed-host/{{host.machine_id}}">{{ host.hostname }}</a></td>
+			<td><a href="/admin/machine/{{ host.machine_id }}"> {{ host.machine_id|short_machine_id() }}</a></td>
+			<td><a href="/admin/machine/{{ host.dpu_machine_id }}"> {{ host.dpu_machine_id|short_machine_id() }}</a></td>
+			<td>{{ host.state }}</td>
+			<td>{{ host.host_bmc_ip }}</td>
+			<td>{{ host.dpu_bmc_ip }}</td>
+			<td>{{ host.host_admin_ip }}</td>
+			<td>{{ host.num_gpus }}</td>
+			<td>{{ host.host_memory }}</td>
+		<tr/>
+	{% endfor %}
+	</tbody>
+</table>
+{% endblock %}

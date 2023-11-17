@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Instance Detail{% endblock %}
+
+{% block content %}
+<h1>Instance</h1>
+<table>
+	<tr><th>ID</th><td>{{ id }}</td></tr>
+	<tr><th>Machine ID</th><td><a href="/admin/machine/{{ machine_id }}">{{ machine_id }}</a></td></tr>
+	<tr><th>Tenant Org</th><td>{{ tenant_org }}</td></tr>
+	<tr><th>Tenant State</th><td>{{ tenant_state }}</td></tr>
+	<tr><th>Tenant State Details</th><td>{{ tenant_state_details }}</td></tr>
+	<tr><th>Configs Synced</th><td>{{ configs_synced }}</td></tr>
+	<tr><th>Network Config Synced</th><td>{{ network_config_synced }}</td></tr>
+	<tr><th>Network Config Version</th><td>{{ network_config_version }}</td></tr>
+	<tr><th>Always Boot Custom iPXE</th><td>{{ always_boot_custom_ipxe }}</td></tr>
+	<tr><th>Custom iPXE</th><td>{{ custom_ipxe }}</td></tr>
+	{% if !userdata.is_empty() %}
+		<tr><th>Userdata</th><td><form><textarea disabled>{{ userdata }}</textarea></form></td></tr>
+	{% endif %}
+</table>
+
+<h2>Interfaces</h2>
+{% for interface in interfaces %}
+<table>
+	<tr><th>Function type</th><td>{{ interface.function_type }}</td></tr>
+	<tr><th>VF ID</th><td>{{ interface.vf_id }}</td></tr>
+	<tr><th>Segment ID</th><td><a href="/admin/network-segment/{{ interface.segment_id }}">{{ interface.segment_id }}</a></td></tr>
+	<tr><th>MAC Address</th><td>{{ interface.mac_address }}</td></tr>
+	<tr><th>IP Addresses</th><td>{{ interface.addresses }}</td></tr>
+</table>
+{% endfor %}
+
+{% endblock %}

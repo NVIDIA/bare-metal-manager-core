@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Instances{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>Instances</h1>
+
+<table>
+	<thead>
+	<tr>
+		<th>ID</th>
+		<th>Machine ID</th>
+		<th>Tenant Org</th>
+		<th>Tenant State</th>
+		<th>Configs Synced</th>
+		<th>IP Addresses</th>
+	</tr>
+	</thead>
+	<tbody>
+	{% for i in instances %}
+		<tr>
+			<td><a href="/admin/instance/{{ i.id }}">{{ i.id }}</a></td>
+			<td><a href="/admin/machine/{{ i.machine_id }}">{{ i.machine_id|short_machine_id() }}</a></td>
+			<td>{{ i.tenant_org }}</td>
+			<td>{{ i.tenant_state }}</td>
+			<td>{{ i.configs_synced }}</td>
+			<td>{{ i.ip_addresses }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
+{% endblock %}
+

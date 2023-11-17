@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Managed Host{% endblock %}
+
+{% block content %}
+<h1>Managed Host {{ hostname }}</h1>
+<table>
+	<tr><th>State</th><td>{{ state }}</td></tr>
+	{% if !maintenance_reference.is_empty() %}
+		<tr>
+      <th>Maintenance Reference</th>
+      <td>{% if is_link_ref %}<a href="{{ maintenance_reference }}">{{ maintenance_reference }}</a>{% else %}{{ maintenance_reference }}{% endif %}</td>
+    </tr>
+		<tr><th>Maintenance Start</th><td>{{ maintenance_start_time }}</td></tr>
+	{% endif %}
+	<tr>
+		<th>Maintenance Action</th>
+		<td>
+			<form id="maintenance_action" method="POST" action="/admin/managed-host/{{ machine_id }}/maintenance">
+				{% if maintenance_reference.is_empty() %}
+					<input type="hidden" name="action" value="enter"/>
+					<label for="ref">Reference:</label><input type=text id="ref" name="reference" />
+					<button type="submit">Enter maintenance</button>
+					<p>Machines in maintenance mode cannot be assigned an instance</p>
+				{% else %}
+					<input type="hidden" name="action" value="exit"/>
+					<button style="margin-left: 0" type="submit">Exit maintenance</button>
+				{% endif %}
+			</form>
+		</td>
+	</tr>
+</table>
+
+<h2>Host</h2>
+
+<table>
+	<tr><th>ID</th><td><a href="/admin/machine/{{ machine_id }}">{{ machine_id }}</a></td></tr>
+	<tr><th>Last reboot</th><td>{{ host_last_reboot_time }}</td></tr>
+	<tr><th>Serial Number</th><td>{{ host_serial_number }}</td></tr>
+	<tr><th>BIOS Version</th><td>{{ host_bios_version }}</td></tr>
+	<tr><th>GPU Count</th><td>{{ host_gpu_count }}</td></tr>
+	<tr><th>Memory</th><td>{{ host_memory }}</td></tr>
+	<tr><th>Admin IP</th><td>{{ host_admin_ip }}</td></tr>
+	<tr><th>Admin MAC</th><td>{{ host_admin_mac }}</td></tr>
+	<tr><th>Network</th><td>{% if is_network_healthy %}Healthy{% else %}{{ network_err_message }}{% endif %}</td></tr>
+	<tr><th>BMC Version</th><td>{{ host_bmc_version }}</td></tr>
+	<tr><th>BMC Firmware Version</th><td>{{ host_bmc_firmware_version }}</td></tr>
+	<tr><th>BMC IP</th><td>{{ host_bmc_ip }}</td></tr>
+	<tr><th>BMC MAC</th><td>{{ host_bmc_mac }}</td></tr>
+</table>
+
+<h2>DPU</h2>
+<table>
+	<tr><th>ID</th><td><a href="/admin/machine/{{ dpu_machine_id }}">{{ dpu_machine_id }}</a></td></tr>
+	<tr><th>Last reboot</th><td>{{ dpu_last_reboot_time }}</td></tr>
+	<tr><th>Last seen</th><td>{{ dpu_last_observation_time }}</td></tr>
+	<tr><th>Serial Number</th><td>{{ dpu_serial_number }}</td></tr>
+	<tr><th>BIOS Version</th><td>{{ dpu_bios_version }}</td></tr>
+	<tr><th>Admin IP</th><td>{{ dpu_oob_ip }}</td></tr>
+	<tr><th>Admin MAC</th><td>{{ dpu_oob_mac }}</td></tr>
+	<tr><th>BMC Version</th><td>{{ dpu_bmc_version }}</td></tr>
+	<tr><th>BMC Firmware Version</th><td>{{ dpu_bmc_firmware_version }}</td></tr>
+	<tr><th>BMC IP</th><td>{{ dpu_bmc_ip }}</td></tr>
+	<tr><th>BMC MAC</th><td>{{ dpu_bmc_mac }}</td></tr>
+</table>
+
+<script>
+	function are_you_sure(event) {
+		event.preventDefault();
+		let form = document.getElementById("maintenance_action");
+		{% if maintenance_reference.is_empty() %}
+			if (!document.getElementById("ref").value) {
+				alert("Reference is required. It is usually a ticket tracker URL.");
+				return;
+			}
+			let confirm = window.confirm("Take machine out of service and put it into maintenance mode?");
+		{% else %}
+			let confirm = window.confirm("Put machine back into service, exiting maintenance mode?");
+		{% endif %}
+		if (confirm) {
+			form.removeEventListener("submit", are_you_sure);
+			form.submit();
+		}
+	}
+	document.addEventListener("DOMContentLoaded", function(event){
+		let form = document.getElementById("maintenance_action");
+		form.addEventListener("submit", are_you_sure);
+	});
+</script>
+
+{% endblock %}
