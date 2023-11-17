@@ -672,6 +672,8 @@ impl HardwareInfo {
                 "Lenovo" => BMCVendor::Lenovo,
                 "Dell Inc." => BMCVendor::Dell,
                 "https://www.mellanox.com" => BMCVendor::Mellanox,
+                "Supermicro" => BMCVendor::Supermicro,
+                "NVIDIA" => BMCVendor::NvidiaViking,
                 _ => BMCVendor::Unknown,
             },
             None => BMCVendor::Unknown,
@@ -684,6 +686,8 @@ pub enum BMCVendor {
     Lenovo,
     Dell,
     Mellanox,
+    Supermicro,
+    NvidiaViking,
     Unknown,
 }
 
@@ -696,6 +700,12 @@ impl BMCVendor {
     }
     pub fn is_mellanox(self) -> bool {
         self == BMCVendor::Mellanox
+    }
+    pub fn is_supermicro(self) -> bool {
+        self == BMCVendor::Supermicro
+    }
+    pub fn is_viking(self) -> bool {
+        self == BMCVendor::NvidiaViking
     }
 }
 
