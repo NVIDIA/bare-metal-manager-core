@@ -112,7 +112,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                     dev.firmware_version.unwrap_or_default(),
                     dev.part_number.unwrap_or_default(),
                     dev.serial_number.unwrap_or_default(),
-                    format!("{} {}", status.health, status.state),
+                    format!("{} {}", status.health.unwrap_or_default(), status.state),
                 ]);
             }
             table.set_format(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
