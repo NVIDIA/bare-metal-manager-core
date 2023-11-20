@@ -274,7 +274,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 dpu_id: interface
                     .attached_dpu_machine_id
                     .clone()
-                    .unwrap_or_else(super::default_machine_id)
+                    .unwrap_or_else(super::invalid_machine_id)
                     .to_string(),
                 segment_id: interface
                     .segment_id

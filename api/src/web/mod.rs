@@ -166,7 +166,7 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
     (StatusCode::OK, Html(index.render().unwrap()))
 }
 
-pub(crate) fn default_machine_id() -> rpc::forge::MachineId {
+pub(crate) fn invalid_machine_id() -> rpc::forge::MachineId {
     rpc::forge::MachineId {
         id: "INVALID_MACHINE".to_string(),
     }

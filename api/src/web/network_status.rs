@@ -63,7 +63,7 @@ impl From<forgerpc::DpuNetworkStatus> for NetworkStatusDisplay {
                 .unwrap_or_default(),
             dpu_machine_id: st
                 .dpu_machine_id
-                .unwrap_or_else(super::default_machine_id)
+                .unwrap_or_else(super::invalid_machine_id)
                 .to_string(),
             network_config_version: st.network_config_version.unwrap_or_default(),
             is_healthy: h.is_healthy,

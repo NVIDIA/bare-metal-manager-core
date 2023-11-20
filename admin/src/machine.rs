@@ -16,7 +16,7 @@ use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 
 use super::cfg::carbide_options::ShowMachine;
-use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
+use super::{default_uuid, rpc, CarbideCliResult};
 use crate::cfg::carbide_options::ForceDeleteMachineQuery;
 use crate::Config;
 
@@ -79,17 +79,17 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
                     "DPU ID",
                     interface
                         .attached_dpu_machine_id
-                        .clone()
-                        .unwrap_or_else(default_machine_id)
-                        .to_string(),
+                        .as_ref()
+                        .map(::rpc::MachineId::to_string)
+                        .unwrap_or_default(),
                 ),
                 (
                     "Machine ID",
                     interface
                         .machine_id
-                        .clone()
-                        .unwrap_or_else(default_machine_id)
-                        .to_string(),
+                        .as_ref()
+                        .map(::rpc::MachineId::to_string)
+                        .unwrap_or_default(),
                 ),
                 (
                     "Segment ID",
