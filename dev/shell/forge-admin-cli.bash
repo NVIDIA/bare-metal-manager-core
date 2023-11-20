@@ -108,11 +108,17 @@ _forge-admin-cli() {
             forge__admin__cli__bmc__machine,reset)
                 cmd="forge__admin__cli__bmc__machine__reset"
                 ;;
+            forge__admin__cli__bmc__machine,show)
+                cmd="forge__admin__cli__bmc__machine__show"
+                ;;
             forge__admin__cli__bmc__machine__help,help)
                 cmd="forge__admin__cli__bmc__machine__help__help"
                 ;;
             forge__admin__cli__bmc__machine__help,reset)
                 cmd="forge__admin__cli__bmc__machine__help__reset"
+                ;;
+            forge__admin__cli__bmc__machine__help,show)
+                cmd="forge__admin__cli__bmc__machine__help__show"
                 ;;
             forge__admin__cli__boot__override,clear)
                 cmd="forge__admin__cli__boot__override__clear"
@@ -284,6 +290,9 @@ _forge-admin-cli() {
                 ;;
             forge__admin__cli__help__bmc__machine,reset)
                 cmd="forge__admin__cli__help__bmc__machine__reset"
+                ;;
+            forge__admin__cli__help__bmc__machine,show)
+                cmd="forge__admin__cli__help__bmc__machine__show"
                 ;;
             forge__admin__cli__help__boot__override,clear)
                 cmd="forge__admin__cli__help__boot__override__clear"
@@ -1058,7 +1067,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__bmc__machine)
-            opts="-h --help reset help"
+            opts="-h --help reset show help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1072,7 +1081,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__bmc__machine__help)
-            opts="reset help"
+            opts="reset show help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1113,6 +1122,20 @@ _forge-admin-cli() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        forge__admin__cli__bmc__machine__help__show)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         forge__admin__cli__bmc__machine__reset)
             opts="-h --address --port --username --password --machine --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -1137,6 +1160,28 @@ _forge-admin-cli() {
                     return 0
                     ;;
                 --machine)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__bmc__machine__show)
+            opts="-a -b -h --all --dpus --hosts --bmc-machine --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --bmc-machine)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -b)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -1800,7 +1845,7 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__bmc__machine)
-            opts="reset"
+            opts="reset show"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1814,6 +1859,20 @@ _forge-admin-cli() {
             return 0
             ;;
         forge__admin__cli__help__bmc__machine__reset)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        forge__admin__cli__help__bmc__machine__show)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
