@@ -1680,6 +1680,18 @@ _arguments "${_arguments_options[@]}" \
 '--help[Print help]' \
 && ret=0
 ;;
+(show)
+_arguments "${_arguments_options[@]}" \
+'-b+[]:BMC_MACHINE: ' \
+'--bmc-machine=[]:BMC_MACHINE: ' \
+'-a[Show all BMC machines]' \
+'--all[Show all BMC machines]' \
+'--dpus[Show only DPUs BMC machines]' \
+'--hosts[Show only hosts BMC machines]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" \
 ":: :_forge-admin-cli__bmc-machine__help_commands" \
@@ -1693,6 +1705,10 @@ _arguments "${_arguments_options[@]}" \
         curcontext="${curcontext%:*:*}:forge-admin-cli-bmc-machine-help-command-$line[1]:"
         case $line[1] in
             (reset)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
+(show)
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
@@ -2452,6 +2468,10 @@ _arguments "${_arguments_options[@]}" \
 _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
+(show)
+_arguments "${_arguments_options[@]}" \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -2660,6 +2680,7 @@ _forge-admin-cli__redfish__help__bios-attrs_commands() {
 _forge-admin-cli__bmc-machine_commands() {
     local commands; commands=(
 'reset:Reset a BMC machine' \
+'show:Display BMC Machine information' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'forge-admin-cli bmc-machine commands' commands "$@"
@@ -2668,6 +2689,7 @@ _forge-admin-cli__bmc-machine_commands() {
 _forge-admin-cli__help__bmc-machine_commands() {
     local commands; commands=(
 'reset:Reset a BMC machine' \
+'show:Display BMC Machine information' \
     )
     _describe -t commands 'forge-admin-cli help bmc-machine commands' commands "$@"
 }
@@ -3238,6 +3260,7 @@ _forge-admin-cli__resource-pool__help__grow_commands() {
 _forge-admin-cli__bmc-machine__help_commands() {
     local commands; commands=(
 'reset:Reset a BMC machine' \
+'show:Display BMC Machine information' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'forge-admin-cli bmc-machine help commands' commands "$@"
@@ -4275,6 +4298,16 @@ _forge-admin-cli__help__dpu__reprovision__set_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli help dpu reprovision set commands' commands "$@"
 }
+(( $+functions[_forge-admin-cli__bmc-machine__help__show_commands] )) ||
+_forge-admin-cli__bmc-machine__help__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli bmc-machine help show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__bmc-machine__show_commands] )) ||
+_forge-admin-cli__bmc-machine__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli bmc-machine show commands' commands "$@"
+}
 (( $+functions[_forge-admin-cli__domain__help__show_commands] )) ||
 _forge-admin-cli__domain__help__show_commands() {
     local commands; commands=()
@@ -4284,6 +4317,11 @@ _forge-admin-cli__domain__help__show_commands() {
 _forge-admin-cli__domain__show_commands() {
     local commands; commands=()
     _describe -t commands 'forge-admin-cli domain show commands' commands "$@"
+}
+(( $+functions[_forge-admin-cli__help__bmc-machine__show_commands] )) ||
+_forge-admin-cli__help__bmc-machine__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'forge-admin-cli help bmc-machine show commands' commands "$@"
 }
 (( $+functions[_forge-admin-cli__help__domain__show_commands] )) ||
 _forge-admin-cli__help__domain__show_commands() {
