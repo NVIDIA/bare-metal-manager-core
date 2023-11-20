@@ -50,9 +50,9 @@ impl From<forgerpc::MachineInterface> for InterfaceRowDisplay {
             ip_address: mi.address.join(","),
             machine_id: mi
                 .machine_id
-                .clone()
-                .unwrap_or_else(super::default_machine_id)
-                .to_string(),
+                .as_ref()
+                .map(::rpc::MachineId::to_string)
+                .unwrap_or_default(),
             hostname: mi.hostname,
             vendor: mi.vendor.unwrap_or_default(),
             domain_name: String::new(), // filled in later
@@ -166,12 +166,14 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
             id: mi.id.unwrap_or_default().value,
             dpu_machine_id: mi
                 .attached_dpu_machine_id
-                .unwrap_or_else(super::default_machine_id)
-                .to_string(),
+                .as_ref()
+                .map(::rpc::MachineId::to_string)
+                .unwrap_or_default(),
             machine_id: mi
                 .machine_id
-                .unwrap_or_else(super::default_machine_id)
-                .to_string(),
+                .as_ref()
+                .map(::rpc::MachineId::to_string)
+                .unwrap_or_default(),
             segment_id: mi
                 .segment_id
                 .clone()

@@ -116,7 +116,7 @@ pub fn default_uuid() -> forgerpc::Uuid {
     }
 }
 
-pub fn default_machine_id() -> forgerpc::MachineId {
+pub fn invalid_machine_id() -> forgerpc::MachineId {
     forgerpc::MachineId {
         id: "INVALID_MACHINE".to_string(),
     }

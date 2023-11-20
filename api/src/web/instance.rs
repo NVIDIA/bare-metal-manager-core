@@ -79,7 +79,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             id: instance.id.unwrap_or_default().to_string(),
             machine_id: instance
                 .machine_id
-                .unwrap_or_else(super::default_machine_id)
+                .unwrap_or_else(super::invalid_machine_id)
                 .to_string(),
             tenant_org,
             tenant_state,
