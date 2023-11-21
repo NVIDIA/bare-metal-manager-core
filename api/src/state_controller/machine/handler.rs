@@ -1199,7 +1199,6 @@ async fn host_power_control(
                 object_id: machine_snapshot.machine_id.to_string(),
                 missing: "bmc_info.ip",
             })?;
-    let is_lenovo = machine_snapshot.bmc_vendor.is_lenovo();
 
     let client = services
         .redfish_client_pool
@@ -1212,8 +1211,9 @@ async fn host_power_control(
         )
         .await?;
 
-    if is_lenovo {
+    if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
         // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
+        // Supermicro will bot the users OS if we don't do this
         client.boot_once(libredfish::Boot::Pxe).await.map_err(|e| {
             StateHandlerError::RedfishError {
                 operation: "boot_once",
