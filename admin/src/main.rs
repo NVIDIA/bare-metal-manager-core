@@ -693,7 +693,7 @@ async fn main() -> color_eyre::Result<()> {
                         &mut io::stdout(),
                     );
                     // Make completion work for alias `fa`
-                    io::stdout().write(
+                    io::stdout().write_all(
                         b"complete -F _forge-admin-cli -o nosort -o bashdefault -o default fa\n",
                     )?;
                 }
