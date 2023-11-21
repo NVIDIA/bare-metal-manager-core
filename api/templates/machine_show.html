@@ -23,10 +23,19 @@
 	{% for m in machines %}
 		<tr>
 			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
-			<td>{{ m.id|short_machine_id() }}</td>
+			<td>
+				<div class="machine_id"><div>{{ m.id }}</div><div>{{ m.id|machine_id_last() }}</div></div>
+			</td>
 			<td>{{ m.state }}</td>
 			<td>{{ m.state_version }}</td>
-			<td>{% if m.is_host %}<a href="/admin/machine/{{ m.attached_dpu_id }}">{{ m.attached_dpu_id|short_machine_id() }}{% endif %}</a></td>
+			<td>{% if m.is_host %}
+				<a href="/admin/machine/{{ m.attached_dpu_id }}">
+					<div class="machine_id">
+						<div>{{ m.attached_dpu_id }}</div><div>{{ m.attached_dpu_id|machine_id_last() }}</div>
+					</div>
+				</a>
+				{% endif %}
+			</td>
 			<td>{{ m.primary_interface_id }}</td>
 			<td>{{ m.ip_address }}</td>
 			<td>{{ m.mac_address }}</td>

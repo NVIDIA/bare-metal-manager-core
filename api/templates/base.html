@@ -144,6 +144,23 @@ div#json a {
   border-radius: 5px;
 }
 
+/* Machine ID with center truncated, for list display */
+.machine_id {
+	width: 14ch;
+	display: inline-flex;
+	flex-wrap: nowrap;
+}
+.machine_id > div:first-child {
+	flex: 0 1 content;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.machine_id > div:nth-child(2) {
+	flex: 1 0 content;
+	white-space: nowrap;
+}
+
 {% block css %}{% endblock %}
 </style>
     {% block head %}{% endblock %}
