@@ -16,6 +16,7 @@
 			<th>Host ID</th>
 			<th>DPU ID</th>
 			<th>State</th>
+			<th>DPU Health</th>
 			<th>Host BMC IP</th>
 			<th>DPU BMC IP</th>
 			<th>ADMIN/OOB IP</th>
@@ -41,6 +42,7 @@
 				</a>
 			</td>
 			<td>{{ host.state }}</td>
+			<td>{% if host.is_network_healthy %}Healthy{% else %}{{ host.network_err_message }}{% endif %}</td>
 			<td>{{ host.host_bmc_ip }}</td>
 			<td>{{ host.dpu_bmc_ip }}</td>
 			<td>{{ host.host_admin_ip }}</td>
@@ -58,6 +60,7 @@
 			<th>Host ID</th>
 			<th>DPU ID</th>
 			<th>State</th>
+			<th>DPU Health</th>
 			<th>Host BMC IP</th>
 			<th>DPU BMC IP</th>
 			<th>Admin/OOB IP</th>
@@ -83,6 +86,7 @@
 				</a>
 			</td>
 			<td>{{ host.state }}</td>
+			<td>{% if host.is_network_healthy %}Healthy{% else %}{{ host.network_err_message }}{% endif %}</td>
 			<td>{{ host.host_bmc_ip }}</td>
 			<td>{{ host.dpu_bmc_ip }}</td>
 			<td>{{ host.host_admin_ip }}</td>
