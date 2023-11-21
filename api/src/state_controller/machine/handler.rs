@@ -895,9 +895,9 @@ impl StateHandler for InstanceStateHandler {
                     {
                         let state_timestamp = state.host_snapshot.current.version.timestamp();
                         let expected_timestamp =
-                            chrono::Utc::now() + ctx.services.reachability_params.host_wait_time;
+                            state_timestamp + ctx.services.reachability_params.host_wait_time;
                         // Wait till reachability time is over and reboot only and only one time.
-                        if expected_timestamp > state_timestamp && retry.count == 0 {
+                        if chrono::Utc::now() > expected_timestamp {
                             restart_machine(&state.host_snapshot, ctx.services).await?;
                             *controller_state.modify() = ManagedHostState::Assigned {
                                 instance_state: InstanceState::BootingWithDiscoveryImage {
