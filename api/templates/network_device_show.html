@@ -26,7 +26,13 @@
 			<tbody>
 			{% for dpu in d.connected_dpus %}
 				<tr>
-					<td><a href="/admin/machine/{{ dpu.id }}">{{ dpu.id|short_machine_id() }}</a></td>
+					<td>
+						<a href="/admin/machine/{{ dpu.id }}">
+							<div class="machine_id">
+								<div>{{ dpu.id }}</div><div>{{ dpu.id|machine_id_last() }}</div>
+							</div>
+						</a>
+					</td>
 					<td>{{ dpu.local_port }}</td>
 					<td>{{ dpu.remote_port }}</td>
 				</tr>

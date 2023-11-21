@@ -15,13 +15,11 @@
  * Askama makes all these functions accessible as template filters.
  */
 
-// "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0" -> "fm100d..acguc0"
-pub fn short_machine_id<T: std::fmt::Display>(d: T) -> ::askama::Result<String> {
+// "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0" -> "acguc0"
+pub fn machine_id_last<T: std::fmt::Display>(d: T) -> ::askama::Result<String> {
     let s = d.to_string();
     if s.len() < 25 || !s.starts_with("fm100") {
         return Ok(s);
     }
-    let mut short = s[..6].to_string() + "..";
-    short += &s[s.len() - 6..];
-    Ok(short)
+    Ok(s[s.len() - 6..].to_string())
 }

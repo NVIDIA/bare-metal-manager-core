@@ -21,7 +21,13 @@
 	{% for i in instances %}
 		<tr>
 			<td><a href="/admin/instance/{{ i.id }}">{{ i.id }}</a></td>
-			<td><a href="/admin/machine/{{ i.machine_id }}">{{ i.machine_id|short_machine_id() }}</a></td>
+			<td>
+				<a href="/admin/machine/{{ i.machine_id }}">
+					<div class="machine_id">
+						<div>{{ i.machine_id }}</div><div>{{ i.machine_id|machine_id_last() }}</div>
+					</div>
+				</a>
+			</td>
 			<td>{{ i.tenant_org }}</td>
 			<td>{{ i.tenant_state }}</td>
 			<td>{{ i.configs_synced }}</td>
