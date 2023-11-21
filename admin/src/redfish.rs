@@ -192,8 +192,11 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         GetChassisAll => {
             handle_get_chassis_all(redfish).await?;
         }
-        GetBmcEthernetInterface => {
-            handle_ethernet_interface_show(redfish).await?;
+        GetBmcEthernetInterfaces => {
+            handle_ethernet_interface_show(redfish, false).await?;
+        }
+        GetSystemEthernetInterfaces => {
+            handle_ethernet_interface_show(redfish, true).await?;
         }
     }
     Ok(())
@@ -444,12 +447,23 @@ fn convert_ports_to_nice_table(
     table.into()
 }
 
-pub async fn handle_ethernet_interface_show(redfish: Box<dyn Redfish>) -> Result<(), RedfishError> {
-    let eth_ifs: Vec<String> = redfish.get_ethernet_interfaces().await?;
+pub async fn handle_ethernet_interface_show(
+    redfish: Box<dyn Redfish>,
+    fetch_system_interfaces: bool,
+) -> Result<(), RedfishError> {
+    let eth_ifs: Vec<String> = match fetch_system_interfaces {
+        false => redfish.get_manager_ethernet_interfaces().await?,
+        true => redfish.get_system_ethernet_interfaces().await?,
+    };
     let mut eth_ifs_info: Vec<EthernetInterface> = Vec::new();
 
     for iface_id in eth_ifs.iter() {
-        match redfish.get_ethernet_interface(iface_id).await {
+        let result = match fetch_system_interfaces {
+            false => redfish.get_manager_ethernet_interface(iface_id).await,
+            true => redfish.get_system_ethernet_interface(iface_id).await,
+        };
+
+        match result {
             Ok(iface) => {
                 eth_ifs_info.push(iface);
             }
@@ -468,11 +482,37 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
         "Id",
         "Link Status",
         "MAC Address",
+        "IP Addresses",
+        "Static IP Addresses",
         "MTU Size",
         "Speed (Mbps)",
     ]);
 
     for eth_if in &eth_ifs {
+        let mut ips = Vec::new();
+        for ip in &eth_if.ipv4_addresses {
+            if let Some(ip) = ip.address.as_ref() {
+                ips.push(ip.clone());
+            }
+        }
+        for ip in &eth_if.ipv6_addresses {
+            if let Some(ip) = ip.address.as_ref() {
+                ips.push(ip.clone());
+            }
+        }
+
+        let mut static_ips = Vec::new();
+        for ip in &eth_if.ipv4_static_addresses {
+            if let Some(ip) = ip.address.as_ref() {
+                static_ips.push(ip.clone());
+            }
+        }
+        for ip in &eth_if.ipv6_static_addresses {
+            if let Some(ip) = ip.address.as_ref() {
+                static_ips.push(ip.clone());
+            }
+        }
+
         table.add_row(row![
             eth_if.id.as_ref().unwrap_or(&"None".to_string()),
             eth_if
@@ -484,6 +524,8 @@ fn convert_ethernet_interfaces_to_nice_table(eth_ifs: Vec<EthernetInterface>) ->
                 .mac_address
                 .as_ref()
                 .map_or("None".to_string(), |mac| mac.clone()),
+            ips.join(","),
+            static_ips.join(","),
             eth_if
                 .mtu_size
                 .map(|mtu| mtu.to_string())

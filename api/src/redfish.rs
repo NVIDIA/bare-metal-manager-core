@@ -384,11 +384,26 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
-    async fn get_ethernet_interfaces(&self) -> Result<Vec<std::string::String>, RedfishError> {
+    async fn get_manager_ethernet_interfaces(
+        &self,
+    ) -> Result<Vec<std::string::String>, RedfishError> {
         todo!()
     }
 
-    async fn get_ethernet_interface(
+    async fn get_manager_ethernet_interface(
+        &self,
+        _id: &str,
+    ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError> {
+        todo!()
+    }
+
+    async fn get_system_ethernet_interfaces(
+        &self,
+    ) -> Result<Vec<std::string::String>, RedfishError> {
+        todo!()
+    }
+
+    async fn get_system_ethernet_interface(
         &self,
         _id: &str,
     ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError> {

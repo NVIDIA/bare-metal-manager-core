@@ -326,7 +326,9 @@ pub enum RedfishCommand {
     /// List Chassis
     GetChassisAll,
     /// Show BMC's Ethernet interface information
-    GetBmcEthernetInterface,
+    GetBmcEthernetInterfaces,
+    /// Show System Ethernet interface information
+    GetSystemEthernetInterfaces,
     /// Change password for a BMC user
     ChangeBmcPassword(BmcPassword),
     /// Change UEFI password
