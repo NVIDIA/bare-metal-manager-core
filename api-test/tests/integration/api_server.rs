@@ -138,7 +138,8 @@ pub async fn start(
         dpu_impi_tool_impl: Some("test".to_owned()),
         dpu_ipmi_reboot_attempts: None,
         dpu_nic_firmware_update_version: Some(dpu_nic_firmware_update_versions),
-        dpu_nic_firmware_update_enabled: false,
+        dpu_nic_firmware_initial_update_enabled: false,
+        dpu_nic_firmware_reprovision_update_enabled: false,
         max_concurrent_machine_updates: Some(1),
         machine_update_run_interval: None,
     };

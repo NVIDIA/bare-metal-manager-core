@@ -119,7 +119,7 @@ impl TestEnv {
                 admin_root_cafile_path: "not a real admin cafile path".to_string(),
             },
             MachineUpdateConfig {
-                dpu_nic_firmware_update_enabled: true,
+                dpu_nic_firmware_initial_update_enabled: true,
             },
             self.ib_fabric_manager.clone(),
         ));
@@ -382,7 +382,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
             admin_root_cafile_path: "not a real admin cafile path".to_string(),
         },
         MachineUpdateConfig {
-            dpu_nic_firmware_update_enabled: true,
+            dpu_nic_firmware_initial_update_enabled: true,
         },
         ib_fabric_manager.clone(),
     );

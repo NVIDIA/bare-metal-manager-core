@@ -38,7 +38,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_versions: expected_dpu_firmware_versions,
+        expected_dpu_firmware_versions,
         metrics: None,
     };
 

@@ -34,7 +34,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     where
         Self: Sized,
     {
-        if !config.dpu_nic_firmware_update_enabled {
+        if !config.dpu_nic_firmware_reprovision_update_enabled {
             return None;
         }
 
