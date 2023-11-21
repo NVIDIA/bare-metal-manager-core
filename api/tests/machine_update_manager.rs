@@ -174,6 +174,7 @@ async fn test_put_machine_in_maintenance(
         host_machine_id,
         dpu_machine_id,
         firmware_version: "1".to_owned(),
+        product_name: "product_x".to_owned(),
     };
 
     let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
@@ -228,6 +229,7 @@ async fn test_remove_machine_from_maintenance(
         host_machine_id,
         dpu_machine_id: dpu_machine_id.clone(),
         firmware_version: "1".to_owned(),
+        product_name: "product_x".to_owned(),
     };
 
     let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {

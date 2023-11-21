@@ -106,7 +106,7 @@ pub struct CarbideConfig {
     /// does not match, the DPU will be updated during reprovisioning.  It is the operators responsibilty
     /// to make sure this value matches the version shipped with carbide.  If "None" updates
     /// during reprovisioning will be disabled
-    pub dpu_nic_firmware_update_version: Option<String>,
+    pub dpu_nic_firmware_update_version: Option<HashMap<String, String>>,
 
     /// Enable dpu firmware updates
     #[serde(default)]

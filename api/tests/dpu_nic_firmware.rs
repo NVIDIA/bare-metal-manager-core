@@ -1,6 +1,6 @@
 pub mod common;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use carbide::{
     db::{
@@ -30,9 +30,15 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let host_machine_id =
         try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
             .unwrap();
+    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
+    expected_dpu_firmware_versions.insert(
+        "BlueField-3 SmartNIC Main Card".to_owned(),
+        "v49".to_owned(),
+    );
+    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_version: "2.0.1".to_string(),
+        expected_dpu_firmware_versions: expected_dpu_firmware_versions,
         metrics: None,
     };
 
@@ -80,9 +86,15 @@ async fn test_get_updates_in_progress(
     let host_machine_id =
         try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
             .unwrap();
+    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
+    expected_dpu_firmware_versions.insert(
+        "BlueField-3 SmartNIC Main Card".to_owned(),
+        "v49".to_owned(),
+    );
+    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_version: "2.0.1".to_string(),
+        expected_dpu_firmware_versions,
         metrics: None,
     };
 
@@ -125,8 +137,15 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id).await)
             .unwrap();
 
+    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
+    expected_dpu_firmware_versions.insert(
+        "BlueField-3 SmartNIC Main Card".to_owned(),
+        "v49".to_owned(),
+    );
+    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
+
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_version: "2.0.1".to_string(),
+        expected_dpu_firmware_versions,
         metrics: None,
     };
 
@@ -151,9 +170,15 @@ async fn test_clear_complated_updates(
     let host_machine_id =
         try_parse_machine_id(&create_host_machine(&env, &host_sim.config, &dpu_machine_id).await)
             .unwrap();
+    let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
+    expected_dpu_firmware_versions.insert(
+        "BlueField-3 SmartNIC Main Card".to_owned(),
+        "v49".to_owned(),
+    );
+    expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "2.0.1".to_owned());
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
-        expected_dpu_firmware_version: "2.0.1".to_string(),
+        expected_dpu_firmware_versions,
         metrics: None,
     };
 
