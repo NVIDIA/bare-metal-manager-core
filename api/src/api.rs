@@ -4279,16 +4279,12 @@ where
         AsyncRequireAuthorizationLayer::new(authz_handler)
     };
 
-    // TODO: authz_layer doesn't want to wrap axum::Router
-    // expected struct `http::Response<http_body::combinators::box_body::UnsyncBoxBody<_, axum::Error>>`
-    //    found struct `http::Response<http_body::combinators::box_body::UnsyncBoxBody<_, tonic::Status>>`
-    let wrapped_api_service = tower::ServiceBuilder::new().layer(authz_layer).service(
-        rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
-    );
     let router = axum::Router::new()
         .route(
             "/forge.Forge/*rpc",
-            axum::routing::any_service(wrapped_api_service),
+            axum::routing::any_service(rpc::forge_server::ForgeServer::from_arc(
+                api_service.clone(),
+            )),
         )
         .route(
             "/grpc.reflection.v1alpha.ServerReflection/*r",
@@ -4299,7 +4295,7 @@ where
     let app = tower::ServiceBuilder::new()
         .layer(LogLayer::new(meter.clone()))
         .layer(authn_layer)
-        //.layer(authz_layer) once we figure out above
+        .layer(authz_layer)
         .service(router);
 
     let connection_total_counter = meter
