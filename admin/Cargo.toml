@@ -13,6 +13,7 @@ path = "src/main.rs"
 byte-unit = "4.0.19"
 chrono = "0.4.26"
 clap = { workspace = true }
+clap_complete = "*"
 color-eyre = "*"
 libredfish = { version = "0.12.9", registry = "sw-ngc-forge-cargo-local" }
 prettytable-rs = "^0.10"
@@ -34,5 +35,4 @@ utils = { path = "../utils" }
 [build-dependencies]
 forge-version = { path = "../version" }
 clap = { workspace = true }
-clap_complete = "*"
 rpc = { path = "../rpc" }

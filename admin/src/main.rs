@@ -11,7 +11,8 @@
  */
 use std::env;
 use std::fs;
-use std::io::BufReader;
+use std::io;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -32,6 +33,7 @@ use cfg::carbide_options::DpuReprovision;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::MachineInterfaces;
 use cfg::carbide_options::RouteServer;
+use cfg::carbide_options::Shell;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     MigrateAction, NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
@@ -265,7 +267,7 @@ fn get_config_from_file() -> Option<FileConfig> {
         let file = Path::new(&home).join(".config/carbide_api_cli.json");
         if file.exists() {
             let file = fs::File::open(file).unwrap();
-            let reader = BufReader::new(file);
+            let reader = io::BufReader::new(file);
             let file_config: FileConfig = serde_json::from_reader(reader).unwrap();
 
             return Some(file_config);
@@ -680,6 +682,39 @@ async fn main() -> color_eyre::Result<()> {
                 .await?
             }
         },
+        CarbideCommand::GenerateShellComplete(shell) => {
+            let mut cmd = CarbideOptions::command();
+            match shell.shell {
+                Shell::Bash => {
+                    clap_complete::generate(
+                        clap_complete::shells::Bash,
+                        &mut cmd,
+                        "forge-admin-cli",
+                        &mut io::stdout(),
+                    );
+                    // Make completion work for alias `fa`
+                    io::stdout().write(
+                        b"complete -F _forge-admin-cli -o nosort -o bashdefault -o default fa\n",
+                    )?;
+                }
+                Shell::Fish => {
+                    clap_complete::generate(
+                        clap_complete::shells::Fish,
+                        &mut cmd,
+                        "forge-admin-cli",
+                        &mut io::stdout(),
+                    );
+                }
+                Shell::Zsh => {
+                    clap_complete::generate(
+                        clap_complete::shells::Zsh,
+                        &mut cmd,
+                        "forge-admin-cli",
+                        &mut io::stdout(),
+                    );
+                }
+            }
+        }
     }
 
     Ok(())
