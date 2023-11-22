@@ -49,6 +49,7 @@ pub const BIND_LIMIT: usize = 65535;
 ///
 /// A parameter to find() to filter resources by Uuid;
 ///
+#[derive(Clone)]
 pub enum UuidKeyedObjectFilter<'a> {
     /// Don't filter by uuid
     All,
