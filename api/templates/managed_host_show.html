@@ -42,7 +42,7 @@
 				</a>
 			</td>
 			<td>{{ host.state }}</td>
-			<td>{% if host.is_network_healthy %}Healthy{% else %}{{ host.network_err_message }}{% endif %}</td>
+			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
 			<td>{{ host.host_bmc_ip }}</td>
 			<td>{{ host.dpu_bmc_ip }}</td>
 			<td>{{ host.host_admin_ip }}</td>
@@ -86,7 +86,7 @@
 				</a>
 			</td>
 			<td>{{ host.state }}</td>
-			<td>{% if host.is_network_healthy %}Healthy{% else %}{{ host.network_err_message }}{% endif %}</td>
+			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
 			<td>{{ host.host_bmc_ip }}</td>
 			<td>{{ host.dpu_bmc_ip }}</td>
 			<td>{{ host.host_admin_ip }}</td>
