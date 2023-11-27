@@ -243,7 +243,13 @@ async fn find_all_interfaces_test_cases(
         .await?;
         DhcpEntry {
             machine_interface_id: interface.id,
-            vendor_string: "NVIDIA".to_string(),
+            vendor_string: format!("NVIDIA {i} 1"),
+        }
+        .persist(&mut txn)
+        .await?;
+        DhcpEntry {
+            machine_interface_id: interface.id,
+            vendor_string: format!("NVIDIA {i} 2"),
         }
         .persist(&mut txn)
         .await?;
@@ -267,9 +273,10 @@ async fn find_all_interfaces_test_cases(
             response.interfaces[idx].mac_address,
             interface.mac_address.to_string()
         );
+        // The newer vendor wins
         assert_eq!(
             response.interfaces[idx].vendor.clone().unwrap().to_string(),
-            "NVIDIA".to_string()
+            format!("NVIDIA {idx} 2")
         );
         assert_eq!(
             response.interfaces[idx]
@@ -310,6 +317,12 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     }
     .persist(&mut txn)
     .await?;
+    DhcpEntry {
+        machine_interface_id: new_interface.id,
+        vendor_string: "NVIDIA New".to_string(),
+    }
+    .persist(&mut txn)
+    .await?;
     txn.commit().await?;
 
     let response = env
@@ -330,7 +343,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     );
     assert_eq!(
         response.interfaces[0].vendor.clone().unwrap().to_string(),
-        "NVIDIA".to_string()
+        "NVIDIA New".to_string()
     );
     assert_eq!(
         response.interfaces[0]

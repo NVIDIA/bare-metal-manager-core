@@ -488,7 +488,7 @@ impl MachineInterface {
     ) -> Result<Vec<MachineInterface>, DatabaseError> {
         let base_query = "SELECT * FROM machine_interfaces mi {where}".to_owned();
 
-        let mut interfaces = match filter {
+        let mut interfaces = match &filter {
             ObjectFilter::All => {
                 sqlx::query_as::<_, MachineInterface>("SELECT * FROM machine_interfaces")
                     .fetch_all(&mut **txn)
@@ -514,7 +514,7 @@ impl MachineInterface {
                 }
 
                 let mut columns = String::new();
-                for item in list {
+                for item in *list {
                     if !columns.is_empty() {
                         columns.push(',');
                     }
@@ -535,18 +535,26 @@ impl MachineInterface {
             }
         };
 
-        let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
-            &mut *txn,
-            UuidKeyedObjectFilter::List(
-                interfaces
+        let interface_ids;
+        let component_filter = match filter {
+            ObjectFilter::All => UuidKeyedObjectFilter::All,
+            _ => {
+                interface_ids = interfaces
                     .iter()
                     .map(|interface| interface.id)
-                    .collect::<Vec<Uuid>>()
-                    .as_slice(),
-            ),
-        )
-        .await?;
-        let entrylist: Vec<DhcpEntry> = DhcpEntry::find_all(&mut *txn).await?;
+                    .collect::<Vec<Uuid>>();
+                UuidKeyedObjectFilter::List(interface_ids.as_slice())
+            }
+        };
+
+        let mut addresses_for_interfaces =
+            MachineInterfaceAddress::find_for_interface(&mut *txn, component_filter.clone())
+                .await?;
+
+        let entrylist: Vec<DhcpEntry> =
+            DhcpEntry::find_for_interfaces(&mut *txn, component_filter).await?;
+        // TODO: There might be mulitple vendors stored for a single interface
+        // This transformation loses it
         let vendorslist = entrylist
             .into_iter()
             .map(|x| (x.machine_interface_id, x.vendor_string.clone()))
