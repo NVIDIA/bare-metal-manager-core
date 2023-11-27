@@ -83,6 +83,9 @@ pub enum CredentialKey {
     UfmAuth {
         fabric: String,
     },
+    DpuUefi {
+        credential_type: CredentialType,
+    },
 }
 
 impl CredentialKey {
@@ -125,6 +128,17 @@ impl CredentialKey {
             CredentialKey::UfmAuth { fabric } => {
                 format!("ufm/{fabric}/auth")
             }
+            CredentialKey::DpuUefi { credential_type } => match credential_type {
+                CredentialType::HardwareDefault => {
+                    "machines/all_dpus/factory_default/uefi-metadata-items/auth".to_string()
+                }
+                CredentialType::SiteDefault => {
+                    "machines/all_dpus/site_default/uefi-metadata-items/auth".to_string()
+                }
+                _ => {
+                    panic!("Not supported credential key");
+                }
+            },
         }
     }
 }

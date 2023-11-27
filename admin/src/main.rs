@@ -707,6 +707,15 @@ async fn main() -> color_eyre::Result<()> {
                 };
                 rpc::add_credential(&api_config, req).await?;
             }
+            CredentialAction::AddUefi(c) => {
+                let password = password_validator(c.password.clone()).await?;
+                let req = forgerpc::CredentialCreationRequest {
+                    credential_type: CredentialType::from(c.kind).into(),
+                    username: None,
+                    password,
+                };
+                rpc::add_credential(&api_config, req).await?;
+            }
         },
         CarbideCommand::RouteServer(action) => match action {
             RouteServer::Get => {

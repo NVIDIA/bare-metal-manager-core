@@ -4097,6 +4097,38 @@ where
                     return Err(tonic::Status::invalid_argument("missing UFM Url"));
                 }
             }
+            rpc::CredentialType::DpuUefi => {
+                if (self
+                    .credential_provider
+                    .get_credentials(CredentialKey::DpuUefi {
+                        credential_type: CredentialType::SiteDefault,
+                    })
+                    .await)
+                    .is_ok()
+                {
+                    // TODO: support reset credential
+                    return Err(tonic::Status::already_exists(
+                        "Not support to reset DPU UEFI credential",
+                    ));
+                }
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::DpuUefi {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        Credentials::UsernamePassword {
+                            username: "".to_string(),
+                            password: password.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error setting credential for DPU UEFI: {:?} ",
+                            e
+                        ))
+                    })?
+            }
         };
 
         Ok(Response::new(rpc::CredentialCreationResult {}))
@@ -4141,8 +4173,10 @@ where
                     return Err(tonic::Status::invalid_argument("missing UFM Url"));
                 }
             }
-            rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
-                // Not support delete BMC credential
+            rpc::CredentialType::HostBmc
+            | rpc::CredentialType::Dpubmc
+            | rpc::CredentialType::DpuUefi => {
+                // Not support delete credential for these types
             }
         };
 
