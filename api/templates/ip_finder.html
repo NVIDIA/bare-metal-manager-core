@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}IP Finder{% endblock %}
+
+{% block css %}
+/* Select the form element and set its width, margin, padding, border, and background color */
+form.ip_finder {
+  width: fit-content;
+  padding: 20px;
+  border: 1px solid #ccc;
+  background-color: #f0f0f0;
+}
+
+/* Select the label element and set its font size, font weight, and margin */
+form.ip_finder label {
+  font-size: 18px;
+}
+
+/* Select the input element and set its width, height, padding, border, and outline */
+form.ip_finder input {
+  width: 200px;
+}
+
+/* Select the input element with type="submit" and set its width, margin, background color, color, and cursor */
+form.ip_finder input[type="submit"] {
+  width: 100px;
+}
+
+/* Select the ul element and set its width, margin, padding, list-style, and border */
+ul.ip_finder {
+  padding: 20px;
+  list-style: none;
+}
+
+/* Select the li element and set its font-size, line-height, and margin */
+ul.ip_finder li {
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+ul.ip_finder a {
+  font-weight: bold;
+}
+
+{% endblock %}
+
+{% block content %}
+<h1>IP Finder</h1>
+
+<form class="ip_finder"><label for="ip">Identify this IP Address:</label><input type="text" name="ip" value="{{ ip }}" /><input type="submit" value="Find" /></form>
+
+{% if found.is_empty() %}
+	{% if !ip.is_empty() %}
+		<p>IP did not match anything</p>
+	{% endif %}
+{% else %}
+<ul class="ip_finder">
+	{% for m in found %}
+		<li>
+			{% if !m.url.is_empty() %}
+				<a href="{{ m.url }}">{{ m.name }}</a>
+			{% else %}
+				<b>{{ m.name }}</b>
+			{% endif %}
+			: {{ m.message }}
+		</li>
+	{% endfor %}
+</ul>
+{% endif %}
+
+{% endblock %}
+

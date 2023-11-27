@@ -11,7 +11,7 @@
  */
 use sqlx::{FromRow, Postgres, Transaction};
 
-use super::DatabaseError;
+use super::{DatabaseError, UuidKeyedObjectFilter};
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
@@ -25,25 +25,34 @@ pub struct DhcpEntry {
 }
 
 impl DhcpEntry {
-    pub async fn find_by_interface_id(
+    pub async fn find_for_interfaces(
         txn: &mut Transaction<'_, Postgres>,
-        machine_interface_id: &uuid::Uuid,
+        filter: UuidKeyedObjectFilter<'_>,
     ) -> Result<Vec<DhcpEntry>, DatabaseError> {
-        let query = "SELECT * FROM dhcp_entries WHERE machine_interface_id = $1::uuid";
-        sqlx::query_as(query)
-            .bind(machine_interface_id)
+        let base_query = "SELECT * FROM dhcp_entries {where}".to_owned();
+
+        Ok(match filter {
+            UuidKeyedObjectFilter::All => {
+                sqlx::query_as::<_, DhcpEntry>(&base_query.replace("{where}", ""))
+                    .fetch_all(&mut **txn)
+                    .await
+                    .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries All", e))?
+            }
+            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, DhcpEntry>(
+                &base_query.replace("{where}", "WHERE machine_interface_id=$1"),
+            )
+            .bind(uuid)
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-    pub async fn find_all(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<DhcpEntry>, DatabaseError> {
-        let query = "SELECT * FROM dhcp_entries";
-        sqlx::query_as(query)
+            .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries One", e))?,
+            UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, DhcpEntry>(
+                &base_query.replace("{where}", "WHERE machine_interface_id=ANY($1)"),
+            )
+            .bind(list)
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries List", e))?,
+        })
     }
 
     pub async fn persist(

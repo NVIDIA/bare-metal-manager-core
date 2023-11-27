@@ -13,8 +13,9 @@ path = "src/main.rs"
 byte-unit = "4.0.19"
 chrono = "0.4.26"
 clap = { workspace = true }
+clap_complete = "*"
 color-eyre = "*"
-libredfish = { version = "0.12.5", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.13.0", registry = "sw-ngc-forge-cargo-local" }
 prettytable-rs = "^0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,11 +28,11 @@ tonic = { workspace = true }
 uuid = "1.0"
 
 # local crate dependencies
-rpc = { path = "../rpc" }
 forge-version = { path = "../version" }
+rpc = { path = "../rpc" }
+utils = { path = "../utils" }
 
 [build-dependencies]
 forge-version = { path = "../version" }
 clap = { workspace = true }
-clap_complete = "*"
 rpc = { path = "../rpc" }

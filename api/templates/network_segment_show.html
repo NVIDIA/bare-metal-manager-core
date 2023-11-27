@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Network Segments{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>Network Segments</h1>
+
+<h2>Admin</h2>
+<table>
+	<thead>
+		<th>Name</th>
+		<th>Id</th>
+		<th>Created</th>
+		<th>State</th>
+		<th>Sub Domain</th>
+		<th>MTU</th>
+		<th>Prefixes</th>
+		<th>Circuit Ids</th>
+		<th>Version</th>
+	</thead>
+	<tbody>
+		{% for ns in admin %}
+		<tr>
+			<td><a href="/admin/network-segment/{{ ns.id }}">{{ ns.name }}</a></td>
+			<td>{{ ns.id }}</td>
+			<td>{{ ns.created }}</td>
+			<td>{{ ns.state }}</td>
+			<td>{{ ns.sub_domain }}</td>
+			<td>{{ ns.mtu }}</td>
+			<td>{{ ns.prefixes }}</td>
+			<td>{{ ns.circuit_ids }}</td>
+			<td>{{ ns.version }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<h2>Underlay</h2>
+<table>
+	<thead>
+		<th>Name</th>
+		<th>Id</th>
+		<th>Created</th>
+		<th>State</th>
+		<th>Sub Domain</th>
+		<th>MTU</th>
+		<th>Prefixes</th>
+		<th>Circuit Ids</th>
+		<th>Version</th>
+	</thead>
+	<tbody>
+		{% for ns in underlay %}
+		<tr>
+			<td><a href="/admin/network-segment/{{ ns.id }}">{{ ns.name }}</a></td>
+			<td>{{ ns.id }}</td>
+			<td>{{ ns.created }}</td>
+			<td>{{ ns.state }}</td>
+			<td>{{ ns.sub_domain }}</td>
+			<td>{{ ns.mtu }}</td>
+			<td>{{ ns.prefixes }}</td>
+			<td>{{ ns.circuit_ids }}</td>
+			<td>{{ ns.version }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+<h2>Tenant</h2>
+<table>
+	<thead>
+		<th>Name</th>
+		<th>Id</th>
+		<th>Created</th>
+		<th>State</th>
+		<th>Sub Domain</th>
+		<th>MTU</th>
+		<th>Prefixes</th>
+		<th>Circuit Ids</th>
+		<th>Version</th>
+	</thead>
+	<tbody>
+		{% for ns in tenant %}
+		<tr>
+			<td><a href="/admin/network-segment/{{ ns.id }}">{{ ns.name }}</a></td>
+			<td>{{ ns.id }}</td>
+			<td>{{ ns.created }}</td>
+			<td>{{ ns.state }}</td>
+			<td>{{ ns.sub_domain }}</td>
+			<td>{{ ns.mtu }}</td>
+			<td>{{ ns.prefixes }}</td>
+			<td>{{ ns.circuit_ids }}</td>
+			<td>{{ ns.version }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+{% endblock %}

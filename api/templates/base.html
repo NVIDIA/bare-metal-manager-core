@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+	  <title>Carbide | {% block title %}Base{% endblock %}</title>
+<style>
+/* Set the width of the sidebar */
+nav {
+  width: 250px;
+  height: 100%;
+  position: fixed;
+  left: 0;
+  top: 0;
+  background-color: #f0f0f0;
+  overflow-x: hidden;
+  padding: 20px;
+}
+
+/* Style the list items */
+nav ul {
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Style the links */
+nav a {
+  display: block;
+  color: #333;
+  text-decoration: none;
+  font-size: 18px;
+  padding: 10px;
+}
+
+/* Change the color on hover */
+nav a:hover {
+  background-color: #ddd;
+}
+
+/* Style the nested list items */
+nav ul ul {
+  margin-left: 20px;
+}
+
+/* Style the main content */
+main {
+  margin-left: 270px;
+  padding: 20px;
+}
+
+/* Style the table */
+table {
+  border-collapse: collapse;
+  width: 80%;
+  margin: 0 auto;
+}
+
+/* Style the table header */
+th {
+  background-color: #333;
+  color: white;
+  padding: 15px;
+  text-align: left;
+  width: 20%;
+}
+
+/* Style the table body */
+td {
+  border: 1px solid #ddd;
+  padding: 15px;
+}
+
+/* Add stripes to the table rows */
+tr:nth-child(even) {
+  background-color: #f2f2f2;
+}
+
+td textarea {
+	width: 100%;
+	height: 20em;
+}
+
+/* Select the a element and set its color, text-decoration, and font-weight */
+a {
+  color: #0099ff;
+  text-decoration: none;
+}
+
+/* Add a hover effect to the a element and change its color and text-decoration */
+a:hover {
+  color: #0066cc;
+  text-decoration: underline;
+}
+
+/* Select the label element and set its font size, font weight, and margin */
+label {
+  font-weight: bold;
+  margin-right: 10px;
+}
+
+/* Select the input element and set its width, height, padding, border, and outline */
+input {
+  height: 30px;
+  padding: 5px;
+  border: 1px solid #999;
+  outline: none;
+}
+
+/* Select the input element with type="submit" and set its width, margin, background color, color, and cursor */
+input[type="submit"] {
+  margin-left: 20px;
+  background-color: #0099ff;
+  color: white;
+  cursor: pointer;
+}
+
+/* Add a hover effect to the input element with type="submit" and change its background color */
+input[type="submit"]:hover {
+  background-color: #0066cc;
+}
+
+div#json {
+  /* Position it relative to its parent element */
+  position: relative;
+  /* Move it to the top right corner of the page */
+  top: 0;
+  right: 0;
+  text-align: right;
+  float: right;
+}
+
+/* Select the anchor element inside the nav element */
+div#json a {
+  /* Change the font color to white */
+  color: white;
+  /* Change the background color to dark blue */
+  background-color: #003366;
+  /* Add some padding around the text */
+  padding: 10px;
+  /* Remove the underline from the link */
+  text-decoration: none;
+  /* Add some margin around the link */
+  margin: 10px;
+  /* Add some border radius to make the link look rounded */
+  border-radius: 5px;
+}
+
+/* Machine ID with center truncated, for list display */
+.machine_id {
+	width: 14ch;
+	display: inline-flex;
+	flex-wrap: nowrap;
+}
+.machine_id > div:first-child {
+	flex: 0 1 content;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.machine_id > div:nth-child(2) {
+	flex: 1 0 content;
+	white-space: nowrap;
+}
+
+.healthy {
+  color: green;
+}
+
+.unhealthy {
+  color: red;
+}
+
+{% block css %}{% endblock %}
+</style>
+    {% block head %}{% endblock %}
+  </head>
+  <body>
+	  <nav>
+		  <b><a href="/admin">Carbide</a></b>
+		  <hr/>
+		  <ul>
+			  <li><a href="/admin/managed-host">Managed Hosts</a></li>
+			  <li><a href="/admin/host">Hosts</a></li>
+			  <li><a href="/admin/dpu">DPUs</a></li>
+			  <li><a href="/admin/instance">Instances</a></li>
+		  </ul>
+		  <hr />
+		  <ul>
+			  <li><a href="/admin/domain">Domains</a></li>
+			  <li><a href="/admin/network-status">DPU Network Status</a></li>
+			  <li><a href="/admin/interface">Machine Interfaces</a></li>
+			  <li><a href="/admin/network-device">Network Devices</a></li>
+			  <li><a href="/admin/network-segment">Network Segments</a></li>
+			  <li><a href="/admin/resource-pool">Resource Pools</a></li>
+		  </ul>
+		  <hr/>
+		  <ul>
+			  <li><a href="/admin/ip-finder">IP Finder</a></li>
+			  <li><a id="grafana-url" href="https://grafana-dev3.frg.nvidia.com/">Grafana</a></li>
+			  <li><a id="argo-url" href="https://argocd-dev3.frg.nvidia.com/">Argo CD</a></li>
+			  <li><a href="https://stg.ngc.nvidia.com/">NGC Stg</a></li>
+        <li><a href="https://console.ngc.nvidia.com/">NGC Prod</a></li>
+		  </ul>
+	  </nav>
+	  <main>{% block content %}{% endblock %}</main>
+    <script>
+
+      // On domains like api-dev3.frg.nvidia.com extract "dev3" and use that to build Grafana and Argo CD URLs
+      function setURLs() {
+        let url = window.location.href;
+        let parts = url.split(".");
+        let name = "dev3";
+        if (parts.length == 4) { // expected
+          let inner = parts[0].split("-"); // "api-dev3"
+          if (inner.length == 2) {
+            name = inner[1]; // "dev3"
+          }
+        }
+        document.getElementById("grafana-url").href = "https://grafana-"+ name +".frg.nvidia.com/";
+        document.getElementById("argo-url").href = "https://argocd-"+ name +".frg.nvidia.com/";
+      }
+
+      // "Show" pages have a JSON link, fill in it's target
+      function attachJsonLink() {
+        let jsonLink = document.getElementById("json-link");
+        if (!jsonLink) {
+          return;
+        }
+        jsonLink.href = window.location.href + ".json";
+      }
+      document.addEventListener("DOMContentLoaded", function(event){
+        attachJsonLink();
+        setURLs();
+      });
+    </script>
+  </body>
+</html>

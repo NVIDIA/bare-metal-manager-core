@@ -455,19 +455,18 @@ build-boot-artifacts-ephemeral-image-x86-64:
     - build-boot-artifacts-x86_64
   tags:
     - shell # mkosi cannot run in docker :(
+    - ukify
+    - mkosi
   image:
     name: $CONTAINER_BUILD_ARTIFACTS_AARCH64
   script:
-    - cargo make --cwd pxe create-ephemeral-image-x86_64-ci
+    - cargo make --cwd pxe create-ephemeral-image-x86_64
   after_script:
     - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   artifacts:
     paths:
-      - pxe/static/blobs/internal/x86_64/carbide.efi
-      - pxe/static/blobs/internal/x86_64/carbide.root
-      - pxe/static/blobs/internal/x86_64/qcow-imaging.efi
-      - pxe/static/blobs/internal/x86_64/qcow-imaging
-      - pxe/static/blobs/internal/x86_64/qcow-imaging.root
+      - pxe/static/blobs/internal/x86_64/scout.efi
+      - pxe/static/blobs/internal/x86_64/qcow-imager.efi
     when: always
     expire_in: 1 day
 

@@ -15,7 +15,7 @@ use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 
 use super::cfg::carbide_options::ShowInstance;
-use super::{default_machine_id, default_uuid, rpc, CarbideCliResult};
+use super::{default_uuid, invalid_machine_id, rpc, CarbideCliResult};
 use crate::cfg::carbide_options::RebootInstance;
 use crate::{CarbideCliError, Config};
 
@@ -233,7 +233,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 
         table.add_row(row![
             instance.id.unwrap_or_default(),
-            instance.machine_id.unwrap_or_else(default_machine_id),
+            instance.machine_id.unwrap_or_else(invalid_machine_id),
             tenant_org,
             tenant_state,
             configs_synced,

@@ -12,7 +12,6 @@
 
 use crate::{
     db::{
-        dpu_machine::DpuMachine,
         instance::Instance,
         machine::Machine,
         machine_interface::MachineInterface,
@@ -191,6 +190,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             return Err(SnapshotLoaderError::HostNotFound(host_machine_id.clone()));
         };
 
+        // TODO: We just loaded all the DPU data. And now we are going to load it again
         let dpu_snapshot = get_machine_snapshot(txn, dpu.id()).await?;
         let instance_id = Instance::find_id_by_machine_id(txn, &host_machine_id).await?;
         let instance_snapshot = match instance_id {
@@ -201,13 +201,11 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             None => None,
         };
 
-        let dpu = DpuMachine::find_by_host_machine_id(txn, &host_machine_id).await?;
         let host_snapshot = get_machine_snapshot(txn, &host_machine_id).await?;
         let managed_state = host_snapshot.current.state.clone();
         let snapshot = ManagedHostStateSnapshot {
             host_snapshot,
             dpu_snapshot: dpu_snapshot.clone(),
-            dpu_ssh_ip_address: *dpu.address(),
             instance: instance_snapshot,
             managed_state,
         };

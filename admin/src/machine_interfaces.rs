@@ -21,7 +21,6 @@ use super::cfg::carbide_options::ShowMachineInterfaces;
 use super::CarbideCliResult;
 
 use super::rpc;
-use crate::default_machine_id;
 use crate::default_uuid;
 use crate::Config;
 use ::rpc::forge as forgerpc;
@@ -128,9 +127,9 @@ fn convert_machines_to_nice_table(
             machine_interface.address.join(","),
             machine_interface
                 .machine_id
-                .clone()
-                .unwrap_or_else(default_machine_id)
-                .to_string(),
+                .as_ref()
+                .map(::rpc::MachineId::to_string)
+                .unwrap_or_default(),
             machine_interface.hostname,
             machine_interface.vendor.unwrap_or_default(),
         ];
@@ -172,17 +171,17 @@ fn convert_machine_to_nice_format(
             "DPU ID",
             machine_interface
                 .attached_dpu_machine_id
-                .clone()
-                .unwrap_or_else(default_machine_id)
-                .to_string(),
+                .as_ref()
+                .map(::rpc::MachineId::to_string)
+                .unwrap_or_default(),
         ),
         (
             "Machine ID",
             machine_interface
                 .machine_id
-                .clone()
-                .unwrap_or_else(default_machine_id)
-                .to_string(),
+                .as_ref()
+                .map(::rpc::MachineId::to_string)
+                .unwrap_or_default(),
         ),
         (
             "Segment ID",

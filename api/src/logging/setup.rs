@@ -168,12 +168,34 @@ pub async fn setup_telemetry(
     let meter_provider = metrics::MeterProvider::builder()
         .with_reader(metrics_exporter)
         .with_resource(service_telemetry_attributes)
+        .with_view(create_metric_view_for_retry_histograms(
+            "*_(attempts|retries)_*",
+        )?)
         .build();
     // After this call `global::meter()` will be available
     opentelemetry::global::set_meter_provider(meter_provider.clone());
 
     let meter = meter_provider.meter("carbide-api");
     Ok((prometheus_registry, meter))
+}
+
+/// Configures a View for Histograms that describe retries or attempts for operations
+/// The view reconfigures the histogram to use a small set of buckets that track
+/// the exact amount of retry attempts up to 3, and 2 additional buckets up to 10.
+/// This is more useful than the default histogram range where the lowest sets of
+/// buckets are 0, 5, 10, 25
+fn create_metric_view_for_retry_histograms(
+    name_filter: &str,
+) -> Result<Box<dyn opentelemetry::sdk::metrics::View>, opentelemetry::metrics::MetricsError> {
+    let mut criteria = opentelemetry::sdk::metrics::Instrument::new().name(name_filter.to_string());
+    criteria.kind = Some(opentelemetry::sdk::metrics::InstrumentKind::Histogram);
+    let mask = opentelemetry::sdk::metrics::Stream::new().aggregation(
+        opentelemetry::sdk::metrics::Aggregation::ExplicitBucketHistogram {
+            boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
+            record_min_max: true,
+        },
+    );
+    opentelemetry::sdk::metrics::new_view(criteria, mask)
 }
 
 #[cfg(test)]
@@ -200,6 +222,7 @@ mod tests {
 
         let meter_provider = metrics::MeterProvider::builder()
             .with_reader(metrics_exporter)
+            .with_view(create_metric_view_for_retry_histograms("*_(attempts|retries)_*").unwrap())
             .build();
 
         let meter = meter_provider.meter("myservice");

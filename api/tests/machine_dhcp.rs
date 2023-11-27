@@ -12,7 +12,9 @@
 
 use std::str::FromStr;
 
-use carbide::db::{dhcp_entry::DhcpEntry, machine_interface::MachineInterface};
+use carbide::db::{
+    dhcp_entry::DhcpEntry, machine_interface::MachineInterface, UuidKeyedObjectFilter,
+};
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 
@@ -269,9 +271,10 @@ async fn machine_interface_discovery_persists_vendor_strings(
         expected: &[&str],
     ) {
         let mut txn = pool.clone().begin().await.unwrap();
-        let entry = DhcpEntry::find_by_interface_id(&mut txn, interface_id)
-            .await
-            .unwrap();
+        let entry =
+            DhcpEntry::find_for_interfaces(&mut txn, UuidKeyedObjectFilter::One(*interface_id))
+                .await
+                .unwrap();
         assert_eq!(
             entry
                 .iter()

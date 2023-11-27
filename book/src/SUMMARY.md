@@ -59,6 +59,7 @@
 # Environments
 
 - [Labs](labs.md)
+  - [Configuring kubernetes for site access](labs/remote_kubernetes.md)
   - [Ansible Host Files](labs/ansible_host_files.md)
   - [Dev1(SJC4)](labs/dev1.md)
   - [Dev2(RENO)](labs/dev2.md)

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}DPU Network Status{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>DPU Network Status</h1>
+
+{% if !unhealthy.is_empty() %}
+<h2>Unhealthy</h2>
+<table>
+	<thead>
+	<tr>
+		<th>Last seen</th>
+		<th>DPU ID</th>
+		<th>Check failed</th>
+		<th>Agent version</th>
+		<th>Network config version</th>
+	</tr>
+	</thead>
+	<tbody>
+		{% for st in unhealthy %}
+		<tr>
+			<td>{{ st.observed_at }}</td>
+			<td>
+				<a href="/admin/machine/{{ st.dpu_machine_id }}">
+					<div class="machine_id">
+						<div>{{ st.dpu_machine_id }}</div><div>{{ st.dpu_machine_id|machine_id_last() }}</div>
+					</div>
+				</a>
+			</td>
+			<td>{{ st.check_failed }}</td>
+			<td>{{ st.agent_version }}</td>
+			<td>{{ st.network_config_version }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+
+<h2>Healthy</h2>
+<table>
+	<thead>
+	<tr>
+		<th>Last seen</th>
+		<th>DPU ID</th>
+		<th>Agent version</th>
+		<th>Network config version</th>
+	</tr>
+	</thead>
+	<tbody>
+		{% for st in healthy %}
+		<tr>
+			<td>{{ st.observed_at }}</td>
+			<td>
+				<a href="/admin/machine/{{ st.dpu_machine_id }}">
+					<div class="machine_id">
+						<div>{{ st.dpu_machine_id }}</div><div>{{ st.dpu_machine_id|machine_id_last() }}</div>
+					</div>
+				</a>
+			</td>
+			<td>{{ st.agent_version }}</td>
+			<td>{{ st.network_config_version }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endblock %}

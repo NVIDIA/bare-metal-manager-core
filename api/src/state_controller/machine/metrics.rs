@@ -30,7 +30,7 @@ pub struct MachineMetrics {
     pub dpu_firmware_version: Option<String>,
     pub client_certificate_expiry: Option<i64>,
     pub machine_id: Option<String>,
-    pub machine_reboot_attempts_in_booting_with_discovery_image: u64,
+    pub machine_reboot_attempts_in_booting_with_discovery_image: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -136,9 +136,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
             iteration_metrics.dpus_healthy += 1;
         }
 
-        iteration_metrics
-            .machine_reboot_attempts_in_booting_with_discovery_image
-            .push(object_metrics.machine_reboot_attempts_in_booting_with_discovery_image);
+        if let Some(machine_reboot_attempts_in_booting_with_discovery_image) =
+            object_metrics.machine_reboot_attempts_in_booting_with_discovery_image
+        {
+            iteration_metrics
+                .machine_reboot_attempts_in_booting_with_discovery_image
+                .push(machine_reboot_attempts_in_booting_with_discovery_image);
+        }
 
         for failed_healthcheck in &object_metrics.failed_dpu_healthchecks {
             *iteration_metrics
@@ -267,7 +271,7 @@ mod tests {
                 dpu_firmware_version: None,
                 client_certificate_expiry: Some(1),
                 machine_id: Some("machine a".to_string()),
-                machine_reboot_attempts_in_booting_with_discovery_image: 0,
+                machine_reboot_attempts_in_booting_with_discovery_image: None,
             },
             MachineMetrics {
                 agent_version: Some("v1".to_string()),
@@ -277,7 +281,7 @@ mod tests {
                 dpu_firmware_version: None,
                 client_certificate_expiry: Some(2),
                 machine_id: Some("machine a".to_string()),
-                machine_reboot_attempts_in_booting_with_discovery_image: 0,
+                machine_reboot_attempts_in_booting_with_discovery_image: Some(0),
             },
             MachineMetrics {
                 agent_version: Some("v3".to_string()),
@@ -287,7 +291,7 @@ mod tests {
                 dpu_firmware_version: Some("v4".to_string()),
                 client_certificate_expiry: Some(3),
                 machine_id: Some("machine b".to_string()),
-                machine_reboot_attempts_in_booting_with_discovery_image: 1,
+                machine_reboot_attempts_in_booting_with_discovery_image: Some(1),
             },
             MachineMetrics {
                 agent_version: Some("v3".to_string()),
@@ -297,7 +301,7 @@ mod tests {
                 dpu_firmware_version: Some("v2".to_string()),
                 client_certificate_expiry: None,
                 machine_id: Some("machine b".to_string()),
-                machine_reboot_attempts_in_booting_with_discovery_image: 1,
+                machine_reboot_attempts_in_booting_with_discovery_image: Some(2),
             },
             MachineMetrics {
                 agent_version: None,
@@ -307,7 +311,7 @@ mod tests {
                 dpu_firmware_version: Some("v4".to_string()),
                 client_certificate_expiry: Some(55),
                 machine_id: None,
-                machine_reboot_attempts_in_booting_with_discovery_image: 0,
+                machine_reboot_attempts_in_booting_with_discovery_image: None,
             },
         ];
 
@@ -323,11 +327,8 @@ mod tests {
         assert_eq!(iteration_metrics.dpus_up, 4);
         assert_eq!(iteration_metrics.dpus_healthy, 3);
         assert_eq!(
-            iteration_metrics
-                .machine_reboot_attempts_in_booting_with_discovery_image
-                .iter()
-                .sum::<u64>(),
-            2
+            &iteration_metrics.machine_reboot_attempts_in_booting_with_discovery_image,
+            &[0, 1, 2]
         );
         assert_eq!(
             iteration_metrics.failed_dpu_healthchecks,

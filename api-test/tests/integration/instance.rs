@@ -12,12 +12,17 @@
 
 use std::net::SocketAddr;
 
-use super::{grpcurl::grpcurl, machine::wait_for_state};
+use super::{
+    grpcurl::{grpcurl, grpcurl_id},
+    host::discover_machine,
+    machine::wait_for_state,
+};
 
-pub fn _create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyre::Result<()> {
+pub fn create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyre::Result<String> {
     tracing::info!(
         "Creating instance with machine: {host_machine_id}, with network segment: {segment_id}"
     );
+
     let data = serde_json::json!({
         "machine_id": {"id": host_machine_id},
         "config": {
@@ -34,13 +39,101 @@ pub fn _create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyr
             }
         }
     });
-    let resp = grpcurl(addr, "AllocateInstance", Some(data))?;
-    tracing::info!("AllocateInstance:");
-    tracing::info!(resp);
+    let instance_id = grpcurl_id(addr, "AllocateInstance", &data.to_string())?;
+    tracing::info!("Instance created with ID {instance_id}");
 
     wait_for_state(addr, host_machine_id, "Assigned/WaitingForNetworkConfig")?;
-    // TODO network config
 
-    //tracing::info!("Instance created with ID {instance_id}");
+    // These 2 states should be equivalent
+    wait_for_instance_state(addr, &instance_id, "READY")?;
+    wait_for_state(addr, host_machine_id, "Assigned/Ready")?;
+
+    tracing::info!("Instance with ID {instance_id} is ready");
+
+    Ok(instance_id)
+}
+
+pub fn release(addr: SocketAddr, host_machine_id: &str, instance_id: &str) -> eyre::Result<()> {
+    let data = serde_json::json!({
+        "id": {"id": host_machine_id},
+        "search_config": {"include_dpus": false}
+    });
+    let resp = grpcurl(addr, "FindMachines", Some(data))?;
+    let response: serde_json::Value = serde_json::from_str(&resp)?;
+    let machine_json = &response["machines"][0];
+    let host_machine_interface_id = machine_json["interfaces"][0]["id"]["value"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    tracing::info!("Releasing instance {instance_id} on machine: {host_machine_id}");
+
+    let data = serde_json::json!({
+        "id": {"value": instance_id}
+    });
+    let resp = grpcurl(addr, "ReleaseInstance", Some(data))?;
+    tracing::info!("ReleaseInstance response: {}", resp);
+
+    wait_for_instance_state(addr, instance_id, "TERMINATING")?;
+    wait_for_state(addr, host_machine_id, "Assigned/BootingWithDiscoveryImage")?;
+
+    tracing::info!("Instance with ID {instance_id} is terminating");
+    // We don't acknowledge a successful reboot immediatly, so the reboot is retried
+    wait_for_state(
+        addr,
+        host_machine_id,
+        "Assigned/BootingWithDiscoveryImage { retry: RetryInfo { count: 1 } }",
+    )?;
+
+    discover_machine(addr, &host_machine_interface_id)?;
+
+    wait_for_state(addr, host_machine_id, "WaitingForCleanup/HostCleanup")?;
+    let data = serde_json::json!({
+        "id": {"value": instance_id}
+    });
+    let response = grpcurl(addr, "FindInstances", Some(&data))?;
+    let resp: serde_json::Value = serde_json::from_str(&response)?;
+    tracing::info!("FindInstances Response: {}", resp);
+    assert!(resp["instances"].as_array().unwrap().is_empty());
+
+    tracing::info!("Instance with ID {instance_id} is released");
+
+    // TODO: Cycle through the remaining cleanup states
+
     Ok(())
+}
+
+/// Waits for an instance to reach a certain state
+pub fn wait_for_instance_state(
+    addr: SocketAddr,
+    instance_id: &str,
+    target_state: &str,
+) -> eyre::Result<()> {
+    const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+    let start = std::time::Instant::now();
+
+    let data = serde_json::json!({
+        "id": {"value": instance_id}
+    });
+    let mut latest_state = String::new();
+
+    tracing::info!("Waiting for Instance {instance_id} state {target_state}");
+    while start.elapsed() < MAX_WAIT {
+        let response = grpcurl(addr, "FindInstances", Some(&data))?;
+        let resp: serde_json::Value = serde_json::from_str(&response)?;
+        latest_state = resp["instances"][0]["status"]["tenant"]["state"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        if latest_state.contains(target_state) {
+            return Ok(());
+        }
+        tracing::info!("\tCurrent instance state: {latest_state}");
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+
+    eyre::bail!(
+        "Even after {MAX_WAIT:?} time, {instance_id} did not reach state {target_state}\n
+        Latest state: {latest_state}"
+    );
 }

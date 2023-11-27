@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use axum::body::BoxBody;
 use futures_util::future::BoxFuture;
 use hyper::{Request, Response, StatusCode};
-use tonic::body::BoxBody;
 use tonic::codegen::Body;
 use tower::{Layer, Service};
 use tower_http::auth::AsyncAuthorizeRequest;

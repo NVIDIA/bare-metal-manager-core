@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -44,7 +47,6 @@ use tokio_rustls::{
     rustls::{Certificate, PrivateKey, ServerConfig},
     TlsAcceptor,
 };
-use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder;
 use tower_http::add_extension::AddExtensionLayer;
@@ -148,6 +150,8 @@ const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 // Only used if `--manage-vpc` on command line.
 const ETH_VIRT_PRODUCTION_MODE: bool = true;
 
+pub const MAX_IB_PARTITION_PER_TENANT: i64 = 3;
+
 pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) database_connection: sqlx::PgPool,
     credential_provider: Arc<C1>,
@@ -157,7 +161,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
     tls_config: ApiTlsConfig,
-    machine_update_config: MachineUpdateConfig,
+    pub(crate) machine_update_config: MachineUpdateConfig,
     ib_fabric_manager: Arc<dyn IBFabricManager>,
 }
 
@@ -4275,13 +4279,24 @@ where
         AsyncRequireAuthorizationLayer::new(authz_handler)
     };
 
-    let svc = Server::builder()
+    let router = axum::Router::new()
+        .route(
+            "/forge.Forge/*rpc",
+            axum::routing::any_service(rpc::forge_server::ForgeServer::from_arc(
+                api_service.clone(),
+            )),
+        )
+        .route(
+            "/grpc.reflection.v1alpha.ServerReflection/*r",
+            axum::routing::any_service(api_reflection_service),
+        )
+        .nest_service("/admin", crate::web::routes(api_service.clone()));
+
+    let app = tower::ServiceBuilder::new()
         .layer(LogLayer::new(meter.clone()))
         .layer(authn_layer)
         .layer(authz_layer)
-        .add_service(rpc::forge_server::ForgeServer::from_arc(api_service))
-        .add_service(api_reflection_service)
-        .into_service();
+        .service(router);
 
     let connection_total_counter = meter
         .u64_counter("carbide-api.tls.connection_total")
@@ -4341,7 +4356,7 @@ where
 
         let tls_acceptor = tls_acceptor.clone();
         let http = http.clone();
-        let svc = svc.clone();
+        let app = app.clone();
         let connection_succeeded_counter = connection_succeeded_counter.clone();
         let connection_failed_counter = connection_failed_counter.clone();
         tokio::spawn(async move {
@@ -4363,12 +4378,13 @@ where
                         let conn_attrs_extension_layer =
                             AddExtensionLayer::new(connection_attributes);
 
-                        let svc = tower::ServiceBuilder::new()
+                        let app_with_ext = tower::ServiceBuilder::new()
                             .layer(conn_attrs_extension_layer)
-                            .service(svc);
+                            .service(app);
+
                         // TODO: Why does this returns an error Io / UnexpectedEof on every single request?
                         // `h2` already logs the error at DEBUG level
-                        let _ = http.serve_connection(conn, svc).await;
+                        let _ = http.serve_connection(conn, app_with_ext).await;
                     }
                     Err(error) => {
                         tracing::error!(%error, address = %addr, "error accepting tls connection");
@@ -4379,7 +4395,7 @@ where
             } else {
                 //servicing without tls -- HTTP only
                 connection_succeeded_counter.add(1, &[]);
-                if let Err(error) = http.serve_connection(conn, svc).await {
+                if let Err(error) = http.serve_connection(conn, app).await {
                     tracing::debug!(%error, "error servicing plain http connection");
                 }
             }

@@ -895,9 +895,9 @@ impl StateHandler for InstanceStateHandler {
                     {
                         let state_timestamp = state.host_snapshot.current.version.timestamp();
                         let expected_timestamp =
-                            chrono::Utc::now() + ctx.services.reachability_params.host_wait_time;
+                            state_timestamp + ctx.services.reachability_params.host_wait_time;
                         // Wait till reachability time is over and reboot only and only one time.
-                        if expected_timestamp > state_timestamp && retry.count == 0 {
+                        if chrono::Utc::now() > expected_timestamp {
                             restart_machine(&state.host_snapshot, ctx.services).await?;
                             *controller_state.modify() = ManagedHostState::Assigned {
                                 instance_state: InstanceState::BootingWithDiscoveryImage {
@@ -911,7 +911,8 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     ctx.metrics
-                        .machine_reboot_attempts_in_booting_with_discovery_image = retry.count + 1;
+                        .machine_reboot_attempts_in_booting_with_discovery_image =
+                        Some(retry.count + 1);
                     *controller_state.modify() = ManagedHostState::Assigned {
                         instance_state: InstanceState::SwitchToAdminNetwork,
                     };
@@ -1198,7 +1199,6 @@ async fn host_power_control(
                 object_id: machine_snapshot.machine_id.to_string(),
                 missing: "bmc_info.ip",
             })?;
-    let is_lenovo = machine_snapshot.bmc_vendor.is_lenovo();
 
     let client = services
         .redfish_client_pool
@@ -1211,8 +1211,9 @@ async fn host_power_control(
         )
         .await?;
 
-    if is_lenovo {
+    if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
         // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
+        // Supermicro will bot the users OS if we don't do this
         client.boot_once(libredfish::Boot::Pxe).await.map_err(|e| {
             StateHandlerError::RedfishError {
                 operation: "boot_once",
