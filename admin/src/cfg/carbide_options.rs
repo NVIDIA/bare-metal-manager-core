@@ -116,6 +116,10 @@ pub enum CarbideCommand {
         visible_alias = "mi"
     )]
     MachineInterfaces(MachineInterfaces),
+    #[clap(
+        about = "Generate shell autocomplete. Source the output of this command: `source <(forge-admin-cli generate-shell-complete bash)`"
+    )]
+    GenerateShellComplete(ShellCompleteAction),
 }
 
 #[derive(Parser, Debug)]
@@ -823,4 +827,18 @@ pub struct ShowMachineInterfaces {
 
     #[clap(long, action)]
     pub more: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct ShellCompleteAction {
+    #[clap(subcommand)]
+    pub shell: Shell,
+}
+
+#[derive(Parser, Debug)]
+#[clap(rename_all = "kebab_case")]
+pub enum Shell {
+    Bash,
+    Fish,
+    Zsh,
 }
