@@ -26,8 +26,12 @@ use carbide::{
 
 pub mod common;
 use common::api_fixtures::{
-    create_managed_host, create_test_env, dpu::create_dpu_machine, host::host_discover_dhcp,
-    ib_partition::create_ib_partition, instance::create_instance_with_ib_config, TestEnv,
+    create_managed_host, create_test_env,
+    dpu::create_dpu_machine,
+    host::host_discover_dhcp,
+    ib_partition::{create_ib_partition, DEFAULT_TENANT},
+    instance::create_instance_with_ib_config,
+    TestEnv,
 };
 
 #[ctor::ctor]
@@ -246,8 +250,12 @@ async fn validate_machine_deletion(env: &TestEnv, machine_id: &MachineId) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool

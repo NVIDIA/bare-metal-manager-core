@@ -11,21 +11,24 @@
  */
 
 use itertools::Itertools;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     db::{
         ib_partition,
+        ib_partition::{IBPartition, IBPartitionSearchConfig},
         instance::{Instance, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
         network_segment::NetworkSegment,
+        UuidKeyedObjectFilter,
     },
     dhcp::allocation::DhcpError,
     model::{
         config_version::{ConfigVersion, Versioned},
         instance::{
             config::{
+                infiniband::InstanceInfinibandConfig,
                 network::{InstanceNetworkConfig, InterfaceFunctionId},
                 InstanceConfig,
             },
@@ -33,6 +36,7 @@ use crate::{
         },
         machine::machine_id::{try_parse_machine_id, MachineId},
         machine::ManagedHostState,
+        tenant::TenantOrganizationId,
         ConfigValidationError, RpcDataConversionError,
     },
     state_controller::snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
@@ -117,6 +121,10 @@ pub async fn allocate_instance(
 
     let network_config = Versioned::new(request.config.network, ConfigVersion::initial());
     let ib_config = Versioned::new(request.config.infiniband, ConfigVersion::initial());
+
+    let tenant_organization_id = tenant_config.clone().tenant_organization_id;
+
+    tenant_consistent_check(&mut txn, tenant_organization_id, &ib_config).await?;
 
     // SSH keys can have 3 segments <algorithm> <key> <owner>
     // We are interested only in key.
@@ -261,4 +269,34 @@ pub async fn circuit_id_to_function_id(
         })
         .ok_or(DhcpError::InvalidCircuitId(instance_id, circuit_id))
         .map_err(CarbideError::from)
+}
+
+/// check whether the tenant of instance is consistent with the tenant of the ib partition
+pub async fn tenant_consistent_check(
+    txn: &mut Transaction<'_, Postgres>,
+    instance_tenant: TenantOrganizationId,
+    ib_config: &Versioned<InstanceInfinibandConfig>,
+) -> CarbideResult<()> {
+    for ib_instance_config in ib_config.clone().value.ib_interfaces {
+        let ib_partitions = IBPartition::find(
+            txn,
+            UuidKeyedObjectFilter::One(ib_instance_config.ib_partition_id),
+            IBPartitionSearchConfig::default(),
+        )
+        .await?;
+        let ib_partition = ib_partitions
+            .first()
+            .ok_or(ConfigValidationError::invalid_value(format!(
+                "IB partition {} is not created",
+                ib_instance_config.ib_partition_id
+            )))?;
+
+        if ib_partition.config.tenant_organization_id != instance_tenant {
+            return Err(CarbideError::InvalidArgument(format!(
+                "The tenant {} of instance inconsistent with the tenant {} of ib partition",
+                instance_tenant, ib_partition.config.tenant_organization_id
+            )));
+        }
+    }
+    Ok(())
 }
