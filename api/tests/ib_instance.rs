@@ -20,7 +20,7 @@ use carbide::{
 
 use common::api_fixtures::{
     create_managed_host, create_test_env,
-    ib_partition::create_ib_partition,
+    ib_partition::{create_ib_partition, DEFAULT_TENANT},
     instance::{config_for_ib_config, create_instance_with_ib_config, delete_instance},
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     TestEnv,
@@ -37,8 +37,12 @@ fn setup() {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = pool
@@ -212,8 +216,12 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let result = try_allocate_instance(
@@ -243,8 +251,12 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let result = try_allocate_instance(
@@ -274,8 +286,12 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
-    let (ib_partition_id, _ib_partition) =
-        create_ib_partition(&env, "test_ib_partition".to_string()).await;
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let result = try_allocate_instance(
@@ -308,6 +324,51 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     assert!(
         error.contains("is reused"),
         "Error message should contain 'is reused', but is {}",
+        error
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "test_ib_partition".to_string(),
+        "FAKE_TENANT".to_string(),
+    )
+    .await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    let result = try_allocate_instance(
+        &env,
+        &host_machine_id,
+        rpc::forge::InstanceInfinibandConfig {
+            ib_interfaces: vec![
+                rpc::forge::InstanceIbInterfaceConfig {
+                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                    virtual_function_id: None,
+                    ib_partition_id: Some(ib_partition_id.into()),
+                    device: "MT2910 Family [ConnectX-7]".to_string(),
+                    vendor: None,
+                    device_instance: 1,
+                },
+                rpc::forge::InstanceIbInterfaceConfig {
+                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                    virtual_function_id: None,
+                    ib_partition_id: Some(ib_partition_id.into()),
+                    device: "MT27800 Family [ConnectX-5]".to_string(),
+                    vendor: None,
+                    device_instance: 0,
+                },
+            ],
+        },
+    )
+    .await;
+
+    let error = result.expect_err("expected allocation to fail").to_string();
+    assert!(
+        error.contains("instance inconsistent with the tenant"),
+        "Error message should contain 'instance inconsistent with the tenant', but is {}",
         error
     );
 }
