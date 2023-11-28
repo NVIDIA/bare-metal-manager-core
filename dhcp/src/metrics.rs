@@ -102,27 +102,6 @@ impl DhcpMetrics {
 // so we can't just spawn an async task on it.  Instead, we spawn a sync thread loop which will
 // directly run our async code against the runtime so we can still write async code
 pub fn sync_metrics_loop() {
-    // wait for the config to be written before trying to read from it.
-    // It's usually immediately ready but just in case.
-
-    let mut config_timeout = 60;
-    loop {
-        // if we've attempted it for a minute, or if it was successfully written, then move on
-        if config_timeout <= 0
-            || CONFIG
-                .read()
-                .expect("config lock poisoned?")
-                .otlp_endpoint
-                .is_some()
-        {
-            break;
-        } else {
-            // not ready yet
-            config_timeout -= 1;
-            thread::sleep(Duration::from_secs(1));
-        }
-    }
-
     let otlp_endpoint = CONFIG
         .read()
         .expect("config lock poisoned?")
