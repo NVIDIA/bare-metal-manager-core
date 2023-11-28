@@ -1416,6 +1416,7 @@ where
                     .unwrap_or_default()
             })
             .unwrap_or_default();
+
         if !always_boot_with_custom_ipxe {
             Instance::use_custom_ipxe_on_next_boot(
                 &machine_id,
@@ -1427,7 +1428,15 @@ where
         }
 
         // Check if reprovision is requested.
-        if let Some(_rr) = snapshot.dpu_snapshot.reprovision_requested {
+        if let Some(rr) = snapshot.dpu_snapshot.reprovision_requested {
+            if rr.started_at.is_some() {
+                return Err(CarbideError::DpuReprovisioningInProgress(format!(
+                    "Can't reboot host: {}",
+                    machine_id
+                ))
+                .into());
+            }
+
             if request.apply_updates_on_reboot {
                 // This will trigger DPU reprovisioning/update via state machine.
                 Machine::approve_dpu_reprovision_request(
@@ -3481,7 +3490,18 @@ where
                 .await
                 .map_err(CarbideError::from)?;
         } else {
-            Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_id)
+            let Some(reprov_requested) = machine.reprovisioning_requested() else {
+                return Err(CarbideError::NotFoundError { kind: "Reprovision Request", id: dpu_id.to_string() }.into());
+            };
+
+            if reprov_requested.started_at.is_some() {
+                return Err(CarbideError::GenericError(
+                    "Reprovisioning is already started.".to_string(),
+                )
+                .into());
+            }
+
+            Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_id, true)
                 .await
                 .map_err(CarbideError::from)?;
         }

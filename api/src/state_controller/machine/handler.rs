@@ -400,7 +400,7 @@ async fn handle_dpu_reprovision(
             }
 
             // Clear reprovisioning state.
-            Machine::clear_dpu_reprovisioning_request(txn, &state.dpu_snapshot.machine_id)
+            Machine::clear_dpu_reprovisioning_request(txn, &state.dpu_snapshot.machine_id, false)
                 .await
                 .map_err(StateHandlerError::from)?;
             host_power_control(
@@ -834,7 +834,27 @@ impl StateHandler for InstanceStateHandler {
                 }
                 InstanceState::Ready => {
                     // Machine is up after reboot. Hurray. Instance is up.
-                    if instance.delete_requested {
+
+                    // Wait for user's approval. Once user approves for dpu
+                    // reprovision/update firmware, trigger it.
+                    let reprov_needed = if let Some(reprovisioning_requested) =
+                        dpu_reprovisioning_needed(&state.dpu_snapshot)
+                    {
+                        reprovisioning_requested.user_approval_received
+                    } else {
+                        false
+                    };
+
+                    if instance.delete_requested || reprov_needed {
+                        if reprov_needed {
+                            // User won't be allowed to clear reprovisioning flag after this.
+                            Machine::update_dpu_reprovision_start_time(
+                                &state.dpu_snapshot.machine_id,
+                                txn,
+                            )
+                            .await?;
+                        }
+
                         // Reboot host. Host will boot with carbide discovery image now. Changes
                         // are done in get_pxe_instructions api.
                         // User will loose all access to instance now.
@@ -853,37 +873,6 @@ impl StateHandler for InstanceStateHandler {
                             instance.config.infiniband.ib_interfaces.clone(),
                         )
                         .await?;
-
-                        // Check if DPU reprovisioing is requested
-                        if let Some(reprovisioning_requested) =
-                            dpu_reprovisioning_needed(&state.dpu_snapshot)
-                        {
-                            // Wait for user's approval. One user approved for dpu
-                            // reprovision/update firmware, trigger it.
-                            if reprovisioning_requested.user_approval_received {
-                                restart_machine(&state.dpu_snapshot, ctx.services).await?;
-                                Machine::update_dpu_reprovision_start_time(
-                                    &state.dpu_snapshot.machine_id,
-                                    txn,
-                                )
-                                .await?;
-                                *controller_state.modify() = ManagedHostState::Assigned {
-                                    instance_state: InstanceState::DPUReprovision {
-                                        reprovision_state: if reprovisioning_requested
-                                            .update_firmware
-                                            && self.dpu_nic_firmware_update_enabled
-                                        {
-                                            ReprovisionState::FirmwareUpgrade
-                                        } else {
-                                            set_managed_host_topology_update_needed(txn, state)
-                                                .await?;
-                                            ReprovisionState::WaitingForNetworkInstall
-                                        },
-                                    },
-                                };
-                            }
-                            return Ok(());
-                        }
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage { retry } => {
@@ -896,7 +885,7 @@ impl StateHandler for InstanceStateHandler {
                         let state_timestamp = state.host_snapshot.current.version.timestamp();
                         let expected_timestamp =
                             state_timestamp + ctx.services.reachability_params.host_wait_time;
-                        // Wait till reachability time is over and reboot only and only one time.
+                        // Wait till reachability time is over.
                         if chrono::Utc::now() > expected_timestamp {
                             restart_machine(&state.host_snapshot, ctx.services).await?;
                             *controller_state.modify() = ManagedHostState::Assigned {
@@ -913,10 +902,40 @@ impl StateHandler for InstanceStateHandler {
                     ctx.metrics
                         .machine_reboot_attempts_in_booting_with_discovery_image =
                         Some(retry.count + 1);
-                    *controller_state.modify() = ManagedHostState::Assigned {
-                        instance_state: InstanceState::SwitchToAdminNetwork,
-                    };
+
+                    // In case state is triggered for delete instance handling, follow that path.
+                    if instance.delete_requested {
+                        *controller_state.modify() = ManagedHostState::Assigned {
+                            instance_state: InstanceState::SwitchToAdminNetwork,
+                        };
+
+                        return Ok(());
+                    }
+
+                    // If we are here, DPU reprov MUST have been be requested.
+                    if let Some(reprovisioning_requested) =
+                        dpu_reprovisioning_needed(&state.dpu_snapshot)
+                    {
+                        // If we are here, it is definitely because user has already given
+                        // approval, but a repeat check doesn't harm anyway.
+                        if reprovisioning_requested.user_approval_received {
+                            restart_machine(&state.dpu_snapshot, ctx.services).await?;
+                            *controller_state.modify() = ManagedHostState::Assigned {
+                                instance_state: InstanceState::DPUReprovision {
+                                    reprovision_state: if reprovisioning_requested.update_firmware
+                                        && self.dpu_nic_firmware_update_enabled
+                                    {
+                                        ReprovisionState::FirmwareUpgrade
+                                    } else {
+                                        set_managed_host_topology_update_needed(txn, state).await?;
+                                        ReprovisionState::WaitingForNetworkInstall
+                                    },
+                                },
+                            };
+                        }
+                    }
                 }
+
                 InstanceState::SwitchToAdminNetwork => {
                     // Tenant is gone and so is their network, switch back to admin network
                     let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();

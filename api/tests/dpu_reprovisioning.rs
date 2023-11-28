@@ -19,6 +19,7 @@ use carbide::state_controller::metrics::IterationMetrics;
 use common::api_fixtures::create_test_env;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::MachineArchitecture;
 
 pub mod common;
 
@@ -662,7 +663,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let (_instance_id, _instance) = create_instance(
+    let (_instance_id, instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
@@ -720,6 +721,33 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::BootingWithDiscoveryImage { .. }
+        }
+    ));
+
+    _ = forge_agent_control(&env, instance.machine_id.clone().unwrap()).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    txn.commit().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     run_state_controller_iteration(
         &services,
         &env.pool,
@@ -971,6 +999,15 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .id
         .to_string();
 
+    let host_interface_id =
+        MachineInterface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+            .await
+            .unwrap()
+            .get(&host_machine_id)
+            .unwrap()[0]
+            .id
+            .to_string();
+
     let arch = rpc::forge::MachineArchitecture::Arm;
 
     env.api
@@ -1046,6 +1083,71 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     assert!(matches!(
         dpu.current_state(),
         ManagedHostState::Assigned {
+            instance_state: InstanceState::BootingWithDiscoveryImage { .. }
+        }
+    ));
+
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: MachineArchitecture::X86 as i32,
+            interface_id: Some(rpc::Uuid {
+                value: host_interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(pxe.pxe_script.contains("scout.efi"));
+
+    _ = forge_agent_control(
+        &env,
+        current_instance.instances[0].machine_id.clone().unwrap(),
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // Since DPU reprovisioning is started, we can't allow user to reboot host in between. It
+    // should be prevented from cloud itself.
+
+    assert!(env
+        .api
+        .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+            machine_id: Some(::rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            apply_updates_on_reboot: true,
+            boot_with_custom_ipxe: false,
+            operation: 0,
+        }))
+        .await
+        .is_err());
+
+    txn.commit().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let dpu_rpc_id = rpc::forge::MachineId {
+        id: dpu_machine_id.to_string(),
+    };
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
                 reprovision_state: ReprovisionState::WaitingForNetworkInstall,
                 ..
@@ -1066,9 +1168,6 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
-    let dpu_rpc_id = rpc::forge::MachineId {
-        id: dpu_machine_id.to_string(),
-    };
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
         response.action,
@@ -1185,5 +1284,99 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
             instance_state: InstanceState::Ready
         }
     ));
+
+    let pxe = env
+        .api
+        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+            arch: MachineArchitecture::X86 as i32,
+            interface_id: Some(rpc::Uuid {
+                value: host_interface_id.clone(),
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(pxe.pxe_script.contains("exit"));
+
     txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(dpu.reprovisioning_requested().is_none(),);
+
+    env.api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 0,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .unwrap();
+
+    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.reprovisioning_requested().unwrap().initiator,
+        "AdminCli"
+    );
+
+    let res = env
+        .api
+        .list_dpu_waiting_for_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningListRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(res.dpus.len(), 1);
+    assert_eq!(
+        res.dpus[0].id.clone().unwrap().to_string(),
+        dpu_machine_id.to_string()
+    );
+
+    Machine::update_dpu_reprovision_start_time(&dpu_machine_id, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert!(env
+        .api
+        .trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: Some(rpc::MachineId {
+                    id: dpu_machine_id.to_string(),
+                }),
+                mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true
+            },
+        ))
+        .await
+        .is_err());
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(dpu.reprovisioning_requested().is_some(),);
 }
