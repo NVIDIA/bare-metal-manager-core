@@ -19,13 +19,19 @@ use carbide::{
 };
 use tonic::Request;
 
-pub async fn create_ib_partition(env: &TestEnv, name: String) -> (uuid::Uuid, rpc::IbPartition) {
+pub const DEFAULT_TENANT: &str = "Tenant1";
+
+pub async fn create_ib_partition(
+    env: &TestEnv,
+    name: String,
+    tenant: String,
+) -> (uuid::Uuid, rpc::IbPartition) {
     let ib_partition = env
         .api
         .create_ib_partition(Request::new(IbPartitionCreationRequest {
             config: Some(IbPartitionConfig {
                 name,
-                tenant_organization_id: "tenant1".to_string(),
+                tenant_organization_id: tenant,
             }),
         }))
         .await

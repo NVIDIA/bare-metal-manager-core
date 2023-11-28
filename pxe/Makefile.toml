@@ -124,32 +124,36 @@ dependencies = [
 
 [tasks.mkosi-clean-qcow-imager]
 category = "Ephemeral Image"
-command = "mkosi/bin/mkosi"
+command = "sudo"
 args = [
+	"mkosi/bin/mkosi",
 	"--profile", "qcow-imager",
 	"clean"
 ]
 
 [tasks.mkosi-clean-scout]
 category = "Ephemeral Image"
-command = "mkosi/bin/mkosi"
+command = "sudo"
 args = [
+	"mkosi/bin/mkosi",
 	"--profile", "scout",
 	"clean"
 ]
 
 [tasks.mkosi-build-scout]
 category = "Ephemeral Image"
-command = "mkosi/bin/mkosi"
+command = "sudo"
 args = [
+	"mkosi/bin/mkosi",
 	"--profile", "scout",
 	"build"
 ]
 
 [tasks.mkosi-build-qcow-imager]
 category = "Ephemeral Image"
-command = "mkosi/bin/mkosi"
+command = "sudo"
 args = [
+	"mkosi/bin/mkosi",
 	"--profile", "qcow-imager",
 	"build"
 ]

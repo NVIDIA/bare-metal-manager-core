@@ -1218,16 +1218,32 @@ SELECT m.id FROM
         Ok(())
     }
 
+    /// This will fail if reprovisioning is already started.
     pub async fn clear_dpu_reprovisioning_request(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: &MachineId,
+        validate_started_time: bool,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE machines SET reprovisioning_requested=NULL WHERE id=$1 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
+        let query = r#"UPDATE machines SET reprovisioning_requested=NULL 
+                        WHERE id=$1 {validate_started} RETURNING id"#
+            .to_string();
+
+        let query = if validate_started_time {
+            query.replace(
+                "{validate_started}",
+                "AND reprovisioning_requested->'started_at' IS NOT NULL",
+            )
+        } else {
+            query.replace("{validate_started}", "")
+        };
+
+        let _id = sqlx::query_as::<_, DbMachineId>(&query)
             .bind(machine_id.to_string())
             .fetch_one(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "clear reprovisioning_requested", e)
+            })?;
 
         Ok(())
     }

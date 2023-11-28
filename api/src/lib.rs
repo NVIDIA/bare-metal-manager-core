@@ -202,6 +202,9 @@ pub enum CarbideError {
     #[error("Failed to generate client certificate: {0}")]
     ClientCertificateError(String),
 
+    #[error("DPU reprovisioning is already started: {0}")]
+    DpuReprovisioningInProgress(String),
+
     #[error("Tenant handling error: {0}")]
     TenantError(#[from] TenantError),
 
