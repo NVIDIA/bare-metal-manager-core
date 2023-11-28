@@ -16,17 +16,18 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use tokio::runtime::Runtime;
+
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
-use opentelemetry_semantic_conventions as semcov;
-use tokio::runtime::Runtime;
-
 use rpc::forge_tls_client::ForgeTlsConfig;
 
 use crate::{tls, CarbideDhcpContext, CONFIG};
 
-const METRICS_CAPTURE_TIME_SECONDS: u64 = 30;
+use opentelemetry_semantic_conventions as semcov;
+
+const METRICS_CAPTURE_FREQUENCY: Duration = Duration::from_secs(30);
 
 fn setup_metrics<E: Into<String>>(otlp_endpoint: E) -> eyre::Result<DhcpMetrics> {
     // This defines attributes that are set on the exported metrics
@@ -94,7 +95,27 @@ impl DhcpMetrics {
 // so we can't just spawn an async task on it.  Instead, we spawn a sync thread loop which will
 // directly run our async code against the runtime so we can still write async code
 pub fn sync_metrics_loop() {
-    thread::sleep(Duration::from_secs(60)); // make sure the config is actually written prior to trying to read from it
+    // wait for the config to be written before trying to read from it.
+    // It's usually immediately ready but just in case.
+
+    let mut config_timeout = 60;
+    loop {
+        // if we've attempted it for a minute, or if it was successfully written, then move on
+        if config_timeout <= 0
+            || CONFIG
+                .read()
+                .expect("config lock poisoned?")
+                .otlp_endpoint
+                .is_some()
+        {
+            break;
+        } else {
+            // not ready yet
+            config_timeout -= 1;
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+
     let otlp_endpoint = CONFIG
         .read()
         .expect("config lock poisoned?")
@@ -108,7 +129,7 @@ pub fn sync_metrics_loop() {
             let runtime: &Runtime = CarbideDhcpContext::get_tokio_runtime();
             runtime.block_on(metrics.update());
 
-            thread::sleep(Duration::from_secs(METRICS_CAPTURE_TIME_SECONDS));
+            thread::sleep(METRICS_CAPTURE_FREQUENCY);
         }
     } else {
         log::warn!("no otlp endpoint configured, no metrics will be recorded.");
