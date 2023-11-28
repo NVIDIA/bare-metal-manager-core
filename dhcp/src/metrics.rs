@@ -31,10 +31,17 @@ const METRICS_CAPTURE_FREQUENCY: Duration = Duration::from_secs(30);
 
 fn setup_metrics<E: Into<String>>(otlp_endpoint: E) -> eyre::Result<DhcpMetrics> {
     // This defines attributes that are set on the exported metrics
-    let service_telemetry_attributes = Resource::new(vec![
+    let mut attributes = vec![
         semcov::resource::SERVICE_NAME.string("carbide-dhcp"),
         semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
-    ]);
+    ];
+    if let Ok(hostname) = std::env::var("HOSTNAME") {
+        // helps to disambiguate this pod's metrics
+        // if we ever put more than one dhcp pod into service
+        // usually looks like HOSTNAME=carbide-dhcp-74ffdd5d6b-c6489
+        attributes.push(semcov::resource::K8S_POD_NAME.string(hostname));
+    }
+    let service_telemetry_attributes = Resource::new(attributes);
 
     let meter_provider = opentelemetry_otlp::new_pipeline()
         .metrics(opentelemetry_sdk::runtime::Tokio)
