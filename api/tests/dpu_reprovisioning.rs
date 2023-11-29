@@ -162,7 +162,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
@@ -501,7 +501,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         "AdminCli"
     );
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
     let services = Arc::new(env.state_handler_services());
 
     let dpu_rpc_id = rpc::forge::MachineId {
@@ -718,7 +718,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
@@ -1062,7 +1062,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(

@@ -1068,7 +1068,7 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
         .await
         .expect("Delete instance failed.");
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
 
     let mut txn = env.pool.begin().await.unwrap();
     let mut iteration_metrics = IterationMetrics::default();

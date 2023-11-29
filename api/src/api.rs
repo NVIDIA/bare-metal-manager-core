@@ -174,6 +174,7 @@ pub struct ApiTlsConfig {
 
 pub struct MachineUpdateConfig {
     pub dpu_nic_firmware_initial_update_enabled: bool,
+    pub dpu_nic_firmware_reprovision_update_enabled: bool,
 }
 
 #[tonic::async_trait]
@@ -4598,6 +4599,8 @@ where
         let machine_update_config = MachineUpdateConfig {
             dpu_nic_firmware_initial_update_enabled: carbide_config
                 .dpu_nic_firmware_initial_update_enabled,
+            dpu_nic_firmware_reprovision_update_enabled: carbide_config
+                .dpu_nic_firmware_reprovision_update_enabled,
         };
 
         let api_service = Arc::new(Api {
@@ -4651,6 +4654,7 @@ where
                 .state_handler(Arc::new(MachineStateHandler::new(
                     service_config.dpu_up_threshold,
                     carbide_config.dpu_nic_firmware_initial_update_enabled,
+                    carbide_config.dpu_nic_firmware_reprovision_update_enabled,
                 )))
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,

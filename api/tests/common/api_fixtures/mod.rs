@@ -120,6 +120,7 @@ impl TestEnv {
             },
             MachineUpdateConfig {
                 dpu_nic_firmware_initial_update_enabled: true,
+                dpu_nic_firmware_reprovision_update_enabled: true,
             },
             self.ib_fabric_manager.clone(),
         ));
@@ -383,6 +384,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         },
         MachineUpdateConfig {
             dpu_nic_firmware_initial_update_enabled: true,
+            dpu_nic_firmware_reprovision_update_enabled: true,
         },
         ib_fabric_manager.clone(),
     );
