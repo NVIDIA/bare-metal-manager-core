@@ -710,6 +710,17 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 }
 
+                if let Err(e) = ctx
+                    .services
+                    .redfish_client_pool
+                    .uefi_setup(client.as_ref())
+                    .await
+                {
+                    let msg = format!("Failed to run uefi_setup call: {}", e);
+                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                    return Ok(());
+                }
+
                 if let Err(e) = client.forge_setup().await {
                     let msg = format!("Failed to run forge_setup call: {}", e);
                     *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
