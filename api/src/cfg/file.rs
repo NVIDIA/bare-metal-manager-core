@@ -106,11 +106,15 @@ pub struct CarbideConfig {
     /// does not match, the DPU will be updated during reprovisioning.  It is the operators responsibilty
     /// to make sure this value matches the version shipped with carbide.  If "None" updates
     /// during reprovisioning will be disabled
-    pub dpu_nic_firmware_update_version: Option<String>,
+    pub dpu_nic_firmware_update_version: Option<HashMap<String, String>>,
 
-    /// Enable dpu firmware updates
+    /// Enable dpu firmware updates on initial discovery
     #[serde(default)]
-    pub dpu_nic_firmware_update_enabled: bool,
+    pub dpu_nic_firmware_initial_update_enabled: bool,
+
+    /// Enable dpu firmware updates on known machines
+    #[serde(default)]
+    pub dpu_nic_firmware_reprovision_update_enabled: bool,
 
     /// The maximum number of machines that have in-progress updates running.  This prevents
     /// too many machines from being put into maintenance at any given time.

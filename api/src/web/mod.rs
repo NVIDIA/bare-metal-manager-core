@@ -131,7 +131,8 @@ struct Index {
     version: &'static str,
     agent_upgrade_policy: &'static str,
     eth_data: EthVirtData,
-    dpu_nic_firmware_update_enabled: bool,
+    dpu_nic_firmware_initial_update_enabled: bool,
+    dpu_nic_firmware_reprovision_update_enabled: bool,
 }
 
 pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
@@ -158,9 +159,13 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
     let index = Index {
         version: forge_version::v!(build_version),
         eth_data: state.eth_data.clone(),
-        dpu_nic_firmware_update_enabled: state
+        dpu_nic_firmware_initial_update_enabled: state
             .machine_update_config
-            .dpu_nic_firmware_update_enabled,
+            .dpu_nic_firmware_initial_update_enabled,
+        dpu_nic_firmware_reprovision_update_enabled: state
+            .machine_update_config
+            .dpu_nic_firmware_reprovision_update_enabled,
+
         agent_upgrade_policy,
     };
     (StatusCode::OK, Html(index.render().unwrap()))

@@ -67,12 +67,18 @@ pub struct MachineStateHandler {
 }
 
 impl MachineStateHandler {
-    pub fn new(dpu_up_threshold: chrono::Duration, dpu_nic_firmware_enabled: bool) -> Self {
+    pub fn new(
+        dpu_up_threshold: chrono::Duration,
+        dpu_nic_firmware_initial_update_enabled: bool,
+        dpu_nic_firmware_reprovision_update_enabled: bool,
+    ) -> Self {
         MachineStateHandler {
             dpu_up_threshold,
             host_handler: Default::default(),
-            dpu_handler: DpuMachineStateHandler::new(dpu_nic_firmware_enabled),
-            instance_handler: InstanceStateHandler::new(dpu_nic_firmware_enabled),
+            dpu_handler: DpuMachineStateHandler::new(dpu_nic_firmware_initial_update_enabled),
+            instance_handler: InstanceStateHandler::new(
+                dpu_nic_firmware_reprovision_update_enabled,
+            ),
         }
     }
 }
@@ -80,7 +86,7 @@ impl MachineStateHandler {
 /// Conveninence function for the tests
 impl Default for MachineStateHandler {
     fn default() -> Self {
-        Self::new(chrono::Duration::minutes(5), false)
+        Self::new(chrono::Duration::minutes(5), false, false)
     }
 }
 
@@ -471,13 +477,13 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 /// A `StateHandler` implementation for DPU machines
 #[derive(Debug, Default)]
 pub struct DpuMachineStateHandler {
-    dpu_nic_firmware_update_enabled: bool,
+    dpu_nic_firmware_initial_update_enabled: bool,
 }
 
 impl DpuMachineStateHandler {
-    pub fn new(dpu_nic_firmware_update_enabled: bool) -> Self {
+    pub fn new(dpu_nic_firmware_initial_update_enabled: bool) -> Self {
         DpuMachineStateHandler {
-            dpu_nic_firmware_update_enabled,
+            dpu_nic_firmware_initial_update_enabled,
         }
     }
 }
@@ -506,12 +512,12 @@ impl StateHandler for DpuMachineStateHandler {
                     return Ok(());
                 }
 
-                tracing::info!(
+                tracing::debug!(
                     "ManagedHostState::DPUNotReady::Init: firmware update enabled = {}",
-                    self.dpu_nic_firmware_update_enabled
+                    self.dpu_nic_firmware_initial_update_enabled
                 );
 
-                if self.dpu_nic_firmware_update_enabled {
+                if self.dpu_nic_firmware_initial_update_enabled {
                     // the initial topology may be based on a different firmware version.  allow it to be
                     // updated once the reboot completes and sends new data.
                     MachineTopology::set_topology_update_needed(
@@ -746,13 +752,13 @@ impl StateHandler for HostMachineStateHandler {
 /// A `StateHandler` implementation for instances
 #[derive(Debug, Default)]
 pub struct InstanceStateHandler {
-    dpu_nic_firmware_update_enabled: bool,
+    dpu_nic_firmware_reprovision_update_enabled: bool,
 }
 
 impl InstanceStateHandler {
-    pub fn new(dpu_nic_firmware_update_enabled: bool) -> Self {
+    pub fn new(dpu_nic_firmware_reprovision_update_enabled: bool) -> Self {
         InstanceStateHandler {
-            dpu_nic_firmware_update_enabled,
+            dpu_nic_firmware_reprovision_update_enabled,
         }
     }
 }
@@ -923,7 +929,7 @@ impl StateHandler for InstanceStateHandler {
                             *controller_state.modify() = ManagedHostState::Assigned {
                                 instance_state: InstanceState::DPUReprovision {
                                     reprovision_state: if reprovisioning_requested.update_firmware
-                                        && self.dpu_nic_firmware_update_enabled
+                                        && self.dpu_nic_firmware_reprovision_update_enabled
                                     {
                                         ReprovisionState::FirmwareUpgrade
                                     } else {

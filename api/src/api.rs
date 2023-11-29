@@ -173,7 +173,8 @@ pub struct ApiTlsConfig {
 }
 
 pub struct MachineUpdateConfig {
-    pub dpu_nic_firmware_update_enabled: bool,
+    pub dpu_nic_firmware_initial_update_enabled: bool,
+    pub dpu_nic_firmware_reprovision_update_enabled: bool,
 }
 
 #[tonic::async_trait]
@@ -2783,7 +2784,10 @@ where
 
                 // we update DPU firmware on first boot every time (determined by a missing machine id) or during reprovisioning.
                 let update_firmware = match &machine_interface.machine_id {
-                    None => self.machine_update_config.dpu_nic_firmware_update_enabled,
+                    None => {
+                        self.machine_update_config
+                            .dpu_nic_firmware_initial_update_enabled
+                    }
                     Some(machine_id) => {
                         let machine =
                             Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
@@ -4593,7 +4597,10 @@ where
         };
 
         let machine_update_config = MachineUpdateConfig {
-            dpu_nic_firmware_update_enabled: carbide_config.dpu_nic_firmware_update_enabled,
+            dpu_nic_firmware_initial_update_enabled: carbide_config
+                .dpu_nic_firmware_initial_update_enabled,
+            dpu_nic_firmware_reprovision_update_enabled: carbide_config
+                .dpu_nic_firmware_reprovision_update_enabled,
         };
 
         let api_service = Arc::new(Api {
@@ -4646,7 +4653,8 @@ where
                 .iteration_time(service_config.machine_state_controller_iteration_time)
                 .state_handler(Arc::new(MachineStateHandler::new(
                     service_config.dpu_up_threshold,
-                    carbide_config.dpu_nic_firmware_update_enabled,
+                    carbide_config.dpu_nic_firmware_initial_update_enabled,
+                    carbide_config.dpu_nic_firmware_reprovision_update_enabled,
                 )))
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: service_config.dpu_wait_time,

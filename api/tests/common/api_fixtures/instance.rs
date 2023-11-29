@@ -126,7 +126,7 @@ pub async fn advance_created_instance_into_ready_state(
     host_machine_id: &MachineId,
     instance_id: uuid::Uuid,
 ) -> rpc::Instance {
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
 
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration(host_machine_id.clone(), &handler)
@@ -197,7 +197,7 @@ pub async fn delete_instance(
         rpc::TenantState::Terminating
     );
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true);
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
 
     let mut txn = env.pool.begin().await.unwrap();
     let mut iteration_metrics = IterationMetrics::default();
