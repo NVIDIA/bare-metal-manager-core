@@ -85,6 +85,8 @@ impl StateControllerIO for BmcMachineStateControllerIO {
             BmcMachineState::DpuReboot => ("dpu-reboot", ""),
             BmcMachineState::Initialized => ("dpu-intialized", ""),
             BmcMachineState::Error(_) => ("bmc-error", ""),
+            BmcMachineState::FirmwareUpdate { .. } => ("bmc-firmware-update", ""),
+            BmcMachineState::BmcReboot => ("bmc-reboot", ""),
         }
     }
 }
