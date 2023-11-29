@@ -22,3 +22,5 @@ forged
 
 pxe/debs/*
 !pxe/debs/libnss-exec_0.2.0-1_arm64.deb
+pxe/ipxe/upstream/src/interface/efi/efi_snp.c
+pxe/ipxe/upstream/src/drivers/net/efi/snpnet.c

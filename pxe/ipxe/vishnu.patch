@@ -1,7 +1,7 @@
-diff --git a/src/drivers/net/efi/snpnet.c b/src/drivers/net/efi/snpnet.c
-index 69ec6f5e554e7b39f0fab73d0b800ec2034dcb13..bcd4610e6bbff0e83f938d6af5c33c7ef28cf58f 100644
---- a/src/drivers/net/efi/snpnet.c
-+++ b/src/drivers/net/efi/snpnet.c
+diff --git a/pxe/ipxe/upstream/src/drivers/net/efi/snpnet.c b/pxe/ipxe/upstream/src/drivers/net/efi/snpnet.c
+index 3b09d4918..de60d8b39 100644
+--- a/pxe/ipxe/upstream/src/drivers/net/efi/snpnet.c
++++ b/pxe/ipxe/upstream/src/drivers/net/efi/snpnet.c
 @@ -311,12 +311,6 @@ static int snpnet_rx_filters ( struct net_device *netdev ) {
  	struct snp_nic *snp = netdev->priv;
  	UINT32 filters[] = {
@@ -24,10 +24,10 @@ index 69ec6f5e554e7b39f0fab73d0b800ec2034dcb13..bcd4610e6bbff0e83f938d6af5c33c7e
  				0, NULL );
  		if ( efirc == 0 )
  			return 0;
-diff --git a/src/interface/efi/efi_snp.c b/src/interface/efi/efi_snp.c
-index 088a3fdbda485ed705a1cd84100f08f56928dd6b..34e17a3c296ea5b1f100db263f1e24342f79db68 100644
---- a/src/interface/efi/efi_snp.c
-+++ b/src/interface/efi/efi_snp.c
+diff --git a/pxe/ipxe/upstream/src/interface/efi/efi_snp.c b/pxe/ipxe/upstream/src/interface/efi/efi_snp.c
+index 8443be997..3c51dd511 100644
+--- a/pxe/ipxe/upstream/src/interface/efi/efi_snp.c
++++ b/pxe/ipxe/upstream/src/interface/efi/efi_snp.c
 @@ -127,7 +127,6 @@ static void efi_snp_set_mode ( struct efi_snp_device *snpdev ) {
  	mode->MediaHeaderSize = ll_protocol->ll_header_len;
  	mode->MaxPacketSize = netdev->mtu;
