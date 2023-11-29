@@ -282,6 +282,13 @@ async fn machine_interface_discovery_persists_vendor_strings(
                 .collect::<Vec<&str>>(),
             expected
         );
+
+        // Also check via the MachineInterface API
+        let iface = MachineInterface::find_one(&mut txn, *interface_id)
+            .await
+            .unwrap();
+        assert_eq!(iface.vendors(), expected);
+
         txn.rollback().await.unwrap();
     }
 
