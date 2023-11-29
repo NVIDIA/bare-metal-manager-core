@@ -264,7 +264,7 @@ pub struct RedfishAction {
     pub password: Option<String>,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq, Clone)]
 #[clap(rename_all = "kebab_case")]
 pub enum RedfishCommand {
     /// List BIOS attributes
@@ -279,6 +279,8 @@ pub enum RedfishCommand {
     BootOncePxe,
     /// Delete all pending jobs
     ClearPending,
+    /// Create new BMC user
+    CreateBmcUser(BmcUser),
     /// Setup host for Forge use
     ForgeSetup,
     /// List one or all BIOS boot options
@@ -325,6 +327,8 @@ pub enum RedfishCommand {
     TpmReset,
     /// Reboot the BMC itself
     BmcReset,
+    /// Get Secure boot status
+    GetSecureBoot,
     /// Disable Secure Boot
     DisableSecureBoot,
     /// List Chassis
@@ -341,7 +345,7 @@ pub enum RedfishCommand {
     Dpu(DpuOperations),
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq, Clone)]
 #[clap(group(ArgGroup::new("selector").required(true).args(&["all", "id"])))]
 pub struct BootOptionSelector {
     #[clap(long)]
@@ -350,7 +354,7 @@ pub struct BootOptionSelector {
     pub id: Option<String>,
 }
 
-#[derive(clap::Parser, Debug)]
+#[derive(clap::Parser, Debug, PartialEq, Clone)]
 pub enum DpuOperations {
     /// BMC's FW Commands
     #[clap(visible_alias = "fw", about = "BMC's FW Commands", subcommand)]
@@ -359,7 +363,7 @@ pub enum DpuOperations {
     Ports(ShowPort),
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq, Clone)]
 pub enum FwCommand {
     /// Print FW update status
     Status,
@@ -369,13 +373,13 @@ pub enum FwCommand {
     Show(ShowFw),
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq, Clone)]
 pub struct FwPackage {
     #[clap(short, long, help = "FW package to install")]
     pub package: PathBuf,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq, Clone)]
 pub struct UefiPassword {
     #[clap(long, require_equals(true), help = "Current UEFI password")]
     pub current_password: String,
@@ -383,7 +387,7 @@ pub struct UefiPassword {
     pub new_password: String,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq, Clone)]
 pub struct BmcPassword {
     #[clap(long, require_equals(true), help = "New BMC password")]
     pub new_password: String,
@@ -391,7 +395,20 @@ pub struct BmcPassword {
     pub user: String,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct BmcUser {
+    #[clap(long, require_equals(true), help = "BMC password")]
+    pub new_password: String,
+    #[clap(long, require_equals(true), help = "BMC user")]
+    pub user: String,
+    #[clap(
+        long,
+        help = "BMC role (administrator, operator, readonly, noaccess). Default to administrator"
+    )]
+    pub role_id: Option<String>,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
 #[clap(group(
         ArgGroup::new("show_fw")
         .required(true)
@@ -413,7 +430,7 @@ pub struct ShowFw {
     pub fw: Option<String>,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, PartialEq, Clone)]
 #[clap(group(
         ArgGroup::new("show_port")
         .required(true)

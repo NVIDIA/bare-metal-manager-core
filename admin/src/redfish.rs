@@ -14,7 +14,7 @@ use color_eyre::eyre::eyre;
 use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::task::Task;
 use libredfish::model::LinkStatus;
-use libredfish::{Boot, EnabledDisabled, SystemPowerControl};
+use libredfish::{Boot, EnabledDisabled, RoleId, SystemPowerControl};
 use libredfish::{
     Chassis, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish, RedfishError,
 };
@@ -37,7 +37,10 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     };
     use RedfishCommand::*;
     let pool = libredfish::RedfishClientPool::builder().build()?;
-    let redfish: Box<dyn Redfish> = pool.create_client(endpoint).await?;
+    let redfish: Box<dyn Redfish> = match action.command.clone() {
+        ChangeBmcPassword(_) => pool.create_standard_client(endpoint)?,
+        _ => pool.create_client(endpoint).await?,
+    };
     match action.command {
         BiosAttrs => {
             let bios = redfish.bios().await?;
@@ -154,6 +157,26 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         DisableSecureBoot => {
             redfish.disable_secure_boot().await?;
             println!("BIOS settings changes require system restart");
+        }
+        GetSecureBoot => {
+            println!("{:#?}", redfish.get_secure_boot().await?);
+        }
+        CreateBmcUser(bmc_user) => {
+            let role: RoleId = match bmc_user
+                .role_id
+                .unwrap_or("Administrator".to_string())
+                .to_lowercase()
+                .as_str()
+            {
+                "administrator" => RoleId::Administrator,
+                "operator" => RoleId::Operator,
+                "readonly" => RoleId::ReadOnly,
+                "noaccess" => RoleId::NoAccess,
+                _ => RoleId::Administrator,
+            };
+            redfish
+                .create_user(&bmc_user.user, &bmc_user.new_password, role)
+                .await?;
         }
         ChangeBmcPassword(bmc_password) => {
             redfish
