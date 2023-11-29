@@ -147,6 +147,10 @@ Host az01
   Hostname 10.45.2.5
   ProxyJump wus-jb-admin01
 
+Host az02
+  Hostname 10.45.42.5
+  ProxyJump wus-jb-admin01
+
 Host az20
   Hostname 10.45.10.3
   ProxyJump sdc-jb-admin01
