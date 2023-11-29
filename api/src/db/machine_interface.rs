@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
@@ -44,7 +44,7 @@ pub struct MachineInterface {
     hostname: String,
     primary_interface: bool,
     addresses: Vec<MachineInterfaceAddress>,
-    vendor: Option<String>,
+    vendors: Vec<String>,
 }
 
 struct UsedAdminNetworkIpResolver {
@@ -67,7 +67,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterface {
             mac_address: row.try_get("mac_address")?,
             primary_interface: row.try_get("primary_interface")?,
             addresses: Vec::new(),
-            vendor: None,
+            vendors: Vec::new(),
         })
     }
 }
@@ -90,7 +90,7 @@ impl From<MachineInterface> for rpc::MachineInterface {
                 .iter()
                 .map(|addr| addr.address.to_string())
                 .collect(),
-            vendor: machine_interface.vendor,
+            vendor: machine_interface.vendors.last().cloned(),
         }
     }
 }
@@ -464,8 +464,9 @@ impl MachineInterface {
     pub fn primary_interface(&self) -> bool {
         self.primary_interface
     }
-    pub fn vendor(&self) -> &Option<String> {
-        &self.vendor
+
+    pub fn vendors(&self) -> &Vec<String> {
+        &self.vendors
     }
 
     // Convenience function to load the machine which owns this interface
@@ -551,14 +552,15 @@ impl MachineInterface {
             MachineInterfaceAddress::find_for_interface(&mut *txn, component_filter.clone())
                 .await?;
 
-        let entrylist: Vec<DhcpEntry> =
+        let dhcp_entries: Vec<DhcpEntry> =
             DhcpEntry::find_for_interfaces(&mut *txn, component_filter).await?;
-        // TODO: There might be mulitple vendors stored for a single interface
-        // This transformation loses it
-        let vendorslist = entrylist
-            .into_iter()
-            .map(|x| (x.machine_interface_id, x.vendor_string.clone()))
-            .collect::<BTreeMap<_, _>>();
+        let mut vendors_by_interface_id = HashMap::<Uuid, Vec<String>>::new();
+        for entry in dhcp_entries.into_iter() {
+            let vendors = vendors_by_interface_id
+                .entry(entry.machine_interface_id)
+                .or_default();
+            vendors.push(entry.vendor_string);
+        }
 
         interfaces.iter_mut().for_each(|interface| {
             if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {
@@ -566,7 +568,9 @@ impl MachineInterface {
             } else {
                 tracing::warn!(interface_id = %interface.id, "Interface has no addresses");
             }
-            interface.vendor = vendorslist.get(&interface.id).cloned();
+            interface.vendors = vendors_by_interface_id
+                .remove(&interface.id)
+                .unwrap_or_default();
         });
 
         Ok(interfaces)
