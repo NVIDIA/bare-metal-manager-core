@@ -189,13 +189,19 @@ where
         MachineAddresses => {
             let out = MachineInterfaceAddress::find_by_address(&mut txn, addr).await?;
             out.map(|e| {
-                let message = format!(
-                    "{ip} belongs to machine {} (interface {}) on network segment {} of type {}",
-                    e.machine_id, e.interface_id, e.segment_name, e.segment_type,
-                );
+                let message = match e.machine_id.as_ref() {
+                    Some(machine_id) => format!(
+                        "{ip} belongs to machine {} (interface {}) on network segment {} of type {}",
+                        machine_id, e.interface_id, e.segment_name, e.segment_type,
+                    ),
+                    None => format!(
+                        "{ip} belongs to interface {} on network segment {} of type {}. It is not attached to a machine.",
+                        e.interface_id, e.segment_name, e.segment_type,
+                        ),
+                };
                 rpc::IpAddressMatch {
                     ip_type: rpc::IpType::MachineAddress as i32,
-                    owner_id: Some(e.machine_id.to_string()),
+                    owner_id: e.machine_id.map(|id| id.to_string()),
                     message,
                 }
             })
