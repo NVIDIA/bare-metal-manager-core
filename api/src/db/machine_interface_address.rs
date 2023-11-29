@@ -106,7 +106,7 @@ impl MachineInterfaceAddress {
 #[derive(Debug)]
 pub struct MachineInterfaceSearchResult {
     pub interface_id: Uuid,
-    pub machine_id: MachineId,
+    pub machine_id: Option<MachineId>,
     pub segment_name: String,
     pub segment_type: NetworkSegmentType,
 }
@@ -114,7 +114,9 @@ pub struct MachineInterfaceSearchResult {
 impl<'r> FromRow<'r, PgRow> for MachineInterfaceSearchResult {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let stable_string: String = row.try_get("machine_id")?;
-        let machine_id = MachineId::from_str(&stable_string).unwrap();
+        let machine_id = MachineId::from_str(&stable_string)
+            .map(Some)
+            .unwrap_or_default();
         Ok(MachineInterfaceSearchResult {
             interface_id: row.try_get("id")?,
             machine_id,
