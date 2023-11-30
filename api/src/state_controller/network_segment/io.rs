@@ -45,7 +45,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
-        NetworkSegment::list_segment_ids(txn)
+        NetworkSegment::list_segment_ids(txn, None)
             .await
             .map_err(SnapshotLoaderError::from)
     }

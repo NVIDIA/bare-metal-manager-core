@@ -397,7 +397,6 @@ impl NetworkSegment {
             1 => {
                 let mut segment: NetworkSegment = results.remove(0);
 
-                // NOTE(jdg): results shouldn't include any deleted segments, so we can ignore checks against deleted segments in prefixes for the following section
                 let query = "SELECT * FROM network_prefixes WHERE segment_id=$1::uuid";
                 segment.prefixes = sqlx::query_as(query)
                     .bind(segment.id())
@@ -413,16 +412,25 @@ impl NetworkSegment {
         }
     }
 
-    /// Retrieves the IDs of all network segments
-    ///
-    /// * `txn` - A reference to a currently open database transaction
-    ///
+    /// Retrieves the IDs of all network segments.
+    /// If `segment_type` is specified, only IDs of segments that match the specific type are returned.
     pub async fn list_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
+        segment_type: Option<NetworkSegmentType>,
     ) -> Result<Vec<Uuid>, DatabaseError> {
-        let query = "SELECT id FROM network_segments";
+        let (query, mut segment_id_stream) = if let Some(segment_type) = segment_type {
+            let query = "SELECT id FROM network_segments where network_segment_type=$1";
+            let stream = sqlx::query_as::<_, NetworkSegmentId>(query)
+                .bind(segment_type)
+                .fetch(&mut **txn);
+            (query, stream)
+        } else {
+            let query = "SELECT id FROM network_segments";
+            let stream = sqlx::query_as::<_, NetworkSegmentId>(query).fetch(&mut **txn);
+            (query, stream)
+        };
+
         let mut results = Vec::new();
-        let mut segment_id_stream = sqlx::query_as::<_, NetworkSegmentId>(query).fetch(&mut **txn);
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id.into());
@@ -588,10 +596,6 @@ impl NetworkSegment {
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
-
-        // TODO: We also can't delete network segments while there are instances
-        // attached. Or at least we can't full remove it from the DB, and just it's
-        // status to TERMINATING
 
         Ok(segment)
     }
