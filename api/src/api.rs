@@ -163,6 +163,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     tls_config: ApiTlsConfig,
     pub(crate) machine_update_config: MachineUpdateConfig,
     ib_fabric_manager: Arc<dyn IBFabricManager>,
+    runtime_config: Arc<CarbideConfig>,
 }
 
 pub struct ApiTlsConfig {
@@ -199,17 +200,7 @@ where
             build_hostname: forge_version::v!(build_hostname).to_string(),
 
             runtime_config: if version_request.display_config {
-                Some(
-                    crate::setup::current_config(None)
-                        .lock()
-                        .map_err(|x| CarbideError::GenericError(x.to_string()))?
-                        .clone()
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "Runtime Config",
-                            id: "NA".to_string(),
-                        })?
-                        .into(),
-                )
+                Some((*self.runtime_config).clone().into())
             } else {
                 None
             },
@@ -4476,6 +4467,7 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        config: CarbideConfig,
         credential_provider: Arc<C1>,
         certificate_provider: Arc<C2>,
         database_connection: sqlx::PgPool,
@@ -4483,8 +4475,6 @@ where
         redfish_pool: Arc<dyn RedfishClientPool>,
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
-        tls_config: ApiTlsConfig,
-        machine_update_config: MachineUpdateConfig,
         ib_fabric_manager: Arc<dyn IBFabricManager>,
     ) -> Self {
         Self {
@@ -4495,9 +4485,20 @@ where
             redfish_pool,
             eth_data,
             common_pools,
-            tls_config,
-            machine_update_config,
+            tls_config: ApiTlsConfig {
+                root_cafile_path: config.tls.clone().unwrap().root_cafile_path,
+                identity_pemfile_path: config.tls.clone().unwrap().identity_pemfile_path,
+                identity_keyfile_path: config.tls.clone().unwrap().identity_keyfile_path,
+                admin_root_cafile_path: config.tls.clone().unwrap().admin_root_cafile_path,
+            },
+            machine_update_config: MachineUpdateConfig {
+                dpu_nic_firmware_initial_update_enabled: config
+                    .dpu_nic_firmware_initial_update_enabled,
+                dpu_nic_firmware_reprovision_update_enabled: config
+                    .dpu_nic_firmware_reprovision_update_enabled,
+            },
             ib_fabric_manager,
+            runtime_config: Arc::new(config),
         }
     }
 
@@ -4633,6 +4634,7 @@ where
             tls_config,
             machine_update_config,
             ib_fabric_manager: ib_fabric_manager.clone(),
+            runtime_config: carbide_config.clone(),
         });
 
         if let Some(networks) = carbide_config.networks.as_ref() {

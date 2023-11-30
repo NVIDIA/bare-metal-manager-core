@@ -12,11 +12,17 @@
 
 //! Contains fixtures that use the Carbide API for setting up
 
-use std::{collections::HashMap, sync::Arc, time::SystemTime};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::Arc,
+    time::SystemTime,
+};
 
 use carbide::{
-    api::{Api, ApiTlsConfig, MachineUpdateConfig},
+    api::Api,
     auth::{Authorizer, NoopEngine},
+    cfg::CarbideConfig,
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
     ib,
@@ -104,7 +110,10 @@ impl TestEnv {
     /// Creates an instance of StateHandlerServices that are suitable for this
     /// test environment
     pub fn state_handler_services(&self) -> StateHandlerServices {
+        let config = get_config();
+
         let forge_api = Arc::new(Api::new(
+            config,
             self.credential_provider.clone(),
             self.certificate_provider.clone(),
             self.pool.clone(),
@@ -112,16 +121,6 @@ impl TestEnv {
             self.redfish_sim.clone(),
             self.eth_virt_data.clone(),
             self.common_pools.clone(),
-            ApiTlsConfig {
-                identity_pemfile_path: "not a real pemfile path".to_string(),
-                identity_keyfile_path: "not a real keyfile path".to_string(),
-                root_cafile_path: "not a real cafile path".to_string(),
-                admin_root_cafile_path: "not a real admin cafile path".to_string(),
-            },
-            MachineUpdateConfig {
-                dpu_nic_firmware_initial_update_enabled: true,
-                dpu_nic_firmware_reprovision_update_enabled: true,
-            },
             self.ib_fabric_manager.clone(),
         ));
 
@@ -336,6 +335,42 @@ impl TestEnv {
     }
 }
 
+fn get_config() -> CarbideConfig {
+    CarbideConfig {
+        listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
+        metrics_endpoint: None,
+        otlp_endpoint: None,
+        database_url: "pgsql:://localhost".to_string(),
+        enable_ib_fabric: None,
+        rapid_iterations: true,
+        asn: 0,
+        dhcp_servers: vec![],
+        route_servers: vec![],
+        enable_route_servers: false,
+        deny_prefixes: vec![],
+        site_fabric_prefixes: vec![],
+        tls: Some(carbide::cfg::TlsConfig {
+            root_cafile_path: "Not a real path".to_string(),
+            identity_pemfile_path: "Not a real pemfile".to_string(),
+            identity_keyfile_path: "Not a real keyfile".to_string(),
+            admin_root_cafile_path: "Not a real cafile".to_string(),
+        }),
+        auth: None,
+        pools: None,
+        networks: None,
+        dpu_ipmi_reboot_args: None,
+        dpu_impi_tool_impl: None,
+        dpu_ipmi_reboot_attempts: Some(0),
+        initial_domain_name: Some("test.com".to_string()),
+        initial_dpu_agent_upgrade_policy: None,
+        dpu_nic_firmware_update_version: None,
+        dpu_nic_firmware_initial_update_enabled: true,
+        dpu_nic_firmware_reprovision_update_enabled: true,
+        max_concurrent_machine_updates: None,
+        machine_update_run_interval: None,
+    }
+}
+
 /// Creates an environment for unit-testing
 ///
 /// This retuns the `Api` object instance which can be used to simulate calls against
@@ -368,7 +403,10 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         .await
         .expect("Creating pools should work");
 
+    let config = get_config();
+
     let api = Api::new(
+        config,
         credential_provider.clone(),
         certificate_provider.clone(),
         db_pool.clone(),
@@ -376,16 +414,6 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         redfish_sim.clone(),
         eth_virt_data.clone(),
         common_pools.clone(),
-        ApiTlsConfig {
-            identity_pemfile_path: "not a real pemfile path".to_string(),
-            identity_keyfile_path: "not a real keyfile path".to_string(),
-            root_cafile_path: "not a real cafile path".to_string(),
-            admin_root_cafile_path: "not a real admin cafile path".to_string(),
-        },
-        MachineUpdateConfig {
-            dpu_nic_firmware_initial_update_enabled: true,
-            dpu_nic_firmware_reprovision_update_enabled: true,
-        },
         ib_fabric_manager.clone(),
     );
     TestEnv {

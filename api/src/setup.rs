@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
 use std::{env, sync::Arc};
 
 use eyre::WrapErr;
@@ -28,11 +27,6 @@ use forge_secrets::ForgeVaultClient;
 use crate::cfg::CarbideConfig;
 use crate::ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl};
 
-pub fn current_config(config: Option<CarbideConfig>) -> &'static Mutex<Option<CarbideConfig>> {
-    static CONFIG: OnceLock<Mutex<Option<CarbideConfig>>> = OnceLock::new();
-    CONFIG.get_or_init(|| Mutex::new(config))
-}
-
 pub fn parse_carbide_config(
     config_str: String,
     site_config_str: Option<String>,
@@ -47,7 +41,6 @@ pub fn parse_carbide_config(
         .extract()
         .wrap_err("Failed to load configuration files")?;
 
-    current_config(Some(config.clone()));
     Ok(Arc::new(config))
 }
 
