@@ -6375,6 +6375,7 @@ dependencies = [
  "rpc",
  "serde",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 

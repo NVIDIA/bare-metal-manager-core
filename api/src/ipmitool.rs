@@ -15,7 +15,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-use utils::cmd::{Cmd, CmdError};
+use utils::cmd::{CmdError, TokioCmd};
 
 use crate::{db::bmc_metadata::UserRoles, model::machine::machine_id::MachineId};
 
@@ -93,13 +93,13 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
             let mut args = prefix_args.clone();
             args.extend(command.clone());
 
-            let cmd = Cmd::new("/usr/bin/ipmitool")
+            let cmd = TokioCmd::new("/usr/bin/ipmitool")
                 .args(&args)
                 .attempts(self.attempts);
 
             tracing::info!("Running command: {:?}", cmd);
 
-            match cmd.env("IPMITOOL_PASSWORD", &password).output() {
+            match cmd.env("IPMITOOL_PASSWORD", &password).output().await {
                 Ok(output) => {
                     tracing::info!("IPMITool succeeded with output: {}", output);
                     return Ok(());

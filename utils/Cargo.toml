@@ -13,5 +13,6 @@ chrono = "0.4.26"
 serde = { version = "1", features = ["derive"] }
 thiserror = "1.0.44"
 tracing = "*"
+tokio = { workspace = true }
 
 rpc = { path = "../rpc" }
