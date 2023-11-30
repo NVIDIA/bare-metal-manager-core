@@ -8,9 +8,11 @@ rapid_iterations=false
 otlp_endpoint="https://localhost:4317"
 initial_domain_name="forge.local"
 initial_dpu_agent_upgrade_policy="off"
+dpu_nic_firmware_intial_update_enabled=false
+dpu_nic_firmware_reprovision_update_enabled=true
+dpu_nic_firmware_update_version={ "BlueField SoC" = "24.38.1402", "BlueField-3 SmartNIC Main Card" = "32.38.1402" }
 max_concurrent_machine_updates=1
-dpu_nic_firmware_update_version={"product_x" = "2.0.1", "product_y" = "3.2.0"}
-dpu_nic_firmware_update_enabled=false
+machine_update_run_interval=60
 dpu_ipmi_reboot_args=[ "arg-1a arg-1b", "arg-2a"]
 dpu_impi_tool_impl="fake"
 dpu_ipmi_reboot_attempts=1

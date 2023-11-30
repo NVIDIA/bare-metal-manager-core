@@ -73,7 +73,9 @@ impl DpuMachineUpdate {
             WHERE m.reprovisioning_requested IS NULL 
             AND mi.machine_id != mi.attached_dpu_machine_id
             AND m.controller_state = '{"state": "ready"}'
-            AND m.maintenance_start_time IS NULL "#.to_owned();
+            AND m.maintenance_start_time IS NULL 
+            AND (network_status_observation->'health_status'->>'is_healthy')::boolean is true 
+            "#.to_owned();
 
         let mut bind_index = 1;
         for (ind, _) in expected_firmware_versions.iter().enumerate() {
@@ -160,7 +162,7 @@ impl DpuMachineUpdate {
         txn: &mut Transaction<'_, Postgres>,
         machine_update: &DpuMachineUpdate,
         expected_versions: HashMap<String, String>,
-    ) -> Result<Vec<MachineId>, DatabaseError> {
+    ) -> Result<(), DatabaseError> {
         let expected_version = expected_versions
             .get(&machine_update.product_name)
             .ok_or_else(|| {
@@ -184,21 +186,24 @@ impl DpuMachineUpdate {
             user_approval_received: false,
         };
 
-        let machine_ids = vec![
-            machine_update.host_machine_id.to_string(),
-            machine_update.dpu_machine_id.to_string(),
-        ];
-
-        let query = r#"UPDATE machines SET reprovisioning_requested=$1, maintenance_reference=$2, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=ANY($3) RETURNING id;"#;
-        let ids = sqlx::query_as::<_, DbMachineId>(query)
+        let query = r#"UPDATE machines SET reprovisioning_requested=$1, maintenance_reference=$2, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$3 AND maintenance_reference IS NULL;"#;
+        sqlx::query(query)
             .bind(sqlx::types::Json(req))
             .bind(initiator.to_string())
-            .bind(machine_ids)
-            .fetch_all(&mut **txn)
+            .bind(machine_update.dpu_machine_id.to_string())
+            .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(ids.into_iter().map(MachineId::from).collect())
+        let query = r#"UPDATE machines SET maintenance_reference=$1, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$2 AND maintenance_reference IS NULL;"#;
+        sqlx::query(query)
+            .bind(initiator.to_string())
+            .bind(machine_update.host_machine_id.to_string())
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 
     pub async fn get_reprovisioning_machines(

@@ -7,7 +7,7 @@ use std::{
 use crate::{
     cfg::CarbideConfig, db::dpu_machine_update::DpuMachineUpdate,
     machine_update_manager::MachineUpdateManager, model::machine::machine_id::MachineId,
-    CarbideError, CarbideResult,
+    CarbideResult,
 };
 use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
@@ -110,16 +110,12 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 continue;
             }
 
-            let updated_machines = DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
+            DpuMachineUpdate::trigger_reprovisioning_for_managed_host(
                 txn,
                 machine_update,
                 self.expected_dpu_firmware_versions.clone(),
             )
             .await?;
-
-            if updated_machines.len() != 2 {
-                return Err(CarbideError::GenericError(format!("Unexpected update result from trigger_reprovisioning_for_managed_host: updated_machines={:?}", updated_machines)));
-            }
 
             updates_started.insert(machine_update.host_machine_id.clone());
         }
