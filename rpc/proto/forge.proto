@@ -10,7 +10,7 @@ package forge;
 
 service Forge {
   // What version of Forge is this service running? Matches `--version` command line.
-  rpc Version(google.protobuf.Empty) returns (BuildInfo);
+  rpc Version(VersionRequest) returns (BuildInfo);
 
   // Domain
   rpc CreateDomain(Domain) returns (Domain);
@@ -224,6 +224,10 @@ message CredentialDeletionResult {
 
 }
 
+message VersionRequest {
+    bool display_config = 1;
+  }
+
 message BuildInfo {
     string build_version = 1; // v2023.06-rc2-1-gc5c05de3
     string build_date = 2; // 2023-06-05
@@ -231,7 +235,40 @@ message BuildInfo {
     string rust_version = 4; // rustc 1.68.0 (2c8cc3432 2023-03-06)
     string build_user = 5; // graham
     string build_hostname = 6; // fedora
+
+    optional RuntimeConfig runtime_config = 50;
 }
+
+message RuntimeConfig {
+    string listen = 1;
+    string metrics_endpoint = 2;
+    string otlp_endpoint = 3;
+    string database_url = 4;
+    bool enable_ip_fabric = 5;
+    bool rapid_iterations = 6;
+    uint32 asn = 7;
+    repeated string dhcp_servers = 8;
+    repeated string route_servers = 9;
+    bool enable_route_servers = 10;
+    repeated string deny_prefixes = 11;
+    repeated string site_fabric_prefixes = 12;
+
+    // Only name. Rest config can be read from network-segment command.
+    repeated string networks = 13;
+
+    string dpu_ipmi_reboot_args = 14;
+    string dpu_ipmi_tool_impl = 15;
+    uint32 dpu_ipmi_reboot_attempt = 16;
+
+    optional string initial_domain_name = 17;
+    string initial_dpu_agent_upgrade_policy = 18;
+
+    map<string, string> dpu_nic_firmware_update_version = 19;
+    bool dpu_nic_firmware_initial_update_enabled = 20;
+    bool dpu_nic_firmware_reprovision_update_enabled = 21;
+    int32 max_concurrent_machine_updates = 22;
+    uint64 machine_update_runtime_interval = 23;
+ }
 
 message MachineId {
   string id = 1;

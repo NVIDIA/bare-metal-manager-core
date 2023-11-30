@@ -57,6 +57,7 @@ mod network_devices;
 mod redfish;
 mod resource_pool;
 mod rpc;
+mod version;
 
 #[derive(Debug, Deserialize)]
 struct FileConfig {
@@ -343,15 +344,8 @@ async fn main() -> color_eyre::Result<()> {
 
     // Command do talk to Carbide API
     match command {
-        CarbideCommand::Version => {
-            let v = rpc::version(&api_config).await?;
-            // Same as running `carbide-api --version`
-            println!(
-                "carbide-api\t build_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
-                v.build_version, v.build_date, v.git_sha, v.rust_version, v.build_user, v.build_hostname,
-            );
-            // Same as running `forge-admin-cli --version`
-            println!("forge-admin-cli\t {}", forge_version::version!());
+        CarbideCommand::Version(version) => {
+            version::handle_show_version(version, api_config).await?
         }
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {

@@ -309,6 +309,7 @@ pub async fn run(
         }
         config
     };
+
     tracing::info!("Using configuration: {:#?}", print_config);
     tracing::info!(
         "Tokio worker thread count: num_cpus::get()={}, TOKIO_WORKER_THREADS={}",

@@ -65,7 +65,7 @@ pub struct CarbideOptions {
 #[derive(Parser, Debug)]
 pub enum CarbideCommand {
     #[clap(about = "Print API server version", visible_alias = "v")]
-    Version,
+    Version(Version),
     #[clap(about = "Machine related handling", subcommand, visible_alias = "m")]
     Machine(Machine),
     #[clap(about = "Instance related handling", subcommand, visible_alias = "i")]
@@ -120,6 +120,12 @@ pub enum CarbideCommand {
         about = "Generate shell autocomplete. Source the output of this command: `source <(forge-admin-cli generate-shell-complete bash)`"
     )]
     GenerateShellComplete(ShellCompleteAction),
+}
+
+#[derive(Parser, Debug)]
+pub struct Version {
+    #[clap(short, long, action, help = "Display Runtime Config also.")]
+    pub show_runtime_config: bool,
 }
 
 #[derive(Parser, Debug)]

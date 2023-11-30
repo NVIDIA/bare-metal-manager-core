@@ -1,0 +1,89 @@
+use prettytable::{row, Cell, Row, Table};
+
+use crate::{cfg::carbide_options::Version, rpc, CarbideCliError, Config};
+
+macro_rules! r {
+    ($table: ident, $value:ident, $field_name:ident) => {
+        $table.add_row(Row::new(vec![
+            Cell::new(stringify!($field_name)),
+            Cell::new(&$value.$field_name.to_string()),
+        ]));
+    };
+}
+
+macro_rules! rv {
+    ($table: ident, $value:ident, $field_name:ident) => {
+        $table.add_row(Row::new(vec![
+            Cell::new(stringify!($field_name)),
+            Cell::new(&$value.$field_name.join(", ")),
+        ]));
+    };
+}
+
+pub async fn handle_show_version(
+    version: Version,
+    api_config: Config,
+) -> Result<(), CarbideCliError> {
+    let v = rpc::version(&api_config, version.show_runtime_config).await?;
+
+    // Same as running `carbide-api --version`
+    println!(
+                "carbide-api:\n\tbuild_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
+                v.build_version, v.build_date, v.git_sha, v.rust_version, v.build_user, v.build_hostname,
+            );
+    // Same as running `forge-admin-cli --version`
+    println!();
+    println!("forge-admin-cli:\n\t {}", forge_version::version!());
+
+    if version.show_runtime_config {
+        let config = v
+            .runtime_config
+            .ok_or_else(|| CarbideCliError::GenericError("Config not found.".to_owned()))?;
+
+        println!();
+        println!("Runtime Config:");
+
+        let mut table = Table::new();
+
+        table.add_row(Row::new(vec![Cell::new("Property"), Cell::new("Value")]));
+        r!(table, config, listen);
+        r!(table, config, metrics_endpoint);
+        r!(table, config, otlp_endpoint);
+        r!(table, config, database_url);
+        r!(table, config, enable_route_servers);
+        r!(table, config, rapid_iterations);
+        r!(table, config, asn);
+        rv!(table, config, dhcp_servers);
+        rv!(table, config, route_servers);
+        r!(table, config, enable_route_servers);
+        rv!(table, config, deny_prefixes);
+        rv!(table, config, site_fabric_prefixes);
+        rv!(table, config, networks);
+        r!(table, config, dpu_ipmi_reboot_args);
+        r!(table, config, dpu_ipmi_tool_impl);
+        r!(table, config, dpu_ipmi_reboot_attempt);
+        table.add_row(Row::new(vec![
+            Cell::new("intial_domain_name"),
+            Cell::new(config.initial_domain_name()),
+        ]));
+        r!(table, config, initial_dpu_agent_upgrade_policy);
+
+        if !config.dpu_nic_firmware_update_version.is_empty() {
+            let mut version_table = Table::new();
+            for (name, value) in config.dpu_nic_firmware_update_version {
+                version_table.add_row(Row::new(vec![Cell::new(&name), Cell::new(&value)]));
+            }
+            table.add_row(row!["dpu_nic_firmware_update_version", version_table]);
+        } else {
+            table.add_row(row!["dpu_nic_firmware_update_version", "Not Set"]);
+        }
+        r!(table, config, dpu_nic_firmware_initial_update_enabled);
+        r!(table, config, dpu_nic_firmware_reprovision_update_enabled);
+        r!(table, config, max_concurrent_machine_updates);
+        r!(table, config, machine_update_runtime_interval);
+
+        _ = table.print_tty(true);
+    }
+
+    Ok(())
+}
