@@ -10,11 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::{collections::HashMap, fmt::Display};
 
 use ipnetwork::Ipv4Network;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
@@ -159,8 +160,71 @@ pub enum AgentUpgradePolicyChoice {
     UpDown,
 }
 
+impl Display for AgentUpgradePolicyChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self, f)
+    }
+}
+
 fn default_listen() -> SocketAddr {
     "[::]:1079".parse().unwrap()
+}
+
+impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
+    fn from(value: CarbideConfig) -> Self {
+        Self {
+            listen: value.listen.to_string(),
+            metrics_endpoint: value
+                .metrics_endpoint
+                .map(|x| x.to_string())
+                .unwrap_or("NA".to_string()),
+            otlp_endpoint: value
+                .otlp_endpoint
+                .map(|x| x.to_string())
+                .unwrap_or("NA".to_string()),
+            database_url: value.database_url,
+            enable_ip_fabric: value.enable_ib_fabric.unwrap_or_default(),
+            rapid_iterations: value.rapid_iterations,
+            asn: value.asn,
+            dhcp_servers: value.dhcp_servers,
+            route_servers: value.route_servers,
+            enable_route_servers: value.enable_route_servers,
+            deny_prefixes: value
+                .deny_prefixes
+                .into_iter()
+                .map(|x| x.to_string())
+                .collect(),
+            site_fabric_prefixes: value
+                .site_fabric_prefixes
+                .into_iter()
+                .map(|x| x.to_string())
+                .collect(),
+            networks: value
+                .networks
+                .unwrap_or_default()
+                .keys()
+                .cloned()
+                .collect_vec(),
+            dpu_ipmi_reboot_args: value.dpu_ipmi_reboot_args.unwrap_or_default().join(" "),
+            dpu_ipmi_tool_impl: value.dpu_impi_tool_impl.unwrap_or("Not Set".to_string()),
+            dpu_ipmi_reboot_attempt: value.dpu_ipmi_reboot_attempts.unwrap_or_default(),
+            initial_domain_name: value.initial_domain_name,
+            initial_dpu_agent_upgrade_policy: value
+                .initial_dpu_agent_upgrade_policy
+                .unwrap_or(AgentUpgradePolicyChoice::Off)
+                .to_string(),
+            dpu_nic_firmware_update_version: value
+                .dpu_nic_firmware_update_version
+                .unwrap_or_default(),
+            dpu_nic_firmware_initial_update_enabled: value.dpu_nic_firmware_initial_update_enabled,
+            dpu_nic_firmware_reprovision_update_enabled: value
+                .dpu_nic_firmware_reprovision_update_enabled,
+            max_concurrent_machine_updates: value
+                .max_concurrent_machine_updates
+                .unwrap_or_default(),
+            machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
+        }
+    }
 }
 
 #[cfg(test)]

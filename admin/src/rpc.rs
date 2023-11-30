@@ -412,10 +412,13 @@ pub async fn list_resource_pools(
     .await
 }
 
-pub async fn version(api_config: &Config) -> CarbideCliResult<rpc::BuildInfo> {
+pub async fn version(
+    api_config: &Config,
+    display_config: bool,
+) -> CarbideCliResult<rpc::BuildInfo> {
     with_forge_client(api_config.clone(), |mut client| async move {
         let out = client
-            .version(tonic::Request::new(()))
+            .version(tonic::Request::new(rpc::VersionRequest { display_config }))
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;

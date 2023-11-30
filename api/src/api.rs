@@ -185,8 +185,11 @@ where
 {
     async fn version(
         &self,
-        _request: tonic::Request<()>,
+        request: tonic::Request<rpc::VersionRequest>,
     ) -> Result<Response<rpc::BuildInfo>, Status> {
+        log_request_data(&request);
+        let version_request = request.into_inner();
+
         let v = rpc::BuildInfo {
             build_version: forge_version::v!(build_version).to_string(),
             build_date: forge_version::v!(build_date).to_string(),
@@ -194,6 +197,22 @@ where
             rust_version: forge_version::v!(rust_version).to_string(),
             build_user: forge_version::v!(build_user).to_string(),
             build_hostname: forge_version::v!(build_hostname).to_string(),
+
+            runtime_config: if version_request.display_config {
+                Some(
+                    crate::setup::current_config(None)
+                        .lock()
+                        .map_err(|x| CarbideError::GenericError(x.to_string()))?
+                        .clone()
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "Runtime Config",
+                            id: "NA".to_string(),
+                        })?
+                        .into(),
+                )
+            } else {
+                None
+            },
         };
         Ok(Response::new(v))
     }
