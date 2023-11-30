@@ -9,6 +9,7 @@ use tokio_rustls::rustls;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
 use tokio_rustls::rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore, ServerName};
 use tonic::body::BoxBody;
+use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::protos::forge::forge_client::ForgeClient;
 
@@ -68,6 +69,22 @@ pub struct ForgeTlsConfig {
 }
 
 impl ForgeTlsConfig {
+    pub async fn client_cert_expiry(&self) -> Option<i64> {
+        if let Some((client_certs, _key)) = self.read_client_cert().await {
+            if let Some(client_public_key) = client_certs.first() {
+                if let Ok((_rem, cert)) = X509Certificate::from_der(client_public_key.0.as_slice())
+                {
+                    Some(cert.validity.not_after.timestamp())
+                } else {
+                    None // couldn't parse certificate to x509
+                }
+            } else {
+                None // no cert in client certs vec
+            }
+        } else {
+            None // no certs parsed from disk
+        }
+    }
     pub async fn read_client_cert(&self) -> Option<(Vec<Certificate>, PrivateKey)> {
         if let Some(client_cert) = self.client_cert.as_ref() {
             let cert_path = client_cert.cert_path.clone();
