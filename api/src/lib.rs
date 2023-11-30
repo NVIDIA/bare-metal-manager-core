@@ -310,6 +310,11 @@ pub async fn run(
         config
     };
     tracing::info!("Using configuration: {:#?}", print_config);
+    tracing::info!(
+        "Tokio worker thread count: num_cpus::get()={}, TOKIO_WORKER_THREADS={}",
+        num_cpus::get(),
+        std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string())
+    );
 
     // Spin up the webserver which servers `/metrics` requests
     if let Some(metrics_address) = carbide_config.metrics_endpoint {

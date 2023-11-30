@@ -783,6 +783,7 @@ dependencies = [
  "lazy_static",
  "libredfish",
  "mac_address",
+ "num_cpus",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
