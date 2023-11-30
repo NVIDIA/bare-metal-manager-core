@@ -414,3 +414,30 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     );
     Ok(())
 }
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool.clone()).await;
+
+    let segment = create_network_segment_with_api(&env.api, false, false).await;
+    let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
+
+    let mut txn = pool.begin().await?;
+    let mut segments = NetworkSegment::list_segment_ids(&mut txn, None).await?;
+    assert_eq!(segments.len(), 1);
+    assert_eq!(segments.remove(0), segment_id);
+
+    let mut segments =
+        NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Admin)).await?;
+    assert_eq!(segments.len(), 1);
+    assert_eq!(segments.remove(0), segment_id);
+
+    let segments =
+        NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay)).await?;
+    assert_eq!(segments.len(), 0);
+    let segments =
+        NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Tenant)).await?;
+    assert_eq!(segments.len(), 0);
+
+    Ok(())
+}
