@@ -16,16 +16,15 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use tokio::runtime::Runtime;
-
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
+use opentelemetry_semantic_conventions as semcov;
+use tokio::runtime::Runtime;
+
 use rpc::forge_tls_client::ForgeTlsConfig;
 
 use crate::{tls, CarbideDhcpContext, CONFIG};
-
-use opentelemetry_semantic_conventions as semcov;
 
 const METRICS_CAPTURE_FREQUENCY: Duration = Duration::from_secs(30);
 
