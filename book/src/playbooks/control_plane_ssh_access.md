@@ -82,6 +82,12 @@ Host sdc-jb-admin01 10.45.33.84
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
+# For various other azure colo sites
+Host uswest2 20.64.249.211
+  Hostname 20.64.249.211
+  Compression yes
+  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+
 Host *
   StrictHostKeyChecking no
   ServerAliveInterval 30
@@ -150,6 +156,14 @@ Host az01
 Host az02
   Hostname 10.45.42.5
   ProxyJump wus-jb-admin01
+
+Host az03
+  Hostname 10.45.58.3
+  ProxyJump uswest2
+
+Host az06
+  Hostname 10.45.106.5
+  ProxyJump uswest2
 
 Host az20
   Hostname 10.45.10.3
