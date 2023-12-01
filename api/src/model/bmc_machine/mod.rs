@@ -31,6 +31,24 @@ pub enum BmcMachineError {
     RedfishCommand { command: String, message: String },
     /// Unsupported firmware version - The card is with a firmware version that is not supported, please manually upgrade and rediscover.
     UnsupportedBmcFirmware,
+    /// An unrecoverable error has occurred during BMC firmware update or max retries was exceeded.
+    BmcFirmwareUpdateError { message: String },
+    /// Reboot state form more then 15 minutes
+    RebootTimeExceeded,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "firmware_type", rename_all = "lowercase")]
+pub enum FirmwareType {
+    Bmc,
+    Cec,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "sub_state", rename_all = "lowercase")]
+pub enum Substate {
+    UploadFirmware,
+    WaitForUpdateCompletion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +56,13 @@ pub enum BmcMachineError {
 pub enum BmcMachineState {
     /// Bmc machine got discovered through DHCP interface
     Initializing,
+    /// Bmc firmware update
+    FirmwareUpdate {
+        firmwaretype: FirmwareType,
+        substate: Substate,
+    },
+    /// Bmc machine is being rebooted
+    BmcReboot,
     /// DPU machine is being configuring: (change UEFI password, set secure boot to disabled,
     /// move to restricted mode, and change boot order to OOB).
     Configuring,
@@ -71,6 +96,29 @@ mod tests {
             serde_json::from_str::<BmcMachineState>(&error_state_serialized).unwrap(),
             error_state
         );
+
+        let firmware_state = BmcMachineState::FirmwareUpdate {
+            firmwaretype: FirmwareType::Bmc,
+            substate: Substate::UploadFirmware,
+        };
+        let firmware_state_serialized = serde_json::to_string(&firmware_state).unwrap();
+        assert_eq!(firmware_state_serialized, "{\"state\":\"firmwareupdate\",\"firmwaretype\":{\"firmware_type\":\"bmc\"},\"substate\":{\"sub_state\":\"uploadfirmware\"}}");
+        assert_eq!(
+            serde_json::from_str::<BmcMachineState>(&firmware_state_serialized).unwrap(),
+            firmware_state
+        );
+    }
+}
+
+impl Display for FirmwareType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Display for Substate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
 
@@ -82,6 +130,13 @@ impl Display for BmcMachineState {
             BmcMachineState::Configuring => write!(f, "BMC/Configuring"),
             BmcMachineState::DpuReboot => write!(f, "BMC/DpuReboot"),
             BmcMachineState::Initialized => write!(f, "BMC/Initialized"),
+            BmcMachineState::FirmwareUpdate {
+                firmwaretype,
+                substate,
+            } => {
+                write!(f, "BMC/FirmwareUpdate/{}-{}", firmwaretype, substate)
+            }
+            BmcMachineState::BmcReboot => write!(f, "BMC/BmcReboot"),
         }
     }
 }

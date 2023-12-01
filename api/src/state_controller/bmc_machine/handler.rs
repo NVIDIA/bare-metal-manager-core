@@ -108,6 +108,15 @@ impl StateHandler for BmcMachineStateHandler {
                 }
                 *controller_state.modify() = BmcMachineState::Configuring;
             }
+            BmcMachineState::FirmwareUpdate {
+                firmwaretype: _,
+                substate: _,
+            } => {
+                // TODO: BMC firmware update
+            }
+            BmcMachineState::BmcReboot => {
+                // TODO: reboot BMC
+            }
             BmcMachineState::Configuring => {
                 let client_result = ctx
                     .services
