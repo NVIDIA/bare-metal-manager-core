@@ -174,13 +174,15 @@ fn export_power_supplies(
                 KeyValue::new("hw.host.id", machine_id.to_string()),
             ],
         );
-        power_supplies_input_voltage_sensors.observe(
-            power_supply.line_input_voltage,
-            &[
-                KeyValue::new("hw.id", sensor_name.clone()),
-                KeyValue::new("hw.host.id", machine_id.to_string()),
-            ],
-        );
+        if let Some(line_input_voltage) = power_supply.line_input_voltage {
+            power_supplies_input_voltage_sensors.observe(
+                line_input_voltage,
+                &[
+                    KeyValue::new("hw.id", sensor_name.clone()),
+                    KeyValue::new("hw.host.id", machine_id.to_string()),
+                ],
+            );
+        }
         let mut utilization: f64 = 0.0;
         if power_capacity_watts > 0 {
             utilization = (last_power_output_watts / power_capacity_watts as f64) * 100.0;
