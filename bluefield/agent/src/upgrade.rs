@@ -17,7 +17,7 @@ use std::io::Read;
 use std::process::Command;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 use data_encoding::BASE64;
 use eyre::WrapErr;
 
@@ -25,7 +25,7 @@ use eyre::WrapErr;
 /// Returns true if we just updated and hence need to exit, so the new version can start instead.
 pub async fn upgrade_check(
     forge_api: &str,
-    tls_config: ForgeTlsConfig,
+    client_config: ForgeClientConfig,
     machine_id: &str,
     // The command to run to upgrade forge-dpu-agent
     upgrade_cmd: &str,
@@ -34,7 +34,10 @@ pub async fn upgrade_check(
     let stat = fs::metadata(&binary_path)
         .wrap_err_with(|| format!("Failed stat of '{}'", binary_path.display()))?;
     let Ok(binary_mtime) = stat.modified() else {
-        eyre::bail!("Failed reading mtime of forge-dpu-agent binary at '{}'", binary_path.display());
+        eyre::bail!(
+            "Failed reading mtime of forge-dpu-agent binary at '{}'",
+            binary_path.display()
+        );
     };
 
     // blake3 is almost 2x faster than sha2's sha256 in release mode, and 35x faster in debug mode
@@ -66,7 +69,7 @@ pub async fn upgrade_check(
         binary_sha: BASE64.encode(&hash),
     };
 
-    let mut client = forge_tls_client::ForgeTlsClient::new(tls_config)
+    let mut client = forge_tls_client::ForgeTlsClient::new(client_config)
         .connect(forge_api)
         .await?;
     let resp = client

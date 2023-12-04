@@ -52,6 +52,7 @@ pub use crate::protos::machine_discovery::{
 pub mod forge_tls_client;
 pub mod protos;
 
+pub mod forge_resolver;
 pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/forge.bin");
 
 pub fn get_encoded_reflection_service_fd() -> Vec<u8> {

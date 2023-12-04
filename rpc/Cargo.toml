@@ -8,13 +8,13 @@ edition.workspace = true
 [dependencies]
 chrono = { version = "0.4.19", features = ["serde"] }
 eyre = "0.6"
-hyper = "0.14"
-hyper-rustls = { version = "0.23", features = ["http1", "http2"] }
+hyper = { version = "0.14.27", features = ["full"]}
+hyper-rustls = { version = "0.23.2", features = ["http1", "http2"] }
 lazy_static = "1.4"
 mac_address = "*"
-prost = "*"
-prost-build = "*"
-prost-types = "*"
+prost = "0.11.9"
+prost-build = "0.11.9"
+prost-types = "0.11.9"
 rustls-pemfile = "1.0"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
@@ -25,6 +25,18 @@ tonic-reflection = "0.5.0"
 tower = "0.4.13"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 x509-parser = "0.15.1"
+pnet = "0.34.0"
+ipnetwork = "0.20.0"
+log = "0.4.19"
+hickory-resolver = "0.24.0"
+resolv-conf = "0.7.0"
+tracing = "0.1.37"
+socket2 = "0.4.9"
+libc = "0.2.147"
+futures-util = "0.3.28"
+netif = "0.1.6"
+rand = "0.8.5"
+forge-http-connector = { path = "../forge-http-connector" }
 
 [build-dependencies]
 tonic-build = "0.8.0"

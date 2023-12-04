@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::rpc::forge::{self as rpc};
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientT, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientConfig, ForgeClientT};
 use ::rpc::MachineId;
 
 use http::header::CONTENT_LENGTH;
@@ -113,14 +113,17 @@ async fn create_forge_client(
     client_key: String,
     api_url: String,
 ) -> Result<ForgeClientT, HealthError> {
-    let forge_tls_config = ForgeTlsConfig {
-        root_ca_path: root_ca,
-        client_cert: Some(ForgeClientCert {
+    let forge_client_config = ForgeClientConfig::new(
+        root_ca,
+        Some(ForgeClientCert {
             cert_path: client_cert,
             key_path: client_key,
         }),
-    };
-    let client = forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+    )
+    .use_mgmt_vrf()
+    .map_err(|e| HealthError::GenericError(e.to_string()))?;
+
+    let client = forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .connect(&api_url)
         .await
         .map_err(|err| HealthError::ApiConnectFailed(err.to_string()))?;

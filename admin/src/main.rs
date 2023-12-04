@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
-use ::rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 use ::rpc::Uuid;
 use ::rpc::{
     forge::{self as forgerpc, CredentialType, MachineType},
@@ -70,7 +70,7 @@ struct FileConfig {
 #[derive(Debug, Clone)]
 pub struct Config {
     carbide_api_url: String,
-    forge_tls_config: ForgeTlsConfig,
+    forge_client_config: ForgeClientConfig,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -326,13 +326,11 @@ async fn main() -> color_eyre::Result<()> {
         config.client_key_path,
         file_config.as_ref(),
     );
-    let forge_tls_config = ForgeTlsConfig {
-        client_cert: Some(forge_client_cert),
-        root_ca_path: forge_root_ca_path,
-    };
+    let forge_client_config = ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
+
     let api_config = Config {
         carbide_api_url,
-        forge_tls_config,
+        forge_client_config,
     };
 
     let command = match config.commands {

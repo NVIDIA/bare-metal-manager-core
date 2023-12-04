@@ -15,7 +15,7 @@ use std::fmt::Display;
 use rocket::{get, routes, Route};
 use rocket_dyn_templates::Template;
 
-use rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
+use rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 
 use crate::routes::RpcContext;
 use crate::{Machine, MachineInterface, RuntimeConfig};
@@ -84,18 +84,19 @@ pub async fn boot(contents: MachineInterface, config: RuntimeConfig) -> Result<T
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
     context.insert("pxe_url".to_string(), config.pxe_url.clone());
 
-    let forge_tls_config = ForgeTlsConfig {
-        root_ca_path: config.forge_root_ca_path.clone(),
-        client_cert: Some(ForgeClientCert {
+    let forge_client_config = ForgeClientConfig::new(
+        config.forge_root_ca_path.clone(),
+        Some(ForgeClientCert {
             cert_path: config.server_cert_path.clone(),
             key_path: config.server_key_path.clone(),
         }),
-    };
+    );
+
     let instructions = RpcContext::get_pxe_instructions(
         arch,
         machine_interface_id,
         config.internal_api_url.clone(),
-        forge_tls_config,
+        forge_client_config,
     )
     .await
     .unwrap_or_else(|err| {

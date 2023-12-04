@@ -64,11 +64,14 @@ struct State {
 async fn test_start() -> eyre::Result<()> {
     forge_host_support::init_logging()?;
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
+    env::set_var("IGNORE_MGMT_VRF", "true");
 
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
-            tracing::warn!("Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping.");
-            return Ok(());
-        };
+        tracing::warn!(
+            "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
+        );
+        return Ok(());
+    };
     let root_dir = PathBuf::from(repo_root);
 
     let td = tempfile::tempdir()?;

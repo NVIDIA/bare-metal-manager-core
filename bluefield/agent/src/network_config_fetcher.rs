@@ -19,7 +19,7 @@ use arc_swap::ArcSwap;
 use tracing::{error, trace, warn};
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 
 pub struct NetworkConfigReader {
     state: Arc<NetworkConfigFetcherState>,
@@ -64,7 +64,7 @@ impl Drop for NetworkConfigFetcher {
 
 impl NetworkConfigFetcher {
     pub async fn new(config: NetworkConfigFetcherConfig) -> Self {
-        let forge_tls_config = config.forge_tls_config.clone();
+        let forge_client_config = config.forge_client_config.clone();
         let state = Arc::new(NetworkConfigFetcherState {
             current: ArcSwap::default(),
             config,
@@ -73,11 +73,11 @@ impl NetworkConfigFetcher {
 
         // Do an initial synchronous fetch so that caller has data to use
         // This gets a DPU on the network immediately
-        single_fetch(forge_tls_config.clone(), state.clone()).await;
+        single_fetch(forge_client_config.clone(), state.clone()).await;
 
         let task_state = state.clone();
         let join_handle = tokio::spawn(async move {
-            while single_fetch(forge_tls_config.clone(), task_state.clone()).await {
+            while single_fetch(forge_client_config.clone(), task_state.clone()).await {
                 tokio::time::sleep(task_state.config.config_fetch_interval).await;
             }
         });
@@ -101,11 +101,11 @@ pub struct NetworkConfigFetcherConfig {
     pub config_fetch_interval: Duration,
     pub machine_id: String,
     pub forge_api: String,
-    pub forge_tls_config: ForgeTlsConfig,
+    pub forge_client_config: ForgeClientConfig,
 }
 
 async fn single_fetch(
-    forge_tls_config: ForgeTlsConfig,
+    forge_client_config: ForgeClientConfig,
     state: Arc<NetworkConfigFetcherState>,
 ) -> bool {
     if state
@@ -124,7 +124,7 @@ async fn single_fetch(
     match fetch(
         &state.config.machine_id,
         &state.config.forge_api,
-        forge_tls_config,
+        forge_client_config,
     )
     .await
     {
@@ -152,9 +152,9 @@ async fn single_fetch(
 pub async fn fetch(
     dpu_machine_id: &str,
     forge_api: &str,
-    forge_tls_config: ForgeTlsConfig,
+    forge_client_config: ForgeClientConfig,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .connect(forge_api)
         .await
     {

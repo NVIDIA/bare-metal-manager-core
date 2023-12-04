@@ -9,6 +9,8 @@ members = [
   "dev/rainbow",
   "dhcp",
   "dns",
+  "forge-http-connector",
+  "dsocket",
   "forge_secrets",
   "health",
   "host-support",

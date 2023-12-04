@@ -21,6 +21,8 @@ use std::{
 use sqlx::migrate::MigrateDatabase;
 use tokio::time::sleep;
 
+use grpcurl::grpcurl;
+
 mod api_server;
 mod dpu;
 pub mod grpcurl;
@@ -32,7 +34,6 @@ mod subnet;
 mod upgrade;
 mod vault;
 mod vpc;
-use grpcurl::grpcurl;
 
 /// Integration test that shells out to start the real carbide-api, and then does all the steps
 /// that `bootstrap-forge-docker` would do.
@@ -40,6 +41,7 @@ use grpcurl::grpcurl;
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn test_integration() -> eyre::Result<()> {
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
+    env::set_var("IGNORE_MGMT_VRF", "true");
     // There is unfortunately no support for certificates in the vault dev server, so we have to disable this in code.
     env::set_var("UNSUPPORTED_CERTIFICATE_PROVIDER", "true");
 
@@ -53,7 +55,9 @@ async fn test_integration() -> eyre::Result<()> {
     // Error is: "attempted to set a logger after the logging system was already initialized"
 
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
-        eprintln!("Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping.");
+        eprintln!(
+            "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
+        );
         return Ok(());
     };
     let root_dir = PathBuf::from(repo_root.clone());

@@ -13,7 +13,42 @@
 use std::process::Command;
 
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{debug, trace};
+
+// Containerd is started in the mgmt VRF.  Processes started in the MGMT VRF are not reachable
+// from the default VRF.  This means that we need to run crictl commands in the MGMT VRF in order to
+// execute commands in containers.  `RunCommandPredicate` provides abstraction over the `Command`
+// and `args` needed to execute health checks.
+// We need to move the dpu-agent out of the mgmt VRF because we want to expose services to instances
+// running on a X86 machine, eg FMDS, while still being able to use the mgmt VRF to connect to our control plane
+#[derive(Debug)]
+pub struct RunCommandPredicate<'a> {
+    pub command: Command,
+    pub args: Vec<&'a str>,
+}
+impl<'a> RunCommandPredicate<'a> {
+    /// Create a new `RunCommandPredicate` with the appropriate `Command` and `args`
+    /// ENV::VAR `IGNORE_MGMT_VRF` dictates which command predicate to use
+    /// much in the same way as it dictates how `use_mgmt_vrf` is used in `DpulyfeResolver`
+    /// and `DpulyfeHttpConnector`
+    pub fn new(container_id: &'a str) -> Self {
+        let ignore_mgmt_vrf = std::env::var("IGNORE_MGMT_VRF").is_ok();
+        trace!("IGNORE_MGMT_VRF is {}: ", ignore_mgmt_vrf);
+
+        let pred = match ignore_mgmt_vrf {
+            true => Self {
+                command: Command::new("crictl"),
+                args: vec!["exec", container_id],
+            },
+            false => Self {
+                command: Command::new("ip"),
+                args: vec!["vrf", "exec", "mgmt", "crictl", "exec", container_id],
+            },
+        };
+        debug!("{:?}", pred);
+        pred
+    }
+}
 
 pub fn get_hbn_container_id() -> eyre::Result<String> {
     let mut crictl = Command::new("crictl");
@@ -50,8 +85,9 @@ pub fn run_in_container(
     command: &[&str],
     need_success: bool,
 ) -> eyre::Result<String> {
-    let mut crictl = Command::new("crictl");
-    let mut args = vec!["exec", container_id];
+    let pred = RunCommandPredicate::new(container_id);
+    let mut crictl = pred.command;
+    let mut args = pred.args;
     args.extend_from_slice(command);
 
     let cmd = crictl.args(args);

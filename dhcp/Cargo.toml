@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 derive_builder = "*"
 eyre = "*"
-hyper = "*"
+hyper = "0.14.27"
 ipnetwork = "*"
 lazy_static = "1.4.0"
 libc = "*"

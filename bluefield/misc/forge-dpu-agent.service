@@ -7,7 +7,8 @@ Type=simple
 Environment="RUST_BACKTRACE=full"
 Environment="RUST_LIB_BACKTRACE=0"
 Environment="RUST_LOG=debug"
-ExecStart=+/usr/sbin/ip vrf exec mgmt /usr/bin/forge-dpu-agent run
+ExecStart=+/usr/bin/forge-dpu-agent run --enable-metadata-service
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_NET_RAW
 # We always want to restart the dpu agent in case of crashes
 # However we don't want to immediatly restart it to avoid flooding the API server
 # with bad requests which could limit the availablity of other clients.

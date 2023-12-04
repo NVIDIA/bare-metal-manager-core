@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
+use rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 
 use crate::CONFIG;
 
-pub fn build_forge_tls_config() -> ForgeTlsConfig {
+pub fn build_forge_client_config() -> ForgeClientConfig {
     let forge_root_ca_path = &CONFIG
         .read()
         .unwrap() // safety: the only way this will panic is if the lock is poisoned,
@@ -31,11 +31,10 @@ pub fn build_forge_tls_config() -> ForgeTlsConfig {
         // which happens when another holder panics. we're already done at that point.
         .forge_client_cert_path;
 
-    ForgeTlsConfig {
-        root_ca_path: forge_root_ca_path.clone(),
-        client_cert: Some(ForgeClientCert {
-            cert_path: forge_client_cert_path.clone(),
-            key_path: forge_client_key_path.clone(),
-        }),
-    }
+    let client_cert = ForgeClientCert {
+        cert_path: forge_client_cert_path.clone(),
+        key_path: forge_client_key_path.clone(),
+    };
+
+    ForgeClientConfig::new(forge_root_ca_path.clone(), Some(client_cert))
 }

@@ -12,7 +12,7 @@
 
 use ::rpc::forge as rpc;
 use ::rpc::forge::MachineCertificate;
-use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 use ::rpc::machine_discovery as rpc_discovery;
 
 #[derive(thiserror::Error, Debug)]
@@ -47,15 +47,23 @@ pub async fn register_machine(
             hardware_info,
         )),
     };
-    let forge_tls_config = ForgeTlsConfig {
-        root_ca_path: root_ca,
-        client_cert: None,
-    };
-    let mut client = forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+
+    let forge_client_config = ForgeClientConfig::new(root_ca, None)
+        .use_mgmt_vrf()
+        .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
+
+    tracing::debug!("register_machine client_config {:?}", forge_client_config);
+
+    let mut client = forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .connect(forge_api.to_string())
         .await
         .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
+
+    tracing::debug!("register_machine client {:?}", client);
+
     let request = tonic::Request::new(info);
+
+    tracing::debug!("register_machine request {:?}", request);
 
     let response = client
         .discover_machine(request)

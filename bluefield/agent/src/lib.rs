@@ -13,7 +13,7 @@
 use std::process::Command;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{ForgeClientCert, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 use ::rpc::machine_discovery::DpuData;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 use forge_host_support::{
@@ -67,13 +67,14 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         tracing::warn!("Pretending local host is a DPU. Dev only.");
     }
 
-    let forge_tls_config = ForgeTlsConfig {
-        root_ca_path: agent.forge_system.root_ca.clone(),
-        client_cert: Some(ForgeClientCert {
+    let forge_client_config = ForgeClientConfig::new(
+        agent.forge_system.root_ca.clone(),
+        Some(ForgeClientCert {
             cert_path: agent.forge_system.client_cert.clone(),
             key_path: agent.forge_system.client_key.clone(),
         }),
-    };
+    )
+    .use_mgmt_vrf()?;
 
     match cmdline.cmd {
         // TODO until Oct 2023 forge-dpu-agent in prod used this
@@ -86,7 +87,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             main_loop::run(
                 &machine_id,
                 &factory_mac_address,
-                forge_tls_config,
+                forge_client_config,
                 agent,
                 None,
             )
@@ -110,7 +111,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             main_loop::run(
                 &machine_id,
                 &factory_mac_address,
-                forge_tls_config,
+                forge_client_config,
                 agent,
                 Some(options),
             )
@@ -138,7 +139,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             let conf = network_config_fetcher::fetch(
                 &params.dpu_machine_id,
                 &forge_api,
-                forge_tls_config.clone(),
+                forge_client_config.clone(),
             )
             .await?;
             let mut status_out = rpc::DpuNetworkStatus {
@@ -183,7 +184,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 is_healthy: !has_changed_configs,
                 ..Default::default()
             });
-            main_loop::record_network_status(status_out, &forge_api, forge_tls_config).await;
+            main_loop::record_network_status(status_out, &forge_api, forge_client_config).await;
         }
 
         // Output a templated file

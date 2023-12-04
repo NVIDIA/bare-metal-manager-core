@@ -15,7 +15,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::ForgeTlsConfig;
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use axum::routing::post;
 
 mod common;
@@ -26,11 +26,14 @@ const ROOT_CERT_PATH: &str = "dev/certs/forge_developer_local_only_root_cert_pem
 async fn test_upgrade_check() -> eyre::Result<()> {
     forge_host_support::init_logging()?;
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
+    env::set_var("IGNORE_MGMT_VRF", "true");
 
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
-            tracing::warn!("Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping.");
-            return Ok(());
-        };
+        tracing::warn!(
+            "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
+        );
+        return Ok(());
+    };
     let root_dir = PathBuf::from(repo_root);
 
     let marker = tempfile::NamedTempFile::new()?;
@@ -41,10 +44,10 @@ async fn test_upgrade_check() -> eyre::Result<()> {
     );
     let (addr, join_handle) = common::run_grpc_server(app).await?;
 
-    let tls_config = ForgeTlsConfig {
-        root_ca_path: root_dir.join(ROOT_CERT_PATH).display().to_string(),
-        client_cert: None,
-    };
+    let client_config =
+        ForgeClientConfig::new(root_dir.join(ROOT_CERT_PATH).display().to_string(), None)
+            .use_mgmt_vrf()?;
+
     let upgrade_cmd = format!(
         "echo apt-get install --yes --only-upgrade forge-dpu-agent=__PKG_VERSION__ > {}",
         marker.path().display()
@@ -52,7 +55,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
     let machine_id = "test_machine_id";
     agent::upgrade_check(
         &format!("https://{addr}"),
-        tls_config,
+        client_config,
         machine_id,
         &upgrade_cmd,
     )

@@ -652,16 +652,17 @@ fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
 // Run the given command inside HBN container in a shell. Ignore the output.
 fn in_container_shell(cmd: &'static str) -> Result<(), eyre::Report> {
     let container_id = hbn::get_hbn_container_id()?;
-    let out = Command::new("/usr/bin/crictl")
-        .args(["exec", &container_id, "bash", "-c", cmd])
-        .output()
-        .wrap_err(cmd)?;
-    if !out.status.success() {
-        return Err(eyre::eyre!(
-            "Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/frr/frr-reload.log. \nSTDOUT: {}\nSTDERR: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr),
-        ));
+    let check_result = true;
+
+    match hbn::run_in_container(&container_id, &["bash", "-c", cmd], check_result) {
+        Ok(out) => {
+            debug!("{}", out);
+        }
+        Err(err) => {
+            return Err(eyre::eyre!("Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/frr/free-reload. \nCommand: {}",
+                err
+            ));
+        }
     }
     Ok(())
 }
