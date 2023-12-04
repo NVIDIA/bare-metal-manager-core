@@ -44,7 +44,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     match action.command {
         BiosAttrs => {
             let bios = redfish.bios().await?;
-            println!("{:#?}", bios);
+            println!("{}", serde_json::to_string(&bios).unwrap());
         }
         BootHdd => {
             redfish.boot_first(Boot::HardDisk).await?;
