@@ -133,7 +133,7 @@ impl NetworkDevice {
     pub async fn lock_network_device_table(
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
+        let query = "LOCK TABLE network_device_lock IN EXCLUSIVE MODE";
         sqlx::query(query)
             .execute(&mut **txn)
             .await
