@@ -2153,7 +2153,12 @@ where
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         log_request_data(&request);
 
-        crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await
+        crate::dhcp::discover::discover_dhcp(
+            &self.database_connection,
+            self.runtime_config.enable_bmc_machine,
+            request,
+        )
+        .await
     }
 
     async fn get_machine(
@@ -4733,23 +4738,25 @@ where
                 .build()
                 .expect("Unable to build IBPartitionStateController");
 
-        let _bmc_machine_controller_handle =
-            StateController::<BmcMachineStateControllerIO>::builder()
-                .database(database_connection.clone())
-                .meter("forge_bmc_machines", meter.clone())
-                .redfish_client_pool(shared_redfish_pool.clone())
-                .ib_fabric_manager(ib_fabric_manager.clone())
-                .reachability_params(ReachabilityParams {
-                    dpu_wait_time: service_config.dpu_wait_time,
-                    host_wait_time: service_config.host_wait_time,
-                    power_down_wait: service_config.power_down_wait,
-                })
-                .forge_api(api_service.clone())
-                .iteration_time(service_config.network_segment_state_controller_iteration_time)
-                .state_handler(Arc::new(BmcMachineStateHandler::default()))
-                .ipmi_tool(ipmi_tool.clone())
-                .build()
-                .expect("Unable to build BmcMachineController");
+        if carbide_config.enable_bmc_machine {
+            let _bmc_machine_controller_handle =
+                StateController::<BmcMachineStateControllerIO>::builder()
+                    .database(database_connection.clone())
+                    .meter("forge_bmc_machines", meter.clone())
+                    .redfish_client_pool(shared_redfish_pool.clone())
+                    .ib_fabric_manager(ib_fabric_manager.clone())
+                    .reachability_params(ReachabilityParams {
+                        dpu_wait_time: service_config.dpu_wait_time,
+                        host_wait_time: service_config.host_wait_time,
+                        power_down_wait: service_config.power_down_wait,
+                    })
+                    .forge_api(api_service.clone())
+                    .iteration_time(service_config.network_segment_state_controller_iteration_time)
+                    .state_handler(Arc::new(BmcMachineStateHandler::default()))
+                    .ipmi_tool(ipmi_tool.clone())
+                    .build()
+                    .expect("Unable to build BmcMachineController");
+        }
 
         let site_explorer = SiteExplorer::new(
             database_connection.clone(),

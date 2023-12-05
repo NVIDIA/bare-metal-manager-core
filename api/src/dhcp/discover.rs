@@ -114,6 +114,7 @@ async fn handle_dhcp_for_instance(
 
 pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,
+    enable_bmc_machine: bool,
     request: Request<rpc::DhcpDiscovery>,
 ) -> Result<Response<rpc::DhcpRecord>, Status> {
     let mut txn = database_connection
@@ -167,7 +168,7 @@ pub async fn discover_dhcp(
 
     // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
     if let Some(vendor) = vendor_string {
-        if vendor == "NVIDIA/BF/BMC" {
+        if enable_bmc_machine && vendor == "NVIDIA/BF/BMC" {
             let _bmc_machine = BmcMachine::find_or_create_bmc_machine(
                 &mut txn,
                 *machine_interface.id(),

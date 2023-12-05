@@ -40,6 +40,7 @@ pub async fn start(
         asn: 65535,
         dhcp_servers: vec![],
         route_servers: vec![],
+        enable_bmc_machine: true,
         enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
