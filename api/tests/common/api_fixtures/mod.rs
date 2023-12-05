@@ -341,6 +341,7 @@ fn get_config() -> CarbideConfig {
         metrics_endpoint: None,
         otlp_endpoint: None,
         database_url: "pgsql:://localhost".to_string(),
+        enable_bmc_machine: true,
         enable_ib_fabric: None,
         rapid_iterations: true,
         asn: 0,
