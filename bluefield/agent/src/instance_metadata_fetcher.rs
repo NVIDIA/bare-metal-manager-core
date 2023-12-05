@@ -20,7 +20,7 @@ use mockall::*;
 use tracing::{error, trace};
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 
 /// The instance metadata - as fetched from the
 /// Forge Site Controller
@@ -79,7 +79,7 @@ impl Drop for InstanceMetadataFetcher {
 
 impl InstanceMetadataFetcher {
     pub fn new(config: InstanceMetadataFetcherConfig) -> Self {
-        let forge_tls_config = config.forge_tls_config.clone();
+        let forge_client_config = config.forge_client_config.clone();
         let state = Arc::new(InstanceMetadataFetcherState {
             current: ArcSwap::default(),
             config,
@@ -88,7 +88,7 @@ impl InstanceMetadataFetcher {
 
         let task_state = state.clone();
         let join_handle = tokio::spawn(async move {
-            run_instance_metadata_fetcher(forge_tls_config, task_state).await;
+            run_instance_metadata_fetcher(forge_client_config, task_state).await;
         });
 
         Self {
@@ -110,11 +110,11 @@ pub struct InstanceMetadataFetcherConfig {
     pub config_fetch_interval: Duration,
     pub machine_id: String,
     pub forge_api: String,
-    pub forge_tls_config: ForgeTlsConfig,
+    pub forge_client_config: ForgeClientConfig,
 }
 
 async fn run_instance_metadata_fetcher(
-    forge_tls_config: ForgeTlsConfig,
+    forge_client_config: ForgeClientConfig,
     state: Arc<InstanceMetadataFetcherState>,
 ) {
     loop {
@@ -131,7 +131,7 @@ async fn run_instance_metadata_fetcher(
             state.config.machine_id
         );
 
-        match fetch_latest_ip_addresses(forge_tls_config.clone(), &state).await {
+        match fetch_latest_ip_addresses(forge_client_config.clone(), &state).await {
             Ok(config) => {
                 state.current.store(Arc::new(Some(config)));
             }
@@ -148,10 +148,10 @@ async fn run_instance_metadata_fetcher(
 }
 
 async fn fetch_latest_ip_addresses(
-    forge_tls_config: ForgeTlsConfig,
+    forge_client_config: ForgeClientConfig,
     state: &InstanceMetadataFetcherState,
 ) -> Result<InstanceMetadata, eyre::Error> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .connect(state.config.forge_api.clone())
         .await
     {

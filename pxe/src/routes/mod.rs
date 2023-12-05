@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 
 pub mod cloud_init;
 pub mod ipxe;
@@ -22,9 +22,9 @@ impl RpcContext {
         arch: rpc::MachineArchitecture,
         machine_interface_id: rocket::serde::uuid::Uuid,
         url: String,
-        forge_tls_config: ForgeTlsConfig,
+        forge_client_config: ForgeClientConfig,
     ) -> Result<String, String> {
-        let mut client = forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+        let mut client = forge_tls_client::ForgeTlsClient::new(forge_client_config)
             .connect(url)
             .await
             .map_err(|err| err.to_string())?;

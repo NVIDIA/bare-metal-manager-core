@@ -22,7 +22,7 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions as semcov;
 use tokio::runtime::Runtime;
 
-use rpc::forge_tls_client::ForgeTlsConfig;
+use rpc::forge_tls_client::ForgeClientConfig;
 
 use crate::{tls, CarbideDhcpContext, CONFIG};
 
@@ -75,22 +75,22 @@ fn setup_metrics<E: Into<String>>(otlp_endpoint: E) -> eyre::Result<DhcpMetrics>
         )
         .expect("unable to register callback?");
 
-    let forge_tls_config = tls::build_forge_tls_config();
+    let forge_client_config = tls::build_forge_client_config();
     Ok(DhcpMetrics {
-        forge_tls_config,
+        forge_client_config,
         client_certificate_expiry_value: client_certificate_expiry_measurement,
     })
 }
 
 #[derive(Clone, Debug)]
 struct DhcpMetrics {
-    forge_tls_config: ForgeTlsConfig,
+    forge_client_config: ForgeClientConfig,
     client_certificate_expiry_value: Arc<AtomicI64>,
 }
 impl DhcpMetrics {
     async fn update(&self) {
         log::debug!("Capturing metrics.");
-        if let Some(client_expiry) = self.forge_tls_config.client_cert_expiry().await {
+        if let Some(client_expiry) = self.forge_client_config.client_cert_expiry().await {
             self.client_certificate_expiry_value
                 .store(client_expiry, Ordering::SeqCst);
         }

@@ -17,7 +17,7 @@ use std::ptr;
 use ipnetwork::IpNetwork;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 
 use MachineArchitecture::*;
 
@@ -42,7 +42,7 @@ impl Machine {
         discovery: Discovery,
         carbide_api_url: &str,
         vendor_class: Option<VendorClass>,
-        forge_tls_config: ForgeTlsConfig,
+        forge_tls_config: ForgeClientConfig,
     ) -> Result<Self, String> {
         match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
             .connect(carbide_api_url)

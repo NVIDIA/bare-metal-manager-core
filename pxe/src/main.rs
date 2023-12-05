@@ -26,7 +26,7 @@ use rocket_dyn_templates::Template;
 use serde::Serialize;
 
 use ::rpc::forge;
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeTlsConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientConfig};
 use rpc::forge::CloudInitInstructionsRequest;
 
 mod logging;
@@ -121,14 +121,14 @@ impl<'r> FromRequest<'r> for Machine {
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let mut client = match request.rocket().state::<RuntimeConfig>() {
             Some(runtime_config) => {
-                let forge_tls_config = ForgeTlsConfig {
-                    root_ca_path: runtime_config.forge_root_ca_path.clone(),
-                    client_cert: Some(ForgeClientCert {
+                let forge_client_config = ForgeClientConfig::new(
+                    runtime_config.forge_root_ca_path.clone(),
+                    Some(ForgeClientCert {
                         cert_path: runtime_config.server_cert_path.clone(),
                         key_path: runtime_config.server_key_path.clone(),
                     }),
-                };
-                match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+                );
+                match forge_tls_client::ForgeTlsClient::new(forge_client_config)
                     .connect(runtime_config.internal_api_url.clone())
                     .await
                 {

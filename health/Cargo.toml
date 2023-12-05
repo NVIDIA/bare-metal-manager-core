@@ -12,9 +12,9 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 eyre = "*"
-hyper = "*"
-http = "*"
 libredfish = { version = "0.14.0", registry = "sw-ngc-forge-cargo-local" }
+hyper = { version = "0.14.27", features=["full"]}
+http = { version = "0.2.9" }
 opentelemetry-prometheus = "*"
 opentelemetry = "*"
 opentelemetry_api = "*"

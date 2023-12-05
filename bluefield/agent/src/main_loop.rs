@@ -41,7 +41,7 @@ use crate::upgrade;
 pub async fn run(
     machine_id: &str,
     mac_address: &str,
-    forge_tls_config: forge_tls_client::ForgeTlsConfig,
+    forge_client_config: forge_tls_client::ForgeClientConfig,
     agent: AgentConfig,
     options: Option<command_line::RunOptions>,
 ) -> eyre::Result<()> {
@@ -54,7 +54,7 @@ pub async fn run(
         {
             if let Err(e) = run_metadata_service(
                 machine_id,
-                forge_tls_config.clone(),
+                forge_client_config.clone(),
                 &agent,
                 metadata_service_config.address.clone(),
                 telemetry_config.metrics_address.clone(),
@@ -79,7 +79,7 @@ pub async fn run(
             config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
             machine_id: machine_id.to_string(),
             forge_api: forge_api.to_string(),
-            forge_tls_config: forge_tls_config.clone(),
+            forge_client_config: forge_client_config.clone(),
         },
     )
     .await;
@@ -101,7 +101,8 @@ pub async fn run(
         let mut is_healthy = false;
         let mut has_changed_configs = false;
 
-        let client_certificate_expiry_unix_epoch_secs = forge_tls_config.client_cert_expiry().await;
+        let client_certificate_expiry_unix_epoch_secs =
+            forge_client_config.client_cert_expiry().await;
 
         let mut status_out = rpc::DpuNetworkStatus {
             dpu_machine_id: Some(machine_id.to_string().into()),
@@ -175,7 +176,7 @@ pub async fn run(
                 };
                 status_out.health = Some(hs);
 
-                record_network_status(status_out, forge_api, forge_tls_config.clone()).await;
+                record_network_status(status_out, forge_api, forge_client_config.clone()).await;
                 seen_blank = false;
             }
             None => {
@@ -193,7 +194,7 @@ pub async fn run(
         let now = Instant::now();
         if now > cert_renewal_time {
             cert_renewal_time = now.add(Duration::from_secs(cert_renewal_period));
-            renew_certificates(forge_api, forge_tls_config.clone()).await;
+            renew_certificates(forge_api, forge_client_config.clone()).await;
         }
 
         // We potentially restart at this point, so make it last in the loop
@@ -201,7 +202,7 @@ pub async fn run(
             version_check_time = now.add(version_check_period);
             let upgrade_result = upgrade::upgrade_check(
                 forge_api,
-                forge_tls_config.clone(),
+                forge_client_config.clone(),
                 machine_id,
                 &agent.machine.upgrade_cmd,
             )
@@ -247,9 +248,9 @@ pub async fn run(
 pub async fn record_network_status(
     status: rpc::DpuNetworkStatus,
     forge_api: &str,
-    forge_tls_config: forge_tls_client::ForgeTlsConfig,
+    forge_client_config: forge_tls_client::ForgeClientConfig,
 ) {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .connect(forge_api)
         .await
     {
@@ -272,8 +273,11 @@ pub async fn record_network_status(
     }
 }
 
-async fn renew_certificates(forge_api: &str, forge_tls_config: forge_tls_client::ForgeTlsConfig) {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
+async fn renew_certificates(
+    forge_api: &str,
+    forge_client_config: forge_tls_client::ForgeClientConfig,
+) {
+    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .connect(forge_api)
         .await
     {
@@ -305,7 +309,7 @@ async fn renew_certificates(forge_api: &str, forge_tls_config: forge_tls_client:
 
 async fn run_metadata_service(
     machine_id: &str,
-    forge_tls_config: forge_tls_client::ForgeTlsConfig,
+    forge_client_config: forge_tls_client::ForgeClientConfig,
     agent: &AgentConfig,
     metadata_service_address: String,
     metrics_address: String,
@@ -348,7 +352,7 @@ async fn run_metadata_service(
                 config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
                 machine_id: machine_id.to_string(),
                 forge_api: forge_api.to_string(),
-                forge_tls_config,
+                forge_client_config,
             },
         ));
 

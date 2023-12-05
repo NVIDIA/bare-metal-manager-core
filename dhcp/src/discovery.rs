@@ -363,13 +363,13 @@ unsafe fn discovery_fetch_machine_at(
         //
         let runtime: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
 
-        let forge_tls_config = tls::build_forge_tls_config();
+        let forge_client_config = tls::build_forge_client_config();
 
         match runtime.block_on(Machine::try_fetch(
             discovery,
             url,
             vendor_class.clone(),
-            forge_tls_config,
+            forge_client_config,
         )) {
             Ok(machine) => {
                 cache::put(
