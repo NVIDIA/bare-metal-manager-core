@@ -49,7 +49,11 @@ pub fn subscriber() -> impl SubscriberInitExt {
         .add_directive("hyper=warn".parse().unwrap())
         .add_directive("sqlx=info".parse().unwrap())
         .add_directive("tokio_util::codec=warn".parse().unwrap())
-        .add_directive("h2=warn".parse().unwrap());
+        .add_directive("h2=warn".parse().unwrap())
+        .add_directive("hickory_resolver::error=info".parse().unwrap())
+        .add_directive("hickory_proto::xfer=info".parse().unwrap())
+        .add_directive("hickory_resolver::name_server=info".parse().unwrap())
+        .add_directive("hickory_proto=info".parse().unwrap());
     let stdout_formatter = fmt::Layer::default()
         .compact()
         .with_file(true)

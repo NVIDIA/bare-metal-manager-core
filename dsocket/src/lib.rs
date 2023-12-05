@@ -2,7 +2,7 @@ use socket2::Socket;
 use std::io;
 use std::os::fd::{FromRawFd, IntoRawFd};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
-use tracing::debug;
+use tracing::trace;
 
 pub struct Dsocket {
     inner: socket2::Socket,
@@ -105,7 +105,7 @@ impl Dsocket {
     ///
     /// Returns and `io::Error` if any of the underlying socket2 calls fail.
     pub fn use_mgmt_vrf(&self) -> Result<(), io::Error> {
-        debug!("Using SO_BINDTODEVICE to bind to mgmt VRF");
+        trace!("Using SO_BINDTODEVICE to bind to mgmt VRF");
         self.bind_device(Some(VRF_NAME.as_bytes()))?;
         self.set_reuse_address()?;
         self.set_nonblocking()

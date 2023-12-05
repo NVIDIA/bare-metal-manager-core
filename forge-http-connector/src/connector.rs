@@ -199,7 +199,7 @@ fn connect(
 
 impl<'a> ConnectingTcp<'a> {
     fn new(remote_addrs: resolver::SocketAddrs, config: &'a Config) -> Self {
-        log::debug!("ConnectingTcp config: {:?}", config);
+        trace!("ConnectingTcp config: {:?}", config);
         if let Some(fallback_timeout) = config.happy_eyeballs_timeout {
             let (preferred_addrs, fallback_addrs) = remote_addrs
                 .split_by_preference(config.local_address_ipv4, config.local_address_ipv6);
