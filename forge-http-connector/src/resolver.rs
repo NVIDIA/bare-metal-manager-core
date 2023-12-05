@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::task::Poll;
 use std::{task, vec};
 
+use dsocket::Dsocket;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::name_server::{GenericConnector, RuntimeProvider};
 use hickory_resolver::proto::iocompat::AsyncIoTokioAsStd;
@@ -15,8 +16,7 @@ use hyper::service::Service;
 use socket2::SockAddr;
 use tokio::net::TcpStream as TokioTcpStream;
 use tokio::net::{TcpSocket, UdpSocket as TokioUdpSocket};
-
-use dsocket::Dsocket;
+use tracing::trace;
 
 type HickoryResolverFuture =
     Pin<Box<dyn Future<Output = Result<SocketAddrs, ResolveError>> + Send>>;
@@ -251,7 +251,7 @@ impl<C: ConnectionProvider> Service<Name> for HickoryResolver<C> {
 
         Box::pin(async move {
             let response = resolver.lookup_ip(name.to_string()).await?;
-            log::info!("response from DNS Server{:?}", response);
+            trace!("response from DNS Server{:?}", response);
             let addresses = response.into_iter();
 
             Ok(SocketAddrs {
