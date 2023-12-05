@@ -35,6 +35,25 @@ description = "Referring to the prebuilt 'build' task doesn't work here, since i
 command = "cargo"
 args = ["build", "--bin", "forge-dpu-agent"]
 
+[tasks.setup-dpu-agent-deb-local]
+category = "Build"
+description = "Build the forge-dpu-agent.deb package locally"
+workspace = false
+script = '''
+  export vers=${DPU_AGENT_PKG_VERSION}
+  mkdir -p "forge-dpu_${vers}/lib/systemd/system"
+  mkdir -p "forge-dpu_${vers}/usr/bin"
+  cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
+  cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
+  cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
+  cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
+  cp -r misc/DEBIAN "forge-dpu_${vers}/"
+  sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
+'''
+dependencies = [
+    "build-dpu-agent",
+]
+
 [tasks.setup-forge-dpu-deb]
 category = "Build"
 workspace = false
@@ -69,6 +88,17 @@ script = '''
 '''
 dependencies = [
     "build-dpu-agent-ci",
+]
+
+[tasks.build-forge-dpu-deb-local]
+category = "Build"
+description = "Build the forge-dpu.deb package locally"
+workspace = false
+script = '''
+    dpkg-deb --build forge-dpu_${DPU_AGENT_PKG_VERSION}
+'''
+dependencies = [
+    "setup-dpu-agent-deb-local"
 ]
 
 [tasks.build-forge-dpu-deb]
