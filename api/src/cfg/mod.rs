@@ -14,4 +14,6 @@ mod command_line;
 mod file;
 
 pub use command_line::{Command, Daemon, Options};
-pub use file::{AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, TlsConfig};
+pub use file::{
+    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, SiteExplorerConfig, TlsConfig,
+};

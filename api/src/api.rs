@@ -87,6 +87,7 @@ use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishCredentialType;
 use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
+use crate::site_explorer::{RedfishEndpointExplorer, SiteExplorer};
 use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
 use crate::{
@@ -4750,12 +4751,20 @@ where
                 .build()
                 .expect("Unable to build BmcMachineController");
 
+        let site_explorer = SiteExplorer::new(
+            database_connection.clone(),
+            carbide_config.site_explorer.as_ref(),
+            meter.clone(),
+            Arc::new(RedfishEndpointExplorer::new(shared_redfish_pool.clone())),
+        );
+        let _site_explorer_stop_handle = site_explorer.start();
+
         let machine_update_manager = MachineUpdateManager::new(
             database_connection.clone(),
             carbide_config.clone(),
             meter.clone(),
         );
-        let _machine_update_manager_handler = machine_update_manager.start();
+        let _machine_update_manager_stop_handle = machine_update_manager.start();
 
         let listen_addr = carbide_config.listen;
         api_handler(api_service, listen_addr, meter).await

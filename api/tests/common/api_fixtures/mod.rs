@@ -368,6 +368,7 @@ fn get_config() -> CarbideConfig {
         dpu_nic_firmware_reprovision_update_enabled: true,
         max_concurrent_machine_updates: None,
         machine_update_run_interval: None,
+        site_explorer: None,
     }
 }
 

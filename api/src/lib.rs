@@ -53,6 +53,7 @@ pub mod model;
 pub mod redfish;
 pub mod resource_pool;
 pub mod setup;
+pub mod site_explorer;
 pub mod state_controller;
 pub mod web;
 

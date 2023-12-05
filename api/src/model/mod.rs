@@ -35,6 +35,7 @@ pub mod machine;
 pub mod network_devices;
 pub mod network_segment;
 pub mod resource_pool;
+pub mod site_explorer;
 pub mod tenant;
 
 /// Enumerates errors that can occur when converting from the RPC data format

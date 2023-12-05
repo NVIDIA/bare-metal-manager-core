@@ -121,8 +121,51 @@ pub struct CarbideConfig {
     /// too many machines from being put into maintenance at any given time.
     pub max_concurrent_machine_updates: Option<i32>,
 
-    /// The interval at which the machine update manager checks for machine updates.
+    /// The interval at which the machine update manager checks for machine updates in seconds.
     pub machine_update_run_interval: Option<u64>,
+
+    /// SiteExplorer related configuration
+    pub site_explorer: Option<SiteExplorerConfig>,
+}
+
+/// SiteExplorer related configuration
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct SiteExplorerConfig {
+    #[serde(default)]
+    /// Whether SiteExplorer is enabled
+    pub enabled: bool,
+    /// The interval at which site explorer runs in seconds.
+    /// Defaults to 5 Minutes if not specified.
+    #[serde(default = "SiteExplorerConfig::default_run_interval_s")]
+    pub run_interval: u64,
+    /// The maximum amount of nodes that are explored concurrently.
+    /// Default is 5.
+    #[serde(default = "SiteExplorerConfig::default_concurrent_explorations")]
+    pub concurrent_explorations: u64,
+    /// How many nodes should be explored in a single run.
+    /// Default is 10.
+    /// This number deviced by `concurrent_explorations` will determine how many
+    /// exploration batches are needed inside a run.
+    /// If the value is set too high the site exploration will take a lot of time
+    /// and the exploration report will be updated less frequent. Therefore it
+    /// is recommended to reduce `run_interval` instead of increasing
+    /// `explorations_per_run`.
+    #[serde(default = "SiteExplorerConfig::default_explorations_per_run")]
+    pub explorations_per_run: u64,
+}
+
+impl SiteExplorerConfig {
+    const fn default_run_interval_s() -> u64 {
+        300
+    }
+
+    const fn default_concurrent_explorations() -> u64 {
+        5
+    }
+
+    const fn default_explorations_per_run() -> u64 {
+        10
+    }
 }
 
 /// TLS related configuration
@@ -255,6 +298,7 @@ mod tests {
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
         assert!(config.pools.is_none());
+        assert!(config.site_explorer.is_none());
     }
 
     #[test]
@@ -298,6 +342,15 @@ mod tests {
             }
         );
         assert!(pools.get("pkey").is_none());
+        assert_eq!(
+            config.site_explorer.as_ref().unwrap(),
+            &SiteExplorerConfig {
+                enabled: true,
+                run_interval: 300,
+                concurrent_explorations: 10,
+                explorations_per_run: 12,
+            }
+        );
     }
 
     #[test]
@@ -363,6 +416,15 @@ mod tests {
                 }],
                 prefix: None,
                 pool_type: resource_pool::ResourcePoolType::Integer
+            }
+        );
+        assert_eq!(
+            config.site_explorer.as_ref().unwrap(),
+            &SiteExplorerConfig {
+                enabled: false,
+                run_interval: 100,
+                concurrent_explorations: 5,
+                explorations_per_run: 11,
             }
         );
     }
@@ -431,6 +493,15 @@ mod tests {
                 }],
                 prefix: None,
                 pool_type: resource_pool::ResourcePoolType::Integer
+            }
+        );
+        assert_eq!(
+            config.site_explorer.as_ref().unwrap(),
+            &SiteExplorerConfig {
+                enabled: true,
+                run_interval: 100,
+                concurrent_explorations: 10,
+                explorations_per_run: 12,
             }
         );
     }
