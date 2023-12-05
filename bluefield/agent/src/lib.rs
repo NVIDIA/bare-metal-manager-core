@@ -38,6 +38,7 @@ mod instance_metadata_fetcher;
 mod instrumentation;
 mod interfaces;
 mod main_loop;
+mod mtu;
 mod network_config_fetcher;
 mod upgrade;
 mod util;

@@ -34,6 +34,7 @@ use crate::health;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
 use crate::instance_metadata_fetcher;
 use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
+use crate::mtu;
 use crate::network_config_fetcher;
 use crate::upgrade;
 
@@ -126,6 +127,12 @@ pub async fn run(
                         agent.hbn.skip_reload,
                     ) {
                         Ok(has_changed) => {
+                            has_changed_configs = has_changed;
+                            tenant_peers = ethernet_virtualization::tenant_peers(conf);
+                            if let Err(err) = mtu::ensure() {
+                                tracing::error!("Error reading/setting MTU for p0 or p1: {err}");
+                            }
+
                             // Updating network config succeeded.
                             // Tell the server about the applied version.
                             status_out.network_config_version =
@@ -139,8 +146,6 @@ pub async fn run(
                                 Ok(interfaces) => status_out.interfaces = interfaces,
                                 Err(err) => status_out.network_config_error = Some(err.to_string()),
                             }
-                            tenant_peers = ethernet_virtualization::tenant_peers(conf);
-                            has_changed_configs = has_changed
                         }
                         Err(err) => {
                             status_out.network_config_error = Some(err.to_string());
