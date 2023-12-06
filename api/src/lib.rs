@@ -313,7 +313,8 @@ pub async fn run(
 
     tracing::info!("Using configuration: {:#?}", print_config);
     tracing::info!(
-        "Tokio worker thread count: num_cpus::get()={}, TOKIO_WORKER_THREADS={}",
+        "Tokio worker thread count: {} (num_cpus::get()={}, TOKIO_WORKER_THREADS={})",
+        tokio::runtime::Handle::current().metrics().num_workers(),
         num_cpus::get(),
         std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string())
     );
