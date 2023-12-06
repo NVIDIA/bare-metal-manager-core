@@ -83,6 +83,10 @@ void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
       response4_ptr->addOption(option_val);
     }
     break;
+  case DHO_INTERFACE_MTU:
+	response4_ptr->delOption(DHO_INTERFACE_MTU);
+	response4_ptr->addOption(OptionPtr(new OptionInt<uint16_t>(Option::V4, DHO_INTERFACE_MTU, boost::any_cast<int>(param))));
+	break;
   default:
     LOG_ERROR(logger, "LOG_CARBIDE_PKT4_SEND: packet send error: Option [%1] "
                       "is not implemented for addandreset.")
@@ -257,7 +261,7 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   machine_free_nameservers(machine_ntpservers);
 
   // Set Interface MTU
-  update_option<OptionUint16>(handle, response4_ptr, DHO_INTERFACE_MTU, 1500);
+  update_option<Option>(handle, response4_ptr, DHO_INTERFACE_MTU, 1500);
 
   // Set subnet-mask
   update_option<Option>(handle, response4_ptr, DHO_SUBNET_MASK, machine);
