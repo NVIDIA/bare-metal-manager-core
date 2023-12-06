@@ -14,11 +14,9 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::primitive::u32;
 use std::ptr;
 
-use ipnetwork::IpNetwork;
-
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
-
+use ipnetwork::IpNetwork;
 use MachineArchitecture::*;
 
 use crate::discovery::Discovery;
@@ -435,6 +433,13 @@ pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
     0
 }
 
+/// Extract MTU from Machine object. We got it in the grpc response in discovery_fetch_machine.
+/// https://jirasw.nvidia.com/browse/FORGE-2443
+#[no_mangle]
+pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
+    unsafe { (*ctx).inner.mtu as u16 }
+}
+
 /// Free the Machine object.
 ///
 /// # Safety
@@ -456,14 +461,16 @@ pub extern "C" fn machine_free(ctx: *mut Machine) {
 
 #[cfg(test)]
 mod test {
+    use std::ffi::CString;
+    use std::net::Ipv4Addr;
+    use std::str::FromStr;
+
+    use rpc::forge as rpc;
+
     use crate::discovery::Discovery;
     use crate::machine::machine_get_filename;
     use crate::machine::Machine;
     use crate::vendor_class::VendorClass;
-    use rpc::forge as rpc;
-    use std::ffi::CString;
-    use std::net::Ipv4Addr;
-    use std::str::FromStr;
 
     #[test]
     fn test_use_booturl_internal() {

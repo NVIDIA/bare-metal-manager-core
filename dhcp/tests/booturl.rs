@@ -1,9 +1,9 @@
-use dhcproto::{v4, Decodable, Decoder};
 use std::net::UdpSocket;
 use std::thread;
 use std::time::Duration;
 
 use dhcp::mock_api_server;
+use dhcproto::{v4, Decodable, Decoder};
 
 mod common;
 
@@ -14,7 +14,7 @@ use common::RELAY_IP;
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[test]
-fn test_booturl_internal() -> Result<(), eyre::Report> {
+fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {
     // Start multi-threaded mock API server. The hooks call this over the network.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -62,7 +62,6 @@ fn test_booturl_internal() -> Result<(), eyre::Report> {
     };
 
     let msg = v4::Message::decode(&mut Decoder::new(&recv_buf[..n])).unwrap();
-
     let wanted_location = "http://127.0.0.1:8080/public/blobs/internal/x86_64/ipxe.efi"
         .to_string()
         .into_bytes();
@@ -78,6 +77,12 @@ fn test_booturl_internal() -> Result<(), eyre::Report> {
     };
 
     assert_eq!(msg.opts().msg_type().unwrap(), v4::MessageType::Offer);
+
+    // MTU should match what we send in mock_api_server.rs base_dhcp_response
+    let Some(mtu_opt) = msg.opts().get(v4::OptionCode::InterfaceMtu) else {
+        panic!("DHCP Option 26 'interface-mtu' missing from Offer");
+    };
+    assert!(matches!(mtu_opt, v4::DhcpOption::InterfaceMtu(1490)));
 
     Ok(())
 }
