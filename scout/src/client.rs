@@ -24,9 +24,7 @@ pub(crate) async fn create_forge_client(
             cert_path: config.client_cert.clone(),
             key_path: config.client_key.clone(),
         }),
-    )
-    .use_mgmt_vrf()
-    .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
+    );
 
     let client = forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .connect(&config.api)
