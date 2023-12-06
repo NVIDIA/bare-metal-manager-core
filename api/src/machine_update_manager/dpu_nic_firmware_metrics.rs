@@ -32,7 +32,10 @@ impl DpuNicFirmwareUpdateMetrics {
     }
 
     pub fn instruments(&self) -> Vec<Arc<dyn Any>> {
-        vec![self.pending_firmware_updates_gauge.as_any()]
+        vec![
+            self.pending_firmware_updates_gauge.as_any(),
+            self.unavailable_dpu_updates_gauge.as_any(),
+        ]
     }
 
     pub fn observe(&mut self, observer: &dyn Observer) {
