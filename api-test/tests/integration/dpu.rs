@@ -34,7 +34,7 @@ is-fake-dpu = true
 interface-id = "$MACHINE_INTERFACE_ID"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.example.com"
-upgrade-cmd = "echo 'apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__' > $UPGRADE_INDICATOR"
+override-upgrade-cmd = "echo 'apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__' > $UPGRADE_INDICATOR"
 
 [hbn]
 root-dir = "$HBN_ROOT"
