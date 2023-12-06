@@ -43,6 +43,9 @@ use crate::{
 };
 use crate::{CarbideError, CarbideResult};
 
+const DEFAULT_MTU_TENANT: i32 = 9000;
+const DEFAULT_MTU_OTHER: i32 = 1500;
+
 #[derive(Debug, Copy, Clone, Default)]
 pub struct NetworkSegmentSearchConfig {
     pub include_history: bool,
@@ -216,6 +219,7 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             ));
         }
 
+        let segment_type: NetworkSegmentType = value.segment_type.try_into()?;
         Ok(NewNetworkSegment {
             name: value.name,
             subdomain_id: match value.subdomain_id {
@@ -226,7 +230,10 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
                 Some(v) => Some(uuid::Uuid::try_from(v)?),
                 None => None,
             },
-            mtu: value.mtu.unwrap_or(1500i32), // Set a default of 1500 if there is none specified
+            mtu: value.mtu.unwrap_or(match segment_type {
+                NetworkSegmentType::Tenant => DEFAULT_MTU_TENANT,
+                _ => DEFAULT_MTU_OTHER,
+            }),
             prefixes: value
                 .prefixes
                 .into_iter()
@@ -234,7 +241,7 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
                 .collect::<Result<Vec<NewNetworkPrefix>, CarbideError>>()?,
             vlan_id: None,
             vni: None,
-            segment_type: value.segment_type.try_into()?,
+            segment_type,
         })
     }
 }
