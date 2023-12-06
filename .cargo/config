@@ -1,5 +1,6 @@
+# tokio_unstable is required in order to enable tokio runtime metrics
 [target.'cfg(all())']
-rustflags = ["-D", "warnings"]
+rustflags = ["-D", "warnings", "--cfg", "tokio_unstable"]
 
 [registries]
 sw-ngc-forge-cargo-local = { index = "https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git" }
