@@ -309,7 +309,7 @@ async fn main() -> color_eyre::Result<()> {
         );
     }
     tracing_subscriber::registry()
-        .with(fmt::Layer::default().compact())
+        .with(fmt::Layer::default().compact().with_writer(std::io::stderr))
         .with(env_filter)
         .try_init()?;
 
