@@ -185,7 +185,8 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
-	"ipxe-patch",
+	"ipxe-patch-mlnx",
+	"ipxe-patch-asm",
 	"ipxe-install-efi-x86_64",
 ]
 
@@ -194,7 +195,8 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
-	"ipxe-patch",
+	"ipxe-patch-mlnx",
+	"ipxe-patch-asm",
 	"ipxe-install-efi-x86_64",
 ]
 
@@ -203,7 +205,22 @@ category = "iPXE Kernel"
 description = "Copy the Carbide specific iPXE config headers to the input directory"
 script = "cp ipxe/local/*.h ipxe/upstream/src/config/local/"
 
-[tasks.ipxe-patch]
+[tasks.ipxe-patch-asm]
+category = "iPXE Kernel"
+description = "Patch the iPXE to fix compilation on later compilers"
+cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
+script = '''
+    PATCH="${REPO_ROOT}/pxe/ipxe/local/0002-librm-Use-explicit-operand-size-when-pushing-a-label.patch"
+    echo "Testing if patch is reversible (i.e. already applied)"
+    if ! patch --dry-run -p1 --reverse --forward -i "${PATCH}" >/dev/null; then
+      echo "Reversing the patch failed, forward applying it."
+      patch -p1 --forward -i "${PATCH}"
+    else
+      echo "Reversing would be successful, assuming patch is already applied"
+    fi
+'''
+
+[tasks.ipxe-patch-mlnx]
 category = "iPXE Kernel"
 description = "Patch the iPXE for Mellanox DPU NIC"
 cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
@@ -232,7 +249,8 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 dependencies = [
     "ipxe-config",
-    "ipxe-patch",
+    "ipxe-patch-mlnx",
+    "ipxe-patch-asm",
     "ipxe-install-efi-aarch64",
 ]
 
