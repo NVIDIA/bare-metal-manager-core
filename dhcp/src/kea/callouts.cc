@@ -85,7 +85,7 @@ void CDHCPOptionsHandler<Option>::resetAndAddOption(boost::any param) {
     break;
   case DHO_INTERFACE_MTU:
 	response4_ptr->delOption(DHO_INTERFACE_MTU);
-	response4_ptr->addOption(OptionPtr(new OptionInt<uint16_t>(Option::V4, DHO_INTERFACE_MTU, boost::any_cast<int>(param))));
+	response4_ptr->addOption(OptionPtr(new OptionInt<uint16_t>(Option::V4, DHO_INTERFACE_MTU, boost::any_cast<uint16_t>(param))));
 	break;
   default:
     LOG_ERROR(logger, "LOG_CARBIDE_PKT4_SEND: packet send error: Option [%1] "
@@ -261,7 +261,8 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   machine_free_nameservers(machine_ntpservers);
 
   // Set Interface MTU
-  update_option<Option>(handle, response4_ptr, DHO_INTERFACE_MTU, 1500);
+  uint16_t mtu = machine_get_interface_mtu(machine);
+  update_option<Option>(handle, response4_ptr, DHO_INTERFACE_MTU, mtu);
 
   // Set subnet-mask
   update_option<Option>(handle, response4_ptr, DHO_SUBNET_MASK, machine);
