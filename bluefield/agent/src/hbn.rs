@@ -35,7 +35,7 @@ impl<'a> RunCommandPredicate<'a> {
         let ignore_mgmt_vrf = std::env::var("IGNORE_MGMT_VRF").is_ok();
         trace!("IGNORE_MGMT_VRF is {}: ", ignore_mgmt_vrf);
 
-        let pred = match ignore_mgmt_vrf {
+        match ignore_mgmt_vrf {
             true => Self {
                 command: Command::new("crictl"),
                 args: vec!["exec", container_id],
@@ -44,9 +44,7 @@ impl<'a> RunCommandPredicate<'a> {
                 command: Command::new("ip"),
                 args: vec!["vrf", "exec", "mgmt", "crictl", "exec", container_id],
             },
-        };
-        debug!("{:?}", pred);
-        pred
+        }
     }
 }
 

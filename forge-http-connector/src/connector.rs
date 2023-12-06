@@ -16,7 +16,7 @@ use hyper::http::Uri;
 use hyper::service::Service;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Sleep;
-use tracing::{debug, trace, warn};
+use tracing::{info, trace, warn};
 
 use crate::resolver;
 use crate::resolver::ForgeResolver;
@@ -59,14 +59,12 @@ impl ConnectingTcpRemote {
     async fn connect(&mut self, config: &Config) -> Result<TcpStream, ConnectError> {
         let mut err = None;
         for addr in &mut self.addrs {
-            debug!("connecting to {}", addr);
             match connect(&addr, config, self.connect_timeout)?.await {
                 Ok(tcp) => {
-                    debug!("connected to {}", addr);
                     return Ok(tcp);
                 }
                 Err(e) => {
-                    trace!("connect error for {}: {:?}", addr, e);
+                    info!("connect error for {}: {:?}", addr, e);
                     err = Some(e);
                 }
             }
