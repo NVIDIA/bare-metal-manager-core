@@ -90,7 +90,7 @@ impl SiteExplorerInstruments {
         for (error, &count) in metrics.endpoint_explorations_failures_by_type.iter() {
             error_attributes.last_mut().unwrap().value = error.to_string().into();
             self.exploration_failures_counter
-                .add(count as u64, attributes);
+                .add(count as u64, &error_attributes);
         }
     }
 }
