@@ -13,9 +13,9 @@ use std::fs;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use procfs::Meminfo;
+// use procfs::Meminfo;
 use regex::Regex;
-use rlimit::Resource;
+// use rlimit::Resource;
 use scout::CarbideClientError;
 use serde::Deserialize;
 use uname::uname;
@@ -245,118 +245,118 @@ fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-#[derive(Debug)]
-struct StructOsMemInfo {
-    mem_total: u64,
-    mem_free: u64,
-    mem_available: u64,
-    mem_buffers: u64,
-    mem_cached: u64,
-}
+// #[derive(Debug)]
+// struct StructOsMemInfo {
+//     mem_total: u64,
+//     mem_free: u64,
+//     mem_available: u64,
+//     mem_buffers: u64,
+//     mem_cached: u64,
+// }
 
-fn get_os_mem_info() -> Result<StructOsMemInfo, CarbideClientError> {
-    let mut meminfo = StructOsMemInfo {
-        mem_total: 0,
-        mem_free: 0,
-        mem_available: 0,
-        mem_buffers: 0,
-        mem_cached: 0,
-    };
+// fn get_os_mem_info() -> Result<StructOsMemInfo, CarbideClientError> {
+//     let mut meminfo = StructOsMemInfo {
+//         mem_total: 0,
+//         mem_free: 0,
+//         mem_available: 0,
+//         mem_buffers: 0,
+//         mem_cached: 0,
+//     };
 
-    let rust_meminfo = match Meminfo::new() {
-        Err(e) => {
-            return Err(CarbideClientError::GenericError(format!(
-                "Failed to retrieve memory information: {}",
-                e
-            )))
-        }
-        Ok(o) => o,
-    };
-    meminfo.mem_available = match rust_meminfo.mem_available {
-        None => {
-            return Err(CarbideClientError::GenericError(
-                "mem_available is not available".to_string(),
-            ))
-        }
-        Some(s) => s,
-    };
-    meminfo.mem_total = rust_meminfo.mem_total;
-    meminfo.mem_free = rust_meminfo.mem_free;
-    meminfo.mem_buffers = rust_meminfo.buffers;
-    meminfo.mem_cached = rust_meminfo.cached;
-    tracing::debug!("{:?}", meminfo);
-    Ok(meminfo)
-}
+//     let rust_meminfo = match Meminfo::new() {
+//         Err(e) => {
+//             return Err(CarbideClientError::GenericError(format!(
+//                 "Failed to retrieve memory information: {}",
+//                 e
+//             )))
+//         }
+//         Ok(o) => o,
+//     };
+//     meminfo.mem_available = match rust_meminfo.mem_available {
+//         None => {
+//             return Err(CarbideClientError::GenericError(
+//                 "mem_available is not available".to_string(),
+//             ))
+//         }
+//         Some(s) => s,
+//     };
+//     meminfo.mem_total = rust_meminfo.mem_total;
+//     meminfo.mem_free = rust_meminfo.mem_free;
+//     meminfo.mem_buffers = rust_meminfo.buffers;
+//     meminfo.mem_cached = rust_meminfo.cached;
+//     tracing::debug!("{:?}", meminfo);
+//     Ok(meminfo)
+// }
 
-fn memclr(msize: u64) -> i64 {
-    // Allocate all available memory and fill it with 1
+// fn memclr(msize: u64) -> i64 {
+//     // Allocate all available memory and fill it with 1
 
-    let orig_brk = unsafe { libc::sbrk(0) };
-    let new_brk = unsafe { orig_brk.offset(msize as isize) };
+//     let orig_brk = unsafe { libc::sbrk(0) };
+//     let new_brk = unsafe { orig_brk.offset(msize as isize) };
 
-    if unsafe { libc::brk(new_brk) } != 0 {
-        println!("brk set to new error");
-        return -1;
-    }
-    unsafe {
-        libc::memset(orig_brk, 1, msize as usize);
-    }
-    if unsafe { libc::brk(orig_brk) } != 0 {
-        println!("brk set to orig error");
-    }
+//     if unsafe { libc::brk(new_brk) } != 0 {
+//         println!("brk set to new error");
+//         return -1;
+//     }
+//     unsafe {
+//         libc::memset(orig_brk, 1, msize as usize);
+//     }
+//     if unsafe { libc::brk(orig_brk) } != 0 {
+//         println!("brk set to orig error");
+//     }
 
-    println!(
-        "memclr done: size={} orig_brk={:?} new_brk={:?} ",
-        msize, orig_brk, new_brk
-    );
+//     println!(
+//         "memclr done: size={} orig_brk={:?} new_brk={:?} ",
+//         msize, orig_brk, new_brk
+//     );
 
-    0
-}
+//     0
+// }
 
-fn cleanup_ram() -> Result<(), CarbideClientError> {
-    if let Err(e) = Resource::AS.set(libc::RLIM_INFINITY, libc::RLIM_INFINITY) {
-        return Err(CarbideClientError::GenericError(format!(
-            "Failed to set rlimit: {}",
-            e
-        )));
-    }
+// fn cleanup_ram() -> Result<(), CarbideClientError> {
+//     if let Err(e) = Resource::AS.set(libc::RLIM_INFINITY, libc::RLIM_INFINITY) {
+//         return Err(CarbideClientError::GenericError(format!(
+//             "Failed to set rlimit: {}",
+//             e
+//         )));
+//     }
 
-    let meminfo = get_os_mem_info()?;
+//     let meminfo = get_os_mem_info()?;
 
-    tracing::debug!(
-        "Preparing to cleanup {} bytes of RAM",
-        meminfo.mem_available
-    );
-    let mut mem_clr_res: i64;
+//     tracing::debug!(
+//         "Preparing to cleanup {} bytes of RAM",
+//         meminfo.mem_available
+//     );
+//     let mut mem_clr_res: i64;
 
-    mem_clr_res = memclr(meminfo.mem_available);
-    let meminfo2 = get_os_mem_info()?;
+//     mem_clr_res = memclr(meminfo.mem_available);
+//     let meminfo2 = get_os_mem_info()?;
 
-    if mem_clr_res != 0 {
-        return Err(CarbideClientError::GenericError(format!(
-            "Mem cleanup failed with code {}",
-            mem_clr_res
-        )));
-    }
+//     if mem_clr_res != 0 {
+//         return Err(CarbideClientError::GenericError(format!(
+//             "Mem cleanup failed with code {}",
+//             mem_clr_res
+//         )));
+//     }
 
-    if meminfo.mem_free >= meminfo2.mem_free {
-        return Err(CarbideClientError::GenericError(
-            format!("Incomplete memory cleanup. Memory free before cleanup: {}. Memory free after cleanup: {}.",
-            meminfo.mem_free,
-            meminfo2.mem_free
-        )));
-    }
+//     if meminfo.mem_free >= meminfo2.mem_free {
+//         return Err(CarbideClientError::GenericError(
+//             format!("Incomplete memory cleanup. Memory free before cleanup: {}. Memory free after cleanup: {}.",
+//             meminfo.mem_free,
+//             meminfo2.mem_free
+//         )));
+//     }
 
-    mem_clr_res = memclr(meminfo2.mem_available);
-    if mem_clr_res != 0 {
-        return Err(CarbideClientError::GenericError(format!(
-            "Mem cleanup 2 failed with code {}",
-            mem_clr_res
-        )));
-    }
+//     mem_clr_res = memclr(meminfo2.mem_available);
+//     if mem_clr_res != 0 {
+//         return Err(CarbideClientError::GenericError(format!(
+//             "Mem cleanup 2 failed with code {}",
+//             mem_clr_res
+//         )));
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 // reuse hardware_enumeration::discovery_ibs to get all the non-DPU devices.
 // in forge case, all the non-DPU device should be VPI device or IB-only device
@@ -447,22 +447,23 @@ async fn do_cleanup(machine_id: &str) -> CarbideClientResult<rpc::MachineCleanup
         }
     }
 
-    match cleanup_ram() {
-        Ok(_) => {
-            cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
-                result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
-                message: "OK".to_string(),
-            });
-        }
-        Err(e) => {
-            tracing::error!("{}", e);
-            cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
-                result: rpc::machine_cleanup_info::CleanupResult::Error as _,
-                message: e.to_string(),
-            });
-            cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
-        }
-    }
+    // Memory cleanup is disabled until we can guarantee the system won't run out of memory while performing it
+    // match cleanup_ram() {
+    //     Ok(_) => {
+    //         cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
+    //             result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+    //             message: "OK".to_string(),
+    //         });
+    //     }
+    //     Err(e) => {
+    //         tracing::error!("{}", e);
+    //         cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
+    //             result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+    //             message: e.to_string(),
+    //         });
+    //         cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+    //     }
+    // }
 
     match reset_ib_devices() {
         Ok(_) => {
