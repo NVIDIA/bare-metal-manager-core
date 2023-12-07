@@ -94,6 +94,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
         id: system.id,
         manufacturer: system.manufacturer,
         model: system.model,
+        serial_number: system.serial_number,
     })
 }
 

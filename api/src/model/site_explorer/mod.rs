@@ -88,6 +88,7 @@ pub struct ComputerSystem {
     pub id: String,
     pub manufacturer: Option<String>,
     pub model: Option<String>,
+    pub serial_number: Option<String>,
 }
 
 /// `ComputerSystem` definition. Matches redfish definition
