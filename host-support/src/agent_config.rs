@@ -88,8 +88,9 @@ pub struct MachineConfig {
     mac_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     hostname: Option<String>,
+    /// Override normal upgrade command. For automated testing only.
     #[serde(default)]
-    pub upgrade_cmd: String,
+    pub override_upgrade_cmd: Option<String>,
     /// Local dev only. Pretend to be a DPU for discovery.
     #[serde(default)]
     pub is_fake_dpu: bool,
@@ -170,7 +171,6 @@ is-fake-dpu = true
 interface-id = "91609f10-c91d-470d-a260-6293ea0c1200"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.com"
-upgrade-cmd = "apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__"
 
 [metadata-service]
 address = "0.0.0.0:7777"

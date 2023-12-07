@@ -57,7 +57,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
         &format!("https://{addr}"),
         client_config,
         machine_id,
-        &upgrade_cmd,
+        Some(upgrade_cmd).as_deref(),
     )
     .await?;
 

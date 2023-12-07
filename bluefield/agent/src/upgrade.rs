@@ -21,14 +21,17 @@ use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 use data_encoding::BASE64;
 use eyre::WrapErr;
 
+// __PKG_VERSION__ will be replaced by the package version
+const UPGRADE_CMD: &str = "ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && ip vrf exec mgmt apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__";
+
 /// Check if forge-dpu-agent needs upgrading to a new version, and if yes perform the upgrade
 /// Returns true if we just updated and hence need to exit, so the new version can start instead.
 pub async fn upgrade_check(
     forge_api: &str,
     client_config: ForgeClientConfig,
     machine_id: &str,
-    // The command to run to upgrade forge-dpu-agent
-    upgrade_cmd: &str,
+    // allow integration test to replace UPGRADE_CMD
+    override_upgrade_cmd: Option<&str>,
 ) -> eyre::Result<bool> {
     let binary_path = env::current_exe()?;
     let stat = fs::metadata(&binary_path)
@@ -86,7 +89,9 @@ pub async fn upgrade_check(
         fs::rename(&binary_path, &backup)
             .wrap_err_with(|| format!("mv {} {}", binary_path.display(), backup.display()))?;
 
-        let upgrade_cmd = upgrade_cmd.replace("__PKG_VERSION__", &resp.package_version);
+        let upgrade_cmd = override_upgrade_cmd
+            .unwrap_or(UPGRADE_CMD)
+            .replace("__PKG_VERSION__", &resp.package_version);
         tracing::info!(
             local_build,
             remote_build = resp.server_version,

@@ -101,7 +101,6 @@ fn generate_forge_agent_config(
         interface-id = \"{machine_interface_id}\"
         mac-address = \"{mac_address}\"
         hostname = \"{hostname}\"
-        upgrade-cmd = \"apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__\"
 
         [metadata-service]
         address = \"{instance_metadata_service_address}\"
