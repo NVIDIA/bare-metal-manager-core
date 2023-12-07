@@ -1248,7 +1248,7 @@ SELECT m.id FROM
         Ok(())
     }
 
-    pub async fn list_machines_pending_for_reprovisioning(
+    pub async fn list_machines_requested_for_reprovisioning(
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM machines WHERE reprovisioning_requested IS NOT NULL";

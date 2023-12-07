@@ -1869,6 +1869,8 @@ message DpuReprovisioningListResponse {
     string initiator = 3;  // Who requested this reprovisioning.
     google.protobuf.Timestamp requested_at = 4;  // When reprovisioning was requested.
     bool update_firmware = 5;
+    optional google.protobuf.Timestamp initiated_at = 6;  // When reprovisioning is started.
+    bool user_approval_received = 7;  // User approval received or not if needed
   }
   repeated DpuReprovisioningListItem dpus = 1;
 }

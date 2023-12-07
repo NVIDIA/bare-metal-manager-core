@@ -37,16 +37,29 @@ fn print_pending_dpus(dpus: ::rpc::forge::DpuReprovisioningListResponse) {
         "State",
         "Initiator",
         "Requested At",
-        "Update Firmware"
+        "Initiated At",
+        "Update Firmware",
+        "User Approved"
     ]);
 
     for dpu in dpus.dpus {
+        let user_approval = if dpu.user_approval_received {
+            "Yes"
+        } else if dpu.state.contains("Assigned") {
+            "No"
+        } else {
+            "NA"
+        };
         table.add_row(row![
             dpu.id.unwrap_or_default().to_string(),
             dpu.state,
             dpu.initiator,
             dpu.requested_at.unwrap_or_default(),
-            dpu.update_firmware
+            dpu.initiated_at
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| "Not Started".to_string()),
+            dpu.update_firmware,
+            user_approval
         ]);
     }
 

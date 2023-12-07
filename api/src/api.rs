@@ -3544,7 +3544,7 @@ where
             CarbideError::DatabaseError(file!(), "begin trigger_dpu_reprovisioning ", e)
         })?;
 
-        let dpus = Machine::list_machines_pending_for_reprovisioning(&mut txn)
+        let dpus = Machine::list_machines_requested_for_reprovisioning(&mut txn)
             .await
             .map_err(CarbideError::from)?
             .into_iter()
@@ -3562,6 +3562,14 @@ where
                     update_firmware: x
                         .reprovisioning_requested()
                         .map(|a| a.update_firmware)
+                        .unwrap_or_default(),
+                    initiated_at: x
+                        .reprovisioning_requested()
+                        .map(|a| a.started_at.map(|x| x.into()))
+                        .unwrap_or_default(),
+                    user_approval_received: x
+                        .reprovisioning_requested()
+                        .map(|x| x.user_approval_received)
                         .unwrap_or_default(),
                 },
             )
