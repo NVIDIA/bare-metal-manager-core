@@ -40,6 +40,7 @@ pub async fn register_machine(
     root_ca: String,
     machine_interface_id: uuid::Uuid,
     hardware_info: rpc_discovery::DiscoveryInfo,
+    use_mgmt_vrf: bool,
 ) -> Result<RegistrationData, RegistrationError> {
     let info = rpc::MachineDiscoveryInfo {
         machine_interface_id: Some(machine_interface_id.into()),
@@ -48,9 +49,12 @@ pub async fn register_machine(
         )),
     };
 
-    let forge_client_config = ForgeClientConfig::new(root_ca, None)
-        .use_mgmt_vrf()
-        .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
+    let forge_client_config = match use_mgmt_vrf {
+        true => ForgeClientConfig::new(root_ca, None)
+            .use_mgmt_vrf()
+            .map_err(|e| RegistrationError::TransportError(e.to_string()))?,
+        false => ForgeClientConfig::new(root_ca, None),
+    };
 
     tracing::debug!("register_machine client_config {:?}", forge_client_config);
 

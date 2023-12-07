@@ -311,6 +311,7 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
         agent.forge_system.root_ca.clone(),
         interface_id,
         hardware_info,
+        true,
     )
     .await?;
 

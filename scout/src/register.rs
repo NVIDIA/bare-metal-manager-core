@@ -25,8 +25,14 @@ pub async fn run(
     let hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
 
-    let registration_data =
-        register_machine(forge_api, root_ca, machine_interface_id, hardware_info).await?;
+    let registration_data = register_machine(
+        forge_api,
+        root_ca,
+        machine_interface_id,
+        hardware_info,
+        false,
+    )
+    .await?;
     let machine_id = registration_data.machine_id;
     info!("successfully discovered machine {machine_id} for interface {machine_interface_id}");
 
