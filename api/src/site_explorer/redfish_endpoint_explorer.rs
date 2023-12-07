@@ -101,9 +101,22 @@ async fn fetch_ethernet_interfaces(
     client: &dyn Redfish,
     fetch_system_interfaces: bool,
 ) -> Result<Vec<EthernetInterface>, RedfishError> {
-    let eth_if_ids: Vec<String> = match fetch_system_interfaces {
-        false => client.get_manager_ethernet_interfaces().await?,
-        true => client.get_system_ethernet_interfaces().await?,
+    let eth_if_ids: Vec<String> = match match fetch_system_interfaces {
+        false => client.get_manager_ethernet_interfaces().await,
+        true => client.get_system_ethernet_interfaces().await,
+    } {
+        Ok(ids) => ids,
+        Err(e) => {
+            match e {
+                RedfishError::HTTPErrorCode { status_code, .. }
+                    if status_code == http::StatusCode::NOT_FOUND =>
+                {
+                    // API to enumerate Ethernet interfaces is not supported
+                    return Ok(Vec::new());
+                }
+                _ => return Err(e),
+            }
+        }
     };
     let mut eth_ifs: Vec<EthernetInterface> = Vec::new();
 
