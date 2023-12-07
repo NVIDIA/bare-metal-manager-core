@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+[env]
+# e.g. 2023.09-72-g1641d986
+DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always | cut -c 2-)"] }
+
+[tasks.build-forge-scout]
+category = "Build"
+description = "cross compile forge-scout locally"
+workspace = false
+script = '''
+cross build --bin forge-scout --target aarch64-unknown-linux-gnu --release
+# Install package `binutils-aarch64-linux-gnu` to get this one
+if command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
+	aarch64-linux-gnu-strip ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent
+fi
+'''
+dependencies = [
+    { name = "check-cross-installed", path = "${REPO_ROOT}" },
+    { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+]
+
