@@ -212,6 +212,7 @@ async fn fetch_machines<C1: CredentialProvider + 'static, C2: CertificateProvide
             include_history: true,
             include_predicted_host: true,
             only_maintenance: false,
+            find_host_by_dpu_machine_id: false,
         }),
     });
     api.find_machines(request)
@@ -223,6 +224,7 @@ async fn fetch_machines<C1: CredentialProvider + 'static, C2: CertificateProvide
 #[template(path = "machine_detail.html")]
 struct MachineDetail {
     id: String,
+    host_id: String,
     state: String,
     state_version: String,
     machine_type: String,
@@ -292,6 +294,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 addresses: interface.address.join(","),
             });
         }
+
         let machine_id = m.id.unwrap_or_default().id;
         MachineDetail {
             id: machine_id.clone(),
@@ -303,6 +306,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             hostname,
             history,
             interfaces,
+            host_id: String::default(), // filled in later
         }
     }
 }
@@ -312,9 +316,11 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
     AxumState(state): AxumState<Arc<Api<C1, C2>>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> impl IntoResponse {
-    let request = tonic::Request::new(forgerpc::MachineId {
+    let rpc_machine_id = forgerpc::MachineId {
         id: machine_id.clone(),
-    });
+    };
+    let request = tonic::Request::new(rpc_machine_id.clone());
+
     let machine = match state
         .get_machine(request)
         .await
@@ -326,6 +332,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new()));
         }
     };
+
     let mut display: MachineDetail = machine.into();
     if !display.is_host {
         let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {
@@ -339,6 +346,36 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
             .map(|response| response.into_inner())
         {
             display.network_config = format!("{netconf:?}").replace(", ", "<br/>");
+        }
+
+        let request = tonic::Request::new(forgerpc::MachineSearchQuery {
+            id: Some(rpc_machine_id),
+            fqdn: None,
+            search_config: Some(forgerpc::MachineSearchConfig {
+                include_dpus: false,
+                include_history: false,
+                include_predicted_host: true,
+                only_maintenance: false,
+                find_host_by_dpu_machine_id: true,
+            }),
+        });
+
+        let host_machine = match state
+            .find_machines(request)
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(m) => m.machines.get(0).cloned(),
+            Err(err) => {
+                tracing::error!(%err, %machine_id, "find_machines");
+                None
+            }
+        };
+
+        if let Some(host_machine) = host_machine {
+            display.host_id = host_machine
+                .id
+                .map_or_else(String::default, |id| id.to_string());
         }
     }
     (StatusCode::OK, Html(display.render().unwrap()))

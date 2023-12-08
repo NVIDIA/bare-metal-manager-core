@@ -953,6 +953,7 @@ message MachineSearchConfig {
   bool include_history = 2;
   bool include_predicted_host = 3;
   bool only_maintenance = 4;
+  bool find_host_by_dpu_machine_id = 5;
 }
 
 message BmcMachineSearchQuery {

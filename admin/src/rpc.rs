@@ -76,6 +76,7 @@ pub async fn get_host_machine(id: String, api_config: Config) -> CarbideCliResul
             fqdn: None,
             search_config: Some(rpc::MachineSearchConfig {
                 include_predicted_host: true,
+                find_host_by_dpu_machine_id: true,
                 ..Default::default()
             }),
         });
@@ -143,6 +144,7 @@ pub async fn get_all_machines(
                 include_history: true,
                 include_predicted_host: true,
                 only_maintenance,
+                find_host_by_dpu_machine_id: false,
             }),
         });
         let machine_details = client
