@@ -20,7 +20,7 @@ pub struct MetricsState {
 
 pub fn create_metrics(meter: Meter) -> Arc<MetricsState> {
     let http_counter = meter
-        .u64_counter("http_requests_total")
+        .u64_counter("http_requests")
         .with_description("Total number of HTTP requests made.")
         .init();
     let http_req_latency_histogram = meter
