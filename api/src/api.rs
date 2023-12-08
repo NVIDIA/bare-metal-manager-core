@@ -4746,8 +4746,8 @@ where
                 .build()
                 .expect("Unable to build IBPartitionStateController");
 
-        if carbide_config.enable_bmc_machine {
-            let _bmc_machine_controller_handle =
+        let _bmc_machine_controller_handle = match carbide_config.enable_bmc_machine {
+            true => Some(
                 StateController::<BmcMachineStateControllerIO>::builder()
                     .database(database_connection.clone())
                     .meter("forge_bmc_machines", meter.clone())
@@ -4763,8 +4763,10 @@ where
                     .state_handler(Arc::new(BmcMachineStateHandler::default()))
                     .ipmi_tool(ipmi_tool.clone())
                     .build()
-                    .expect("Unable to build BmcMachineController");
-        }
+                    .expect("Unable to build BmcMachineController"),
+            ),
+            false => None,
+        };
 
         let site_explorer = SiteExplorer::new(
             database_connection.clone(),
