@@ -62,12 +62,25 @@ dependencies = [
 	"setup-apt-repo",
 ]
 
-[tasks.create-ephemeral-image-x86_64]
+[tasks.create-ephemeral-image-x86_64-ci]
 category = "Ephemeral Image"
 dependencies = [
 	"mkosi-clean-artifacts",
 	"copy-debug-artifacts",
 	"copy-forge-prod-root-ca",
+	"mkosi-build-scout",
+	"mkosi-build-qcow-imager",
+	"mkosi-copy-qcow-imager-to-webroot",
+	"mkosi-copy-scout-to-webroot",
+
+]
+
+[tasks.create-ephemeral-image-x86_64]
+category = "Ephemeral Image"
+dependencies = [
+	"mkosi-clean-artifacts",
+	"copy-debug-artifacts",
+	"copy-forge-dev-root-ca",
 	"mkosi-build-scout",
 	"mkosi-build-qcow-imager",
 	"mkosi-copy-qcow-imager-to-webroot",
