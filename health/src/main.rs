@@ -139,6 +139,7 @@ pub async fn get_machines(client: &mut ForgeClientT) -> Result<rpc::MachineList,
             include_history: false,
             include_predicted_host: false,
             only_maintenance: false,
+            find_host_by_dpu_machine_id: false,
         }),
     });
     let machines = client

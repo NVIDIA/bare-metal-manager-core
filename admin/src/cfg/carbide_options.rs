@@ -387,25 +387,25 @@ pub struct FwPackage {
 
 #[derive(Parser, Debug, PartialEq, Clone)]
 pub struct UefiPassword {
-    #[clap(long, require_equals(true), help = "Current UEFI password")]
+    #[clap(long, help = "Current UEFI password")]
     pub current_password: String,
-    #[clap(long, require_equals(true), help = "New UEFI password")]
+    #[clap(long, help = "New UEFI password")]
     pub new_password: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
 pub struct BmcPassword {
-    #[clap(long, require_equals(true), help = "New BMC password")]
+    #[clap(long, help = "New BMC password")]
     pub new_password: String,
-    #[clap(long, require_equals(true), help = "BMC user")]
+    #[clap(long, help = "BMC user")]
     pub user: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
 pub struct BmcUser {
-    #[clap(long, require_equals(true), help = "BMC password")]
+    #[clap(long, help = "BMC password")]
     pub new_password: String,
-    #[clap(long, require_equals(true), help = "BMC user")]
+    #[clap(long, help = "BMC user")]
     pub user: String,
     #[clap(
         long,
@@ -514,7 +514,6 @@ pub struct MachineQuery {
     #[clap(
         short,
         long,
-        require_equals(true),
         help = "ID, IPv4, MAC or hostnmame of the DPU machine to query"
     )]
     pub query: String,
@@ -524,7 +523,6 @@ pub struct MachineQuery {
 pub struct ForceDeleteMachineQuery {
     #[clap(
         long,
-        require_equals(true),
         help = "UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete"
     )]
     pub machine: String,
@@ -532,7 +530,7 @@ pub struct ForceDeleteMachineQuery {
 
 #[derive(Parser, Debug, Clone)]
 pub struct NetworkConfigQuery {
-    #[clap(long, require_equals(true), required(true), help = "DPU machine id")]
+    #[clap(long, required(true), help = "DPU machine id")]
     pub machine_id: String,
 }
 
@@ -558,14 +556,28 @@ pub struct ShowMachine {
 #[derive(Parser, Debug)]
 #[clap(group(
         ArgGroup::new("show_managed_host")
-        .required(true)
-        .args(&["all", "host"])))]
+        .args(&["all", "machine"])))]
 pub struct ShowManagedHost {
-    #[clap(short, long, action)]
+    #[clap(
+        short,
+        long,
+        action,
+        required_unless_present = "host",
+        required_unless_present = "machine"
+    )]
     pub all: bool,
 
-    #[clap(long)]
+    // deprecated.  use --machine instead
+    #[clap(long, hide = true)]
     pub host: Option<String>,
+
+    #[clap(
+        short,
+        long,
+        required_unless_present = "host",
+        required_unless_present = "all"
+    )]
+    pub machine: Option<String>,
 
     #[clap(short, long, action)]
     pub ips: bool,
@@ -589,13 +601,12 @@ pub enum MaintenanceAction {
 
 #[derive(Parser, Debug)]
 pub struct MaintenanceOn {
-    #[clap(long, require_equals(true), required(true), help = "Managed Host ID")]
+    #[clap(long, required(true), help = "Managed Host ID")]
     pub host: String,
 
     #[clap(
         long,
         visible_alias = "ref",
-        require_equals(true),
         required(true),
         help = "URL of reference (ticket, issue, etc) for this machine's maintenance"
     )]
@@ -604,7 +615,7 @@ pub struct MaintenanceOn {
 
 #[derive(Parser, Debug)]
 pub struct MaintenanceOff {
-    #[clap(long, require_equals(true), required(true), help = "Managed Host ID")]
+    #[clap(long, required(true), help = "Managed Host ID")]
     pub host: String,
 }
 
@@ -792,35 +803,25 @@ pub enum CredentialAction {
 
 #[derive(Parser, Debug)]
 pub struct AddUFMCredential {
-    #[clap(long, require_equals(true), required(true), help = "The UFM url")]
+    #[clap(long, required(true), help = "The UFM url")]
     pub url: String,
 
-    #[clap(long, require_equals(true), required(true), help = "The UFM token")]
+    #[clap(long, required(true), help = "The UFM token")]
     pub token: String,
 }
 
 #[derive(Parser, Debug)]
 pub struct DeleteUFMCredential {
-    #[clap(long, require_equals(true), required(true), help = "The UFM url")]
+    #[clap(long, required(true), help = "The UFM url")]
     pub url: String,
 }
 
 #[derive(Parser, Debug)]
 pub struct AddBMCredential {
-    #[clap(
-        long,
-        require_equals(true),
-        required(true),
-        help = "The kind of BMC credential"
-    )]
+    #[clap(long, required(true), help = "The kind of BMC credential")]
     pub kind: BMCCredentialType,
 
-    #[clap(
-        long,
-        require_equals(true),
-        required(true),
-        help = "The password of BMC"
-    )]
+    #[clap(long, required(true), help = "The password of BMC")]
     pub password: String,
 }
 

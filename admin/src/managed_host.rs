@@ -13,6 +13,7 @@
 use std::convert::From;
 use std::fmt::Write;
 
+use ::rpc::forge::MachineType;
 use ::rpc::Machine;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
@@ -291,13 +292,16 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_config: Config,
 ) -> CarbideCliResult<()> {
+    let requested_machine = args.machine.or(args.host);
     if args.all {
         let machines = rpc::get_all_machines(api_config, args.fix).await?.machines;
         show_managed_hosts(output, output_format, machines, args.ips, args.more).await?;
-    } else if let Some(requested_host_machine_id) = args.host {
+    } else if let Some(requested_machine_id) = requested_machine {
         let mut machines = Vec::default();
         let requested_machine =
-            rpc::get_host_machine(requested_host_machine_id, api_config.clone()).await?;
+            rpc::get_host_machine(requested_machine_id, api_config.clone()).await?;
+
+        if requested_machine.machine_type() == MachineType::Dpu {}
 
         for interface in requested_machine.interfaces.iter() {
             if interface.primary_interface {
