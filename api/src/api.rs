@@ -3503,6 +3503,16 @@ where
             ));
         }
 
+        if machine
+            .reprovisioning_requested()
+            .is_some_and(|r| r.started_at.is_some())
+        {
+            return Err(CarbideError::GenericError(
+                "Reprovisioning is already started.".to_string(),
+            )
+            .into());
+        }
+
         if let rpc::dpu_reprovisioning_request::Mode::Set = req.mode() {
             let initiator = req.initiator().as_str_name();
             machine
@@ -3513,14 +3523,6 @@ where
             let Some(reprov_requested) = machine.reprovisioning_requested() else {
                 return Err(CarbideError::NotFoundError { kind: "Reprovision Request", id: dpu_id.to_string() }.into());
             };
-
-            if reprov_requested.started_at.is_some() {
-                return Err(CarbideError::GenericError(
-                    "Reprovisioning is already started.".to_string(),
-                )
-                .into());
-            }
-
             Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_id, true)
                 .await
                 .map_err(CarbideError::from)?;
