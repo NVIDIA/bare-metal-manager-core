@@ -37,12 +37,12 @@ libredfish = { version = "0.14.3", registry = "sw-ngc-forge-cargo-local" }
 mac_address = "1.1.2"
 num_cpus = "1.16.0"
 once_cell = "1.13.1"
-opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
+opentelemetry = { version = "0.20.0", features = ["logs", "rt-tokio"] }
 opentelemetry-semantic-conventions = "0.12.0"
 opentelemetry-prometheus = "0.13"
-opentelemetry-otlp = "0.13.0"
+opentelemetry-otlp = { version = "0.13.0", features = ["logs"] }
 opentelemetry_api = "0.20.0"
-opentelemetry_sdk = "0.20.0"
+opentelemetry_sdk = { version = "0.20.0", features = ["logs"] }
 toml = "0.7.3"
 patricia_tree = "^0"
 prometheus = "0.13"
