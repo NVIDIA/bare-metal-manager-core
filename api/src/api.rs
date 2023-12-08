@@ -4339,7 +4339,7 @@ where
         .service(router);
 
     let connection_total_counter = meter
-        .u64_counter("carbide-api.tls.connection_total")
+        .u64_counter("carbide-api.tls.connection_attempted")
         .with_description("The amount of tls connections that were attempted")
         .init();
     let connection_succeeded_counter = meter
