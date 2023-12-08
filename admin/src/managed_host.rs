@@ -13,7 +13,6 @@
 use std::convert::From;
 use std::fmt::Write;
 
-use ::rpc::forge::MachineType;
 use ::rpc::Machine;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
@@ -300,8 +299,6 @@ pub async fn handle_show(
         let mut machines = Vec::default();
         let requested_machine =
             rpc::get_host_machine(requested_machine_id, api_config.clone()).await?;
-
-        if requested_machine.machine_type() == MachineType::Dpu {}
 
         for interface in requested_machine.interfaces.iter() {
             if interface.primary_interface {
