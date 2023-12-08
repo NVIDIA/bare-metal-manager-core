@@ -582,7 +582,7 @@ nspect-source-scan-x86_64:
       variables:
         PULSE_SCAN_OVERRIDE: "true"
         PULSE_REPO_BRANCH: trunk
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event' && $CI_COMMIT_MESSAGE =~ /ci-run-security-scan/
 
 nspect-container-scan-x86_64:
   stage: security
