@@ -460,7 +460,7 @@ build-boot-artifacts-ephemeral-image-x86-64:
   image:
     name: $CONTAINER_BUILD_ARTIFACTS_AARCH64
   script:
-    - cargo make --cwd pxe create-ephemeral-image-x86_64
+    - cargo make --cwd pxe create-ephemeral-image-x86_64-ci
   after_script:
     - "sudo chown -R gitlab-runner: /home/gitlab-runner/builds/"
   artifacts:

@@ -67,8 +67,8 @@ impl PxeInstructions {
     fn get_pxe_instruction_for_arch(
         arch: rpc::MachineArchitecture,
         machine_interface_id: uuid::Uuid,
-        _mac_address: String,
-        _console: &str, // Not sure if we need this (if it's always ttyS0)
+        mac_address: String,
+        console: &str,
     ) -> String {
         match arch {
             rpc::MachineArchitecture::Arm => {
@@ -81,7 +81,7 @@ impl PxeInstructions {
             rpc::MachineArchitecture::X86 => {
                 InstructionGenerator::X86 {
                         kernel: "${base-url}/internal/x86_64/scout.efi".to_string(),
-                        command_line: format!("pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
+                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off cli_cmd=auto-detect machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),
                 }
             }
         }.serialize_pxe_instructions()
