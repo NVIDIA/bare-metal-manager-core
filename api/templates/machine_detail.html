@@ -8,7 +8,7 @@
 <table>
 	<tr><th>ID</th><td>{{ id }}</td></tr>
 	{% if !is_host %}
-		<tr><th>Host ID</th><td><a href="/admin/machine/{{ host_id }}">{{ host_id }}</a></td></tr>
+		<tr><th>Host ID</th><td><a href="/admin/managed-host/{{ host_id }}">{{ host_id }}</a></td></tr>
 	{% endif %}
 	<tr><th>State</th><td>{{ state }}</td></tr>
 	<tr><th>State Version</th><td>{{ state_version }}</td></tr>
