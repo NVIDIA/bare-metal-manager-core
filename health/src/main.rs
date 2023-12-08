@@ -10,10 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 use cfg::Options;
+use chrono::{DateTime, Utc};
 use eyre::Result;
 use prometheus::{Encoder, TextEncoder};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,8 +30,13 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Method, Request, Response, Server,
 };
+use opentelemetry::logs::LogError;
+use opentelemetry::metrics::{MeterProvider as _, Unit};
+use opentelemetry_api::global::{logger_provider, GlobalLoggerProvider, ObjectSafeLoggerProvider};
+use opentelemetry_api::metrics::ObservableGauge;
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::metrics::MeterProvider;
-use prometheus::Registry;
+
 use tracing::error;
 
 mod cfg;
@@ -58,6 +65,9 @@ pub enum HealthError {
 
     #[error("Opentelemetry error: {0}")]
     OpentelemetryError(#[from] opentelemetry::metrics::MetricsError),
+
+    #[error("Generic error: {0}")]
+    LogErr(#[from] LogError),
 
     #[error("No results returned")]
     Empty,
@@ -119,9 +129,7 @@ async fn create_forge_client(
             cert_path: client_cert,
             key_path: client_key,
         }),
-    )
-    .use_mgmt_vrf()
-    .map_err(|e| HealthError::GenericError(e.to_string()))?;
+    );
 
     let client = forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .connect(&api_url)
@@ -130,7 +138,10 @@ async fn create_forge_client(
     Ok(client)
 }
 
-pub async fn get_machines(client: &mut ForgeClientT) -> Result<rpc::MachineList, HealthError> {
+pub async fn get_machines(
+    client: &mut ForgeClientT,
+    gauge: &ObservableGauge<i64>,
+) -> Result<rpc::MachineList, HealthError> {
     let request = tonic::Request::new(rpc::MachineSearchQuery {
         id: None,
         fqdn: None,
@@ -141,29 +152,39 @@ pub async fn get_machines(client: &mut ForgeClientT) -> Result<rpc::MachineList,
             only_maintenance: false,
         }),
     });
+    let begin_ts: DateTime<Utc> = Utc::now();
     let machines = client
         .find_machines(request)
         .await
         .map(|response| response.into_inner())
         .map_err(HealthError::ApiInvocationError)?;
+    let end_ts: DateTime<Utc> = Utc::now();
+    let elapsed = end_ts.timestamp_micros() - begin_ts.timestamp_micros();
+    gauge.observe(elapsed, &[]);
 
     Ok(machines)
 }
 
 pub async fn get_machine(
     client: &mut ForgeClientT,
-    id: MachineId,
+    id: &MachineId,
+    gauge: &ObservableGauge<i64>,
 ) -> Result<libredfish::Endpoint, HealthError> {
     let request = tonic::Request::new(rpc::BmcMetaDataGetRequest {
         machine_id: Some(id.clone()),
         role: rpc::UserRoles::Administrator.into(),
         request_type: rpc::BmcRequestType::Ipmi.into(),
     });
+    let begin_ts: DateTime<Utc> = Utc::now();
     let response = client
         .get_bmc_meta_data(request)
         .await
         .map(|response| response.into_inner())
         .map_err(HealthError::ApiInvocationError)?;
+    let end_ts: DateTime<Utc> = Utc::now();
+    let elapsed = end_ts.timestamp_micros() - begin_ts.timestamp_micros();
+    gauge.observe(elapsed, &[]);
+
     let endpoint = libredfish::Endpoint {
         host: response.ip,
         port: None,
@@ -174,7 +195,8 @@ pub async fn get_machine(
 }
 
 pub struct HealthMetricsState {
-    registry: Registry,
+    registry: prometheus::Registry,
+    //logger: Logger,
 }
 
 pub async fn serve_metrics(
@@ -216,7 +238,7 @@ pub async fn metrics_listener(state: Arc<HealthMetricsState>) -> Result<(), hype
         let state = state.clone();
         async move { Ok::<_, Infallible>(service_fn(move |req| serve_metrics(req, state.clone()))) }
     });
-    // port seems to be either 5558, 8082,8083,8084,8085 or 9001 in forged
+    // using port 9009, configured for scraping by prometheus
     let listen_address = ([0, 0, 0, 0], 9009).into();
     let server = Server::bind(&listen_address).serve(make_svc);
     server.await?;
@@ -225,6 +247,7 @@ pub async fn metrics_listener(state: Arc<HealthMetricsState>) -> Result<(), hype
 
 pub async fn scrape_machines_health(
     provider: MeterProvider,
+    logger: GlobalLoggerProvider,
     config: Options,
 ) -> Result<(), HealthError> {
     // we may eventually want a config for this service with these items:
@@ -239,78 +262,281 @@ pub async fn scrape_machines_health(
     )
     .await?;
 
+    let box_logger = Arc::new(logger.boxed_logger(Arc::new(Default::default())));
+
     let mut machines_hash: HashMap<String, HealthHashData> = HashMap::new();
 
-    loop {
-        let machines: rpc::MachineList = get_machines(&mut grpc_client).await?;
+    // build a meter for carbide api response time
+    let api_meter = provider.meter("api-server-client".to_string());
+    let api_gauge_1 = api_meter
+        .i64_observable_gauge("api.findmachines.latency")
+        .with_description("api server response time for FindMachines")
+        .with_unit(Unit::new("microseconds"))
+        .init();
+    let api_gauge_2 = api_meter
+        .i64_observable_gauge("api.getbmcmetadata.latency")
+        .with_description("api server response time for GetBMCMetaData")
+        .with_unit(Unit::new("microseconds"))
+        .init();
 
+    loop {
+        let machines: rpc::MachineList = get_machines(&mut grpc_client, &api_gauge_1).await?;
         for machine in machines.machines.iter() {
             if machine.id.is_none() {
                 continue;
             }
             let id = machine.id.clone().unwrap();
-            let endpoint = match get_machine(&mut grpc_client, id.clone()).await {
-                Ok(x) => x,
-                Err(e) => {
-                    // some hosts bmc data may error out at times due to creds missing in vault
-                    error!(error=%e, "grpc error getting machine bmc metadata");
-                    continue;
-                }
-            };
-            let mut last_firmware_digest = String::new();
-            let mut last_sel_count: usize = 0;
-            let machine_id: Box<String> = Box::from(id.id);
+            let machine_id: Box<String> = Box::from(id.clone().id);
+            if machine.interfaces.is_empty() {
+                continue;
+            }
 
-            let last_updated = machines_hash.get(machine_id.as_str());
-            match last_updated {
-                Some(x) => {
-                    last_firmware_digest = x.firmware_digest.to_string();
-                    last_sel_count = x.sel_count;
-                }
+            let dpu_id = machine.interfaces[0]
+                .attached_dpu_machine_id
+                .clone()
+                .unwrap();
+
+            let mut last_updated = match machines_hash.get_mut(machine_id.as_str()) {
+                Some(x) => x.deref().to_owned(),
                 None => {
-                    let empty_hash = HealthHashData {
-                        firmware_digest: last_firmware_digest.clone(),
+                    let initial_hash = HealthHashData {
+                        description: "".to_string(),
+                        firmware_digest: "".to_string(),
                         sel_count: 0,
+                        last_polled_ts: 0,
+                        last_recorded_ts: 0,
+                        last_host_error_ts: 0,
+                        last_dpu_error_ts: 0,
+                        host_error_count: 0,
+                        dpu_error_count: 0,
+                        host: "".to_string(),
+                        dpu: "".to_string(),
+                        port: 0,
+                        dpu_port: 0,
+                        user: "".to_string(),
+                        dpu_user: "".to_string(),
+                        password: "".to_string(),
+                        dpu_password: "".to_string(),
                     };
+
                     // insert into hash on first enumeration of the machine
-                    let _ = machines_hash.insert(machine_id.to_string(), empty_hash);
+                    let _ = machines_hash.insert(machine_id.to_string(), initial_hash.clone());
+                    initial_hash
                 }
             };
+
+            let mut scrape_machine = true;
+            // check if a host had errors and back off querying appropriately
+            if last_updated.host_error_count > 0 {
+                let now: DateTime<Utc> = Utc::now();
+                if last_updated.host_error_count < 24 {
+                    // try every 30 minutes for 12 hours
+                    if (now.timestamp() - last_updated.last_host_error_ts) < (30 * 60) {
+                        scrape_machine = false;
+                    }
+                } else if last_updated.host_error_count < 36 {
+                    // try every 60 minutes for next 12 hours
+                    if (now.timestamp() - last_updated.last_host_error_ts) < (60 * 60) {
+                        scrape_machine = false;
+                    }
+                } else {
+                    // try once a day
+                    if (now.timestamp() - last_updated.last_host_error_ts) < (24 * 60 * 60) {
+                        scrape_machine = false;
+                    }
+                }
+            }
+            if !scrape_machine {
+                continue;
+            }
+
+            if last_updated.host.is_empty() {
+                // initial empty hash, get host bmc creds from api-server
+                let endpoint = match get_machine(&mut grpc_client, &id, &api_gauge_2).await {
+                    Ok(x) => {
+                        machines_hash
+                            .get_mut(machine_id.as_str())
+                            .unwrap()
+                            .last_host_error_ts = 0;
+                        machines_hash
+                            .get_mut(machine_id.as_str())
+                            .unwrap()
+                            .host_error_count = 0;
+                        x
+                    }
+                    Err(e) => {
+                        // some hosts bmc data may error out at times due to creds missing in vault
+                        error!(error=%e, %machine_id, "grpc error getting machine bmc metadata");
+                        // back off for grpc / vault errors for a host
+                        let now: DateTime<Utc> = Utc::now();
+                        machines_hash
+                            .get_mut(machine_id.as_str())
+                            .unwrap()
+                            .last_host_error_ts = now.timestamp();
+                        machines_hash
+                            .get_mut(machine_id.as_str())
+                            .unwrap()
+                            .host_error_count += 1;
+                        continue;
+                    }
+                };
+                let mut description = String::new();
+                if machine.discovery_info.is_some()
+                    && machine.discovery_info.clone().unwrap().dmi_data.is_some()
+                {
+                    description = format!(
+                        "{} {} SN: {}",
+                        machine
+                            .discovery_info
+                            .clone()
+                            .unwrap()
+                            .dmi_data
+                            .unwrap()
+                            .sys_vendor,
+                        machine
+                            .discovery_info
+                            .clone()
+                            .unwrap()
+                            .dmi_data
+                            .unwrap()
+                            .product_name,
+                        machine
+                            .discovery_info
+                            .clone()
+                            .unwrap()
+                            .dmi_data
+                            .unwrap()
+                            .product_serial
+                    )
+                    .to_string();
+                }
+                last_updated.description = description;
+                last_updated.host = endpoint.host;
+                last_updated.port = endpoint.port.unwrap_or(0);
+                last_updated.user = endpoint.user.unwrap_or("".to_string());
+                last_updated.password = endpoint.password.unwrap_or("".to_string());
+            }
+
+            if last_updated.dpu.is_empty() {
+                // dpu bmc creds
+                let now: DateTime<Utc> = Utc::now();
+                let mut scrape_dpu = true;
+                if last_updated.dpu_error_count < 24 {
+                    // try every 30 minutes for 12 hours
+                    if (now.timestamp() - last_updated.last_dpu_error_ts) < (30 * 60) {
+                        scrape_dpu = false;
+                    }
+                } else if last_updated.dpu_error_count < 36 {
+                    // try every 60 minutes for next 12 hours
+                    if (now.timestamp() - last_updated.last_dpu_error_ts) < (60 * 60) {
+                        scrape_dpu = false;
+                    }
+                } else {
+                    // try once a day
+                    if (now.timestamp() - last_updated.last_dpu_error_ts) < (24 * 60 * 60) {
+                        scrape_dpu = false;
+                    }
+                }
+                if scrape_dpu {
+                    let dpu_endpoint =
+                        match get_machine(&mut grpc_client, &dpu_id, &api_gauge_2).await {
+                            Ok(x) => {
+                                last_updated.last_dpu_error_ts = 0;
+                                last_updated.dpu_error_count = 0;
+                                Some(x)
+                            }
+                            Err(e) => {
+                                error!(error=%e, %dpu_id, "grpc error getting dpu bmc metadata");
+                                let now: DateTime<Utc> = Utc::now();
+                                last_updated.last_dpu_error_ts = now.timestamp();
+                                last_updated.dpu_error_count += 1;
+                                None
+                            }
+                        };
+                    if dpu_endpoint.is_some() {
+                        last_updated.dpu = dpu_endpoint.clone().unwrap().host;
+                        last_updated.dpu_port = dpu_endpoint.clone().unwrap().port.unwrap_or(0);
+                        last_updated.dpu_user =
+                            dpu_endpoint.clone().unwrap().user.unwrap_or("".to_string());
+                        last_updated.dpu_password = dpu_endpoint
+                            .clone()
+                            .unwrap()
+                            .password
+                            .unwrap_or("".to_string());
+                    }
+                }
+            }
 
             match scrape_machine_health(
                 provider.clone(),
-                endpoint,
+                box_logger.clone(),
                 machine_id.as_str(),
-                last_firmware_digest.clone(),
-                last_sel_count,
+                last_updated,
             )
             .await
             {
-                Ok((x, y)) => {
-                    (last_firmware_digest, last_sel_count) = (x, y);
+                Ok((
+                    firmware_digest,
+                    sel_count,
+                    last_polled_ts,
+                    last_recorded_ts,
+                    dpu_reachable,
+                    dpu_attempted,
+                )) => {
+                    let update_hash = machines_hash.get_mut(machine_id.as_str()).unwrap();
+                    if !firmware_digest.is_empty() {
+                        update_hash.firmware_digest = firmware_digest.to_string();
+                    }
+                    if sel_count > 0 {
+                        update_hash.sel_count = sel_count;
+                    }
+                    if last_polled_ts > 0 {
+                        update_hash.last_polled_ts = last_polled_ts;
+                    }
+                    if last_recorded_ts > 0 {
+                        update_hash.last_recorded_ts = last_recorded_ts;
+                    }
+                    if dpu_reachable {
+                        update_hash.last_dpu_error_ts = 0;
+                        update_hash.dpu_error_count = 0;
+                    } else if dpu_attempted {
+                        let now: DateTime<Utc> = Utc::now();
+                        update_hash.last_dpu_error_ts = now.timestamp();
+                        update_hash.dpu_error_count += 1;
+                    }
+                    update_hash.last_host_error_ts = 0;
+                    update_hash.host_error_count = 0;
                 }
                 Err(e) => {
                     error!(error=%e, %machine_id, "failed to scrape metrics");
+                    let update_hash = machines_hash.get_mut(machine_id.as_str()).unwrap();
+                    let now: DateTime<Utc> = Utc::now();
+                    update_hash.last_host_error_ts = now.timestamp();
+                    update_hash.host_error_count += 1;
                     continue;
                 }
             };
-
-            if !last_firmware_digest.is_empty() {
-                machines_hash
-                    .get_mut(machine_id.as_str())
-                    .unwrap()
-                    .firmware_digest = last_firmware_digest.to_string();
-            }
-            if last_sel_count > 0 {
-                machines_hash
-                    .get_mut(machine_id.as_str())
-                    .unwrap()
-                    .sel_count = last_sel_count;
-            }
         }
 
         tokio::time::sleep(Duration::from_secs(60)).await;
     }
+}
+
+fn init_logging() -> Result<opentelemetry_sdk::logs::Logger, LogError> {
+    opentelemetry_otlp::new_pipeline()
+        .logging()
+        .with_log_config(opentelemetry_sdk::logs::Config::default().with_resource(
+            opentelemetry_sdk::Resource::new(vec![opentelemetry::KeyValue::new(
+                "carbide-hardware-health",
+                "machine-logs",
+            )]),
+        ))
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint("http://opentelemetry-collector.otel.svc.cluster.local:4317"),
+        )
+        .install_batch(opentelemetry_sdk::runtime::Tokio)
 }
 
 #[tokio::main]
@@ -321,11 +547,15 @@ async fn main() -> Result<(), HealthError> {
         return Ok(());
     }
 
-    let registry = Registry::new();
+    let registry = prometheus::Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
         .build()?;
     let provider = MeterProvider::builder().with_reader(exporter).build();
+    // logger only for pushing bmc / machine scraped events and data, not this service's logs
+    let _logger = init_logging()?;
+    let logger_provider = logger_provider();
+
     let state = Arc::new(HealthMetricsState { registry });
 
     tracing::info!(
@@ -334,7 +564,10 @@ async fn main() -> Result<(), HealthError> {
     );
     let join_listener = tokio::spawn(async move { metrics_listener(state).await });
 
-    let join_scraper = tokio::spawn(async move { scrape_machines_health(provider, config).await });
+    let join_scraper =
+        tokio::spawn(
+            async move { scrape_machines_health(provider, logger_provider, config).await },
+        );
 
     let _ = join_scraper.await?;
     let _ = join_listener.await?;
