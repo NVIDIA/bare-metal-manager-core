@@ -69,34 +69,6 @@ pub async fn get_network_device_topology(
     .await
 }
 
-pub async fn find_machine(id: String, api_config: Config) -> CarbideCliResult<rpc::Machine> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineSearchQuery {
-            id: Some(rpc::MachineId { id: id.clone() }),
-            fqdn: None,
-            search_config: Some(rpc::MachineSearchConfig {
-                include_predicted_host: true,
-                include_dpus: true,
-                include_associated_machine_id: true,
-                ..Default::default()
-            }),
-        });
-
-        let machine_details = client
-            .find_machines(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        machine_details
-            .machines
-            .first()
-            .ok_or(CarbideCliError::MachineNotFound(rpc::MachineId { id }))
-            .cloned()
-    })
-    .await
-}
-
 pub async fn get_all_machines(
     api_config: Config,
     only_maintenance: bool,

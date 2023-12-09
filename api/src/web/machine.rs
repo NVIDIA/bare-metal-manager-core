@@ -306,7 +306,9 @@ impl From<forgerpc::Machine> for MachineDetail {
             hostname,
             history,
             interfaces,
-            host_id: String::default(), // filled in later
+            host_id: m
+                .associated_host_machine_id
+                .map_or_else(String::default, |id| id.to_string()),
         }
     }
 }
@@ -346,36 +348,6 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
             .map(|response| response.into_inner())
         {
             display.network_config = format!("{netconf:?}").replace(", ", "<br/>");
-        }
-
-        let request = tonic::Request::new(forgerpc::MachineSearchQuery {
-            id: Some(rpc_machine_id),
-            fqdn: None,
-            search_config: Some(forgerpc::MachineSearchConfig {
-                include_dpus: false,
-                include_history: false,
-                include_predicted_host: true,
-                only_maintenance: false,
-                include_associated_machine_id: true,
-            }),
-        });
-
-        let host_machine = match state
-            .find_machines(request)
-            .await
-            .map(|response| response.into_inner())
-        {
-            Ok(m) => m.machines.get(0).cloned(),
-            Err(err) => {
-                tracing::error!(%err, %machine_id, "find_machines");
-                None
-            }
-        };
-
-        if let Some(host_machine) = host_machine {
-            display.host_id = host_machine
-                .id
-                .map_or_else(String::default, |id| id.to_string());
         }
     }
     (StatusCode::OK, Html(display.render().unwrap()))
