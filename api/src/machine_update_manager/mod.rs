@@ -278,6 +278,7 @@ impl MachineUpdateManager {
             MachineSearchConfig {
                 include_history: false,
                 only_maintenance: true,
+                include_associated_machine_id: false,
             },
         )
         .await?;

@@ -212,7 +212,7 @@ async fn fetch_machines<C1: CredentialProvider + 'static, C2: CertificateProvide
             include_history: true,
             include_predicted_host: true,
             only_maintenance: false,
-            find_host_by_dpu_machine_id: false,
+            include_associated_machine_id: false,
         }),
     });
     api.find_machines(request)
@@ -356,7 +356,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
                 include_history: false,
                 include_predicted_host: true,
                 only_maintenance: false,
-                find_host_by_dpu_machine_id: true,
+                include_associated_machine_id: true,
             }),
         });
 

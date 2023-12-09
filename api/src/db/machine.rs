@@ -46,6 +46,7 @@ pub struct MachineSearchConfig {
     pub include_history: bool,
     /// Only include machines in maintenance mode
     pub only_maintenance: bool,
+    pub include_associated_machine_id: bool,
 }
 
 impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
@@ -53,6 +54,7 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
         MachineSearchConfig {
             include_history: value.include_history,
             only_maintenance: value.only_maintenance,
+            include_associated_machine_id: value.include_associated_machine_id,
         }
     }
 }
@@ -123,6 +125,10 @@ pub struct Machine {
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
     dpu_agent_upgrade_requested: Option<UpgradeDecision>,
+
+    // Other machine ids associated with this machine
+    associated_host_machine_id: Option<MachineId>,
+    associated_dpu_machine_id: Option<MachineId>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -181,6 +187,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             failure_details: failure_details.0,
             reprovisioning_requested: reprovision_req.map(|x| x.0),
             dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
+            associated_host_machine_id: None,
+            associated_dpu_machine_id: None,
         })
     }
 }
@@ -284,6 +292,12 @@ impl From<Machine> for rpc::Machine {
                 .map(|obs| obs.observed_at.into()),
             maintenance_reference: machine.maintenance_reference,
             maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
+            associated_host_machine_id: machine
+                .associated_host_machine_id
+                .map(|id| id.to_string().into()),
+            associated_dpu_machine_id: machine
+                .associated_dpu_machine_id
+                .map(|id| id.to_string().into()),
         }
     }
 }
@@ -662,10 +676,29 @@ SELECT m.id FROM
         let topologies_for_machine =
             MachineTopology::find_latest_by_machine_ids(&mut *txn, &all_ids).await?;
 
-        all_machines.iter_mut().for_each(|machine| {
+        for machine in all_machines.iter_mut() {
             if search_config.include_history {
                 if let Some(history) = history_for_machine.remove(&machine.id) {
                     machine.history = history;
+                }
+            }
+
+            if search_config.include_associated_machine_id {
+                if machine.is_dpu() {
+                    let host_result =
+                        Machine::find_host_machine_id_by_dpu_machine_id(txn, &machine.id).await;
+                    machine.associated_host_machine_id = match host_result {
+                        Ok(host_machine_id) => host_machine_id,
+                        Err(e) => {
+                            tracing::error!(dpu_machine_id = %machine.id, error = %e, "Failed to lookup host id for dpu");
+                            None
+                        }
+                    };
+                } else {
+                    machine.associated_dpu_machine_id = interfaces_for_machine
+                        .get(&machine.id)
+                        .and_then(|i| i.get(0))
+                        .and_then(|i| i.attached_dpu_machine_id().clone());
                 }
             }
 
@@ -684,7 +717,7 @@ SELECT m.id FROM
                     "Machine has no associated discovery data",
                 );
             }
-        });
+        }
 
         Ok(all_machines)
     }
@@ -909,6 +942,25 @@ SELECT m.id FROM
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(())
+    }
+
+    pub async fn find_host_machine_id_by_dpu_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        dpu_machine_id: &MachineId,
+    ) -> CarbideResult<Option<MachineId>> {
+        let query = r#"SELECT m.id From machines m
+                INNER JOIN machine_interfaces mi
+                  ON m.id = mi.machine_id
+                WHERE mi.attached_dpu_machine_id=$1
+                    AND mi.attached_dpu_machine_id != mi.machine_id"#;
+
+        let machine_id: Option<DbMachineId> = sqlx::query_as(query)
+            .bind(dpu_machine_id.to_string())
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(machine_id.map(MachineId::from))
     }
 
     pub async fn find_host_by_dpu_machine_id(

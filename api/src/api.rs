@@ -2175,6 +2175,7 @@ where
                 MachineSearchConfig {
                     include_history: true,
                     only_maintenance: false,
+                    include_associated_machine_id: false,
                 },
             )
             .await?;
@@ -2258,26 +2259,15 @@ where
             .map(|x| x.include_predicted_host)
             .unwrap_or(false);
 
-        let find_host_for_dpu = search_config
-            .as_ref()
-            .map(|x| x.find_host_by_dpu_machine_id)
-            .unwrap_or(false);
-
         let search_config = search_config
             .map(MachineSearchConfig::from)
             .unwrap_or(MachineSearchConfig::default());
 
-        let machines = match (id, fqdn) {
+        let machines: Result<Vec<Machine>, DatabaseError> = match (id, fqdn) {
             (Some(id), _) => {
                 let machine_id = try_parse_machine_id(&id).map_err(CarbideError::from)?;
                 log_machine_id(&machine_id);
-                if machine_id.machine_type().is_dpu() && find_host_for_dpu {
-                    Machine::find_host_by_dpu_machine_id(&mut txn, &machine_id)
-                        .await?
-                        .map_or(Ok(vec![]), |x| Ok(vec![x]))
-                } else {
-                    Machine::find(&mut txn, ObjectFilter::One(machine_id), search_config).await
-                }
+                Machine::find(&mut txn, ObjectFilter::One(machine_id), search_config).await
             }
             (None, Some(fqdn)) => Machine::find_by_fqdn(&mut txn, &fqdn, search_config).await,
             (None, None) => Machine::find(&mut txn, ObjectFilter::All, search_config).await,

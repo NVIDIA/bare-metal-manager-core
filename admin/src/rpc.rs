@@ -16,7 +16,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
-use ::rpc::forge::{self as rpc, MachineBootOverride, MachineType, NetworkSegmentSearchConfig};
+use ::rpc::forge::{self as rpc, MachineBootOverride, NetworkSegmentSearchConfig};
 use ::rpc::forge_tls_client::{self, ForgeClientT};
 use ::rpc::{MachineId, Uuid};
 
@@ -69,14 +69,15 @@ pub async fn get_network_device_topology(
     .await
 }
 
-pub async fn get_host_machine(id: String, api_config: Config) -> CarbideCliResult<rpc::Machine> {
+pub async fn find_machine(id: String, api_config: Config) -> CarbideCliResult<rpc::Machine> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::MachineSearchQuery {
             id: Some(rpc::MachineId { id: id.clone() }),
             fqdn: None,
             search_config: Some(rpc::MachineSearchConfig {
                 include_predicted_host: true,
-                find_host_by_dpu_machine_id: true,
+                include_dpus: true,
+                include_associated_machine_id: true,
                 ..Default::default()
             }),
         });
@@ -96,41 +97,6 @@ pub async fn get_host_machine(id: String, api_config: Config) -> CarbideCliResul
     .await
 }
 
-pub async fn get_dpu_machine(id: String, api_config: Config) -> CarbideCliResult<rpc::Machine> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineSearchQuery {
-            id: Some(rpc::MachineId { id: id.clone() }),
-            fqdn: None,
-            search_config: Some(rpc::MachineSearchConfig {
-                include_dpus: true,
-                ..Default::default()
-            }),
-        });
-
-        let machine_details = client
-            .find_machines(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-
-        let machine = machine_details
-            .machines
-            .into_iter()
-            .next()
-            .ok_or(CarbideCliError::MachineNotFound(rpc::MachineId { id }))?;
-
-        if machine.machine_type() == MachineType::Dpu {
-            Ok(machine)
-        } else {
-            Err(CarbideCliError::UnexpectedMachineType(
-                rpc::MachineType::Dpu,
-                machine.machine_type(),
-            ))
-        }
-    })
-    .await
-}
-
 pub async fn get_all_machines(
     api_config: Config,
     only_maintenance: bool,
@@ -144,7 +110,7 @@ pub async fn get_all_machines(
                 include_history: true,
                 include_predicted_host: true,
                 only_maintenance,
-                find_host_by_dpu_machine_id: false,
+                include_associated_machine_id: false,
             }),
         });
         let machine_details = client
