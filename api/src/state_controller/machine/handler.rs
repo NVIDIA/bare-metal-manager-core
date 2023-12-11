@@ -213,6 +213,7 @@ impl StateHandler for MachineStateHandler {
                 *controller_state.modify() = ManagedHostState::Failed {
                     details,
                     machine_id,
+                    retry_count: 0,
                 };
                 return Ok(());
             }
@@ -319,17 +320,68 @@ impl StateHandler for MachineStateHandler {
             ManagedHostState::Failed {
                 details,
                 machine_id,
+                retry_count,
             } => {
-                // Do nothing.
-                // Handle error cause and decide how to recover if possible.
-                tracing::error!(
-                    %machine_id,
-                    "ManagedHost {} is in Failed state with machine/cause {}/{}. Failed at: {}, Ignoring.",
-                    host_machine_id,
-                    machine_id,
-                    details.cause,
-                    details.failed_at,
-                );
+                match details.cause {
+                    // DPU discovery failed needs more logic to handle.
+                    // DPU discovery can failed from multiple states init,
+                    // waitingfornetworkinstall, reprov(waitingforfirmwareupgrade),
+                    // reprov(waitingfornetworkinstall). Error handler must be aware of it and
+                    // handle based on it.
+                    // Another bigger problem is every discovery will need a
+                    // fresh os install as scout is executed by cloud-init and it runs only
+                    // once after os install. This has to be changed.
+                    FailureCause::Discovery { .. } if machine_id.machine_type().is_host() => {
+                        // If user manually reboots host, and discovery is successful then also it will come out
+                        // of failed state.
+                        if discovered_after_state_transition(
+                            state.host_snapshot.current.version,
+                            state.host_snapshot.last_discovery_time,
+                        )
+                        .await?
+                        {
+                            ctx.metrics
+                                .machine_reboot_attempts_in_failed_during_discovery =
+                                Some(*retry_count as u64);
+                            // Anytime host discovery is successful, move to next state.
+                            Machine::clear_failure_details(machine_id, txn).await?;
+                            let new_state = handle_host_waitingfordiscovery(ctx, state).await?;
+                            *controller_state.modify() = new_state;
+                            return Ok(());
+                        }
+
+                        // Wait till failure_retry_time is over except first time.
+                        // First time, host is already up and reported that discovery is failed.
+                        if *retry_count != 0
+                            && wait(state, ctx.services.reachability_params.failure_retry_time)
+                        {
+                            return Ok(());
+                        }
+
+                        if *retry_count <= 2 {
+                            //Host discovery failed, let's retry.
+                            restart_machine(&state.host_snapshot, ctx.services).await?;
+
+                            *controller_state.modify() = ManagedHostState::Failed {
+                                retry_count: retry_count + 1,
+                                details: details.clone(),
+                                machine_id: machine_id.clone(),
+                            };
+                        }
+                    }
+                    _ => {
+                        // Do nothing.
+                        // Handle error cause and decide how to recover if possible.
+                        tracing::error!(
+                            %machine_id,
+                            "ManagedHost {} is in Failed state with machine/cause {}/{}. Failed at: {}, Ignoring.",
+                            host_machine_id,
+                            machine_id,
+                            details.cause,
+                            details.failed_at,
+                        );
+                    }
+                }
             }
 
             ManagedHostState::DPUReprovision { reprovision_state } => {
@@ -636,6 +688,23 @@ fn is_network_ready(dpu_snapshot: &MachineSnapshot) -> bool {
     (dpu_expected_version == dpu_observed_version) && dpu_snapshot.has_healthy_network()
 }
 
+async fn handle_host_waitingfordiscovery(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    state: &mut ManagedHostStateSnapshot,
+) -> Result<ManagedHostState, StateHandlerError> {
+    // Enable Bios/BMC lockdown now.
+    lockdown_host(&state.host_snapshot, ctx.services, true).await?;
+
+    Ok(ManagedHostState::HostNotReady {
+        machine_state: MachineState::WaitingForLockdown {
+            lockdown_info: LockdownInfo {
+                state: LockdownState::TimeWaitForDPUDown,
+                mode: Enable,
+            },
+        },
+    })
+}
+
 #[async_trait::async_trait]
 impl StateHandler for HostMachineStateHandler {
     type State = ManagedHostStateSnapshot;
@@ -674,17 +743,9 @@ impl StateHandler for HostMachineStateHandler {
                     {
                         return Ok(());
                     }
-                    // Enable Bios/BMC lockdown now.
-                    lockdown_host(&state.host_snapshot, ctx.services, true).await?;
 
-                    *controller_state.modify() = ManagedHostState::HostNotReady {
-                        machine_state: MachineState::WaitingForLockdown {
-                            lockdown_info: LockdownInfo {
-                                state: LockdownState::TimeWaitForDPUDown,
-                                mode: Enable,
-                            },
-                        },
-                    };
+                    let new_state = handle_host_waitingfordiscovery(ctx, state).await?;
+                    *controller_state.modify() = new_state;
                 }
 
                 MachineState::Discovered => {

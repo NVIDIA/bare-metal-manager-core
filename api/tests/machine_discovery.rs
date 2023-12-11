@@ -171,6 +171,7 @@ async fn test_discovery_complete_with_error(
         ManagedHostState::Failed {
             details,
             machine_id,
+            retry_count,
         } => {
             let FailureDetails { cause, source, .. } = details;
             assert_eq!(
@@ -180,8 +181,8 @@ async fn test_discovery_complete_with_error(
                 }
             );
             assert_eq!(source, FailureSource::Scout);
-
             assert_eq!(machine_id, dpu_machine_id);
+            assert_eq!(retry_count, 0);
         }
         s => {
             panic!("Incorrect state: {}", s);

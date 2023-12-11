@@ -31,6 +31,7 @@ pub struct MachineMetrics {
     pub client_certificate_expiry: Option<i64>,
     pub machine_id: Option<String>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Option<u64>,
+    pub machine_reboot_attempts_in_failed_during_discovery: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -42,6 +43,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub dpu_firmware_versions: HashMap<String, usize>,
     pub client_certificate_expiration_times: HashMap<String, i64>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Vec<u64>,
+    pub machine_reboot_attempts_in_failed_during_discovery: Vec<u64>,
 }
 
 #[derive(Debug)]
@@ -53,11 +55,15 @@ pub struct MachineMetricsEmitter {
     dpu_firmware_version_gauge: ObservableGauge<u64>,
     client_certificate_expiration_gauge: ObservableGauge<i64>,
     machine_reboot_attempts_in_booting_with_discovery_image: Histogram<u64>,
+    machine_reboot_attempts_in_failed_during_discovery: Histogram<u64>,
 }
 
 impl MachineStateControllerIterationMetrics {
     pub fn machine_reboot_attempts_in_booting_with_discovery_image(&self) -> &Vec<u64> {
         &self.machine_reboot_attempts_in_booting_with_discovery_image
+    }
+    pub fn machine_reboot_attempts_in_failed_during_discovery(&self) -> &Vec<u64> {
+        &self.machine_reboot_attempts_in_failed_during_discovery
     }
 }
 
@@ -103,6 +109,11 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .with_description("The amount of machines rebooted again in BootingWithDiscoveryImage since there is no response after a certain time from host.")
             .init();
 
+        let machine_reboot_attempts_in_failed_during_discovery = meter
+            .u64_histogram("forge_reboot_attempts_in_failed_during_discovery")
+            .with_description("The amount of machines rebooted again in Failed state due to discovery failure since there is no response after a certain time from host.")
+            .init();
+
         Self {
             dpus_up_gauge,
             dpus_healthy_gauge,
@@ -111,6 +122,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             dpu_firmware_version_gauge,
             client_certificate_expiration_gauge,
             machine_reboot_attempts_in_booting_with_discovery_image,
+            machine_reboot_attempts_in_failed_during_discovery,
         }
     }
 
@@ -144,6 +156,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .push(machine_reboot_attempts_in_booting_with_discovery_image);
         }
 
+        if let Some(machine_reboot_attempts_in_failed_during_discovery) =
+            object_metrics.machine_reboot_attempts_in_failed_during_discovery
+        {
+            iteration_metrics
+                .machine_reboot_attempts_in_failed_during_discovery
+                .push(machine_reboot_attempts_in_failed_during_discovery);
+        }
         for failed_healthcheck in &object_metrics.failed_dpu_healthchecks {
             *iteration_metrics
                 .failed_dpu_healthchecks
@@ -253,6 +272,14 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 self.machine_reboot_attempts_in_booting_with_discovery_image
                     .record(*x, &[]);
             });
+
+        iteration_metrics
+            .machine_reboot_attempts_in_failed_during_discovery
+            .iter()
+            .for_each(|x| {
+                self.machine_reboot_attempts_in_failed_during_discovery
+                    .record(*x, &[]);
+            });
     }
 }
 
@@ -272,6 +299,7 @@ mod tests {
                 client_certificate_expiry: Some(1),
                 machine_id: Some("machine a".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
+                machine_reboot_attempts_in_failed_during_discovery: None,
             },
             MachineMetrics {
                 agent_version: Some("v1".to_string()),
@@ -282,6 +310,7 @@ mod tests {
                 client_certificate_expiry: Some(2),
                 machine_id: Some("machine a".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(0),
+                machine_reboot_attempts_in_failed_during_discovery: Some(0),
             },
             MachineMetrics {
                 agent_version: Some("v3".to_string()),
@@ -292,6 +321,7 @@ mod tests {
                 client_certificate_expiry: Some(3),
                 machine_id: Some("machine b".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(1),
+                machine_reboot_attempts_in_failed_during_discovery: Some(1),
             },
             MachineMetrics {
                 agent_version: Some("v3".to_string()),
@@ -302,6 +332,7 @@ mod tests {
                 client_certificate_expiry: None,
                 machine_id: Some("machine b".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(2),
+                machine_reboot_attempts_in_failed_during_discovery: Some(2),
             },
             MachineMetrics {
                 agent_version: None,
@@ -312,6 +343,7 @@ mod tests {
                 client_certificate_expiry: Some(55),
                 machine_id: None,
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
+                machine_reboot_attempts_in_failed_during_discovery: None,
             },
         ];
 
@@ -328,6 +360,10 @@ mod tests {
         assert_eq!(iteration_metrics.dpus_healthy, 3);
         assert_eq!(
             &iteration_metrics.machine_reboot_attempts_in_booting_with_discovery_image,
+            &[0, 1, 2]
+        );
+        assert_eq!(
+            &iteration_metrics.machine_reboot_attempts_in_failed_during_discovery,
             &[0, 1, 2]
         );
         assert_eq!(

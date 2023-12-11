@@ -1123,6 +1123,27 @@ SELECT m.id FROM
         Ok(())
     }
 
+    pub async fn clear_failure_details(
+        machine_id: &MachineId,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let failure_details = FailureDetails {
+            cause: crate::model::machine::FailureCause::NoError,
+            failed_at: chrono::Utc::now(),
+            source: crate::model::machine::FailureSource::NoError,
+        };
+
+        let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
+        let _id: (DbMachineId,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(failure_details))
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
     pub async fn set_maintenance_mode(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
