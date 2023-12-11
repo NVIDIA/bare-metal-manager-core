@@ -124,6 +124,8 @@ pub enum ManagedHostState {
     Failed {
         details: FailureDetails,
         machine_id: MachineId,
+        #[serde(default)]
+        retry_count: u32,
     },
 
     /// State used to indicate that DPU reprovisioning is going on.

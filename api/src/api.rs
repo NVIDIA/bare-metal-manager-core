@@ -2969,6 +2969,14 @@ where
                 } => Action::Retry,
                 ManagedHostState::HostNotReady {
                     machine_state: MachineState::WaitingForDiscovery,
+                }
+                | ManagedHostState::Failed {
+                    details:
+                        FailureDetails {
+                            cause: FailureCause::Discovery { .. },
+                            ..
+                        },
+                    ..
                 } => Action::Discovery,
                 ManagedHostState::WaitingForCleanup { .. } => Action::Reset,
                 _ => {
@@ -4708,6 +4716,7 @@ where
                     dpu_wait_time: service_config.dpu_wait_time,
                     host_wait_time: service_config.host_wait_time,
                     power_down_wait: service_config.power_down_wait,
+                    failure_retry_time: service_config.failure_retry_time,
                 })
                 .ipmi_tool(ipmi_tool.clone())
                 .build()
@@ -4733,6 +4742,7 @@ where
                 dpu_wait_time: service_config.dpu_wait_time,
                 host_wait_time: service_config.host_wait_time,
                 power_down_wait: service_config.power_down_wait,
+                failure_retry_time: service_config.failure_retry_time,
             })
             .ipmi_tool(ipmi_tool.clone())
             .build()
@@ -4749,6 +4759,7 @@ where
                     dpu_wait_time: service_config.dpu_wait_time,
                     host_wait_time: service_config.host_wait_time,
                     power_down_wait: service_config.power_down_wait,
+                    failure_retry_time: service_config.failure_retry_time,
                 })
                 .forge_api(api_service.clone())
                 .iteration_time(service_config.network_segment_state_controller_iteration_time)
@@ -4770,6 +4781,7 @@ where
                         dpu_wait_time: service_config.dpu_wait_time,
                         host_wait_time: service_config.host_wait_time,
                         power_down_wait: service_config.power_down_wait,
+                        failure_retry_time: service_config.failure_retry_time,
                     })
                     .forge_api(api_service.clone())
                     .iteration_time(service_config.network_segment_state_controller_iteration_time)
@@ -5119,6 +5131,8 @@ struct ServiceConfig {
     power_down_wait: chrono::Duration,
     /// How long to wait for a health report from the DPU before we assume it's down
     dpu_up_threshold: chrono::Duration,
+    /// How long to wait for after machine moved to failed state
+    failure_retry_time: chrono::Duration,
 }
 
 impl Default for ServiceConfig {
@@ -5132,6 +5146,7 @@ impl Default for ServiceConfig {
             host_wait_time: Duration::minutes(15),
             power_down_wait: Duration::seconds(15),
             dpu_up_threshold: Duration::minutes(5),
+            failure_retry_time: Duration::minutes(20),
         }
     }
 }
@@ -5152,6 +5167,7 @@ impl ServiceConfig {
             power_down_wait: Duration::seconds(1),
             // In local dev forge-dpu-agent probably isn't running, so no heartbeat
             dpu_up_threshold: Duration::weeks(52),
+            failure_retry_time: Duration::seconds(1),
         }
     }
 }

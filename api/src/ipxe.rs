@@ -2,7 +2,7 @@ pub use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
 
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::model::machine::ReprovisionState;
+use crate::model::machine::{FailureCause, FailureDetails, ReprovisionState};
 use crate::{
     db::{
         instance::Instance,
@@ -191,6 +191,14 @@ exit ||
         let pxe_script = match &machine.current_state() {
             ManagedHostState::Ready
             | ManagedHostState::HostNotReady { .. }
+            | ManagedHostState::Failed {
+                details:
+                    FailureDetails {
+                        cause: FailureCause::Discovery { .. },
+                        ..
+                    },
+                ..
+            }
             | ManagedHostState::WaitingForCleanup { .. } => {
                 Self::get_pxe_instruction_for_arch(arch, interface_id, mac, console)
             }
