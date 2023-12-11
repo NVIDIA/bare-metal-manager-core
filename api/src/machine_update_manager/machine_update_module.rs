@@ -37,6 +37,8 @@ pub trait MachineUpdateModule: Send + Sync + fmt::Display {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<()>;
+
+    async fn update_metrics(&self, txn: &mut Transaction<'_, Postgres>);
 }
 
 pub struct AutomaticFirmwareUpdateReference {

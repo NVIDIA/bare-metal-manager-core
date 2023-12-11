@@ -77,6 +77,8 @@ impl MachineUpdateModule for TestUpdateModule {
 
         Ok(())
     }
+
+    async fn update_metrics(&self, _txn: &mut Transaction<'_, Postgres>) {}
 }
 
 impl TestUpdateModule {
