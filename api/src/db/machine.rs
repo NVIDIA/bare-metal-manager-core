@@ -685,15 +685,8 @@ SELECT m.id FROM
 
             if search_config.include_associated_machine_id {
                 if machine.is_dpu() {
-                    let host_result =
-                        Machine::find_host_machine_id_by_dpu_machine_id(txn, &machine.id).await;
-                    machine.associated_host_machine_id = match host_result {
-                        Ok(host_machine_id) => host_machine_id,
-                        Err(e) => {
-                            tracing::error!(dpu_machine_id = %machine.id, error = %e, "Failed to lookup host id for dpu");
-                            None
-                        }
-                    };
+                    machine.associated_host_machine_id =
+                        Machine::find_host_machine_id_by_dpu_machine_id(txn, &machine.id).await?;
                 } else {
                     machine.associated_dpu_machine_id = interfaces_for_machine
                         .get(&machine.id)
@@ -947,7 +940,7 @@ SELECT m.id FROM
     pub async fn find_host_machine_id_by_dpu_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
-    ) -> CarbideResult<Option<MachineId>> {
+    ) -> Result<Option<MachineId>, DatabaseError> {
         let query = r#"SELECT machine_id FROM machine_interfaces
                 WHERE attached_dpu_machine_id=$1
                 AND attached_dpu_machine_id != machine_id"#;
