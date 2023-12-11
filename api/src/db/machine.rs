@@ -948,11 +948,9 @@ SELECT m.id FROM
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
     ) -> CarbideResult<Option<MachineId>> {
-        let query = r#"SELECT m.id From machines m
-                INNER JOIN machine_interfaces mi
-                  ON m.id = mi.machine_id
-                WHERE mi.attached_dpu_machine_id=$1
-                    AND mi.attached_dpu_machine_id != mi.machine_id"#;
+        let query = r#"SELECT machine_id FROM machine_interfaces
+                WHERE attached_dpu_machine_id=$1
+                AND attached_dpu_machine_id != machine_id"#;
 
         let machine_id: Option<DbMachineId> = sqlx::query_as(query)
             .bind(dpu_machine_id.to_string())
