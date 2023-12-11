@@ -58,9 +58,10 @@ pub async fn setup_telemetry(
             .into(),
         );
     }
-
     global_filter = global_filter
         .add_directive("sqlxmq::runner=warn".parse()?)
+        .add_directive("sqlx::query=warn".parse()?)
+        .add_directive("sqlx::extract_query_data=warn".parse()?)
         .add_directive("rustify=off".parse()?)
         .add_directive("hyper=error".parse()?)
         .add_directive("rustls=warn".parse()?)
@@ -137,19 +138,25 @@ pub async fn setup_telemetry(
             .try_init()
             .wrap_err("logging_subscriber.try_init()")?;
     } else {
-        // Create a `Filter` that prevents logs with a level below `WARN` for sqlx
-        // We use this solely for stdout and OpenTelemetry logging.
-        // We can't make it a global filter, because our postgres tracing layer requires those logs
-        let block_sqlx_filter = sqlx_query_tracing::block_sqlx_filter();
+        // Start tokio-console server. Returns a tracing-subscriber Layer.
+        let tokio_console_layer = console_subscriber::ConsoleLayer::builder()
+            .with_default_env()
+            .server_addr(([0, 0, 0, 0], console_subscriber::Server::DEFAULT_PORT))
+            .spawn();
+        // tokio-console wants "runtime=trace,tokio=trace"
+        let tokio_console_filter = tracing_subscriber::filter::Targets::new()
+            .with_default(LevelFilter::ERROR)
+            .with_target("runtime", LevelFilter::TRACE)
+            .with_target("tokio", LevelFilter::TRACE);
+
+        // Clone the EnvFilter
+        let global_filter2 = EnvFilter::from(&global_filter.to_string());
 
         // Set up the tracing subscriber
-        // Note that the order here doesn't matter: The global filtering is always
-        // applied before all "sinks" (`Layer`s), because the `.enabled()` function of
-        // all layers and filters will be called before any event is forwarded.
         tracing_subscriber::registry()
-            .with(global_filter)
-            .with(stdout_formatter.with_filter(block_sqlx_filter.clone()))
-            .with(opentelemetry_layer.with_filter(block_sqlx_filter.clone()))
+            .with(stdout_formatter.with_filter(global_filter))
+            .with(opentelemetry_layer.with_filter(global_filter2))
+            .with(tokio_console_layer.with_filter(tokio_console_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()
             .wrap_err("new tracing subscriber try_init()")?;

@@ -15,11 +15,10 @@ use std::{
     time::Duration,
 };
 
-use arc_swap::ArcSwap;
-use tracing::{error, trace, warn};
-
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use arc_swap::ArcSwap;
+use tracing::{error, trace, warn};
 
 pub struct NetworkConfigReader {
     state: Arc<NetworkConfigFetcherState>,
@@ -175,6 +174,7 @@ pub async fn fetch(
         Ok(config) => config.into_inner(),
         Err(err) => {
             return Err(eyre::Report::new(err)
+                .wrap_err(format!("forge_api: {forge_api}"))
                 .wrap_err("Error while executing the GetManagedHostNetworkConfig gRPC call"));
         }
     };

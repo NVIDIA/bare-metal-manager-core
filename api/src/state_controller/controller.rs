@@ -282,85 +282,89 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
         let handler = state_handler.clone();
         let concurrency_limiter = concurrency_limiter.clone();
 
-        let _abort_handle = task_set.spawn(
-            async move {
-                // Acquire a permit which will block more than `MAX_CONCURRENCY`
-                // tasks from running.
-                // Note that assigning the permit to a named variable is necessary
-                // to make it live until the end of the scope. Using `_` would
-                // immediately dispose the permit.
-                let _permit = concurrency_limiter
-                    .acquire()
-                    .await
-                    .expect("Semaphore can't be closed");
-
-                let mut metrics = ObjectHandlerMetrics::<IO>::default();
-
-                let start = Instant::now();
-
-                // Note that this inner async block is required to be able to use
-                // the ? operator in the inner block, and then return a `Result`
-                // from the other outer block.
-                let result: Result<(), StateHandlerError> = async {
-                    let mut txn = services.pool.begin().await?;
-                    let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
-                    let mut controller_state = io
-                        .load_controller_state(&mut txn, &object_id, &snapshot)
-                        .await?;
-                    metrics.common.state = Some(controller_state.value.clone());
-                    // Unwrap uses a very large duration as default to show something is wrong
-                    metrics.common.time_in_state = chrono::Utc::now()
-                        .signed_duration_since(controller_state.version.timestamp())
-                        .to_std()
-                        .unwrap_or(Duration::from_secs(60 * 60 * 24));
-
-                    let mut ctx = StateHandlerContext {
-                        services: &services,
-                        metrics: &mut metrics.specific,
-                    };
-
-                    let mut state_holder = ControllerStateReader::new(&mut controller_state.value);
-
-                    match handler
-                        .handle_object_state(
-                            &object_id,
-                            &mut snapshot,
-                            &mut state_holder,
-                            &mut txn,
-                            &mut ctx,
-                        )
+        let _abort_handle = task_set
+            .build_task()
+            .name(&format!("state_controller {object_id}"))
+            .spawn(
+                async move {
+                    // Acquire a permit which will block more than `MAX_CONCURRENCY`
+                    // tasks from running.
+                    // Note that assigning the permit to a named variable is necessary
+                    // to make it live until the end of the scope. Using `_` would
+                    // immediately dispose the permit.
+                    let _permit = concurrency_limiter
+                        .acquire()
                         .await
-                    {
-                        Ok(()) => {
-                            if state_holder.is_modified() {
-                                io.persist_controller_state(
-                                    &mut txn,
-                                    &object_id,
-                                    controller_state.version,
-                                    controller_state.value,
-                                )
-                                .await?;
+                        .expect("Semaphore can't be closed");
+
+                    let mut metrics = ObjectHandlerMetrics::<IO>::default();
+
+                    let start = Instant::now();
+
+                    // Note that this inner async block is required to be able to use
+                    // the ? operator in the inner block, and then return a `Result`
+                    // from the other outer block.
+                    let result: Result<(), StateHandlerError> = async {
+                        let mut txn = services.pool.begin().await?;
+                        let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
+                        let mut controller_state = io
+                            .load_controller_state(&mut txn, &object_id, &snapshot)
+                            .await?;
+                        metrics.common.state = Some(controller_state.value.clone());
+                        // Unwrap uses a very large duration as default to show something is wrong
+                        metrics.common.time_in_state = chrono::Utc::now()
+                            .signed_duration_since(controller_state.version.timestamp())
+                            .to_std()
+                            .unwrap_or(Duration::from_secs(60 * 60 * 24));
+
+                        let mut ctx = StateHandlerContext {
+                            services: &services,
+                            metrics: &mut metrics.specific,
+                        };
+
+                        let mut state_holder =
+                            ControllerStateReader::new(&mut controller_state.value);
+
+                        match handler
+                            .handle_object_state(
+                                &object_id,
+                                &mut snapshot,
+                                &mut state_holder,
+                                &mut txn,
+                                &mut ctx,
+                            )
+                            .await
+                        {
+                            Ok(()) => {
+                                if state_holder.is_modified() {
+                                    io.persist_controller_state(
+                                        &mut txn,
+                                        &object_id,
+                                        controller_state.version,
+                                        controller_state.value,
+                                    )
+                                    .await?;
+                                }
+
+                                txn.commit()
+                                    .await
+                                    .map_err(StateHandlerError::TransactionError)
                             }
-
-                            txn.commit()
-                                .await
-                                .map_err(StateHandlerError::TransactionError)
+                            Err(e) => Err(e),
                         }
-                        Err(e) => Err(e),
                     }
+                    .await;
+
+                    metrics.common.handler_latency = start.elapsed();
+
+                    if let Err(e) = &result {
+                        tracing::warn!(%object_id, error = ?e, "State handler error");
+                    }
+
+                    (metrics, result)
                 }
-                .await;
-
-                metrics.common.handler_latency = start.elapsed();
-
-                if let Err(e) = &result {
-                    tracing::warn!(%object_id, error = ?e, "State handler error");
-                }
-
-                (metrics, result)
-            }
-            .in_current_span(),
-        );
+                .in_current_span(),
+            );
     }
 
     // We want for all tasks to run to completion here and therefore can't
@@ -434,6 +438,9 @@ pub struct StateControllerHandle {
 pub enum StateControllerBuildError {
     #[error("Missing parameter {0}")]
     MissingArgument(&'static str),
+
+    #[error("Task spawn error: {0}")]
+    IOError(#[from] std::io::Error),
 }
 
 /// Default iteration time for the state controller
@@ -598,7 +605,9 @@ impl<IO: StateControllerIO> Builder<IO> {
             state_handler: self.state_handler.clone(),
             metric_holder,
         };
-        tokio::spawn(async move { controller.run().await });
+        tokio::task::Builder::new()
+            .name("state_controller")
+            .spawn(async move { controller.run().await })?;
 
         let handle = StateControllerHandle {
             _stop_sender: stop_sender,

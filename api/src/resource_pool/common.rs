@@ -100,25 +100,27 @@ impl CommonPools {
         let pool_stats: Arc<Mutex<HashMap<String, ResourcePoolStats>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let pool_stats_bg = pool_stats.clone();
-        tokio::spawn(async move {
-            loop {
-                let mut next_stats = HashMap::with_capacity(ALL_POOLS.len());
-                for name in ALL_POOLS {
-                    if let Ok(st) = stats(&db, name).await {
-                        next_stats.insert(name.to_string(), st);
+        tokio::task::Builder::new()
+            .name("resource_pool metrics")
+            .spawn(async move {
+                loop {
+                    let mut next_stats = HashMap::with_capacity(ALL_POOLS.len());
+                    for name in ALL_POOLS {
+                        if let Ok(st) = stats(&db, name).await {
+                            next_stats.insert(name.to_string(), st);
+                        }
                     }
-                }
-                *pool_stats_bg.lock().unwrap() = next_stats;
+                    *pool_stats_bg.lock().unwrap() = next_stats;
 
-                tokio::select! {
-                    _ = tokio::time::sleep(METRICS_RESOURCEPOOL_INTERVAL) => {},
-                    _ = &mut stop_receiver => {
-                        tracing::info!("CommonPool metrics stop was requested");
-                        return;
+                    tokio::select! {
+                        _ = tokio::time::sleep(METRICS_RESOURCEPOOL_INTERVAL) => {},
+                        _ = &mut stop_receiver => {
+                            tracing::info!("CommonPool metrics stop was requested");
+                            return;
+                        }
                     }
                 }
-            }
-        });
+            })?;
 
         Ok(Arc::new(Self {
             ethernet: EthernetPools {
