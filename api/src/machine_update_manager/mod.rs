@@ -213,6 +213,11 @@ impl MachineUpdateManager {
                     .collect();
             }
             current_updating_count = current_updating_machines.len();
+
+            for update_module in self.update_modules.iter() {
+                update_module.update_metrics(&mut txn).await;
+            }
+
             txn.commit().await.map_err(|e| {
                 CarbideError::GenericError(format!("Failed to create transaction: {e}"))
             })?;

@@ -126,7 +126,8 @@ impl DpuMachineUpdate {
             INNER JOIN machine_topologies mt ON m.id = mt.machine_id
             WHERE m.reprovisioning_requested IS NULL 
             AND mi.machine_id != mi.attached_dpu_machine_id 
-            AND m.controller_state != '{"state": "ready"}'
+            AND (m.controller_state != '{"state": "ready"}'
+            OR (network_status_observation->'health_status'->>'is_healthy')::boolean is false) 
             AND m.maintenance_start_time IS NULL "#.to_owned();
 
         let mut bind_index = 1;
@@ -156,6 +157,20 @@ impl DpuMachineUpdate {
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
 
         Ok(result.into_iter().map(DbDpuMachineUpdate::into).collect())
+    }
+
+    pub async fn get_fw_updates_running_count(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<i64, DatabaseError> {
+        let query = r#"SELECT COUNT(*) as count FROM machines m
+            WHERE (reprovisioning_requested->>'update_firmware')::boolean is true  
+            AND reprovisioning_requested->>'started_at' IS NOT NULL;"#;
+        let (count,): (i64,) = sqlx::query_as(query)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
+
+        Ok(count)
     }
 
     pub async fn trigger_reprovisioning_for_managed_host(
