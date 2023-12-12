@@ -16,7 +16,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 
 /// A value that is accompanied by a version field
 ///
@@ -150,7 +150,7 @@ fn now() -> DateTime<Utc> {
 
     let naive = NaiveDateTime::from_timestamp_opt(now.as_secs() as i64, now.subsec_nanos())
         .expect("out-of-range number of seconds and/or invalid nanosecond");
-    DateTime::from_utc(naive, Utc)
+    Utc.from_utc_datetime(&naive)
 }
 
 /// Error that is returned when parsing a version fails
@@ -210,7 +210,7 @@ impl FromStr for ConfigVersion {
             }
         };
 
-        let timestamp = DateTime::from_utc(datetime, Utc);
+        let timestamp = Utc.from_utc_datetime(&datetime);
 
         Ok(Self {
             version_nr,
