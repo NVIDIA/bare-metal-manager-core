@@ -115,7 +115,12 @@ impl From<Machine> for DpuFirmwareStatus {
                 .and_then(|di| di.dmi_data.as_ref())
                 .map(|dmi_data| dmi_data.product_name.clone()),
             is_healthy: machine.network_health.as_ref().map(|h| h.is_healthy),
-            state: machine.state,
+            state: machine
+                .state
+                .split_once(' ')
+                .unwrap_or_default()
+                .0
+                .to_owned(),
             maintenance: machine.maintenance_reference,
             firmware_version: machine
                 .discovery_info
