@@ -149,13 +149,12 @@ pub async fn setup_telemetry(
             .with_target("runtime", LevelFilter::TRACE)
             .with_target("tokio", LevelFilter::TRACE);
 
-        // Clone the EnvFilter
-        let global_filter2 = EnvFilter::from(&global_filter.to_string());
+        let global_filter_clone = EnvFilter::from(&global_filter.to_string());
 
         // Set up the tracing subscriber
         tracing_subscriber::registry()
             .with(stdout_formatter.with_filter(global_filter))
-            .with(opentelemetry_layer.with_filter(global_filter2))
+            .with(opentelemetry_layer.with_filter(global_filter_clone))
             .with(tokio_console_layer.with_filter(tokio_console_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()

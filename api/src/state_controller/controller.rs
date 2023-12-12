@@ -551,11 +551,11 @@ impl<IO: StateControllerIO> Builder<IO> {
                 "max_concurrency",
             ));
         }
+        let controller_name = object_type_for_metrics.unwrap_or_else(|| "undefined".to_string());
         let config = Config {
             iteration_time: self.iteration_time.unwrap_or(DEFAULT_ITERATION_TIME),
             max_concurrency: self.max_concurrency,
-            object_type_for_metrics: object_type_for_metrics
-                .unwrap_or_else(|| "undefined".to_string()),
+            object_type_for_metrics: controller_name.clone(),
         };
 
         let ipmi_tool = self
@@ -606,7 +606,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             metric_holder,
         };
         tokio::task::Builder::new()
-            .name("state_controller")
+            .name(&format!("state_controller {controller_name}"))
             .spawn(async move { controller.run().await })?;
 
         let handle = StateControllerHandle {
