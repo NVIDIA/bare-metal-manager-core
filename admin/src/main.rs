@@ -28,8 +28,8 @@ use cfg::carbide_options::BmcMachine;
 use cfg::carbide_options::BootOverrideAction;
 use cfg::carbide_options::CredentialAction;
 use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
-use cfg::carbide_options::DpuAction::FirmwareStatus;
 use cfg::carbide_options::DpuAction::Reprovision;
+use cfg::carbide_options::DpuAction::Versions;
 use cfg::carbide_options::DpuReprovision;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::MachineInterfaces;
@@ -552,7 +552,7 @@ async fn main() -> color_eyre::Result<()> {
                 });
                 dpu::handle_agent_upgrade_policy(api_config, rpc_choice).await?
             }
-            FirmwareStatus => {
+            Versions => {
                 let mut output_file = if let Some(filename) = config.output {
                     Box::new(
                         fs::OpenOptions::new()
@@ -564,7 +564,7 @@ async fn main() -> color_eyre::Result<()> {
                     Box::new(std::io::stdout()) as Box<dyn std::io::Write>
                 };
 
-                dpu::handle_firmware_status(&mut output_file, config.format, api_config).await?
+                dpu::handle_dpu_versions(&mut output_file, config.format, api_config).await?
             }
         },
         CarbideCommand::Redfish(_) => {

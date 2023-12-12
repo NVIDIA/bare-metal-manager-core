@@ -98,9 +98,11 @@ struct DpuFirmwareStatus {
     id: Option<MachineId>,
     dpu_type: Option<String>,
     is_healthy: Option<bool>,
-    firmware_version: Option<String>,
     state: String,
     maintenance: Option<String>,
+    firmware_version: Option<String>,
+    bmc_version: Option<String>,
+    bios_version: Option<String>,
 }
 
 impl From<Machine> for DpuFirmwareStatus {
@@ -113,13 +115,22 @@ impl From<Machine> for DpuFirmwareStatus {
                 .and_then(|di| di.dmi_data.as_ref())
                 .map(|dmi_data| dmi_data.product_name.clone()),
             is_healthy: machine.network_health.as_ref().map(|h| h.is_healthy),
+            state: machine.state,
+            maintenance: machine.maintenance_reference,
             firmware_version: machine
                 .discovery_info
                 .as_ref()
                 .and_then(|di| di.dpu_info.as_ref())
                 .map(|dpu| dpu.firmware_version.clone()),
-            state: machine.state,
-            maintenance: machine.maintenance_reference,
+            bmc_version: machine
+                .bmc_info
+                .as_ref()
+                .and_then(|bmc| bmc.firmware_version.clone()),
+            bios_version: machine
+                .discovery_info
+                .as_ref()
+                .and_then(|di| di.dmi_data.as_ref())
+                .map(|dmi_data| dmi_data.bios_version.clone()),
         }
     }
 }
@@ -130,9 +141,11 @@ impl From<DpuFirmwareStatus> for Row {
             value.id.unwrap_or_default().to_string(),
             value.dpu_type.unwrap_or_default(),
             value.is_healthy.unwrap_or_default().to_string(),
-            value.firmware_version.unwrap_or_default(),
             value.state,
             value.maintenance.unwrap_or_default(),
+            value.firmware_version.unwrap_or_default(),
+            value.bmc_version.unwrap_or_default(),
+            value.bios_version.unwrap_or_default(),
         ])
     }
 }
@@ -150,9 +163,11 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
         "DPU Id",
         "DPU Type",
         "Healthy",
-        "NIC FW Version",
         "State",
         "Maintenance",
+        "NIC FW Version",
+        "BMC Version",
+        "BIOS Version",
     ];
 
     table.add_row(Row::from(headers));
@@ -167,7 +182,7 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
     Box::new(table)
 }
 
-pub async fn handle_firmware_status(
+pub async fn handle_dpu_versions(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
     api_config: Config,
