@@ -150,7 +150,7 @@ pub async fn get_machines(
             include_history: false,
             include_predicted_host: false,
             only_maintenance: false,
-            find_host_by_dpu_machine_id: false,
+            include_associated_machine_id: false,
         }),
     });
     let begin_ts: DateTime<Utc> = Utc::now();

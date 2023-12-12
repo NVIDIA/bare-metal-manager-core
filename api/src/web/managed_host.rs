@@ -143,7 +143,7 @@ async fn fetch_managed_hosts<
             include_history: true,
             include_predicted_host: true,
             only_maintenance: false,
-            find_host_by_dpu_machine_id: false,
+            include_associated_machine_id: false,
         }),
     });
     let all_machines = state

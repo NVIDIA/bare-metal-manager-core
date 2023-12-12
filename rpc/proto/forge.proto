@@ -953,7 +953,7 @@ message MachineSearchConfig {
   bool include_history = 2;
   bool include_predicted_host = 3;
   bool only_maintenance = 4;
-  bool find_host_by_dpu_machine_id = 5;
+  bool include_associated_machine_id = 5;
 }
 
 message BmcMachineSearchQuery {
@@ -1051,6 +1051,10 @@ message Machine {
   google.protobuf.Timestamp last_observation_time = 16;
   optional string maintenance_reference = 17;
   optional google.protobuf.Timestamp maintenance_start_time = 18;
+
+  // Other machine ids associated with this machine
+  optional MachineId associated_host_machine_id = 19;
+  optional MachineId associated_dpu_machine_id = 20;
 }
 
 // The most recent tenant related status

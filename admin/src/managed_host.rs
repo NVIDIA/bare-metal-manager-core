@@ -297,20 +297,18 @@ pub async fn handle_show(
         show_managed_hosts(output, output_format, machines, args.ips, args.more).await?;
     } else if let Some(requested_machine_id) = requested_machine {
         let mut machines = Vec::default();
-        let requested_machine =
-            rpc::get_host_machine(requested_machine_id, api_config.clone()).await?;
+        let requested_machine = rpc::get_machine(requested_machine_id, api_config.clone()).await?;
 
-        for interface in requested_machine.interfaces.iter() {
-            if interface.primary_interface {
-                if let Some(attached_machine_id) = interface.attached_dpu_machine_id.as_ref() {
-                    let attached_machine =
-                        rpc::get_dpu_machine(attached_machine_id.to_string(), api_config.clone())
-                            .await?;
-                    machines.push(attached_machine);
-                }
-                break;
-            }
+        if let Some(associated_machine_id) = requested_machine
+            .associated_dpu_machine_id
+            .as_ref()
+            .or(requested_machine.associated_host_machine_id.as_ref())
+        {
+            let associated_machine: Machine =
+                rpc::get_machine(associated_machine_id.to_string(), api_config.clone()).await?;
+            machines.push(associated_machine);
         }
+
         machines.push(requested_machine);
         if args.fix {
             machines.retain(|m| m.maintenance_reference.is_some());
