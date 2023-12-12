@@ -12,6 +12,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::{
+    hardware_info::{DmiData, HardwareInfo},
+    machine::machine_id::MachineId,
+};
+
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
 /// only be adjusted in a backward compatible fashion.
@@ -31,6 +36,10 @@ pub struct EndpointExplorationReport {
     /// `Systems` reported by Redfish
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub systems: Vec<ComputerSystem>,
+    /// If the endpoint is a BMC that belongs to a Machine and enough data is
+    /// available to calculate the `MachineId`, this field contains the `MachineId`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<MachineId>,
 }
 
 impl EndpointExplorationReport {
@@ -43,6 +52,58 @@ impl EndpointExplorationReport {
             managers: Vec::new(),
             systems: Vec::new(),
             vendor: None,
+            machine_id: None,
+        }
+    }
+
+    /// Return `true` if the explored endpoint is a DPU
+    pub fn is_dpu(&self) -> bool {
+        self.systems
+            .get(0)
+            .map(|system| system.id == "Bluefield")
+            .unwrap_or(false)
+    }
+
+    /// Tries to generate and store a MachineId for the discovered endpoint if
+    /// if enough data for generation is available
+    pub fn generate_machine_id(&mut self) {
+        if let (true, Some(serial_number)) = (
+            self.is_dpu(),
+            self.systems
+                .get(0)
+                .and_then(|system| system.serial_number.as_ref()),
+        ) {
+            // For DPUs the discovered data contains enough information to
+            // calculate a MachineId
+            // The "Unspecified" strings are delivered as serial numbers when doing
+            // inband discovery via libudev. For compatibility we have to use
+            // the same values here.
+            let dmi_data = DmiData {
+                product_serial: serial_number.trim().to_string(),
+                chassis_serial: "Unspecified Chassis Board Serial Number".to_string(),
+                board_serial: "Unspecified Base Board Serial Number".to_string(),
+                bios_version: "".to_string(),
+                sys_vendor: "".to_string(),
+                board_name: "BlueField SoC".to_string(),
+                bios_date: "".to_string(),
+                board_version: "".to_string(),
+                product_name: "".to_string(),
+            };
+
+            let hardware_info = HardwareInfo {
+                dmi_data: Some(dmi_data),
+                machine_type: "aarch64".to_string(),
+                ..Default::default()
+            };
+
+            match MachineId::from_hardware_info(&hardware_info) {
+                Ok(machine_id) => {
+                    self.machine_id = Some(machine_id);
+                }
+                Err(error) => {
+                    tracing::error!(%error, "Can not generate MachineId for explored endpoint");
+                }
+            }
         }
     }
 }
@@ -114,6 +175,11 @@ pub struct EthernetInterface {
 mod tests {
     use super::*;
 
+    const TEST_DATA_DIR: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/model/hardware_info/test_data"
+    );
+
     #[test]
     fn serialize_endpoint_exloration_error() {
         let report =
@@ -143,5 +209,49 @@ mod tests {
             serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap(),
             report
         );
+    }
+
+    #[test]
+    fn generate_machine_id_for_dpu() {
+        let mut report = EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            last_exploration_error: None,
+            vendor: Some("Nvidia".to_string()),
+            managers: vec![Manager {
+                ethernet_interfaces: vec![],
+                id: "bmc".to_string(),
+            }],
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![],
+                id: "Bluefield".to_string(),
+                manufacturer: None,
+                model: None,
+                serial_number: Some("MT2242XZ00NX".to_string()),
+            }],
+            machine_id: None,
+        };
+        report.generate_machine_id();
+
+        let machine_id = report.machine_id.clone().unwrap();
+
+        assert_eq!(
+            machine_id.to_string(),
+            "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0"
+        );
+
+        // Check whether the MachineId is equal to what we generate inband
+        let path = format!("{}/dpu_info.json", TEST_DATA_DIR);
+        let data = std::fs::read(path).unwrap();
+        let info = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+        let hardware_info_machine_id = MachineId::from_hardware_info(&info).unwrap();
+        assert_eq!(hardware_info_machine_id.to_string(), machine_id.to_string());
+
+        // Check the MachineId serialization and deserialization
+        let serialized = serde_json::to_string(&report).unwrap();
+        assert!(serialized.contains(
+            r#""MachineId":"fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0""#
+        ));
+        let deserialized = serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap();
+        assert_eq!(deserialized.machine_id.clone().unwrap(), machine_id);
     }
 }

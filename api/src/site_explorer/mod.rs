@@ -309,13 +309,18 @@ impl SiteExplorer {
                         .await
                         .expect("Semaphore can't be closed");
 
-                    let result = endpoint_exlorer
+                    let mut result = endpoint_exlorer
                         .explore_endpoint(
                             &address,
                             &iface,
                             old_report.as_ref().map(|report| &report.1),
                         )
                         .await;
+
+                    // Try to generate a MachineId based on the retrieved data
+                    if let Ok(report) = &mut result {
+                        report.generate_machine_id();
+                    }
 
                     (address, old_report, result, start.elapsed())
                 }

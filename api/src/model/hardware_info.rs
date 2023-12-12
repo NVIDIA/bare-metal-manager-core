@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{try_convert_vec, RpcDataConversionError};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HardwareInfo {
     #[serde(default)]
     pub network_interfaces: Vec<NetworkInterface>,
