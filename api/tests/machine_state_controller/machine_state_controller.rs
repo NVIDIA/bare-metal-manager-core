@@ -74,9 +74,8 @@ impl StateHandler for TestMachineStateHandler {
 }
 
 #[sqlx::test(fixtures(
-    "../../fixtures/create_domain",
-    "../../fixtures/create_vpc",
-    "../../fixtures/create_network_segment",
+    path = "../fixtures",
+    scripts("create_domain", "create_vpc", "create_network_segment")
 ))]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool.clone()).await;

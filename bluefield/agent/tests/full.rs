@@ -20,7 +20,7 @@ use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::Router;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use tokio::sync::Mutex;
 
 mod common;
@@ -243,5 +243,5 @@ fn now() -> DateTime<Utc> {
 
     let naive = NaiveDateTime::from_timestamp_opt(now.as_secs() as i64, now.subsec_nanos())
         .expect("out-of-range number of seconds and/or invalid nanosecond");
-    DateTime::from_utc(naive, Utc)
+    Utc.from_utc_datetime(&naive)
 }
