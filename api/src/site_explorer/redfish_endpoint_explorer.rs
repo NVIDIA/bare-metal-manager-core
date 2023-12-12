@@ -68,6 +68,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
+            machine_id: None,
             managers: vec![manager],
             systems: vec![system],
             vendor,

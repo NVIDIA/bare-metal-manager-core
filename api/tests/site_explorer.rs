@@ -204,6 +204,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 endpoint_type: EndpointType::Bmc,
                 last_exploration_error: None,
                 vendor: Some("NVIDIA".to_string()),
+                machine_id: None,
                 managers: Vec::new(),
                 systems: Vec::new(),
             }),
@@ -220,6 +221,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 endpoint_type: EndpointType::Bmc,
                 last_exploration_error: None,
                 vendor: Some("Vendor3".to_string()),
+                machine_id: None,
                 managers: Vec::new(),
                 systems: Vec::new(),
             }),
@@ -300,6 +302,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
             vendor: Some("Vendor2".to_string()),
+            machine_id: None,
             managers: Vec::new(),
             systems: Vec::new(),
         });
