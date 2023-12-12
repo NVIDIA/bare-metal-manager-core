@@ -28,6 +28,7 @@ use cfg::carbide_options::BmcMachine;
 use cfg::carbide_options::BootOverrideAction;
 use cfg::carbide_options::CredentialAction;
 use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
+use cfg::carbide_options::DpuAction::FirmwareStatus;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuReprovision;
 use cfg::carbide_options::IpAction;
@@ -550,6 +551,20 @@ async fn main() -> color_eyre::Result<()> {
                     AgentUpgradePolicyChoice::UpDown => forgerpc::AgentUpgradePolicy::UpDown,
                 });
                 dpu::handle_agent_upgrade_policy(api_config, rpc_choice).await?
+            }
+            FirmwareStatus => {
+                let mut output_file = if let Some(filename) = config.output {
+                    Box::new(
+                        fs::OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(filename)?,
+                    ) as Box<dyn std::io::Write>
+                } else {
+                    Box::new(std::io::stdout()) as Box<dyn std::io::Write>
+                };
+
+                dpu::handle_firmware_status(&mut output_file, config.format, api_config).await?
             }
         },
         CarbideCommand::Redfish(_) => {
