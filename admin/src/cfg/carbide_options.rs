@@ -140,6 +140,8 @@ pub enum DpuAction {
     Reprovision(DpuReprovision),
     #[clap(about = "Get or set forge-dpu-agent upgrade policy")]
     AgentUpgradePolicy(AgentUpgrade),
+    #[clap(about = "View DPU firmware status")]
+    Versions,
 }
 
 #[derive(Parser, Debug)]
