@@ -65,7 +65,7 @@ impl EndpointExplorationReport {
     }
 
     /// Tries to generate and store a MachineId for the discovered endpoint if
-    /// if enough data for generation is available
+    /// enough data for generation is available
     pub fn generate_machine_id(&mut self) {
         if let (true, Some(serial_number)) = (
             self.is_dpu(),
