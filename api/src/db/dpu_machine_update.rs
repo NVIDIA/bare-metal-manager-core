@@ -163,7 +163,7 @@ impl DpuMachineUpdate {
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<i64, DatabaseError> {
         let query = r#"SELECT COUNT(*) as count FROM machines m
-            WHERE reprovisioning_requested->>'initiator' LIKE 'AutomaticDpuFirmwareUpdate%' 
+            WHERE (reprovisioning_requested->>'update_firmware')::boolean is true  
             AND reprovisioning_requested->>'started_at' IS NOT NULL;"#;
         let (count,): (i64,) = sqlx::query_as(query)
             .fetch_one(&mut **txn)
