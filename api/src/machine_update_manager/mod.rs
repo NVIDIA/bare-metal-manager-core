@@ -23,6 +23,11 @@ use std::{
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::sync::oneshot;
 
+use self::{
+    dpu_nic_firmware::DpuNicFirmwareUpdate,
+    machine_update_module::{DpuReprovisionInitiator, MachineUpdateModule},
+    metrics::MachineUpdateManagerMetrics,
+};
 use crate::{
     cfg::CarbideConfig,
     db::{
@@ -32,12 +37,6 @@ use crate::{
     },
     model::machine::machine_id::MachineId,
     CarbideError, CarbideResult,
-};
-
-use self::{
-    dpu_nic_firmware::DpuNicFirmwareUpdate,
-    machine_update_module::{DpuReprovisionInitiator, MachineUpdateModule},
-    metrics::MachineUpdateManagerMetrics,
 };
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
@@ -129,15 +128,17 @@ impl MachineUpdateManager {
     }
 
     /// Start the MachineUpdateManager and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the MachineUpdateManager when dropped.
-    pub fn start(self) -> oneshot::Sender<i32> {
+    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if !self.update_modules.is_empty() {
-            tokio::spawn(async move { self.run(stop_receiver).await });
+            tokio::task::Builder::new()
+                .name("machine_update_manager")
+                .spawn(async move { self.run(stop_receiver).await })?;
         } else {
             tracing::info!("No modules configured.  Machine updates disabled");
         }
-        stop_sender
+        Ok(stop_sender)
     }
 
     async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {

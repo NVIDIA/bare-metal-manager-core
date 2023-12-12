@@ -12,6 +12,7 @@
 
 #![allow(dead_code)]
 #![allow(unused_variables)]
+#![allow(unused_imports)]
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -4316,15 +4317,17 @@ where
     let root_cafile_path_clone = root_cafile_path.clone();
     let admin_root_cafile_path_clone = admin_root_cafile_path.clone();
 
-    let mut tls_acceptor = tokio::task::spawn_blocking(move || {
-        get_tls_acceptor(
-            identity_pemfile_path_clone,
-            identity_keyfile_path_clone,
-            root_cafile_path_clone,
-            admin_root_cafile_path_clone,
-        )
-    })
-    .await?;
+    let mut tls_acceptor = tokio::task::Builder::new()
+        .name("get_tls_acceptor init")
+        .spawn_blocking(move || {
+            get_tls_acceptor(
+                identity_pemfile_path_clone,
+                identity_keyfile_path_clone,
+                root_cafile_path_clone,
+                admin_root_cafile_path_clone,
+            )
+        })?
+        .await?;
 
     let listener = TcpListener::bind(listen_port).await?;
     let mut http = Http::new();
@@ -4339,15 +4342,13 @@ where
     };
 
     let router = axum::Router::new()
-        .route(
+        .route_service(
             "/forge.Forge/*rpc",
-            axum::routing::any_service(rpc::forge_server::ForgeServer::from_arc(
-                api_service.clone(),
-            )),
+            rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
         )
-        .route(
+        .route_service(
             "/grpc.reflection.v1alpha.ServerReflection/*r",
-            axum::routing::any_service(api_reflection_service),
+            api_reflection_service,
         )
         .nest_service("/admin", crate::web::routes(api_service.clone()));
 
@@ -4355,7 +4356,7 @@ where
         .layer(LogLayer::new(meter.clone()))
         .layer(authn_layer)
         .layer(authz_layer)
-        .service(router);
+        .service(router.clone());
 
     let connection_total_counter = meter
         .u64_counter("carbide-api.tls.connection_attempted")
@@ -4402,15 +4403,22 @@ where
             let identity_keyfile_path_clone = identity_keyfile_path.clone();
             let root_cafile_path_clone = root_cafile_path.clone();
             let admin_root_cafile_path_clone = admin_root_cafile_path.clone();
-            tls_acceptor = tokio::task::spawn_blocking(move || {
-                get_tls_acceptor(
-                    identity_pemfile_path_clone,
-                    identity_keyfile_path_clone,
-                    root_cafile_path_clone,
-                    admin_root_cafile_path_clone,
-                )
-            })
-            .await?;
+            let fut_tls_acceptor_new_certs = tokio::task::Builder::new()
+                .name("get_tls_acceptor refresh")
+                .spawn_blocking(move || {
+                    get_tls_acceptor(
+                        identity_pemfile_path_clone,
+                        identity_keyfile_path_clone,
+                        root_cafile_path_clone,
+                        admin_root_cafile_path_clone,
+                    )
+                });
+            match fut_tls_acceptor_new_certs {
+                Ok(next) => tls_acceptor = next.await?,
+                Err(err) => {
+                    tracing::error!("Failed spawning blocking task get_tls_acceptor refresh")
+                }
+            }
         }
 
         let tls_acceptor = tls_acceptor.clone();
@@ -4418,7 +4426,7 @@ where
         let app = app.clone();
         let connection_succeeded_counter = connection_succeeded_counter.clone();
         let connection_failed_counter = connection_failed_counter.clone();
-        tokio::spawn(async move {
+        tokio::task::Builder::new().name("http listener").spawn(async move {
             if let Some(tls_acceptor) = tls_acceptor {
                 match tls_acceptor.accept(conn).await {
                     Ok(conn) => {
@@ -4458,7 +4466,7 @@ where
                     tracing::debug!(%error, "error servicing plain http connection");
                 }
             }
-        });
+        })?;
     }
 }
 
@@ -4789,14 +4797,14 @@ where
             meter.clone(),
             Arc::new(RedfishEndpointExplorer::new(shared_redfish_pool.clone())),
         );
-        let _site_explorer_stop_handle = site_explorer.start();
+        let _site_explorer_stop_handle = site_explorer.start()?;
 
         let machine_update_manager = MachineUpdateManager::new(
             database_connection.clone(),
             carbide_config.clone(),
             meter.clone(),
         );
-        let _machine_update_manager_stop_handle = machine_update_manager.start();
+        let _machine_update_manager_stop_handle = machine_update_manager.start()?;
 
         let listen_addr = carbide_config.listen;
         api_handler(api_service, listen_addr, meter).await

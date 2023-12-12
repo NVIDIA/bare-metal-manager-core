@@ -86,14 +86,16 @@ impl SiteExplorer {
     }
 
     /// Start the SiteExplorer and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the SiteExplorer when dropped.
-    pub fn start(self) -> oneshot::Sender<i32> {
+    pub fn start(self) -> eyre::Result<oneshot::Sender<i32>> {
         let (stop_sender, stop_receiver) = oneshot::channel();
 
         if self.enabled {
-            tokio::spawn(async move { self.run(stop_receiver).await });
+            tokio::task::Builder::new()
+                .name("site_explorer")
+                .spawn(async move { self.run(stop_receiver).await })?;
         }
 
-        stop_sender
+        Ok(stop_sender)
     }
 
     async fn run(&self, mut stop_receiver: oneshot::Receiver<i32>) {

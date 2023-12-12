@@ -321,16 +321,18 @@ pub async fn run(
 
     // Spin up the webserver which servers `/metrics` requests
     if let Some(metrics_address) = carbide_config.metrics_endpoint {
-        tokio::spawn(async move {
-            if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
-                address: metrics_address,
-                registry: prometheus_registry,
-            })
-            .await
-            {
-                tracing::error!("Metrics endpoint failed with error: {}", e);
-            }
-        });
+        tokio::task::Builder::new()
+            .name("metrics_endpoint")
+            .spawn(async move {
+                if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
+                    address: metrics_address,
+                    registry: prometheus_registry,
+                })
+                .await
+                {
+                    tracing::error!("Metrics endpoint failed with error: {}", e);
+                }
+            })?;
     }
 
     let forge_vault_client = setup::create_vault_client(meter.clone()).await?;

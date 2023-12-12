@@ -105,6 +105,7 @@ services:
     ports:
       - 1079:1079
       - 1080:1080
+      - 6669:6669
     environment:
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
