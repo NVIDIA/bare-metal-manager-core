@@ -20,4 +20,137 @@
 	<tr><th>NIC Firmware update discovery</th><td>{% if dpu_nic_firmware_initial_update_enabled %}Enabled{% else %}Disabled{% endif %}</td></tr>
 	<tr><th>NIC Firmware update reprovisioning</th><td>{% if dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td></tr>
 </table>
+
+<h2 style="margin-left:10%">Carbide (API) Configuration</h2>
+<table>
+  <tr><td>Listen Address</td><td>{{ carbide_config.listen.to_string() }}</td></tr>
+  <tr><td>Metrics Endpoint</td><td>
+      {% match carbide_config.metrics_endpoint %}
+        {% when Some with (val) %}
+          {{ val.to_string() }}
+        {% else %}
+          No value found
+      {% endmatch %}</td></tr>
+  <tr><td>OTLP Endpoint</td><td>
+      {% match carbide_config.otlp_endpoint %}
+        {% when Some with (val) %}
+          {{ val }}
+        {% else %}
+          Not Configured
+        {% endmatch %}
+    </td></tr>
+  <tr><td>Database URL</td><td>{{ carbide_config.database_url }}</td></tr>
+  <tr><td>IB Fabric</td><td>
+      {% match carbide_config.enable_ib_fabric %}
+        {% when Some with (true) %}
+          Enabled
+        {% else %} 
+          Disabled 
+      {% endmatch %}</td></tr>
+  <tr><td>BMC Machine</td><td>{% if carbide_config.enable_bmc_machine %}Enabled{% else %}Disabled{% endif %}</td></tr>
+  <tr><td>Rapid Iterations</td><td>{% if carbide_config.rapid_iterations %}Enabled{% else %}Disabled{% endif %}</td></tr>
+  <tr><td>ASN</td><td>{{ carbide_config.asn }}</td></tr>
+  <tr><td>DHCP Servers</td><td>{{ carbide_config.dhcp_servers.join(", ") }}</td></tr>
+  <tr><td>Route Server State</td><td>{% if carbide_config.enable_route_servers %}Enabled{% else %}Disabled{% endif %}</td></tr>
+  <tr><td>Route Servers</td><td>{{ carbide_config.route_servers.join(", ") }}</td></tr>
+  <tr><td>Deny Prefixes</td><td>
+      {% if carbide_config.deny_prefixes.len() != 0 %}
+      {% for prefix in carbide_config.deny_prefixes %}
+        {{ prefix }}, 
+      {% endfor %}
+      {% else %}
+        Not Configured
+      {% endif %}
+    </td></tr>
+  <tr><td>Site Fabric Prefixes</td><td>
+      {% if carbide_config.site_fabric_prefixes.len() != 0 %}
+      {% for prefix in carbide_config.site_fabric_prefixes %}
+        {{ prefix }}, 
+      {% endfor %}
+      {% else %}
+        Not Configured
+      {% endif %}
+    </td></tr>
+  <tr><td>Networks</td><td>
+      {% match carbide_config.networks %}
+      {% when Some with (val) %}
+      {% for network in val.keys() %}
+        {{ network }}, 
+      {% endfor %}
+      {% else %}
+        Not Configured
+      {% endmatch %}
+    </td></tr>
+  <tr><td>DPU IPMI Reboot Args</td><td>
+      {% match carbide_config.dpu_ipmi_reboot_args %}
+      {% when Some with (val) %}
+        {{ val.join(", ") }}, 
+      {% else %}
+        Not Configured
+      {% endmatch %}
+    </td></tr>
+  <tr><td>DPU IPMI Tool Impl</td><td>
+      {% match carbide_config.dpu_impi_tool_impl %}
+      {% when Some with (val) %}
+        {{ val }}, 
+      {% else %}
+        Not Configured
+      {% endmatch %}
+    </td></tr>
+  <tr><td>DPU IPMI Reboot Attempt</td><td>
+      {% match carbide_config.dpu_ipmi_reboot_attempts %}
+      {% when Some with (val) %}
+        {{ val }}, 
+      {% else %}
+        Not Configured (Default: 0)
+      {% endmatch %}
+    </td></tr>
+  <tr><td>Initial Domain Name</td><td>
+      {% match carbide_config.initial_domain_name %}
+      {% when Some with (val) %}
+        {{ val }}
+      {% else %}
+        Not Configured
+      {% endmatch %}
+    </td></tr>
+  <tr><td>Initial DPU Agent Upgrade Policy</td><td>
+      {% match carbide_config.initial_dpu_agent_upgrade_policy %}
+      {% when Some with (val) %}
+        {{ val.to_string() }}
+      {% else %}
+        Not Configured (Default: Off)
+      {% endmatch %}
+    </td></tr>
+  <tr><td>DPU NIC Firmware Update Version</td><td>
+      {% match carbide_config.dpu_nic_firmware_update_version %}
+      {% when Some with (val) %}
+      <table>
+      {% for (name, version) in val %}
+        <tr><td>{{ name }}</td>
+        <td>{{ version }}</td></tr>
+      {% endfor %}
+      </table>
+      {% else %}
+        Not Configured
+      {% endmatch %}
+    </td></tr>
+  <tr><td>DPU NIC Initial Update</td><td>{% if carbide_config.dpu_nic_firmware_initial_update_enabled %}Enabled{% else %}Disabled{% endif %}</td></tr>
+  <tr><td>DPU NIC Reprovision Update</td><td>{% if carbide_config.dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td></tr>
+  <tr><td>Max Concurrent Machine Update</td><td>
+      {% match carbide_config.max_concurrent_machine_updates %}
+      {% when Some with (val) %}
+        {{ val }}
+      {% else %}
+        Not Configured (Default: 0)
+      {% endmatch %}
+    </td></tr>
+  <tr><td>Machine Update Runtime Interval</td><td>
+      {% match carbide_config.machine_update_run_interval %}
+      {% when Some with (val) %}
+        {{ val }}
+      {% else %}
+        Not Configured (Default: 0)
+      {% endmatch %}
+    </td></tr>
+</table>
 {% endblock %}
