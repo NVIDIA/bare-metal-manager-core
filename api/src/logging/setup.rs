@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use eyre::WrapErr;
 use opentelemetry::{
@@ -141,6 +141,7 @@ pub async fn setup_telemetry(
         // Start tokio-console server. Returns a tracing-subscriber Layer.
         let tokio_console_layer = console_subscriber::ConsoleLayer::builder()
             .with_default_env()
+            .retention(Duration::from_secs(60))
             .server_addr(([0, 0, 0, 0], console_subscriber::Server::DEFAULT_PORT))
             .spawn();
         // tokio-console wants "runtime=trace,tokio=trace"
