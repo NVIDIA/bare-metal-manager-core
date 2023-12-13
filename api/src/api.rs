@@ -165,7 +165,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     tls_config: ApiTlsConfig,
     pub(crate) machine_update_config: MachineUpdateConfig,
     ib_fabric_manager: Arc<dyn IBFabricManager>,
-    runtime_config: Arc<CarbideConfig>,
+    pub(crate) runtime_config: Arc<CarbideConfig>,
 }
 
 pub struct ApiTlsConfig {

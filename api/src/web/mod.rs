@@ -20,11 +20,12 @@ use axum::routing::{get, post, Router};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use http::{Request, StatusCode};
-use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{self as forgerpc};
 use tower_http::normalize_path::NormalizePath;
 
 use crate::api::Api;
+use crate::cfg::CarbideConfig;
 use crate::ethernet_virtualization::EthVirtData;
 
 mod domain;
@@ -133,6 +134,7 @@ struct Index {
     eth_data: EthVirtData,
     dpu_nic_firmware_initial_update_enabled: bool,
     dpu_nic_firmware_reprovision_update_enabled: bool,
+    carbide_config: CarbideConfig,
 }
 
 pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
@@ -167,7 +169,9 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
             .dpu_nic_firmware_reprovision_update_enabled,
 
         agent_upgrade_policy,
+        carbide_config: (*state.runtime_config).clone(),
     };
+
     (StatusCode::OK, Html(index.render().unwrap()))
 }
 
