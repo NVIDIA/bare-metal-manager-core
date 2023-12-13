@@ -36,7 +36,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         ..Default::default()
     };
     use RedfishCommand::*;
-    let pool = libredfish::RedfishClientPool::builder().build()?;
+    let pool = libredfish::RedfishClientPool::builder()
+        .proxy(std::env::var("REDFISH_PROXY").ok())
+        .build()?;
     let redfish: Box<dyn Redfish> = match action.command.clone() {
         ChangeBmcPassword(_) => pool.create_standard_client(endpoint)?,
         _ => pool.create_client(endpoint).await?,

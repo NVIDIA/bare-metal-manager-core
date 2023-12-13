@@ -27,7 +27,7 @@ dependencies = [
  "clap_complete",
  "color-eyre",
  "forge-version",
- "libredfish",
+ "libredfish 0.15.0",
  "prettytable-rs",
  "rpc",
  "serde",
@@ -773,7 +773,7 @@ dependencies = [
  "axum",
  "axum-server",
  "clap 4.4.11",
- "libredfish",
+ "libredfish 0.14.3",
  "serde",
  "serde_json",
  "tokio",
@@ -854,7 +854,7 @@ dependencies = [
  "itertools 0.12.0",
  "jsonwebtoken",
  "lazy_static",
- "libredfish",
+ "libredfish 0.14.3",
  "mac_address",
  "num_cpus",
  "once_cell",
@@ -2597,7 +2597,7 @@ dependencies = [
  "forge-version",
  "http",
  "hyper",
- "libredfish",
+ "libredfish 0.14.3",
  "opentelemetry 0.20.0",
  "opentelemetry-otlp 0.13.0",
  "opentelemetry-prometheus 0.13.0",
@@ -3183,6 +3183,25 @@ name = "libredfish"
 version = "0.14.3"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
 checksum = "e7eb8156c6fbc8f9262e9bce28a51af05333d1aac89f0cd4715f4ed61245ed38"
+dependencies = [
+ "async-trait",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_with",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "version-compare",
+]
+
+[[package]]
+name = "libredfish"
+version = "0.15.0"
+source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
+checksum = "dfbff8ff3a919426e3cf9c4ae467a857cbca6934076b98c468e24870a919287b"
 dependencies = [
  "async-trait",
  "log",
@@ -4957,6 +4976,7 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-rustls 0.24.1",
+ "tokio-socks",
  "tokio-util 0.7.10",
  "tower-service",
  "url",
@@ -6590,6 +6610,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
 dependencies = [
  "rustls 0.21.10",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-socks"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51165dfa029d2a65969413a6cc96f354b86b464498702f174a4efa13608fd8c0"
+dependencies = [
+ "either",
+ "futures-util",
+ "thiserror",
  "tokio",
 ]
 
