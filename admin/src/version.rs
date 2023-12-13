@@ -59,7 +59,6 @@ pub async fn handle_show_version(
         rv!(table, config, deny_prefixes);
         rv!(table, config, site_fabric_prefixes);
         rv!(table, config, networks);
-        r!(table, config, dpu_ipmi_reboot_args);
         r!(table, config, dpu_ipmi_tool_impl);
         r!(table, config, dpu_ipmi_reboot_attempt);
         table.add_row(Row::new(vec![

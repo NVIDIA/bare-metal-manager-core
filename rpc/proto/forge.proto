@@ -256,7 +256,8 @@ message RuntimeConfig {
     // Only name. Rest config can be read from network-segment command.
     repeated string networks = 13;
 
-    string dpu_ipmi_reboot_args = 14;
+    // Remove ipmi reboot args as we no longer are going to be using overrides
+    // string dpu_ipmi_reboot_args = 14;
     string dpu_ipmi_tool_impl = 15;
     uint32 dpu_ipmi_reboot_attempt = 16;
 
