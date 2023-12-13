@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
+
 use ::rpc::{forge::MachineType, Machine, MachineId};
 use prettytable::{row, Row, Table};
 use serde::Serialize;
@@ -191,13 +193,44 @@ pub async fn handle_dpu_versions(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
     api_config: Config,
+    updates_only: bool,
 ) -> CarbideCliResult<()> {
+    let expected_versions: HashMap<String, String> = if updates_only {
+        let bi = rpc::version(&api_config, true).await?;
+        let rc = bi.runtime_config.unwrap_or_default();
+        rc.dpu_nic_firmware_update_version
+    } else {
+        HashMap::default()
+    };
+
     let dpus = rpc::get_all_machines(api_config, false)
         .await?
         .machines
-        .iter()
+        .into_iter()
         .filter(|m| m.machine_type() == MachineType::Dpu)
-        .cloned()
+        .filter(|m| {
+            if updates_only {
+                let product_name = m
+                    .discovery_info
+                    .as_ref()
+                    .and_then(|di| di.dmi_data.as_ref())
+                    .map(|dmi_data| dmi_data.product_name.clone())
+                    .unwrap_or_default();
+
+                if let Some(expected_version) = expected_versions.get(&product_name) {
+                    expected_version
+                        != m.discovery_info
+                            .as_ref()
+                            .and_then(|di| di.dpu_info.as_ref())
+                            .map(|dpu| dpu.firmware_version.as_str())
+                            .unwrap_or("")
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        })
         .collect();
 
     match output_format {
