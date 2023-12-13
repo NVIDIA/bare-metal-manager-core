@@ -15,46 +15,32 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-use utils::cmd::{CmdError, TokioCmd};
+use utils::cmd::{CmdError, CmdResult, TokioCmd};
 
 use crate::{db::bmc_metadata::UserRoles, model::machine::machine_id::MachineId};
 
 #[async_trait]
 pub trait IPMITool: Send + Sync + 'static {
-    async fn restart(&self, machine_id: &MachineId, bmc_ip: String) -> Result<(), eyre::Report>;
+    async fn restart(
+        &self,
+        machine_id: &MachineId,
+        bmc_ip: String,
+        legacy_boot: bool,
+    ) -> Result<(), eyre::Report>;
 }
 
 pub struct IPMIToolImpl<C: CredentialProvider> {
     credential_provider: Arc<C>,
-    ipmi_reboot_commands: Vec<Vec<String>>,
     attempts: u32,
 }
 
 impl<C: CredentialProvider> IPMIToolImpl<C> {
-    const DPU_IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 chassis power reset";
+    const IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 chassis power reset";
     const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
 
-    pub fn new(
-        credential_provider: Arc<C>,
-        ipmi_reboot_args: &Option<Vec<String>>,
-        attempts: &Option<u32>,
-    ) -> Self {
-        let ipmi_reboot_args = match ipmi_reboot_args {
-            Some(commands) => commands.to_owned(),
-            None => vec![
-                Self::DPU_LEGACY_IPMITOOL_COMMAND_ARGS.to_owned(),
-                Self::DPU_IPMITOOL_COMMAND_ARGS.to_owned(),
-            ],
-        };
-
-        let ipmi_reboot_args: Vec<Vec<String>> = ipmi_reboot_args
-            .into_iter()
-            .map(|s| s.split(' ').map(str::to_owned).collect())
-            .collect();
-
+    pub fn new(credential_provider: Arc<C>, attempts: &Option<u32>) -> Self {
         IPMIToolImpl {
             credential_provider,
-            ipmi_reboot_commands: ipmi_reboot_args,
             attempts: attempts.unwrap_or(3),
         }
     }
@@ -62,7 +48,12 @@ impl<C: CredentialProvider> IPMIToolImpl<C> {
 
 #[async_trait]
 impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
-    async fn restart(&self, machine_id: &MachineId, bmc_ip: String) -> Result<(), eyre::Report> {
+    async fn restart(
+        &self,
+        machine_id: &MachineId,
+        bmc_ip: String,
+        legacy_boot: bool,
+    ) -> Result<(), eyre::Report> {
         let credentials = self
             .credential_provider
             .get_credentials(CredentialKey::Bmc {
@@ -78,37 +69,27 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
                 )
             })?;
 
-        let (username, password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        // cmd line args that are filled in from the db
-        let prefix_args: Vec<String> = vec!["-H", &bmc_ip, "-U", &username, "-E"]
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-
         let mut errors: Vec<CmdError> = Vec::default();
-        for command in self.ipmi_reboot_commands.iter() {
-            let mut args = prefix_args.clone();
-            args.extend(command.clone());
 
-            let cmd = TokioCmd::new("/usr/bin/ipmitool")
-                .args(&args)
-                .attempts(self.attempts);
-
-            tracing::info!("Running command: {:?}", cmd);
-
-            match cmd.env("IPMITOOL_PASSWORD", &password).output().await {
-                Ok(output) => {
-                    tracing::info!("IPMITool succeeded with output: {}", output);
-                    return Ok(());
-                }
-                Err(e) => {
-                    tracing::info!("IPMITool Failed with error: {e}");
-                    errors.push(e);
-                }
+        if legacy_boot {
+            match self
+                .execute_ipmitool_command(
+                    Self::DPU_LEGACY_IPMITOOL_COMMAND_ARGS,
+                    &bmc_ip,
+                    &credentials,
+                )
+                .await
+            {
+                Ok(_) => return Ok(()),   // return early if we get a successful response
+                Err(e) => errors.push(e), // add error and move on if not
             }
+        }
+        match self
+            .execute_ipmitool_command(Self::IPMITOOL_COMMAND_ARGS, &bmc_ip, &credentials)
+            .await
+        {
+            Ok(_) => return Ok(()),   // return early if we get a successful response
+            Err(e) => errors.push(e), // add error and move on if not
         }
 
         let result = errors.pop();
@@ -127,11 +108,44 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
     }
 }
 
+impl<C: CredentialProvider + 'static> IPMIToolImpl<C> {
+    async fn execute_ipmitool_command(
+        &self,
+        command: &str,
+        bmc_ip: &str,
+        credentials: &Credentials,
+    ) -> CmdResult<String> {
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        // cmd line args that are filled in from the db
+        let prefix_args: Vec<String> = vec!["-H", bmc_ip, "-U", username, "-E"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+
+        let mut args = prefix_args.to_owned();
+        args.extend(command.split(' ').map(str::to_owned));
+        let cmd = TokioCmd::new("/usr/bin/ipmitool")
+            .args(&args)
+            .attempts(self.attempts);
+
+        tracing::info!("Running command: {:?}", cmd);
+        cmd.env("IPMITOOL_PASSWORD", password).output().await
+    }
+}
+
 pub struct IPMIToolTestImpl {}
 
 #[async_trait]
 impl IPMITool for IPMIToolTestImpl {
-    async fn restart(&self, _machine_id: &MachineId, _bmc_ip: String) -> Result<(), eyre::Report> {
+    async fn restart(
+        &self,
+        _machine_id: &MachineId,
+        _bmc_ip: String,
+        _legacy_boot: bool,
+    ) -> Result<(), eyre::Report> {
         Ok(())
     }
 }
@@ -166,22 +180,8 @@ mod test {
     #[test]
     pub fn test_ipmitool_new() {
         let cp = Arc::new(TestCredentialProvider {});
-        let tool = super::IPMIToolImpl::new(cp, &None, &Some(1));
+        let tool = super::IPMIToolImpl::new(cp, &Some(1));
 
-        let first_command: Vec<&str> =
-            super::IPMIToolImpl::<TestCredentialProvider>::DPU_LEGACY_IPMITOOL_COMMAND_ARGS
-                .split(' ')
-                .collect();
-        assert!(first_command.iter().eq(tool.ipmi_reboot_commands[0].iter()));
-
-        let second_command: Vec<&str> =
-            super::IPMIToolImpl::<TestCredentialProvider>::DPU_IPMITOOL_COMMAND_ARGS
-                .split(' ')
-                .collect();
-        assert!(second_command
-            .iter()
-            .eq(tool.ipmi_reboot_commands[1].iter()));
-
-        assert!(tool.ipmi_reboot_commands.get(2).is_none());
+        assert_eq!(tool.attempts, 1);
     }
 }

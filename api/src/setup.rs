@@ -132,7 +132,6 @@ pub fn create_ipmi_tool<C: CredentialProvider + 'static>(
     } else {
         Arc::new(IPMIToolImpl::new(
             credential_provider,
-            &carbide_config.dpu_ipmi_reboot_args,
             &carbide_config.dpu_ipmi_reboot_attempts,
         ))
     }
