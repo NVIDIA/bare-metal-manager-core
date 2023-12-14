@@ -53,7 +53,7 @@ pub mod forge_tls_client;
 pub mod protos;
 
 pub mod forge_resolver;
-pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = include_bytes!("protos/forge.bin");
+pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("forge");
 
 pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     let mut expected = Vec::new();
