@@ -45,7 +45,11 @@ pub fn build() {
     println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
 
     // Only re-calculate all of this when there's a new commit
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    // CARGO_MANIFEST_DIR points to version, so to get to the repository root we need ..
+    println!(
+        "cargo:rerun-if-changed={}/../.git/HEAD",
+        env!("CARGO_MANIFEST_DIR")
+    );
 }
 
 // If the current user is not the owner of the repo root (containing .git), then
@@ -127,15 +131,15 @@ macro_rules! v {
 /// Version as a string. `version::build()` must have been called previously in build script.
 #[macro_export]
 macro_rules! version {
-    () => {
-        format!(
-            "build_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
-            option_env!("FORGE_BUILD_GIT_TAG").unwrap_or_default(),
-            option_env!("FORGE_BUILD_DATE").unwrap_or_default(),
-            option_env!("FORGE_BUILD_GIT_HASH").unwrap_or_default(),
-            option_env!("FORGE_BUILD_RUSTC_VERSION").unwrap_or_default(),
-            option_env!("FORGE_BUILD_USER").unwrap_or_default(),
-            option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default(),
-        );
-    };
-}
+     () => {
+         format!(
+             "build_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
+             option_env!("FORGE_BUILD_GIT_TAG").unwrap_or_default(),
+             option_env!("FORGE_BUILD_DATE").unwrap_or_default(),
+             option_env!("FORGE_BUILD_GIT_HASH").unwrap_or_default(),
+             option_env!("FORGE_BUILD_RUSTC_VERSION").unwrap_or_default(),
+             option_env!("FORGE_BUILD_USER").unwrap_or_default(),
+             option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default(),
+         );
+     };
+ }
