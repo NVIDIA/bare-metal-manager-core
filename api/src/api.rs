@@ -5141,7 +5141,7 @@ impl Default for ServiceConfig {
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
             max_db_connections: 1000,
             dpu_wait_time: Duration::minutes(5),
-            host_wait_time: Duration::minutes(15),
+            host_wait_time: Duration::minutes(30),
             power_down_wait: Duration::seconds(15),
             dpu_up_threshold: Duration::minutes(5),
             failure_retry_time: Duration::minutes(20),
