@@ -125,11 +125,13 @@ pub async fn run(
                         &agent.hbn.root_dir,
                         conf,
                         agent.hbn.skip_reload,
-                    ) {
+                    )
+                    .await
+                    {
                         Ok(has_changed) => {
                             has_changed_configs = has_changed;
                             tenant_peers = ethernet_virtualization::tenant_peers(conf);
-                            if let Err(err) = mtu::ensure() {
+                            if let Err(err) = mtu::ensure().await {
                                 tracing::error!("Error reading/setting MTU for p0 or p1: {err}");
                             }
 
@@ -142,7 +144,7 @@ pub async fn run(
                                 status_out.instance_config_version =
                                     Some(conf.instance_config_version.clone());
                             }
-                            match ethernet_virtualization::interfaces(conf, mac_address) {
+                            match ethernet_virtualization::interfaces(conf, mac_address).await {
                                 Ok(interfaces) => status_out.interfaces = interfaces,
                                 Err(err) => status_out.network_config_error = Some(err.to_string()),
                             }
@@ -153,7 +155,7 @@ pub async fn run(
                     }
                 }
 
-                let health_report = health::health_check(&agent.hbn.root_dir, &tenant_peers);
+                let health_report = health::health_check(&agent.hbn.root_dir, &tenant_peers).await;
                 is_healthy = health_report.is_healthy();
                 is_hbn_up = health_report.is_up(); // subset of is_healthy
                 tracing::trace!("{} HBN health is: {}", machine_id, health_report);
@@ -189,7 +191,8 @@ pub async fn run(
                 // force-deleted. Only reset network config the _second_ time we can't find the
                 // DPU. Safety first.
                 if seen_blank {
-                    ethernet_virtualization::reset(&agent.hbn.root_dir, agent.hbn.skip_reload);
+                    ethernet_virtualization::reset(&agent.hbn.root_dir, agent.hbn.skip_reload)
+                        .await;
                 }
                 seen_blank = true;
                 // we don't record_network_status because the server doesn't know about this DPU
@@ -365,29 +368,26 @@ async fn run_metadata_service(
 
     let metrics_state = create_metrics(meter);
 
-    tokio::spawn(async move {
-        run_server(
-            metadata_service_address,
-            Router::new().nest(
-                "/latest/meta-data",
-                get_instance_metadata_router(instance_metadata_reader.clone())
-                    .with_tracing_layer(metrics_state),
-            ),
-        )
-        .await
-        .expect("metadata server panicked");
-    });
+    start_server(
+        metadata_service_address,
+        Router::new().nest(
+            "/latest/meta-data",
+            get_instance_metadata_router(instance_metadata_reader.clone())
+                .with_tracing_layer(metrics_state),
+        ),
+    )
+    .expect("metadata server panicked");
 
-    run_server(
+    start_server(
         metrics_address,
         Router::new().nest("/metrics", get_metrics_router(prometheus_registry)),
-    )
-    .await?;
+    )?;
 
     Ok(())
 }
 
-async fn run_server(address: String, router: Router) -> Result<(), Box<dyn std::error::Error>> {
+/// Spawns a background task to run an axum server listening on given socket, and returns.
+fn start_server(address: String, router: Router) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = address.parse()?;
     let server = axum::Server::try_bind(&addr)?;
 

@@ -14,11 +14,12 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::{fs, io, net::Ipv4Addr, process::Command};
+use std::{fs, io, net::Ipv4Addr};
 
 use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
 use eyre::WrapErr;
 use serde::Deserialize;
+use tokio::process::Command as TokioCommand;
 use tracing::{debug, error, trace};
 
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces};
@@ -78,7 +79,7 @@ fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
 
 /// Write out all the network config files.
 /// Returns true if any of them changed.
-pub fn update(
+pub async fn update(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
@@ -128,7 +129,7 @@ pub fn update(
     let has_changes = !post_actions.is_empty();
     if !skip_post {
         for post in post_actions {
-            match in_container_shell(post.cmd) {
+            match in_container_shell(post.cmd).await {
                 Ok(_) => {
                     if post.path_bak.exists() {
                         if let Err(err) = fs::remove_file(&post.path_bak) {
@@ -175,7 +176,7 @@ pub fn update(
 }
 
 /// Interfaces to report back to server
-pub fn interfaces(
+pub async fn interfaces(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     factory_mac_address: &str,
 ) -> eyre::Result<Vec<rpc::InstanceInterfaceStatusObservation>> {
@@ -198,10 +199,11 @@ pub fn interfaces(
             .any(|iface| iface.function_type == rpc::InterfaceFunctionType::Virtual as i32)
         {
             let fdb_json = hbn::run_in_container(
-                &hbn::get_hbn_container_id()?,
+                &hbn::get_hbn_container_id().await?,
                 &["bridge", "-j", "fdb", "show"],
                 true,
-            )?;
+            )
+            .await?;
             parse_fdb(&fdb_json)?
         } else {
             HashMap::new()
@@ -212,7 +214,7 @@ pub fn interfaces(
                 Some(factory_mac_address.to_string())
             } else {
                 match fdb.get(&iface.vlan_id) {
-                    Some(vlan_fdb) => match tenant_vf_mac(vlan_fdb) {
+                    Some(vlan_fdb) => match tenant_vf_mac(vlan_fdb).await {
                         Ok(mac) => Some(mac.to_string()),
                         Err(err) => {
                             tracing::error!(%err, vlan_id=iface.vlan_id, "Error fetching tenant VF MAC");
@@ -249,7 +251,7 @@ pub fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> V
 
 /// Reset networking to blank.
 /// Replace all networking files with their blank version.
-pub fn reset(
+pub async fn reset(
     hbn_root: &Path,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
@@ -288,7 +290,7 @@ pub fn reset(
 
     if !skip_post {
         for post in post_actions {
-            if let Err(err) = in_container_shell(post.cmd) {
+            if let Err(err) = in_container_shell(post.cmd).await {
                 errs.push(format!("reload '{}': {err}", post.cmd))
             }
         }
@@ -600,7 +602,7 @@ fn parse_fdb(fdb_json: &str) -> eyre::Result<HashMap<u32, Vec<Fdb>>> {
 ///  - ip link set <name> up
 /// DPU side this must say 16 but discovery should take care of that:
 ///  mlxconfig -d /dev/mst/mt41686_pciconf0 query NUM_OF_VFS
-fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
+async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
     // We're expecting only the host side and our side
     if vlan_fdb.len() != 2 {
         eyre::bail!("Expected two fdb entries, got {vlan_fdb:?}");
@@ -615,19 +617,19 @@ fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
 
     // Find our side - both will have the same ifname
     let ovs_side = format!("{}_r", vlan_fdb[0].ifname);
-    let mut cmd = Command::new("ip");
+    let mut cmd = TokioCommand::new("ip");
     let cmd = cmd.args(["-j", "address", "show", &ovs_side.to_string()]);
-    let ip_out = cmd.output()?;
+    let ip_out = cmd.output().await?;
     if !ip_out.status.success() {
         debug!(
             "STDERR {}: {}",
-            super::pretty_cmd(cmd),
+            super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&ip_out.stderr)
         );
         return Err(eyre::eyre!(
             "{} for cmd '{}'",
             ip_out.status, // includes the string "exit status"
-            super::pretty_cmd(cmd)
+            super::pretty_cmd(cmd.as_std())
         ));
     }
 
@@ -650,11 +652,11 @@ fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
 }
 
 // Run the given command inside HBN container in a shell. Ignore the output.
-fn in_container_shell(cmd: &'static str) -> Result<(), eyre::Report> {
-    let container_id = hbn::get_hbn_container_id()?;
+async fn in_container_shell(cmd: &'static str) -> Result<(), eyre::Report> {
+    let container_id = hbn::get_hbn_container_id().await?;
     let check_result = true;
 
-    match hbn::run_in_container(&container_id, &["bash", "-c", cmd], check_result) {
+    match hbn::run_in_container(&container_id, &["bash", "-c", cmd], check_result).await {
         Ok(out) => {
             debug!("{}", out);
         }
@@ -833,8 +835,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_reset() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_reset() -> Result<(), Box<dyn std::error::Error>> {
         // setup
         let td = tempfile::tempdir()?;
         let hbn_root = td.path();
@@ -843,7 +845,7 @@ mod tests {
         fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
 
         // test
-        super::reset(hbn_root, true);
+        super::reset(hbn_root, true).await;
 
         // check
         let frr_path = hbn_root.join("etc/frr/frr.conf");

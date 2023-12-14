@@ -14,12 +14,12 @@ use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::io::Read;
-use std::process::Command;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 use data_encoding::BASE64;
 use eyre::WrapErr;
+use tokio::process::Command as TokioCommand;
 
 // __PKG_VERSION__ will be replaced by the package version
 const UPGRADE_CMD: &str = "ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && ip vrf exec mgmt apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__";
@@ -100,7 +100,7 @@ pub async fn upgrade_check(
             version = forge_version::v!(build_version),
             "Upgrading myself, goodbye.",
         );
-        match run_upgrade_cmd(&upgrade_cmd) {
+        match run_upgrade_cmd(&upgrade_cmd).await {
             Ok(()) => {
                 // Upgrade succeeded, we need to restart. We do this by exiting and letting
                 // systemd restart us.
@@ -118,8 +118,12 @@ pub async fn upgrade_check(
     Ok(false)
 }
 
-fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
-    let out = Command::new("bash").arg("-c").arg(upgrade_cmd).output()?;
+async fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
+    let out = TokioCommand::new("bash")
+        .arg("-c")
+        .arg(upgrade_cmd)
+        .output()
+        .await?;
     if !out.status.success() {
         tracing::error!(" STDOUT: {}", String::from_utf8_lossy(&out.stdout));
         tracing::error!(" STDERR: {}", String::from_utf8_lossy(&out.stderr));

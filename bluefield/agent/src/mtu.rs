@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::process::Command;
-
 use serde::Deserialize;
+use tokio::process::Command as TokioCommand;
 
 const CORRECT_MTU: usize = 9216;
 
@@ -20,63 +19,63 @@ const CORRECT_MTU: usize = 9216;
 ///
 /// HBN sets this but there is a race condition with interfaces being renamed on startup.
 /// https://nvbugswb.nvidia.com/NvBugs5/SWBug.aspx?bugid=4331317
-pub fn ensure() -> eyre::Result<()> {
+pub async fn ensure() -> eyre::Result<()> {
     for iface in ["p0", "p1"] {
-        let current = get_mtu(iface)?;
+        let current = get_mtu(iface).await?;
         if current != CORRECT_MTU {
             tracing::info!(
                 "Interface {iface} has incorrect MTU {current}. Setting to {CORRECT_MTU}."
             );
-            set_mtu(iface, CORRECT_MTU)?;
+            set_mtu(iface, CORRECT_MTU).await?;
         }
     }
     Ok(())
 }
 
-fn get_mtu(iface: &str) -> eyre::Result<usize> {
-    let mut cmd = Command::new("ip");
+async fn get_mtu(iface: &str) -> eyre::Result<usize> {
+    let mut cmd = TokioCommand::new("ip");
     let cmd = cmd.args(["-json", "link", "list", iface]);
-    let out = cmd.output()?;
+    let out = cmd.output().await?;
     if out.status.success() {
         let o: Vec<LinkList> = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))?;
         if o.len() != 1 {
             eyre::bail!(
                 "Expected a single entry, got {}. Invalid output from: {}",
                 o.len(),
-                super::pretty_cmd(cmd)
+                super::pretty_cmd(cmd.as_std())
             );
         }
         Ok(o[0].mtu)
     } else {
         tracing::debug!(
             "STDERR {}: {}",
-            super::pretty_cmd(cmd),
+            super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&out.stderr)
         );
         Err(eyre::eyre!(
             "{} for cmd '{}'",
             out.status,
-            super::pretty_cmd(cmd)
+            super::pretty_cmd(cmd.as_std())
         ))
     }
 }
 
-fn set_mtu(iface: &str, mtu: usize) -> eyre::Result<()> {
-    let mut cmd = Command::new("ip");
+async fn set_mtu(iface: &str, mtu: usize) -> eyre::Result<()> {
+    let mut cmd = TokioCommand::new("ip");
     let cmd = cmd.args(["link", "set", "dev", iface, "mtu", &mtu.to_string()]);
-    let out = cmd.output()?;
+    let out = cmd.output().await?;
     if out.status.success() {
         Ok(())
     } else {
         tracing::debug!(
             "STDERR {}: {}",
-            super::pretty_cmd(cmd),
+            super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&out.stderr)
         );
         Err(eyre::eyre!(
             "{} for cmd '{}'",
             out.status,
-            super::pretty_cmd(cmd)
+            super::pretty_cmd(cmd.as_std())
         ))
     }
 }
