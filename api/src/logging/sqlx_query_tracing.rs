@@ -12,7 +12,7 @@
 
 use std::{cell::RefCell, marker::PhantomData};
 
-use opentelemetry_api::metrics::{Counter, Histogram, Meter, Unit};
+use opentelemetry::metrics::{Counter, Histogram, Meter, Unit};
 use tracing::{field, metadata::LevelFilter, span, Event, Id, Subscriber};
 use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
 
@@ -306,11 +306,7 @@ impl DatabaseMetricEmitters {
     }
 
     /// Emits database performance records that have been aggregated inside a Span
-    pub fn emit(
-        &self,
-        metrics: &SqlxQueryDataAggregation,
-        attributes: &[opentelemetry_api::KeyValue],
-    ) {
+    pub fn emit(&self, metrics: &SqlxQueryDataAggregation, attributes: &[opentelemetry::KeyValue]) {
         self.db_queries_counter
             .add(metrics.num_queries as u64, attributes);
 

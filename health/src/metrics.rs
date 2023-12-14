@@ -20,10 +20,10 @@ use libredfish::{PowerState, Redfish, RedfishClientPool};
 use opentelemetry::metrics::{MeterProvider as _, Unit};
 use opentelemetry::KeyValue;
 use std::sync::Arc;
-//use opentelemetry_api::global::{GlobalLoggerProvider, ObjectSafeLoggerProvider};
-use opentelemetry_api::logs::{AnyValue, LogRecord, Logger};
-use opentelemetry_api::metrics::Meter;
-use opentelemetry_api::Key;
+//use opentelemetry::global::{GlobalLoggerProvider, ObjectSafeLoggerProvider};
+use opentelemetry::logs::{AnyValue, LogRecord, Logger};
+use opentelemetry::metrics::Meter;
+use opentelemetry::Key;
 //use opentelemetry_sdk::logs::Logger;
 use opentelemetry_sdk::metrics::MeterProvider;
 use sha2::{Digest, Sha256};
@@ -277,7 +277,7 @@ fn export_otel_logs(
     let dt = SystemTime::now();
     let mut log_hdr = LogRecord::builder().build();
     log_hdr.timestamp = Some(dt);
-    log_hdr.observed_timestamp = Some(dt);
+    log_hdr.observed_timestamp = dt;
     log_hdr.body = Some(AnyValue::from(description.to_string()));
     log_hdr.attributes = Some(vec![
         (
@@ -298,7 +298,7 @@ fn export_otel_logs(
         }
         let mut log_record = LogRecord::builder().build();
         log_record.timestamp = Some(dt);
-        log_record.observed_timestamp = Some(dt);
+        log_record.observed_timestamp = dt;
         log_record.body = Some(AnyValue::from(
             format!(
                 "Component: {}, Version: {}\n",
@@ -323,7 +323,7 @@ fn export_otel_logs(
     for sel_entry in logs.iter() {
         let mut log_record = LogRecord::builder().build();
         log_record.timestamp = Some(dt);
-        log_record.observed_timestamp = Some(dt);
+        log_record.observed_timestamp = dt;
         log_record.body = Some(AnyValue::from(
             format!(
                 "ID: {}, Created: {}, Severity: {}, Message: {}\n",

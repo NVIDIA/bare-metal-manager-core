@@ -1,6 +1,6 @@
 use std::{any::Any, sync::Arc};
 
-use opentelemetry_api::metrics::{ObservableGauge, Observer};
+use opentelemetry::metrics::{ObservableGauge, Observer};
 
 pub struct DpuNicFirmwareUpdateMetrics {
     pub pending_firmware_updates: usize,

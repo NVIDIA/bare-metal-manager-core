@@ -13,12 +13,8 @@
 use std::{sync::Arc, time::Duration};
 
 use eyre::WrapErr;
-use opentelemetry::{
-    metrics::MeterProvider,
-    sdk::{self, metrics},
-    trace::TracerProvider,
-};
-use opentelemetry_api::metrics::Meter;
+use opentelemetry::metrics::Meter;
+use opentelemetry::{metrics::MeterProvider, trace::TracerProvider};
 use opentelemetry_otlp::{SpanExporterBuilder, WithExportConfig};
 use opentelemetry_sdk::trace;
 use opentelemetry_semantic_conventions as semcov;
@@ -70,7 +66,7 @@ pub async fn setup_telemetry(
         .add_directive("h2=warn".parse()?);
 
     // This defines attributes that are set on the exported logs **and** metrics
-    let service_telemetry_attributes = sdk::Resource::new(vec![
+    let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
         semcov::resource::SERVICE_NAME.string("carbide-api"),
         semcov::resource::SERVICE_NAMESPACE.string("forge-system"),
     ]);
@@ -82,11 +78,12 @@ pub async fn setup_telemetry(
     // The binding happens later once we initialize tracing_opentelemetry and configure
     // it to forward log events from the `tracing` framework.
     // The application internally only uses `tracing` events.
-    let tracer = {
-        use opentelemetry::sdk::trace::TracerProvider;
+    let tracer: opentelemetry_sdk::trace::Tracer = {
+        use opentelemetry_sdk::trace::TracerProvider as SdkTracerProvider;
 
-        let trace_config = sdk::trace::config().with_resource(service_telemetry_attributes.clone());
-        let mut provider_builder = TracerProvider::builder().with_config(trace_config);
+        let trace_config =
+            opentelemetry_sdk::trace::config().with_resource(service_telemetry_attributes.clone());
+        let mut provider_builder = SdkTracerProvider::builder().with_config(trace_config);
 
         // Always export to stdout
         let stdout_exporter = OtelStdoutExporter::new(std::io::stdout());
@@ -124,7 +121,7 @@ pub async fn setup_telemetry(
     // A `tracing` `span` will create an opentelemetry span, and tracing `event`s (like `info!`)
     // will create OTEL events.
     let opentelemetry_layer = tracing_opentelemetry::layer()
-        .with_exception_fields(true)
+        .with_error_fields_to_exceptions(true)
         .with_threads(false)
         .with_tracer(tracer);
 
@@ -172,12 +169,11 @@ pub async fn setup_telemetry(
         .without_scope_info()
         .without_target_info()
         .build()?;
-    let meter_provider = metrics::MeterProvider::builder()
+    let meter_provider = opentelemetry_sdk::metrics::MeterProvider::builder()
         .with_reader(metrics_exporter)
         .with_resource(service_telemetry_attributes)
-        .with_view(create_metric_view_for_retry_histograms(
-            "*_(attempts|retries)_*",
-        )?)
+        .with_view(create_metric_view_for_retry_histograms("*_attempts_*")?)
+        .with_view(create_metric_view_for_retry_histograms("*_retries_*")?)
         .build();
     // After this call `global::meter()` will be available
     opentelemetry::global::set_meter_provider(meter_provider.clone());
@@ -193,23 +189,24 @@ pub async fn setup_telemetry(
 /// buckets are 0, 5, 10, 25
 fn create_metric_view_for_retry_histograms(
     name_filter: &str,
-) -> Result<Box<dyn opentelemetry::sdk::metrics::View>, opentelemetry::metrics::MetricsError> {
-    let mut criteria = opentelemetry::sdk::metrics::Instrument::new().name(name_filter.to_string());
-    criteria.kind = Some(opentelemetry::sdk::metrics::InstrumentKind::Histogram);
-    let mask = opentelemetry::sdk::metrics::Stream::new().aggregation(
-        opentelemetry::sdk::metrics::Aggregation::ExplicitBucketHistogram {
+) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry::metrics::MetricsError> {
+    let mut criteria = opentelemetry_sdk::metrics::Instrument::new().name(name_filter.to_string());
+    criteria.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
+    let mask = opentelemetry_sdk::metrics::Stream::new().aggregation(
+        opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
             boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
             record_min_max: true,
         },
     );
-    opentelemetry::sdk::metrics::new_view(criteria, mask)
+    opentelemetry_sdk::metrics::new_view(criteria, mask)
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use opentelemetry_api::KeyValue;
+    use opentelemetry::KeyValue;
+    use opentelemetry_sdk::metrics;
     use prometheus::{Encoder, TextEncoder};
 
     use super::*;
@@ -229,7 +226,8 @@ mod tests {
 
         let meter_provider = metrics::MeterProvider::builder()
             .with_reader(metrics_exporter)
-            .with_view(create_metric_view_for_retry_histograms("*_(attempts|retries)_*").unwrap())
+            .with_view(create_metric_view_for_retry_histograms("*_attempts_*").unwrap())
+            .with_view(create_metric_view_for_retry_histograms("*_retries_*").unwrap())
             .build();
 
         let meter = meter_provider.meter("myservice");

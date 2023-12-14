@@ -13,10 +13,9 @@
 use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
 use opentelemetry::{
-    metrics::{Histogram, Meter, ObservableGauge, Unit},
+    metrics::{self, Histogram, Meter, ObservableGauge, Unit},
     KeyValue,
 };
-use opentelemetry_api::metrics;
 
 use crate::{
     logging::sqlx_query_tracing,

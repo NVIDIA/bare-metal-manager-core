@@ -37,7 +37,7 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialTy
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
-use opentelemetry_api::KeyValue;
+use opentelemetry::KeyValue;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Pool, Postgres, Transaction};
 use tokio::net::TcpListener;

@@ -15,7 +15,7 @@ use std::{env, sync::Arc};
 use eyre::WrapErr;
 use figment::providers::{Env, Format, Toml};
 use figment::Figment;
-use opentelemetry_api::metrics::{Meter, Observer, Unit};
+use opentelemetry::metrics::{Meter, Observer, Unit};
 
 use forge_secrets::credentials::CredentialProvider;
 use forge_secrets::forge_vault::{
