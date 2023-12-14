@@ -21,8 +21,8 @@ use axum::Router;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::registration;
-use opentelemetry::sdk;
-use opentelemetry::sdk::metrics;
+use opentelemetry_sdk as sdk;
+use opentelemetry_sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
@@ -407,14 +407,14 @@ async fn run_server(address: String, router: Router) -> Result<(), Box<dyn std::
 /// buckets are 0, 5, 10, 25
 fn create_metric_view_for_retry_histograms(
     name_filter: &str,
-) -> Result<Box<dyn opentelemetry::sdk::metrics::View>, opentelemetry::metrics::MetricsError> {
-    let mut criteria = opentelemetry::sdk::metrics::Instrument::new().name(name_filter.to_string());
-    criteria.kind = Some(opentelemetry::sdk::metrics::InstrumentKind::Histogram);
-    let mask = opentelemetry::sdk::metrics::Stream::new().aggregation(
-        opentelemetry::sdk::metrics::Aggregation::ExplicitBucketHistogram {
+) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry::metrics::MetricsError> {
+    let mut criteria = opentelemetry_sdk::metrics::Instrument::new().name(name_filter.to_string());
+    criteria.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
+    let mask = opentelemetry_sdk::metrics::Stream::new().aggregation(
+        opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
             boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
             record_min_max: true,
         },
     );
-    opentelemetry::sdk::metrics::new_view(criteria, mask)
+    opentelemetry_sdk::metrics::new_view(criteria, mask)
 }

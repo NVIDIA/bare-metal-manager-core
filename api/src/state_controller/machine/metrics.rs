@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use opentelemetry_api::{
+use opentelemetry::{
     metrics::{self, Histogram, Meter, ObservableGauge},
     KeyValue,
 };

@@ -1,6 +1,6 @@
 use std::{any::Any, sync::Arc};
 
-use opentelemetry_api::metrics::{Meter, ObservableGauge, Observer};
+use opentelemetry::metrics::{Meter, ObservableGauge, Observer};
 
 pub struct MachineUpdateManagerMetrics {
     pub machines_in_maintenance: usize,

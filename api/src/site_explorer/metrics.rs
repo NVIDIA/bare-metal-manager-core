@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use opentelemetry_api::{
+use opentelemetry::{
     metrics::{Counter, Histogram, Meter, Unit},
     KeyValue,
 };
@@ -69,11 +69,7 @@ impl SiteExplorerInstruments {
     }
 
     /// Emits the metrics for one site exploration run
-    pub fn emit(
-        &self,
-        metrics: &SiteExplorationMetrics,
-        attributes: &[opentelemetry_api::KeyValue],
-    ) {
+    pub fn emit(&self, metrics: &SiteExplorationMetrics, attributes: &[opentelemetry::KeyValue]) {
         self.explorations_counter
             .add(metrics.endpoint_explorations as u64, attributes);
         self.exploration_success_counter

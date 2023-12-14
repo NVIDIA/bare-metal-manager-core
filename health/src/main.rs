@@ -30,10 +30,10 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Method, Request, Response, Server,
 };
+use opentelemetry::global::{logger_provider, GlobalLoggerProvider, ObjectSafeLoggerProvider};
 use opentelemetry::logs::LogError;
+use opentelemetry::metrics::ObservableGauge;
 use opentelemetry::metrics::{MeterProvider as _, Unit};
-use opentelemetry_api::global::{logger_provider, GlobalLoggerProvider, ObjectSafeLoggerProvider};
-use opentelemetry_api::metrics::ObservableGauge;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::metrics::MeterProvider;
 

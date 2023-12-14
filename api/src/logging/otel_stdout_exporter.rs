@@ -16,13 +16,8 @@
 use std::io::Write;
 
 use futures::future::BoxFuture;
-use opentelemetry::{
-    sdk::{
-        self,
-        export::trace::{ExportResult, SpanData, SpanExporter},
-    },
-    ExportError, Key,
-};
+use opentelemetry::{ExportError, Key};
+use opentelemetry_sdk::export::trace::{ExportResult, SpanData, SpanExporter};
 
 #[derive(Debug)]
 pub struct OtelStdoutExporter<W: Write> {
@@ -47,7 +42,7 @@ const IGNORED_REQUEST_METHODDS: &[&str] =
 
 impl<W> SpanExporter for OtelStdoutExporter<W>
 where
-    W: Write + std::fmt::Debug + Send + 'static,
+    W: Write + std::fmt::Debug + Send + Sync + 'static,
 {
     /// Export spans to stdout
     fn export(&mut self, batch: Vec<SpanData>) -> BoxFuture<'static, ExportResult> {
@@ -58,25 +53,29 @@ where
 
             let method: String = span
                 .attributes
-                .get(&opentelemetry_semantic_conventions::trace::RPC_METHOD)
-                .map(|value| value.as_str().into_owned())
+                .iter()
+                .find(|kvp| kvp.key == opentelemetry_semantic_conventions::trace::RPC_METHOD)
+                .map(|kvp| kvp.value.as_str().into_owned())
                 .unwrap_or_default();
 
             // We ignore periodic requests if their outcome is OK
             // If these RPCs fail we keep them around, so that its more obvious
             // for operators that something went wrong
-            if span.status == opentelemetry_api::trace::Status::Ok
+            if span.status == opentelemetry::trace::Status::Ok
                 && IGNORED_REQUEST_METHODDS.contains(&method.as_str())
             {
                 continue;
             }
 
             let mut kv = Vec::new();
-            for (k, v) in span.attributes.iter() {
-                if k.as_str() == "span_id" {
+            for kvp in span.attributes.iter() {
+                if kvp.key.as_str() == "span_id" {
                     continue;
                 }
-                kv.push((k.as_str().replace('.', "_"), v.as_str().to_string()));
+                kv.push((
+                    kvp.key.as_str().replace('.', "_"),
+                    kvp.value.as_str().to_string(),
+                ));
             }
             for (k, v) in span.resource.iter() {
                 kv.push((k.as_str().replace('.', "_"), v.as_str().to_string()));
@@ -84,7 +83,11 @@ where
             kv.sort();
 
             write!(&mut self.writer, "level=SPAN ").unwrap();
-            let span_id = span.attributes.get(&Key::new("span_id"));
+            let span_id = span
+                .attributes
+                .iter()
+                .find(|kvp| kvp.key == Key::new("span_id"))
+                .map(|kvp| &kvp.value);
             if let Some(span_id) = span_id {
                 write!(&mut self.writer, r#"span_id="{}" "#, span_id).unwrap();
             }
@@ -116,7 +119,7 @@ where
 
     fn force_flush(
         &mut self,
-    ) -> futures::future::BoxFuture<'static, sdk::export::trace::ExportResult> {
+    ) -> futures::future::BoxFuture<'static, opentelemetry_sdk::export::trace::ExportResult> {
         Box::pin(async { Ok(()) })
     }
 }
