@@ -44,8 +44,8 @@
       {% match carbide_config.enable_ib_fabric %}
         {% when Some with (true) %}
           Enabled
-        {% else %} 
-          Disabled 
+        {% else %}
+          Disabled
       {% endmatch %}</td></tr>
   <tr><td>BMC Machine</td><td>{% if carbide_config.enable_bmc_machine %}Enabled{% else %}Disabled{% endif %}</td></tr>
   <tr><td>Rapid Iterations</td><td>{% if carbide_config.rapid_iterations %}Enabled{% else %}Disabled{% endif %}</td></tr>
@@ -56,7 +56,7 @@
   <tr><td>Deny Prefixes</td><td>
       {% if carbide_config.deny_prefixes.len() != 0 %}
       {% for prefix in carbide_config.deny_prefixes %}
-        {{ prefix }}, 
+        {{ prefix }},
       {% endfor %}
       {% else %}
         Not Configured
@@ -65,7 +65,7 @@
   <tr><td>Site Fabric Prefixes</td><td>
       {% if carbide_config.site_fabric_prefixes.len() != 0 %}
       {% for prefix in carbide_config.site_fabric_prefixes %}
-        {{ prefix }}, 
+        {{ prefix }},
       {% endfor %}
       {% else %}
         Not Configured
@@ -75,16 +75,8 @@
       {% match carbide_config.networks %}
       {% when Some with (val) %}
       {% for network in val.keys() %}
-        {{ network }}, 
+        {{ network }},
       {% endfor %}
-      {% else %}
-        Not Configured
-      {% endmatch %}
-    </td></tr>
-  <tr><td>DPU IPMI Reboot Args</td><td>
-      {% match carbide_config.dpu_ipmi_reboot_args %}
-      {% when Some with (val) %}
-        {{ val.join(", ") }}, 
       {% else %}
         Not Configured
       {% endmatch %}
@@ -92,7 +84,7 @@
   <tr><td>DPU IPMI Tool Impl</td><td>
       {% match carbide_config.dpu_impi_tool_impl %}
       {% when Some with (val) %}
-        {{ val }}, 
+        {{ val }},
       {% else %}
         Not Configured
       {% endmatch %}
@@ -100,7 +92,7 @@
   <tr><td>DPU IPMI Reboot Attempt</td><td>
       {% match carbide_config.dpu_ipmi_reboot_attempts %}
       {% when Some with (val) %}
-        {{ val }}, 
+        {{ val }},
       {% else %}
         Not Configured (Default: 0)
       {% endmatch %}
