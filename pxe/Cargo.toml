@@ -11,7 +11,7 @@ name = "carbide"
 path = "src/main.rs"
 
 [dependencies]
-base64 = "0.13"
+base64 = "0.21.5"
 clap = { workspace = true }
 eui48 = { version = "1", default-features = false } # disable feature rustc-serialize
 forge-version = { path = "../version" }
@@ -33,7 +33,7 @@ tonic-build = "0.8.0"
 forge-version = { path = "../version" }
 
 [dev-dependencies]
-toml = "0.5.10"
+toml = "0.8.8"
 
 [dependencies.rocket_dyn_templates]
 version = "0.1.0-rc.1"

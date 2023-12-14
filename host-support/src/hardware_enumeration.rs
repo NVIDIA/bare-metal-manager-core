@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use base64::prelude::*;
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -509,7 +510,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     }
 
     let tpm_ek_certificate = match tpm::get_ek_certificate() {
-        Ok(cert) => Some(base64::encode(cert)),
+        Ok(cert) => Some(BASE64_STANDARD.encode(cert)),
         Err(e) => {
             tracing::error!("Could not read TPM EK certificate: {:?}", e);
             None

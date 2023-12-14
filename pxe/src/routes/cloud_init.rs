@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use base64::prelude::*;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -50,7 +51,7 @@ fn user_data_handler(
     context.insert("ntp_server".to_string(), config.ntp_server);
     context.insert(
         "forge_agent_config_b64".to_string(),
-        base64::encode(forge_agent_config),
+        BASE64_STANDARD.encode(forge_agent_config),
     );
 
     let start = SystemTime::now();

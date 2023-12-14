@@ -10,7 +10,7 @@ name = "forge-scout"
 path = "src/main.rs"
 
 [dependencies]
-base64 = "0.13"
+base64 = "0.21.5"
 clap = { workspace = true }
 eyre = "*"
 efivar = "0.2.1"

@@ -12,6 +12,7 @@
 
 //! Describes hardware that is discovered by Forge
 
+use base64::prelude::*;
 use std::str::FromStr;
 
 use mac_address::{MacAddress, MacParseError};
@@ -211,7 +212,7 @@ impl Serialize for TpmEkCertificate {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&base64::encode(self.as_bytes()))
+        serializer.serialize_str(&BASE64_STANDARD.encode(self.as_bytes()))
     }
 }
 
@@ -223,7 +224,9 @@ impl<'de> Deserialize<'de> for TpmEkCertificate {
         use serde::de::Error;
 
         let str_value = String::deserialize(deserializer)?;
-        let bytes = base64::decode(str_value).map_err(|err| Error::custom(err.to_string()))?;
+        let bytes = BASE64_STANDARD
+            .decode(str_value)
+            .map_err(|err| Error::custom(err.to_string()))?;
         Ok(Self(bytes))
     }
 }
@@ -570,7 +573,8 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
         let tpm_ek_certificate = info
             .tpm_ek_certificate
             .map(|base64| {
-                base64::decode(base64)
+                BASE64_STANDARD
+                    .decode(base64)
                     .map_err(|_| RpcDataConversionError::InvalidBase64Data("tpm_ek_certificate"))
             })
             .transpose()?;
@@ -612,7 +616,7 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .transpose()?,
             tpm_ek_certificate: info
                 .tpm_ek_certificate
-                .map(|cert| base64::encode(cert.into_bytes())),
+                .map(|cert| BASE64_STANDARD.encode(cert.into_bytes())),
             dpu_info: info
                 .dpu_info
                 .map(rpc::machine_discovery::DpuData::try_from)
@@ -846,7 +850,10 @@ mod tests {
         let cert = TpmEkCertificate::from(cert_data.clone());
 
         let serialized = serde_json::to_string(&cert).unwrap();
-        assert_eq!(serialized, format!("\"{}\"", base64::encode(&cert_data)));
+        assert_eq!(
+            serialized,
+            format!("\"{}\"", BASE64_STANDARD.encode(&cert_data))
+        );
 
         // Test also how that the certificate looks right within a Json structure
         #[derive(Serialize)]
@@ -857,14 +864,14 @@ mod tests {
         let serialized = serde_json::to_string(&OptionalCert { cert: Some(cert) }).unwrap();
         assert_eq!(
             serialized,
-            format!("{{\"cert\":\"{}\"}}", base64::encode(&cert_data))
+            format!("{{\"cert\":\"{}\"}}", BASE64_STANDARD.encode(&cert_data))
         );
     }
 
     #[test]
     fn deserialize_tpm_ek_certificate() {
         let cert_data = b"This is not really a certificate".to_vec();
-        let encoded = base64::encode(&cert_data);
+        let encoded = BASE64_STANDARD.encode(&cert_data);
 
         let json = format!("\"{}\"", encoded);
         let deserialized: TpmEkCertificate = serde_json::from_str(&json).unwrap();
