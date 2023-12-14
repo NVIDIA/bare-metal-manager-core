@@ -49,6 +49,8 @@ pub use crate::protos::machine_discovery::{
     PciDeviceProperties,
 };
 
+pub use crate::protos::site_explorer;
+
 pub mod forge_tls_client;
 pub mod protos;
 

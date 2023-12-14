@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
+    config_version::ConfigVersion,
     hardware_info::{DmiData, HardwareInfo},
     machine::machine_id::MachineId,
 };
@@ -40,6 +41,51 @@ pub struct EndpointExplorationReport {
     /// available to calculate the `MachineId`, this field contains the `MachineId`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<MachineId>,
+}
+
+impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExplorationReport {
+    fn from(report: EndpointExplorationReport) -> Self {
+        rpc::site_explorer::EndpointExplorationReport {
+            endpoint_type: format!("{:?}", report.endpoint_type),
+            last_exploration_error: report.last_exploration_error.map(|error| {
+                serde_json::to_string(&error).unwrap_or_else(|_| "Unserializable error".to_string())
+            }),
+            machine_id: report.machine_id.map(|id| id.to_string()),
+            vendor: report.vendor,
+            managers: report.managers.into_iter().map(Into::into).collect(),
+            systems: report.systems.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ExploredEndpoint {
+    /// The IP address of the endpoint we explored
+    pub address: std::net::IpAddr,
+    /// The data we gathered about the endpoint
+    pub report: EndpointExplorationReport,
+    /// The version of `report`.
+    /// Will increase every time the report gets updated.
+    pub report_version: ConfigVersion,
+}
+
+impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
+    fn from(endpoint: ExploredEndpoint) -> Self {
+        rpc::site_explorer::ExploredEndpoint {
+            address: endpoint.address.to_string(),
+            report: Some(endpoint.report.into()),
+            report_version: endpoint.report_version.to_string(),
+        }
+    }
+}
+
+/// That that we gathered from exploring a site
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SiteExplorationReport {
+    /// The endpoints that had been explored
+    pub endpoints: Vec<ExploredEndpoint>,
 }
 
 impl EndpointExplorationReport {
@@ -108,6 +154,14 @@ impl EndpointExplorationReport {
     }
 }
 
+impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
+    fn from(report: SiteExplorationReport) -> Self {
+        rpc::site_explorer::SiteExplorationReport {
+            endpoints: report.endpoints.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 /// Describes errors that might have been encountered during exploring an endpoint
 #[derive(thiserror::Error, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "Type", rename_all = "PascalCase")]
@@ -152,7 +206,23 @@ pub struct ComputerSystem {
     pub serial_number: Option<String>,
 }
 
-/// `ComputerSystem` definition. Matches redfish definition
+impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
+    fn from(system: ComputerSystem) -> Self {
+        rpc::site_explorer::ComputerSystem {
+            id: system.id,
+            manufacturer: system.manufacturer,
+            model: system.model,
+            serial_number: system.serial_number,
+            ethernet_interfaces: system
+                .ethernet_interfaces
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+/// `Manager` definition. Matches redfish definition
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Manager {
@@ -161,6 +231,20 @@ pub struct Manager {
     pub id: String,
 }
 
+impl From<Manager> for rpc::site_explorer::Manager {
+    fn from(manager: Manager) -> Self {
+        rpc::site_explorer::Manager {
+            id: manager.id,
+            ethernet_interfaces: manager
+                .ethernet_interfaces
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+/// `EthernetInterface` definition. Matches redfish definition
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct EthernetInterface {
@@ -169,6 +253,17 @@ pub struct EthernetInterface {
     pub interface_enabled: Option<bool>,
     #[serde(rename = "MACAddress")]
     pub mac_address: Option<String>,
+}
+
+impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
+    fn from(interface: EthernetInterface) -> Self {
+        rpc::site_explorer::EthernetInterface {
+            id: interface.id,
+            description: interface.description,
+            interface_enabled: interface.interface_enabled,
+            mac_address: interface.mac_address,
+        }
+    }
 }
 
 #[cfg(test)]

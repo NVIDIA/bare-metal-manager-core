@@ -38,6 +38,7 @@ pub mod network_segment_state_history;
 pub mod resource_pool;
 pub mod resource_record;
 pub mod route_servers;
+pub mod site_exploration_report;
 pub mod tenant;
 pub mod vpc;
 

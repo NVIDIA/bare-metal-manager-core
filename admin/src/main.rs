@@ -35,6 +35,7 @@ use cfg::carbide_options::IpAction;
 use cfg::carbide_options::MachineInterfaces;
 use cfg::carbide_options::RouteServer;
 use cfg::carbide_options::Shell;
+use cfg::carbide_options::SiteExplorer;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     MigrateAction, NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
@@ -683,6 +684,12 @@ async fn main() -> color_eyre::Result<()> {
             }
             RouteServer::Remove(ip) => {
                 rpc::remove_route_server(&api_config, ip.ip).await?;
+            }
+        },
+        CarbideCommand::SiteExplorer(action) => match action {
+            SiteExplorer::GetReport => {
+                let exploration_report = rpc::get_site_exploration_report(&api_config).await?;
+                println!("{}", serde_json::to_string(&exploration_report)?);
             }
         },
         CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {

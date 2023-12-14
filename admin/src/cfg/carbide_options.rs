@@ -110,6 +110,8 @@ pub enum CarbideCommand {
     Credential(CredentialAction),
     #[clap(about = "Route server handling", subcommand)]
     RouteServer(RouteServer),
+    #[clap(about = "Site explorer functions", subcommand)]
+    SiteExplorer(SiteExplorer),
     #[clap(
         about = "List of all Machine interfaces",
         subcommand,
@@ -859,6 +861,12 @@ pub struct ShowMachineInterfaces {
 
     #[clap(long, action)]
     pub more: bool,
+}
+
+#[derive(Parser, Debug)]
+pub enum SiteExplorer {
+    #[clap(about = "Retrieves the latest site exploration report")]
+    GetReport,
 }
 
 #[derive(Parser, Debug)]

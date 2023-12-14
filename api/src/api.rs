@@ -64,6 +64,7 @@ use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
+use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::ib::{self, IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
@@ -80,6 +81,7 @@ use crate::model::machine::{
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkTopologyData};
 use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
+use crate::model::site_explorer::SiteExplorationReport;
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
     UpdateTenantKeyset,
@@ -2879,6 +2881,27 @@ where
         })?;
 
         Ok(Response::new(instructions))
+    }
+
+    async fn get_site_exploration_report(
+        &self,
+        request: tonic::Request<::rpc::forge::GetSiteExplorationRequest>,
+    ) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "begin get_site_exploration_report", e)
+        })?;
+
+        let report = DbSiteExplorationReport::fetch(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.rollback().await.map_err(|e| {
+            CarbideError::DatabaseError(file!(), "end get_site_exploration_report", e)
+        })?;
+
+        Ok(tonic::Response::new(report.into()))
     }
 
     #[allow(rustdoc::invalid_html_tags)]

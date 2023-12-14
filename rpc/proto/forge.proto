@@ -5,6 +5,7 @@ import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
 import "machine_discovery.proto";
 import "security_group.proto";
+import "site_explorer.proto";
 
 package forge;
 
@@ -133,6 +134,9 @@ service Forge {
 
   // List all machines network status (HBN), as reported by `forge-dpu-agent`
   rpc GetAllManagedHostNetworkStatus(ManagedHostNetworkStatusRequest) returns (ManagedHostNetworkStatusResponse);
+
+  // Gets the latest Site Exploration report
+  rpc GetSiteExplorationReport(GetSiteExplorationRequest) returns (site_explorer.SiteExplorationReport);
 
   // Force deletes a Machine and the associated DPU from Forge databases,
   // with the intention of rediscovering the host later on.
@@ -1210,6 +1214,10 @@ message CredentialRequest {
 message CredentialResponse {
     string username = 1;
     string password = 2;
+}
+
+message GetSiteExplorationRequest {
+    
 }
 
 message ManagedHostNetworkConfigRequest {

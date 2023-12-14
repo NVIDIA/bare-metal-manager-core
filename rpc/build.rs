@@ -23,6 +23,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .include_file("common.rs")
         .type_attribute(
+            ".machine_discovery",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            ".site_explorer",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.AdminForceDeleteMachineRequest",
             "#[derive(serde::Serialize)]",
         )
@@ -99,10 +107,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.TenantPublicKey", "#[derive(serde::Serialize)]")
         .type_attribute("forge.UUID", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcResourceState", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            ".machine_discovery",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
         .type_attribute("forge.MachineBootOverride", "#[derive(serde::Serialize)]")
         .type_attribute("forge.ConnectedDevice", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkDevice", "#[derive(serde::Serialize)]")
@@ -122,6 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/forge.proto",
                 "proto/machine_discovery.proto",
                 "proto/security_group.proto",
+                "proto/site_explorer.proto",
             ],
             &["proto"],
         )

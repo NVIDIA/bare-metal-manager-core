@@ -19,14 +19,14 @@ use tracing::Instrument;
 use crate::{
     cfg::SiteExplorerConfig,
     db::{
-        explored_endpoints::ExploredEndpoint,
+        explored_endpoints::DbExploredEndpoint,
         machine_interface::MachineInterface,
         network_segment::{NetworkSegment, NetworkSegmentType},
         DatabaseError,
     },
     model::{
         config_version::ConfigVersion,
-        site_explorer::{EndpointExplorationReport, EndpointType},
+        site_explorer::{EndpointExplorationReport, EndpointType, ExploredEndpoint},
     },
     CarbideError, CarbideResult,
 };
@@ -183,7 +183,7 @@ impl SiteExplorer {
         let underlay_segments =
             NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay)).await?;
         let interfaces = MachineInterface::find_all(&mut txn).await?;
-        let explored_endpoints = ExploredEndpoint::find_all(&mut txn).await?;
+        let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
         txn.rollback()
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "end load explore_site data", e))?;
@@ -231,7 +231,7 @@ impl SiteExplorer {
             // TODO: Explore deleting all old endpoints in a single query, which would be more efficient
             // Since we practically never delete `MachineInterface`s anyway, this however isn't that important.
             for address in delete_endpoints.into_iter() {
-                ExploredEndpoint::delete(&mut txn, address).await?;
+                DbExploredEndpoint::delete(&mut txn, address).await?;
             }
 
             txn.commit().await.map_err(|e| {
@@ -272,7 +272,7 @@ impl SiteExplorer {
         if remaining_explore_endpoints != 0 {
             // Sort endpoints so that we will replace the oldest report first
             update_endpoints.sort_by_key(|(_address, _machine_interface, endpoint)| {
-                endpoint.exploration_report.version.timestamp()
+                endpoint.report_version.timestamp()
             });
             for (address, iface, endpoint) in
                 update_endpoints.iter().take(remaining_explore_endpoints)
@@ -280,10 +280,7 @@ impl SiteExplorer {
                 explore_endpoint_data.push((
                     *address,
                     (*iface).clone(),
-                    Some((
-                        endpoint.exploration_report.version,
-                        endpoint.exploration_report.value.clone(),
-                    )),
+                    Some((endpoint.report_version, endpoint.report.clone())),
                 ));
             }
         }
@@ -383,7 +380,7 @@ impl SiteExplorer {
                                     "Initial exploration of machine"
                                 );
                             }
-                            let _updated = ExploredEndpoint::try_update(
+                            let _updated = DbExploredEndpoint::try_update(
                                 address,
                                 old_version,
                                 &report,
@@ -395,7 +392,7 @@ impl SiteExplorer {
                             // If an endpoint can not be explored we don't delete the known information, since it's
                             // still helpful. The failure might just be intermittent.
                             old_report.last_exploration_error = Some(e);
-                            let _updated = ExploredEndpoint::try_update(
+                            let _updated = DbExploredEndpoint::try_update(
                                 address,
                                 old_version,
                                 &old_report,
@@ -413,13 +410,13 @@ impl SiteExplorer {
                                 exploration_report = ?report,
                                 "Initial exploration of machine"
                             );
-                            ExploredEndpoint::insert(address, &report, &mut txn).await?
+                            DbExploredEndpoint::insert(address, &report, &mut txn).await?
                         }
                         Err(e) => {
                             // If an endpoint exploration failed we still track the result in the database
                             // That will avoid immmediatly retrying the exploration in the next run
                             let report = EndpointExplorationReport::new_with_error(e);
-                            ExploredEndpoint::insert(address, &report, &mut txn).await?
+                            DbExploredEndpoint::insert(address, &report, &mut txn).await?
                         }
                     }
                 }
