@@ -32,8 +32,11 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \
   cargo make clippy-flow && \
+  echo "$(date): Finished cargo make clippy-flow\n" && \
   cargo make check-format-flow && \
-  cargo make workspace-ci-flow
+  echo "$(date): Finished cargo make check-format-flow\n" && \
+  cargo make workspace-ci-flow && \
+  echo "$(date): Finished cargo make workspace-ci-flow\n"
 
 # After build, copy the release into the runtime container
 FROM $CONTAINER_RUNTIME_X86_64
