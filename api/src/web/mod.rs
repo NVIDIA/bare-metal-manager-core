@@ -17,6 +17,7 @@ use axum::extract::State as AxumState;
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, Router};
+use base64::prelude::*;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use http::{Request, StatusCode};
@@ -114,7 +115,7 @@ fn is_valid_auth(auth_str: &str) -> bool {
         tracing::trace!(auth_str, "Auth must match 'Basic <str>'");
         return false;
     }
-    let Ok(plain) = base64::decode(parts[1]) else {
+    let Ok(plain) = BASE64_STANDARD.decode(parts[1]) else {
         tracing::trace!(auth_str, "Auth should be base64");
         return false;
     };

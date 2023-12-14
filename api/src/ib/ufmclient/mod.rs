@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use base64::prelude::*;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -236,7 +237,7 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
 
             (
                 "/ufmRest".to_string(),
-                base64::encode(format!("{}:{}", username, password)),
+                BASE64_STANDARD.encode(format!("{}:{}", username, password)),
             )
         }
         Some(t) => ("/ufmRestV3".to_string(), t.to_string()),

@@ -4260,7 +4260,7 @@ fn get_tls_acceptor<S: AsRef<str>>(
 
     match ServerConfig::builder()
         .with_safe_defaults()
-        .with_client_cert_verifier(AllowAnyAnonymousOrAuthenticatedClient::new(roots))
+        .with_client_cert_verifier(AllowAnyAnonymousOrAuthenticatedClient::new(roots).boxed())
         .with_single_cert(certs, key)
     {
         Ok(mut tls) => {

@@ -15,7 +15,7 @@ serde_json = "*"
 sqlx = { version = "0.7.1", features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
 tempfile = "3"
 tokio.workspace = true
-toml = "0.7.6"
+toml = "0.8.8"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 

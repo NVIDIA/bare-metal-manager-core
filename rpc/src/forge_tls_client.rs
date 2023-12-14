@@ -268,7 +268,7 @@ impl ForgeTlsClient {
                 if let Ok(config) = ClientConfig::builder()
                     .with_safe_defaults()
                     .with_root_certificates(roots)
-                    .with_single_cert(certs, key)
+                    .with_client_auth_cert(certs, key)
                 {
                     config // happy path, full valid TLS client config with client cert
                 } else {

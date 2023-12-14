@@ -41,9 +41,9 @@ pub struct AgentConfig {
 impl AgentConfig {
     /// Loads the agent configuration file in toml format from the given path
     pub fn load_from(path: &Path) -> Result<Self, std::io::Error> {
-        let data = std::fs::read(path)?;
+        let data = std::fs::read_to_string(path)?;
 
-        toml::from_slice(&data).map_err(|e| {
+        toml::from_str(&data).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("Invalid AgentConfig toml data: {}", e),
