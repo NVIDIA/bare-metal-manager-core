@@ -80,6 +80,7 @@ pub struct ForgeClientConfig {
     pub enforce_tls: bool,
     pub use_mgmt_vrf: bool,
     pub max_decoding_message_size: Option<usize>,
+    pub socks_proxy: Option<String>,
 }
 
 impl ForgeClientConfig {
@@ -95,6 +96,7 @@ impl ForgeClientConfig {
             enforce_tls: !disabled,
             use_mgmt_vrf: false,
             max_decoding_message_size,
+            socks_proxy: None,
         }
     }
 
@@ -130,11 +132,9 @@ impl ForgeClientConfig {
             .and_then(|ms| ms.parse::<usize>().ok());
 
         let res = Self {
-            root_ca_path: self.root_ca_path,
-            client_cert: self.client_cert,
-            enforce_tls: self.enforce_tls,
             use_mgmt_vrf,
             max_decoding_message_size,
+            ..self
         };
 
         log::debug!("ForgeClientConfig {:?}", res);
@@ -221,6 +221,10 @@ impl ForgeClientConfig {
         } else {
             None
         }
+    }
+
+    pub fn socks_proxy(&mut self, socks_proxy: Option<String>) {
+        self.socks_proxy = socks_proxy;
     }
 }
 
@@ -315,6 +319,7 @@ impl ForgeTlsClient {
                 );
 
                 let mut http = ForgeHttpConnector::new_with_resolver(hickory_resolver);
+                http.set_socks5_proxy(self.forge_client_config.socks_proxy.clone());
                 http.enforce_http(false);
                 http
             }
@@ -331,6 +336,7 @@ impl ForgeTlsClient {
 
                 let mut http = ForgeHttpConnector::new_with_resolver(resolver_cfg);
 
+                http.set_socks5_proxy(self.forge_client_config.socks_proxy.clone());
                 http.enforce_http(false);
                 http.set_interface("mgmt".to_string());
                 http

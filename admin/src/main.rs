@@ -15,6 +15,7 @@ use std::io;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use ::rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 use ::rpc::Uuid;
@@ -43,6 +44,7 @@ use cfg::carbide_options::{
 use clap::CommandFactory; // for CarbideOptions::command()
 use prettytable::{row, Table};
 use serde::Deserialize;
+use tonic::transport::Uri;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 
 mod bmc_machine;
@@ -328,7 +330,38 @@ async fn main() -> color_eyre::Result<()> {
         config.client_key_path,
         file_config.as_ref(),
     );
-    let forge_client_config = ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
+
+    let proxy = std::env::var("http_proxy")
+        .ok()
+        .or_else(|| std::env::var("https_proxy").ok())
+        .or_else(|| std::env::var("HTTP_PROXY").ok())
+        .or_else(|| std::env::var("HTTPS_PROXY").ok())
+        .map_or(Ok(None), |proxy| {
+            let uri = Uri::from_str(&proxy).expect("Failed to parse proxy variable");
+            if uri
+                .scheme_str()
+                .is_some_and(|s| !s.eq_ignore_ascii_case("socks5"))
+            {
+                return Err(color_eyre::Report::new(CarbideCliError::ApiConnectFailed(
+                    "Only SOCKS5 Proxy supported".to_string(),
+                )));
+            }
+            let host = uri.host().map_or("".to_owned(), |h| h.to_owned());
+            let port = uri
+                .port_u16()
+                .map_or("".to_owned(), |port| port.to_string());
+            if host.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(host + ":" + &port))
+            }
+        })?;
+
+    tracing::info!("proxy: {proxy:?}");
+
+    let mut forge_client_config =
+        ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
+    forge_client_config.socks_proxy(proxy);
 
     let api_config = Config {
         carbide_api_url,

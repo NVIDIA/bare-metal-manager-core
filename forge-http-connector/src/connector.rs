@@ -16,6 +16,7 @@ use hyper::http::Uri;
 use hyper::service::Service;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Sleep;
+use tokio_socks::tcp::Socks5Stream;
 use tracing::{info, trace, warn};
 
 use crate::resolver;
@@ -344,6 +345,7 @@ struct Config {
     send_buffer_size: Option<usize>,
     recv_buffer_size: Option<usize>,
     interface: Option<String>,
+    socks5_proxy: Option<String>,
 }
 
 impl ForgeHttpConnector {
@@ -362,6 +364,7 @@ impl ForgeHttpConnector {
                 send_buffer_size: None,
                 recv_buffer_size: None,
                 interface: None,
+                socks5_proxy: None,
             }),
             resolver,
         }
@@ -466,6 +469,15 @@ impl ForgeHttpConnector {
     #[inline]
     pub fn set_reuse_address(&mut self, reuse_address: bool) -> &mut Self {
         self.config_mut().reuse_address = reuse_address;
+        self
+    }
+
+    /// Set the socks5 proxy to use for connections
+    ///
+    /// Default is `None`.
+    #[inline]
+    pub fn set_socks5_proxy(&mut self, socks5_proxy: Option<String>) -> &mut Self {
+        self.config_mut().socks5_proxy = socks5_proxy;
         self
     }
 
@@ -583,7 +595,7 @@ impl ForgeHttpConnector {
         let (host, port) = get_host_port(config, &dst)?;
         let host = host.trim_start_matches('[').trim_end_matches(']');
 
-        let addrs = if let Some(addrs) = crate::resolver::SocketAddrs::try_parse(host, port) {
+        let mut addrs = if let Some(addrs) = crate::resolver::SocketAddrs::try_parse(host, port) {
             addrs
         } else {
             let dns_name: Name = host.parse().map_err(ConnectError::dns)?;
@@ -602,8 +614,21 @@ impl ForgeHttpConnector {
             resolver::SocketAddrs::new(addrs)
         };
 
-        let c = ConnectingTcp::new(addrs, config);
-        let sock = c.connect().await?;
+        let sock = if let Some(proxy_addr) = config.socks5_proxy.as_deref() {
+            tracing::info!("connecting to socks proxy: {proxy_addr:?}");
+
+            let proxy_stream = tokio::net::TcpStream::connect(proxy_addr)
+                .await
+                .map_err(|e| ConnectError::new("Connect error", e))?;
+
+            Socks5Stream::connect_with_socket(proxy_stream, addrs.next().unwrap())
+                .await
+                .map_err(|e| ConnectError::new("Connect error", e))?
+                .into_inner()
+        } else {
+            let c = ConnectingTcp::new(addrs, config);
+            c.connect().await?
+        };
 
         Ok(sock)
     }
