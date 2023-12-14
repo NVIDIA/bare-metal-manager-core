@@ -27,6 +27,7 @@ use crate::frr::FrrVlanConfig;
 mod acl_rules;
 mod command_line;
 pub mod config_model;
+pub mod containerd;
 mod daemons;
 mod dhcp;
 mod ethernet_virtualization;
