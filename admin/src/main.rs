@@ -357,8 +357,6 @@ async fn main() -> color_eyre::Result<()> {
             }
         })?;
 
-    tracing::info!("proxy: {proxy:?}");
-
     let mut forge_client_config =
         ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
     forge_client_config.socks_proxy(proxy);

@@ -615,8 +615,6 @@ impl ForgeHttpConnector {
         };
 
         let sock = if let Some(proxy_addr) = config.socks5_proxy.as_deref() {
-            tracing::info!("connecting to socks proxy: {proxy_addr:?}");
-
             let proxy_stream = tokio::net::TcpStream::connect(proxy_addr)
                 .await
                 .map_err(|e| ConnectError::new("Connect error", e))?;
