@@ -141,7 +141,7 @@ pub enum DpuAction {
     #[clap(about = "Get or set forge-dpu-agent upgrade policy")]
     AgentUpgradePolicy(AgentUpgrade),
     #[clap(about = "View DPU firmware status")]
-    Versions,
+    Versions(DpuVersionOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -165,6 +165,12 @@ pub struct DpuReprovisionData {
 
     #[clap(short, long, action)]
     pub update_firmware: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct DpuVersionOptions {
+    #[clap(short, long, help = "Only show DPUs that need upgrades")]
+    pub updates_only: bool,
 }
 
 #[derive(Parser, Debug)]

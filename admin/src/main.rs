@@ -552,7 +552,7 @@ async fn main() -> color_eyre::Result<()> {
                 });
                 dpu::handle_agent_upgrade_policy(api_config, rpc_choice).await?
             }
-            Versions => {
+            Versions(options) => {
                 let mut output_file = if let Some(filename) = config.output {
                     Box::new(
                         fs::OpenOptions::new()
@@ -564,7 +564,13 @@ async fn main() -> color_eyre::Result<()> {
                     Box::new(std::io::stdout()) as Box<dyn std::io::Write>
                 };
 
-                dpu::handle_dpu_versions(&mut output_file, config.format, api_config).await?
+                dpu::handle_dpu_versions(
+                    &mut output_file,
+                    config.format,
+                    api_config,
+                    options.updates_only,
+                )
+                .await?
             }
         },
         CarbideCommand::Redfish(_) => {
