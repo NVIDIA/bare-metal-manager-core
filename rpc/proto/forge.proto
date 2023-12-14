@@ -256,8 +256,8 @@ message RuntimeConfig {
     // Only name. Rest config can be read from network-segment command.
     repeated string networks = 13;
 
-    // Remove ipmi reboot args as we no longer are going to be using overrides
-    // string dpu_ipmi_reboot_args = 14;
+    reserved 14;  // deprecated dpu_ipmi_reboot_args
+
     string dpu_ipmi_tool_impl = 15;
     uint32 dpu_ipmi_reboot_attempt = 16;
 
@@ -1008,7 +1008,7 @@ message BmcMachine {
   string hostname = 2;
   string ip_address = 3;
   string mac_address = 4;
-  
+
   BmcMachineType bmc_type = 5;
   // The current lifecycle state of the bmc machine
   string state = 6;
