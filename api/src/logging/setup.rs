@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use eyre::WrapErr;
 use opentelemetry::metrics::Meter;
@@ -135,25 +135,12 @@ pub async fn setup_telemetry(
             .try_init()
             .wrap_err("logging_subscriber.try_init()")?;
     } else {
-        // Start tokio-console server. Returns a tracing-subscriber Layer.
-        let tokio_console_layer = console_subscriber::ConsoleLayer::builder()
-            .with_default_env()
-            .retention(Duration::from_secs(60))
-            .server_addr(([0, 0, 0, 0], console_subscriber::Server::DEFAULT_PORT))
-            .spawn();
-        // tokio-console wants "runtime=trace,tokio=trace"
-        let tokio_console_filter = tracing_subscriber::filter::Targets::new()
-            .with_default(LevelFilter::ERROR)
-            .with_target("runtime", LevelFilter::TRACE)
-            .with_target("tokio", LevelFilter::TRACE);
-
         let global_filter_clone = EnvFilter::from(&global_filter.to_string());
 
         // Set up the tracing subscriber
         tracing_subscriber::registry()
             .with(stdout_formatter.with_filter(global_filter))
             .with(opentelemetry_layer.with_filter(global_filter_clone))
-            .with(tokio_console_layer.with_filter(tokio_console_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()
             .wrap_err("new tracing subscriber try_init()")?;
