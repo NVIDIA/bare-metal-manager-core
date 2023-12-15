@@ -92,7 +92,7 @@ the Forge site.
 ##### NVIDIA Colo jump host matrix
 
 | Pod | Name | Jumphost | Shell box |
-|_____|______|__________|___________|
+|:----|:-----|:---------|:----------|
 |Pod 1| AZ01 | wus-jb-admin01 | wus-mc-staging |
 |Pod 2| AZ20 | sdc-jb-admin01 | sdc-mc-staging |
 |Pod 3| AZ02 | wus-jb-admin01 | wus-mc-staging |
