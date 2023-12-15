@@ -13,7 +13,10 @@
 use sqlx::{Postgres, Transaction};
 
 use crate::{
-    db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
+    db::{
+        explored_endpoints::DbExploredEndpoint, explored_managed_host::DbExploredManagedHost,
+        DatabaseError,
+    },
     model::site_explorer::SiteExplorationReport,
 };
 
@@ -25,6 +28,10 @@ impl DbSiteExplorationReport {
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<SiteExplorationReport, DatabaseError> {
         let endpoints = DbExploredEndpoint::find_all(txn).await?;
-        Ok(SiteExplorationReport { endpoints })
+        let managed_hosts = DbExploredManagedHost::find_all(txn).await?;
+        Ok(SiteExplorationReport {
+            endpoints,
+            managed_hosts,
+        })
     }
 }
