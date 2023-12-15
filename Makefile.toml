@@ -283,9 +283,7 @@ dependencies = [
 [tasks.pre-commit-verify]
 description = "Runs the same set of tasks CI will."
 category = "CI"
-# clippy-flow, check-format-flow and workspace-ci-flow are default targets provided by cargo-make.
-# workspace-ci-flow means run 'ci-flow' (you guessed it, default) on everything in the workspace.
-dependencies = ["pre-commit-verify-workspace", "workspace-ci-flow"]
+dependencies = ["pre-commit-verify-workspace", "build-and-test-release-container-services"]
 
 [tasks.pre-commit-verify-workspace]
 workspace = false
@@ -302,18 +300,6 @@ dependencies = ["install-clippy"]
 command = "cargo"
 args = ["clippy", "--tests"]
 
-# CI will build and test each package in order.
-# `api` integration tests depend on forge-dpu-agent and forge-admin-cli, so
-# those must be built before `api`.
-#
-# workspace-ci-flow is in cargo make's repo (it's a default task). It calls this task
-# as part of it's run. See
-# https://github.com/sagiegurari/cargo-make/blob/master/src/lib/descriptor/makefiles/rust.toml
-[tasks.pre-workspace-ci-flow]
-script = '''
-cargo build --release -p agent -p admin
-'''
-
 [tasks.build-debug-test-prerequisites]
 script = '''
 cargo build -p agent -p admin -p carbide-api
@@ -324,22 +310,11 @@ workspace = false
 dependencies = ["build-debug-test-prerequisites", "test"]
 workspace = false
 
-# workspace-ci-flow runs this on every crate in our workspace
-[tasks.ci-flow]
+[tasks.build-and-test-release-container-services]
+workspace = false
 dependencies = [
-  "pre-ci-flow",
-  "print-env-flow",
-  "pre-build",
-  "check-format-ci-flow",
-  "clippy-ci-flow",
-  "build-release",        # this the only change from cargo-make's src/lib/descriptor/makefiles/rust.toml
-  "post-build",
-  "test-flow",
-  "examples-ci-flow",
-  "bench-ci-flow",
-  "outdated-ci-flow",
-  "ci-coverage-flow",
-  "post-ci-flow",
+  "build-release", # Start with release builds, since some artifacts are used in integration tests
+  "test-flow", # Then run all tests
 ]
 
 [tasks.clippy-ci-flow]
