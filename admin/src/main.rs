@@ -689,7 +689,7 @@ async fn main() -> color_eyre::Result<()> {
         CarbideCommand::SiteExplorer(action) => match action {
             SiteExplorer::GetReport => {
                 let exploration_report = rpc::get_site_exploration_report(&api_config).await?;
-                println!("{}", serde_json::to_string(&exploration_report)?);
+                println!("{}", serde_json::to_string_pretty(&exploration_report)?);
             }
         },
         CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
