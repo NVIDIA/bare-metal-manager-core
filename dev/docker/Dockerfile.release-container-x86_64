@@ -35,8 +35,8 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
   echo "$(date): Finished cargo make clippy-flow\n" && \
   cargo make --no-workspace check-format-flow && \
   echo "$(date): Finished cargo make check-format-flow\n" && \
-  cargo make workspace-ci-flow && \
-  echo "$(date): Finished cargo make workspace-ci-flow\n" && \
+  cargo make build-and-test-release-container-services && \
+  echo "$(date): Finished cargo make build-and-test-release-container-services\n" && \
   mkdir -p /carbide/target/bin && \
   find /carbide/target/release -maxdepth 1 -type f -exec cp -t /carbide/target/bin {} + && \
   rm -rf /carbide/target/debug && \
