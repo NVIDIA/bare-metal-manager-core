@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, fmt, path::Path, process::Command, str::FromStr};
+use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
+use tokio::process::Command as TokioCommand;
 use tracing::warn;
 
 use crate::hbn;
@@ -29,10 +30,10 @@ const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
 const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
 
 /// Check the health of HBN
-pub fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport {
+pub async fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport {
     let mut hr = HealthReport::new();
 
-    let container_id = match hbn::get_hbn_container_id() {
+    let container_id = match hbn::get_hbn_container_id().await {
         Ok(id) => id,
         Err(err) => {
             hr.failed(HealthCheck::ContainerExists, err.to_string());
@@ -41,23 +42,23 @@ pub fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport {
     };
     hr.passed(HealthCheck::ContainerExists);
 
-    check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES);
+    check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES).await;
 
     // At this point HBN is up so we can configure it
 
-    check_dhcp_relay(&mut hr, &container_id);
-    check_ifreload(&mut hr, &container_id);
+    check_dhcp_relay(&mut hr, &container_id).await;
+    check_ifreload(&mut hr, &container_id).await;
     let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
     check_bgp_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
-    check_network_stats(&mut hr, &container_id, host_routes);
+    check_network_stats(&mut hr, &container_id, host_routes).await;
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
-    check_restricted_mode(&mut hr);
+    check_restricted_mode(&mut hr).await;
 
     hr
 }
 
 // HBN processes should be running
-fn check_hbn_services_running(
+async fn check_hbn_services_running(
     hr: &mut HealthReport,
     container_id: &str,
     expected_services: &[&str],
@@ -65,7 +66,8 @@ fn check_hbn_services_running(
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
-    let sctl = match hbn::run_in_container(container_id, &["supervisorctl", "status"], false) {
+    let sctl = match hbn::run_in_container(container_id, &["supervisorctl", "status"], false).await
+    {
         Ok(s) => s,
         Err(err) => {
             warn!("check_hbn_services_running supervisorctl status: {err}");
@@ -100,11 +102,12 @@ fn check_hbn_services_running(
 // dhcp relay should be running
 // Very similar to check_hbn_services_running, except it happens _after_ we start configuring.
 // The other services must be up before we start configuring.
-fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
+async fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
-    let sctl = match hbn::run_in_container(container_id, &["supervisorctl", "status"], false) {
+    let sctl = match hbn::run_in_container(container_id, &["supervisorctl", "status"], false).await
+    {
         Ok(s) => s,
         Err(err) => {
             warn!("check_hbn_services_running supervisorctl status: {err}");
@@ -131,13 +134,15 @@ fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
 }
 
 // Check HBN BGP stats
-fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_routes: &[&str]) {
+async fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_routes: &[&str]) {
     // `vtysh` is HBN's shell.
     let bgp_stats = match hbn::run_in_container(
         container_id,
         &["vtysh", "-c", "show bgp summary json"],
         true,
-    ) {
+    )
+    .await
+    {
         Ok(s) => s,
         Err(err) => {
             warn!("check_network_stats show bgp summary: {err}");
@@ -155,8 +160,9 @@ fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_routes: &
 }
 
 // `ifreload` should exit code 0 and have no output
-fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
-    match hbn::run_in_container(container_id, &["ifreload", "--all", "--syntax-check"], true) {
+async fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
+    match hbn::run_in_container(container_id, &["ifreload", "--all", "--syntax-check"], true).await
+    {
         Ok(stdout) => {
             if stdout.is_empty() {
                 hr.passed(HealthCheck::Ifreload);
@@ -283,17 +289,17 @@ fn check_bgp_stats(name: &str, s: &BgpStats, ignored_peers: &[&str]) -> eyre::Re
 }
 
 // A DPU should be in restricted mode
-fn check_restricted_mode(hr: &mut HealthReport) {
+async fn check_restricted_mode(hr: &mut HealthReport) {
     const EXPECTED_PRIV_LEVEL: &str = "RESTRICTED";
-    let mut cmd = Command::new("bash");
+    let mut cmd = TokioCommand::new("bash");
     cmd.arg("-c")
         .arg("mlxprivhost -d /dev/mst/mt*_pciconf0 query");
-    let out = match cmd.output() {
+    let out = match cmd.output().await {
         Ok(out) => out,
         Err(err) => {
             hr.failed(
                 HealthCheck::RestrictedMode,
-                format!("Error running {}. {err}", super::pretty_cmd(&cmd)),
+                format!("Error running {}. {err}", super::pretty_cmd(cmd.as_std())),
             );
             return;
         }
@@ -301,12 +307,16 @@ fn check_restricted_mode(hr: &mut HealthReport) {
     if !out.status.success() {
         tracing::debug!(
             "STDERR {}: {}",
-            super::pretty_cmd(&cmd),
+            super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&out.stderr)
         );
         hr.failed(
             HealthCheck::RestrictedMode,
-            format!("{} for cmd '{}'", out.status, super::pretty_cmd(&cmd)),
+            format!(
+                "{} for cmd '{}'",
+                out.status,
+                super::pretty_cmd(cmd.as_std())
+            ),
         );
         return;
     }

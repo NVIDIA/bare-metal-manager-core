@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::process::Command;
-
 use serde::Deserialize;
+use tokio::process::Command as TokioCommand;
 use tracing::{debug, trace};
 
 // Containerd is started in the mgmt VRF.  Processes started in the MGMT VRF are not reachable
@@ -23,7 +22,7 @@ use tracing::{debug, trace};
 // running on a X86 machine, eg FMDS, while still being able to use the mgmt VRF to connect to our control plane
 #[derive(Debug)]
 pub struct RunCommandPredicate<'a> {
-    pub command: Command,
+    pub command: TokioCommand,
     pub args: Vec<&'a str>,
 }
 impl<'a> RunCommandPredicate<'a> {
@@ -37,31 +36,31 @@ impl<'a> RunCommandPredicate<'a> {
 
         match ignore_mgmt_vrf {
             true => Self {
-                command: Command::new("crictl"),
+                command: TokioCommand::new("crictl"),
                 args: vec!["exec", container_id],
             },
             false => Self {
-                command: Command::new("ip"),
+                command: TokioCommand::new("ip"),
                 args: vec!["vrf", "exec", "mgmt", "crictl", "exec", container_id],
             },
         }
     }
 }
 
-pub fn get_hbn_container_id() -> eyre::Result<String> {
-    let mut crictl = Command::new("crictl");
+pub async fn get_hbn_container_id() -> eyre::Result<String> {
+    let mut crictl = TokioCommand::new("crictl");
     let cmd = crictl.args(["ps", "--name=doca-hbn", "-o=json"]);
-    let out = cmd.output()?;
+    let out = cmd.output().await?;
     if !out.status.success() {
         debug!(
             "STDERR {}: {}",
-            super::pretty_cmd(cmd),
+            super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&out.stderr)
         );
         return Err(eyre::eyre!(
             "{} for cmd '{}'",
             out.status,
-            super::pretty_cmd(cmd)
+            super::pretty_cmd(cmd.as_std())
         ));
     }
 
@@ -78,7 +77,7 @@ fn parse_container_id(json: &str) -> eyre::Result<String> {
     Ok(o.containers[0].id.clone())
 }
 
-pub fn run_in_container(
+pub async fn run_in_container(
     container_id: &str,
     command: &[&str],
     need_success: bool,
@@ -89,17 +88,17 @@ pub fn run_in_container(
     args.extend_from_slice(command);
 
     let cmd = crictl.args(args);
-    let out = cmd.output()?;
+    let out = cmd.output().await?;
     if need_success && !out.status.success() {
         debug!(
             "STDERR {}: {}",
-            super::pretty_cmd(cmd),
+            super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&out.stderr)
         );
         return Err(eyre::eyre!(
             "{} for cmd '{}'",
             out.status, // includes the string "exit status"
-            super::pretty_cmd(cmd)
+            super::pretty_cmd(cmd.as_std())
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())

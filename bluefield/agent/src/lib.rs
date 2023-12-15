@@ -128,7 +128,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // Does not take into account tenant ignored peers, so it can fail when the real check would
         // succeed.
         Some(AgentCommand::Health) => {
-            let health_report = health::health_check(&agent.hbn.root_dir, &[]);
+            let health_report = health::health_check(&agent.hbn.root_dir, &[]).await;
             println!("{health_report}");
         }
 
@@ -157,6 +157,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             };
             let mut has_changed_configs = false;
             match ethernet_virtualization::update(&agent.hbn.root_dir, &conf, agent.hbn.skip_reload)
+                .await
             {
                 Ok(has_changed) => {
                     status_out.network_config_version =
@@ -172,7 +173,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     status_out.network_config_error = Some(err.to_string());
                 }
             }
-            match ethernet_virtualization::interfaces(&conf, &params.mac_address) {
+            match ethernet_virtualization::interfaces(&conf, &params.mac_address).await {
                 Ok(interfaces) => status_out.interfaces = interfaces,
                 Err(err) => status_out.network_config_error = Some(err.to_string()),
             }
