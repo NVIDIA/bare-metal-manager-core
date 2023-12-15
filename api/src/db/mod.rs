@@ -20,6 +20,7 @@ pub mod dpu_agent_upgrade_policy;
 pub mod dpu_machine;
 pub mod dpu_machine_update;
 pub mod explored_endpoints;
+pub mod explored_managed_host;
 pub mod host_machine;
 pub mod ib_partition;
 pub mod instance;

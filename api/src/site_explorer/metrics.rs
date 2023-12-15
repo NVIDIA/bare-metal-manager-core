@@ -23,6 +23,8 @@ pub struct SiteExplorationMetrics {
     pub endpoint_explorations_failures_by_type: HashMap<String, usize>,
     /// The time it took to explore endpoints
     pub endpoint_exploration_duration: Vec<Duration>,
+    /// Total amount of managedhosts that has been identified via Site Exploration
+    pub exploration_identified_managed_hosts: usize,
 }
 
 impl SiteExplorationMetrics {
@@ -33,6 +35,7 @@ impl SiteExplorationMetrics {
             endpoint_explorations_success: 0,
             endpoint_explorations_failures_by_type: HashMap::new(),
             endpoint_exploration_duration: Vec::new(),
+            exploration_identified_managed_hosts: 0,
         }
     }
 }
@@ -43,6 +46,7 @@ pub struct SiteExplorerInstruments {
     pub exploration_success_counter: Counter<u64>,
     pub exploration_failures_counter: Counter<u64>,
     pub exploration_durations: Histogram<f64>,
+    pub exploration_identified_managed_hosts: Counter<u64>,
 }
 
 impl SiteExplorerInstruments {
@@ -65,11 +69,20 @@ impl SiteExplorerInstruments {
                 .with_description("The time it took to explore an endpoint")
                 .with_unit(Unit::new("ms"))
                 .init(),
+            exploration_identified_managed_hosts: meter
+                .u64_counter("exploration_identified_managed_hosts")
+                .with_description("The amount of Host+DPU pairs that has been identified in the last SiteExplorer run")
+                .init(),
         }
     }
 
     /// Emits the metrics for one site exploration run
     pub fn emit(&self, metrics: &SiteExplorationMetrics, attributes: &[opentelemetry::KeyValue]) {
+        self.exploration_identified_managed_hosts.add(
+            metrics.exploration_identified_managed_hosts as u64,
+            attributes,
+        );
+
         self.explorations_counter
             .add(metrics.endpoint_explorations as u64, attributes);
         self.exploration_success_counter

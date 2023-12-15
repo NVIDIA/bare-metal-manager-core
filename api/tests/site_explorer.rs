@@ -19,11 +19,17 @@ use std::{
 use carbide::{
     cfg::SiteExplorerConfig,
     db::{explored_endpoints::DbExploredEndpoint, machine_interface::MachineInterface},
-    model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, EndpointType},
+    model::site_explorer::{
+        ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
+        EthernetInterface, Manager,
+    },
     site_explorer::{EndpointExplorer, SiteExplorer},
     state_controller::network_segment::handler::NetworkSegmentStateHandler,
 };
-use rpc::forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest};
+use rpc::{
+    forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
+    site_explorer::ExploredManagedHost,
+};
 
 mod common;
 use common::{api_fixtures::TestEnv, network_segment::FIXTURE_CREATED_DOMAIN_UUID};
@@ -121,7 +127,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     // to a panic if the machine is queried
     let mut machines = vec![
         FakeMachine {
-            mac: "AA:AB:AC:AD:AA:01".to_string(),
+            mac: "B8:3F:D2:90:97:A6".to_string(),
             dhcp_vendor: "Vendor1".to_string(),
             segment: underlay_segment,
             ip: String::new(),
@@ -205,8 +211,22 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 last_exploration_error: None,
                 vendor: Some("NVIDIA".to_string()),
                 machine_id: None,
-                managers: Vec::new(),
-                systems: Vec::new(),
+                managers: vec![Manager {
+                    id: "bmc".to_string(),
+                    ethernet_interfaces: vec![EthernetInterface {
+                        id: Some("eth0".to_string()),
+                        description: Some("Management Network Interface".to_string()),
+                        interface_enabled: Some(true),
+                        mac_address: Some("b8:3f:d2:90:97:a6".to_string()),
+                    }],
+                }],
+                systems: vec![ComputerSystem {
+                    id: "Bluefield".to_string(),
+                    ethernet_interfaces: Vec::new(),
+                    manufacturer: None,
+                    model: None,
+                    serial_number: None,
+                }],
             }),
         );
         guard.insert(
@@ -257,6 +277,10 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     }
 
+    // Retrieve the report via gRPC
+    let report = fetch_exploration_report(&env).await;
+    assert!(report.managed_hosts.is_empty());
+
     // Running again should yield all 3 entries
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
@@ -281,8 +305,12 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     versions.sort();
     assert_eq!(&versions, &[1, 1, 2]);
 
+    // Retrieve the report via gRPC
+    let report = fetch_exploration_report(&env).await;
+    assert!(report.managed_hosts.is_empty());
+
     // Now make 1 previously existing endpoint unreachable and 1 previously unreachable
-    // endpoint reachable.
+    // endpoint reachable and show the managed host.
     // Both changes should show up after 2 updates
     {
         let mut guard = endpoint_explorer.reports.lock().unwrap();
@@ -294,9 +322,42 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
             vendor: Some("Vendor2".to_string()),
+            managers: vec![Manager {
+                id: "iDRAC.Embedded.1".to_string(),
+                ethernet_interfaces: vec![EthernetInterface {
+                    id: Some("NIC.1".to_string()),
+                    description: Some("Management Network Interface".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some("c8:4b:d6:7a:dc:bc".to_string()),
+                }],
+            }],
+            systems: vec![ComputerSystem {
+                id: "System.Embedded.1".to_string(),
+                manufacturer: Some("Dell Inc.".to_string()),
+                model: Some("PowerEdge R750".to_string()),
+                serial_number: Some("MXFC40025U031S".to_string()),
+                ethernet_interfaces: vec![
+                    EthernetInterface {
+                        id: Some("NIC.Embedded.2-1-1".to_string()),
+                        description: Some("Embedded NIC 1 Port 2 Partition 1".to_string()),
+                        interface_enabled: Some(true),
+                        mac_address: Some("c8:4b:d6:7b:ab:93".to_string()),
+                    },
+                    EthernetInterface {
+                        id: Some("NIC.Embedded.1-1-1".to_string()),
+                        description: Some("Embedded NIC 1 Port 1 Partition 1".to_string()),
+                        interface_enabled: Some(false),
+                        mac_address: Some("c8:4b:d6:7b:ab:92".to_string()),
+                    },
+                    EthernetInterface {
+                        id: Some("NIC.Slot.5-1".to_string()),
+                        description: Some("NIC in Slot 5 Port 1".to_string()),
+                        interface_enabled: Some(true),
+                        mac_address: Some("b8:3f:d2:90:97:a4".to_string()),
+                    },
+                ],
+            }],
             machine_id: None,
-            managers: Vec::new(),
-            systems: Vec::new(),
         });
     }
 
@@ -335,13 +396,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     // => 2 Machines should have been scanned 3 times, and one 2 times
     assert_eq!(&versions, &[2, 3, 3]);
 
-    // Retrieve the report via gRPC
-    let report = env
-        .api
-        .get_site_exploration_report(tonic::Request::new(GetSiteExplorationRequest::default()))
-        .await?
-        .into_inner();
-
+    let report = fetch_exploration_report(&env).await;
     assert_eq!(report.endpoints.len(), 3);
     let mut addresses: Vec<String> = report
         .endpoints
@@ -356,6 +411,16 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .collect();
     expected_addresses.sort();
     assert_eq!(addresses, expected_addresses);
+
+    assert_eq!(report.managed_hosts.len(), 1);
+    let managed_host = report.managed_hosts.clone().remove(0);
+    assert_eq!(
+        managed_host,
+        ExploredManagedHost {
+            host_bmc_ip: machines[1].ip.clone(),
+            dpu_bmc_ip: machines[0].ip.clone(),
+        }
+    );
 
     Ok(())
 }
@@ -379,4 +444,12 @@ impl EndpointExplorer for FakeEndpointExplorer {
         let res = guard.get(address).unwrap();
         res.clone()
     }
+}
+
+async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExplorationReport {
+    env.api
+        .get_site_exploration_report(tonic::Request::new(GetSiteExplorationRequest::default()))
+        .await
+        .unwrap()
+        .into_inner()
 }

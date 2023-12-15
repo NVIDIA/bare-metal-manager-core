@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::IpAddr;
+
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
@@ -80,12 +82,33 @@ impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
     }
 }
 
+/// A combination of DPU and host that was discovered via Site Exploration
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ExploredManagedHost {
+    /// The Hosts BMC IP
+    pub host_bmc_ip: IpAddr,
+    /// The DPUs BMC IP
+    pub dpu_bmc_ip: IpAddr,
+}
+
+impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
+    fn from(host: ExploredManagedHost) -> Self {
+        rpc::site_explorer::ExploredManagedHost {
+            host_bmc_ip: host.host_bmc_ip.to_string(),
+            dpu_bmc_ip: host.dpu_bmc_ip.to_string(),
+        }
+    }
+}
+
 /// That that we gathered from exploring a site
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SiteExplorationReport {
     /// The endpoints that had been explored
     pub endpoints: Vec<ExploredEndpoint>,
+    /// The managed-hosts which have been explored
+    pub managed_hosts: Vec<ExploredManagedHost>,
 }
 
 impl EndpointExplorationReport {
@@ -158,6 +181,7 @@ impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
     fn from(report: SiteExplorationReport) -> Self {
         rpc::site_explorer::SiteExplorationReport {
             endpoints: report.endpoints.into_iter().map(Into::into).collect(),
+            managed_hosts: report.managed_hosts.into_iter().map(Into::into).collect(),
         }
     }
 }

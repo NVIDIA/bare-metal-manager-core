@@ -33,9 +33,19 @@ message ExploredEndpoint {
     string report_version = 3;
 }
 
+// A combination of DPU and host that was discovered via Site Exploration
+message ExploredManagedHost {
+    /// The Hosts BMC IP
+    string host_bmc_ip = 1;
+    /// The DPUs BMC IP
+    string dpu_bmc_ip = 2;
+}
+
 message SiteExplorationReport {
     // The endpoints that had been explored
     repeated ExploredEndpoint endpoints = 1;
+    // The managed-hosts which have been explored
+    repeated ExploredManagedHost managed_hosts = 2;
 }
 
 // `ComputerSystem` definition. Matches redfish definition
