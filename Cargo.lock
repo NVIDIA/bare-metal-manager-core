@@ -1906,6 +1906,7 @@ dependencies = [
  "socket2 0.5.5",
  "tokio",
  "tokio-rustls 0.24.1",
+ "tokio-socks",
  "tower",
  "tower-service",
  "tracing",

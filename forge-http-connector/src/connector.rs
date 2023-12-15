@@ -3,6 +3,7 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -47,7 +48,7 @@ struct ConnectingTcpRemote {
 
 impl ConnectingTcpRemote {
     fn new(addrs: crate::resolver::SocketAddrs, connect_timeout: Option<Duration>) -> Self {
-        let connect_timeout = connect_timeout.map(|t| t / (addrs.len() as u32));
+        let connect_timeout = connect_timeout.map(|t| t / addrs.len() as u32);
 
         Self {
             addrs,
@@ -59,14 +60,36 @@ impl ConnectingTcpRemote {
 impl ConnectingTcpRemote {
     async fn connect(&mut self, config: &Config) -> Result<TcpStream, ConnectError> {
         let mut err = None;
+
         for addr in &mut self.addrs {
-            match connect(&addr, config, self.connect_timeout)?.await {
-                Ok(tcp) => {
-                    return Ok(tcp);
+            if let Some(proxy) = config.socks5_proxy.as_deref() {
+                let proxy_addr = SocketAddr::from_str(proxy)
+                    .map_err(|e| ConnectError::new("Invalid proxy setting", e))?;
+
+                match connect_with_socks_proxy(
+                    proxy_addr,
+                    addr,
+                    config.clone(),
+                    self.connect_timeout,
+                )?
+                .await
+                {
+                    Ok(tcp) => {
+                        return Ok(tcp);
+                    }
+                    Err(e) => {
+                        err = Some(e);
+                    }
                 }
-                Err(e) => {
-                    info!("connect error for {}: {:?}", addr, e);
-                    err = Some(e);
+            } else {
+                match connect(&addr, config, self.connect_timeout)?.await {
+                    Ok(tcp) => {
+                        return Ok(tcp);
+                    }
+                    Err(e) => {
+                        info!("connect error for {}: {:?}", addr, e);
+                        err = Some(e);
+                    }
                 }
             }
         }
@@ -196,9 +219,46 @@ fn connect(
     })
 }
 
+async fn proxy_connect(
+    proxy_addr: SocketAddr,
+    target: SocketAddr,
+    config: &Config,
+) -> Result<TcpStream, ConnectError> {
+    let proxy_stream = connect(&proxy_addr, config, None)?.await?;
+
+    Ok(Socks5Stream::connect_with_socket(proxy_stream, target)
+        .await
+        .map_err(|e| ConnectError::new("proxy connect error: {}", e))?
+        .into_inner())
+}
+
+fn connect_with_socks_proxy(
+    proxy_addr: SocketAddr,
+    target: SocketAddr,
+    config: Config,
+    connect_timeout: Option<Duration>,
+) -> Result<impl Future<Output = Result<TcpStream, ConnectError>>, ConnectError> {
+    Ok(async move {
+        let target_connect = proxy_connect(proxy_addr, target, &config);
+
+        match connect_timeout {
+            Some(dur) => match tokio::time::timeout(dur, target_connect).await {
+                Ok(Ok(s)) => Ok(s),
+                Ok(Err(e)) => Err(e),
+                Err(e) => Err(ConnectError::new(
+                    "Proxy connect timed out",
+                    io::Error::new(io::ErrorKind::TimedOut, e),
+                )),
+            },
+            None => target_connect.await,
+        }
+    })
+}
+
 impl<'a> ConnectingTcp<'a> {
     fn new(remote_addrs: resolver::SocketAddrs, config: &'a Config) -> Self {
         trace!("ConnectingTcp config: {:?}", config);
+
         if let Some(fallback_timeout) = config.happy_eyeballs_timeout {
             let (preferred_addrs, fallback_addrs) = remote_addrs
                 .split_by_preference(config.local_address_ipv4, config.local_address_ipv6);
@@ -595,7 +655,7 @@ impl ForgeHttpConnector {
         let (host, port) = get_host_port(config, &dst)?;
         let host = host.trim_start_matches('[').trim_end_matches(']');
 
-        let mut addrs = if let Some(addrs) = crate::resolver::SocketAddrs::try_parse(host, port) {
+        let addrs = if let Some(addrs) = crate::resolver::SocketAddrs::try_parse(host, port) {
             addrs
         } else {
             let dns_name: Name = host.parse().map_err(ConnectError::dns)?;
@@ -614,20 +674,7 @@ impl ForgeHttpConnector {
             resolver::SocketAddrs::new(addrs)
         };
 
-        let sock = if let Some(proxy_addr) = config.socks5_proxy.as_deref() {
-            let proxy_stream = tokio::net::TcpStream::connect(proxy_addr)
-                .await
-                .map_err(|e| ConnectError::new("Connect error", e))?;
-
-            Socks5Stream::connect_with_socket(proxy_stream, addrs.next().unwrap())
-                .await
-                .map_err(|e| ConnectError::new("Connect error", e))?
-                .into_inner()
-        } else {
-            let c = ConnectingTcp::new(addrs, config);
-            c.connect().await?
-        };
-
-        Ok(sock)
+        let c = ConnectingTcp::new(addrs, config);
+        c.connect().await
     }
 }

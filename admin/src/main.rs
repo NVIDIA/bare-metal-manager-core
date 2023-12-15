@@ -282,6 +282,36 @@ fn get_config_from_file() -> Option<FileConfig> {
     None
 }
 
+fn get_proxy_info() -> Result<Option<String>, CarbideCliError> {
+    std::env::var("http_proxy")
+        .ok()
+        .or_else(|| std::env::var("https_proxy").ok())
+        .or_else(|| std::env::var("HTTP_PROXY").ok())
+        .or_else(|| std::env::var("HTTPS_PROXY").ok())
+        .map_or(Ok(None), |proxy| {
+            let uri = Uri::from_str(&proxy).map_err(|e| {
+                CarbideCliError::ApiConnectFailed(format!("Failed to parse proxy url: {}", e))
+            })?;
+            if uri
+                .scheme_str()
+                .is_some_and(|s| !s.eq_ignore_ascii_case("socks5"))
+            {
+                return Err(CarbideCliError::ApiConnectFailed(
+                    "Only SOCKS5 Proxy supported".to_string(),
+                ));
+            }
+            let host = uri.host().map_or("".to_owned(), |h| h.to_owned());
+            let port = uri
+                .port_u16()
+                .map_or("".to_owned(), |port| port.to_string());
+            if host.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(host + ":" + &port))
+            }
+        })
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
@@ -331,31 +361,7 @@ async fn main() -> color_eyre::Result<()> {
         file_config.as_ref(),
     );
 
-    let proxy = std::env::var("http_proxy")
-        .ok()
-        .or_else(|| std::env::var("https_proxy").ok())
-        .or_else(|| std::env::var("HTTP_PROXY").ok())
-        .or_else(|| std::env::var("HTTPS_PROXY").ok())
-        .map_or(Ok(None), |proxy| {
-            let uri = Uri::from_str(&proxy).expect("Failed to parse proxy variable");
-            if uri
-                .scheme_str()
-                .is_some_and(|s| !s.eq_ignore_ascii_case("socks5"))
-            {
-                return Err(color_eyre::Report::new(CarbideCliError::ApiConnectFailed(
-                    "Only SOCKS5 Proxy supported".to_string(),
-                )));
-            }
-            let host = uri.host().map_or("".to_owned(), |h| h.to_owned());
-            let port = uri
-                .port_u16()
-                .map_or("".to_owned(), |port| port.to_string());
-            if host.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(host + ":" + &port))
-            }
-        })?;
+    let proxy = get_proxy_info()?;
 
     let mut forge_client_config =
         ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
