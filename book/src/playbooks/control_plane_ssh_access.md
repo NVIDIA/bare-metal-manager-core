@@ -47,6 +47,8 @@ In order to ssh to a Forge control plane node, you will need to specify a jump
 host via the `ssh -J` parameter. The following jump hosts can be used by adding
 them to `.ssh/config`:
 
+#### NVIDIA Reno/SJC and PDX 
+
 ```
 Host sjc4jump 24.51.7.3
   Hostname 24.51.7.3
@@ -60,31 +62,6 @@ Host renojump 155.130.12.194
 
 Host pdxjump 10.217.0.131
   Hostname 10.217.0.131
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
-
-Host tpejump 198.100.173.0
-  Hostname 198.100.173.0
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
-
-# Azure Colo jump hosts from https://gitlab-master.nvidia.com/nsvmc/mc-ssh-configs
-
-# For az01
-Host wus-jb-admin01 10.45.32.84
-  Hostname 10.45.32.84
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
-
-# For az20
-Host sdc-jb-admin01 10.45.33.84
-  Hostname 10.45.33.84
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
-
-# For various other azure colo sites
-Host uswest2 20.64.249.211
-  Hostname 20.64.249.211
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
@@ -107,6 +84,35 @@ Host 10.180.32.* 10.180.222.* 10.180.221.* 10.180.124.*
 All 3 jump hosts will work for all Nvidia owned Forge sites. However you might
 obtain better performance by specifying a jump host in the same datacenter as
 the Forge site.
+
+#### NVIDIA Colo jump hosts (OVX/TPE)
+
+[Mission Control Colo Jump Hosts](https://gitlab-master.nvidia.com/nsvmc/mc-ssh-configs)
+
+##### NVIDIA Colo jump host matrix
+
+| Pod | Name | Jumphost | Shell box |
+|_____|______|__________|___________|
+|Pod 1| AZ01 | wus-jb-admin01 | wus-mc-staging |
+|Pod 2| AZ20 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 3| AZ02 | wus-jb-admin01 | wus-mc-staging |
+|Pod 4| AZ03 | wus2-jb-admin01 | wus2-mc-staging |
+|Pod 5| AZ04 | wus2-jb-admin01 | wus2-mc-staging |
+|Pod 6| AZ21 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 7| AZ05 | wus-jb-admin01 | wus-mc-staging |
+|Pod 8| AZ06 | wus2-jb-admin01 | wus2-mc-staging |
+|Pod 9| AZ22 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 10| AZ23 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 11| AZ24 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 12| AZ25 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 13| AZ26 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 14| AZ27 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 15| AZ28 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 16| AZ29 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 17| AZ30 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 18| AZ31 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 19| AZ32 | sdc-jb-admin01 | sdc-mc-staging |
+|Pod 20| AZ33 | sdc-jb-admin01 | sdc-mc-staging |
 
 **Note**: Jump hosts no longer allow direct ssh access. They should be used as jump hosts only.<br>Example: `ssh -J <win_ad_user>@<dc_jumphost> <os_user>@<host_ip/host_fqdn>`
 
