@@ -285,7 +285,14 @@ description = "Runs the same set of tasks CI will."
 category = "CI"
 # clippy-flow, check-format-flow and workspace-ci-flow are default targets provided by cargo-make.
 # workspace-ci-flow means run 'ci-flow' (you guessed it, default) on everything in the workspace.
-dependencies = ["clippy-flow", "check-format-flow", "workspace-ci-flow"]
+dependencies = ["pre-commit-verify-workspace", "workspace-ci-flow"]
+
+[tasks.pre-commit-verify-workspace]
+workspace = false
+description = "Tasks that run on workspace level (not crate level) in pre-commit-verify"
+category = "CI"
+# clippy-flow, check-format-flow are default targets provided by cargo-make.
+dependencies = ["clippy-flow", "check-format-flow"]
 
 [tasks.clippy]
 workspace = false
@@ -316,9 +323,6 @@ workspace = false
 [tasks.correctly-execute-tests]
 dependencies = ["build-debug-test-prerequisites", "test"]
 workspace = false
-
-[tasks.workspace-ci-flow]
-args = ["--no-default-features"]
 
 # workspace-ci-flow runs this on every crate in our workspace
 [tasks.ci-flow]

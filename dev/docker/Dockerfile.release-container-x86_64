@@ -31,9 +31,9 @@ RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
   /etc/init.d/postgresql start && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \
-  cargo make clippy-flow && \
+  cargo make --no-workspace clippy-flow && \
   echo "$(date): Finished cargo make clippy-flow\n" && \
-  cargo make check-format-flow && \
+  cargo make --no-workspace check-format-flow && \
   echo "$(date): Finished cargo make check-format-flow\n" && \
   cargo make workspace-ci-flow && \
   echo "$(date): Finished cargo make workspace-ci-flow\n" && \
