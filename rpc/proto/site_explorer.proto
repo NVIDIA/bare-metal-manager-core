@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package site_explorer;
+
+// Data that we gathered about a particular endpoint during site exploration
+message EndpointExplorationReport {
+    // The type of the endpoint
+    string endpoint_type = 1;
+    // If the endpoint could not be explored, this contains the last error
+    // The error is serialized in JSON format
+    optional string last_exploration_error = 2;
+    // If the endpoint is a BMC that belongs to a Machine and enough data is
+    // available to calculate the `MachineId`, this field contains the `MachineId`
+    optional string machine_id = 3;
+
+    // Redfish data starts here:
+
+    // Vendor as reported by Redfish
+    optional string vendor = 11;
+    // `Managers` reported by Redfish
+    repeated Manager managers = 12;
+    // `Systems` reported by Redfish
+    repeated ComputerSystem systems = 13;
+}
+
+message ExploredEndpoint {
+    // The IP address of the endpoint we explored
+    string address = 1;
+    // The data we gathered about the endpoint
+    EndpointExplorationReport report = 2;
+    // The version of `report`.
+    // Will increase every time the report gets updated.
+    string report_version = 3;
+}
+
+message SiteExplorationReport {
+    // The endpoints that had been explored
+    repeated ExploredEndpoint endpoints = 1;
+}
+
+// `ComputerSystem` definition. Matches redfish definition
+message ComputerSystem {
+    string id = 1;
+    optional string manufacturer = 2;
+    optional string model = 3;
+    optional string serial_number = 4;
+    repeated EthernetInterface ethernet_interfaces = 11;
+}
+
+// `Manager` definition. Matches redfish definition
+message Manager {
+    string id = 1;
+    repeated EthernetInterface ethernet_interfaces = 11;
+}
+
+// `EthernetInterface` definition. Matches redfish definition
+message EthernetInterface {
+    optional string id = 1;
+    optional string description = 2;
+    optional bool interface_enabled = 3;
+    optional string mac_address = 4;
+}

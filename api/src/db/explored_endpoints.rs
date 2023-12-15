@@ -16,42 +16,59 @@ use std::net::IpAddr;
 use crate::{
     db::DatabaseError,
     model::{
-        config_version::{ConfigVersion, Versioned},
-        site_explorer::EndpointExplorationReport,
+        config_version::ConfigVersion,
+        site_explorer::{EndpointExplorationReport, ExploredEndpoint},
     },
 };
 
 #[derive(Debug, Clone)]
-pub struct ExploredEndpoint {
+pub struct DbExploredEndpoint {
     /// The IP address of the node we explored
-    pub address: IpAddr,
-    /// The data we gathered about the node
-    pub exploration_report: Versioned<EndpointExplorationReport>,
+    address: std::net::IpAddr,
+    /// The data we gathered about the endpoint
+    report: EndpointExplorationReport,
+    /// The version of `report`.
+    /// Will increase every time the report gets updated.
+    report_version: ConfigVersion,
 }
 
-impl<'r> FromRow<'r, PgRow> for ExploredEndpoint {
+impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let exploration_report: sqlx::types::Json<EndpointExplorationReport> =
+        let report: sqlx::types::Json<EndpointExplorationReport> =
             row.try_get("exploration_report")?;
         let version_str: &str = row.try_get("version")?;
-        let version = version_str
+        let report_version = version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
-        Ok(ExploredEndpoint {
+        Ok(DbExploredEndpoint {
             address: row.try_get("address")?,
-            exploration_report: Versioned::new(exploration_report.0, version),
+            report: report.0,
+            report_version,
         })
     }
 }
 
-impl ExploredEndpoint {
-    pub async fn find_all(txn: &mut Transaction<'_, Postgres>) -> Result<Vec<Self>, DatabaseError> {
+impl From<DbExploredEndpoint> for ExploredEndpoint {
+    fn from(endpoint: DbExploredEndpoint) -> Self {
+        Self {
+            address: endpoint.address,
+            report: endpoint.report,
+            report_version: endpoint.report_version,
+        }
+    }
+}
+
+impl DbExploredEndpoint {
+    pub async fn find_all(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
         let query = "SELECT * FROM explored_endpoints";
 
         sqlx::query_as::<_, Self>(query)
             .fetch_all(&mut **txn)
             .await
+            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints find_all", e))
     }
 

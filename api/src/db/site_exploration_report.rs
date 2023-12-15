@@ -10,12 +10,21 @@
  * its affiliates is strictly prohibited.
  */
 
-#[allow(non_snake_case, unknown_lints, clippy::all)]
-#[rustfmt::skip]
-pub mod forge;
-#[allow(non_snake_case, unknown_lints, clippy::all)]
-#[rustfmt::skip]
-pub mod machine_discovery;
-#[allow(non_snake_case, unknown_lints, clippy::all)]
-#[rustfmt::skip]
-pub mod site_explorer;
+use sqlx::{Postgres, Transaction};
+
+use crate::{
+    db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
+    model::site_explorer::SiteExplorationReport,
+};
+
+#[derive(Debug, Clone)]
+pub struct DbSiteExplorationReport {}
+
+impl DbSiteExplorationReport {
+    pub async fn fetch(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<SiteExplorationReport, DatabaseError> {
+        let endpoints = DbExploredEndpoint::find_all(txn).await?;
+        Ok(SiteExplorationReport { endpoints })
+    }
+}

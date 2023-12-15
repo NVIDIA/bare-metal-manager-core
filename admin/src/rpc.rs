@@ -709,3 +709,17 @@ pub async fn get_bmc_machine(
     })
     .await
 }
+
+pub async fn get_site_exploration_report(
+    api_config: &Config,
+) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
+    with_forge_client(api_config.clone(), |mut client| async move {
+        let request = tonic::Request::new(rpc::GetSiteExplorationRequest {});
+        Ok(client
+            .get_site_exploration_report(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner())
+    })
+    .await
+}

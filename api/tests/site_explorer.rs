@@ -18,12 +18,12 @@ use std::{
 
 use carbide::{
     cfg::SiteExplorerConfig,
-    db::{explored_endpoints::ExploredEndpoint, machine_interface::MachineInterface},
+    db::{explored_endpoints::DbExploredEndpoint, machine_interface::MachineInterface},
     model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, EndpointType},
     site_explorer::{EndpointExplorer, SiteExplorer},
     state_controller::network_segment::handler::NetworkSegmentStateHandler,
 };
-use rpc::forge::{forge_server::Forge, DhcpDiscovery};
+use rpc::forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest};
 
 mod common;
 use common::{api_fixtures::TestEnv, network_segment::FIXTURE_CREATED_DOMAIN_UUID};
@@ -239,25 +239,21 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
     let mut txn = pool.begin().await?;
-    let explored = ExploredEndpoint::find_all(&mut txn).await.unwrap();
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 2);
 
     for report in &explored {
-        assert_eq!(report.exploration_report.version.version_nr(), 1);
+        assert_eq!(report.report_version.version_nr(), 1);
         let guard = endpoint_explorer.reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap();
         if res.is_err() {
             assert_eq!(
                 res.clone().unwrap_err(),
-                report
-                    .exploration_report
-                    .last_exploration_error
-                    .clone()
-                    .unwrap()
+                report.report.last_exploration_error.clone().unwrap()
             );
         } else {
-            assert_eq!(res.clone().unwrap(), report.exploration_report.value);
+            assert_eq!(res.clone().unwrap(), report.report);
         }
     }
 
@@ -265,25 +261,21 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
     let mut txn = pool.begin().await?;
-    let explored = ExploredEndpoint::find_all(&mut txn).await.unwrap();
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 3);
     let mut versions = Vec::new();
     for report in &explored {
-        versions.push(report.exploration_report.version.version_nr());
+        versions.push(report.report_version.version_nr());
         let guard = endpoint_explorer.reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap();
         if res.is_err() {
             assert_eq!(
                 res.clone().unwrap_err(),
-                report
-                    .exploration_report
-                    .last_exploration_error
-                    .clone()
-                    .unwrap()
+                report.report.last_exploration_error.clone().unwrap()
             );
         } else {
-            assert_eq!(res.clone().unwrap(), report.exploration_report.value);
+            assert_eq!(res.clone().unwrap(), report.report);
         }
     }
     versions.sort();
@@ -311,39 +303,29 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     explorer.run_single_iteration().await.unwrap();
     explorer.run_single_iteration().await.unwrap();
     let mut txn = pool.begin().await?;
-    let explored = ExploredEndpoint::find_all(&mut txn).await.unwrap();
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 3);
     let mut versions = Vec::new();
     for report in &explored {
-        versions.push(report.exploration_report.version.version_nr());
-        assert_eq!(report.exploration_report.endpoint_type, EndpointType::Bmc);
+        versions.push(report.report_version.version_nr());
+        assert_eq!(report.report.endpoint_type, EndpointType::Bmc);
         match report.address.to_string() {
             a if a == machines[0].ip => {
                 // The original report is retained. But the error gets stored
-                assert_eq!(report.exploration_report.vendor, Some("NVIDIA".to_string()));
+                assert_eq!(report.report.vendor, Some("NVIDIA".to_string()));
                 assert_eq!(
-                    report
-                        .exploration_report
-                        .last_exploration_error
-                        .clone()
-                        .unwrap(),
+                    report.report.last_exploration_error.clone().unwrap(),
                     EndpointExplorationError::Unreachable
                 );
             }
             a if a == machines[1].ip => {
-                assert_eq!(
-                    report.exploration_report.vendor,
-                    Some("Vendor2".to_string())
-                );
-                assert!(report.exploration_report.last_exploration_error.is_none());
+                assert_eq!(report.report.vendor, Some("Vendor2".to_string()));
+                assert!(report.report.last_exploration_error.is_none());
             }
             a if a == machines[2].ip => {
-                assert_eq!(
-                    report.exploration_report.vendor,
-                    Some("Vendor3".to_string())
-                );
-                assert!(report.exploration_report.last_exploration_error.is_none());
+                assert_eq!(report.report.vendor, Some("Vendor3".to_string()));
+                assert!(report.report.last_exploration_error.is_none());
             }
             _ => panic!("No other endpoints should be discovered"),
         }
@@ -352,6 +334,28 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     // We run 4 iterations, which is enough for 8 machine scans
     // => 2 Machines should have been scanned 3 times, and one 2 times
     assert_eq!(&versions, &[2, 3, 3]);
+
+    // Retrieve the report via gRPC
+    let report = env
+        .api
+        .get_site_exploration_report(tonic::Request::new(GetSiteExplorationRequest::default()))
+        .await?
+        .into_inner();
+
+    assert_eq!(report.endpoints.len(), 3);
+    let mut addresses: Vec<String> = report
+        .endpoints
+        .iter()
+        .map(|ep| ep.address.clone())
+        .collect();
+    addresses.sort();
+    let mut expected_addresses: Vec<String> = machines
+        .iter()
+        .filter(|m| m.segment == underlay_segment)
+        .map(|m| m.ip.to_string())
+        .collect();
+    expected_addresses.sort();
+    assert_eq!(addresses, expected_addresses);
 
     Ok(())
 }
