@@ -70,7 +70,7 @@ impl SiteExplorerInstruments {
                 .with_unit(Unit::new("ms"))
                 .init(),
             exploration_identified_managed_hosts: meter
-                .u64_counter("exploration_identified_managed_hosts")
+                .u64_counter("forge_site_exploration_identified_managed_hosts")
                 .with_description("The amount of Host+DPU pairs that has been identified in the last SiteExplorer run")
                 .init(),
         }
