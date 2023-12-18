@@ -20,6 +20,7 @@ use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*, util::SubscriberIni
 
 pub mod agent_config;
 pub mod hardware_enumeration;
+pub mod ipmi;
 pub mod registration;
 
 static LOG_SETUP: Once = Once::new();

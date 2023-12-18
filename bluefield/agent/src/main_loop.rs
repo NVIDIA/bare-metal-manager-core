@@ -156,6 +156,7 @@ pub async fn run(
                 }
 
                 let health_report = health::health_check(&agent.hbn.root_dir, &tenant_peers).await;
+                let is_missing_ipmi_user = health_report.is_missing_ipmi_user();
                 is_healthy = health_report.is_healthy();
                 is_hbn_up = health_report.is_up(); // subset of is_healthy
                 tracing::trace!("{} HBN health is: {}", machine_id, health_report);
@@ -185,6 +186,17 @@ pub async fn run(
 
                 record_network_status(status_out, forge_api, forge_client_config.clone()).await;
                 seen_blank = false;
+
+                if is_missing_ipmi_user {
+                    if let Err(err) =
+                        create_forge_admin_user(forge_api, forge_client_config.clone(), machine_id)
+                            .await
+                    {
+                        tracing::error!(
+                            "Failed creating missing forge_admin user: {err}. Will retry."
+                        );
+                    }
+                }
             }
             None => {
                 // No network config means server can't find the DPU, usually because it was
@@ -417,4 +429,20 @@ fn create_metric_view_for_retry_histograms(
         },
     );
     opentelemetry_sdk::metrics::new_view(criteria, mask)
+}
+
+async fn create_forge_admin_user(
+    forge_api: &str,
+    forge_client_config: forge_tls_client::ForgeClientConfig,
+    machine_id: &str,
+) -> eyre::Result<()> {
+    let ipmi_user = forge_host_support::ipmi::set_ipmi_creds()?;
+
+    let mut client = forge_tls_client::ForgeTlsClient::new(forge_client_config).connect(forge_api).await
+        .map_err(|err|
+            eyre::eyre!("create_forge_admin_user: Could not connect to Forge API server at {forge_api}. {err}")
+            )?;
+    forge_host_support::ipmi::send_bmc_metadata_update(&mut client, machine_id, vec![ipmi_user])
+        .await?;
+    Ok(())
 }

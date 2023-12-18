@@ -32,7 +32,6 @@ uname = "0.1"
 uuid = "1.0"
 
 # local crate dependencies
-forge_secrets = { path = "../forge_secrets" }
 rpc = { path = "../rpc" }
 forge-host-support = { path = "../host-support" }
 forge-version = { path = "../version" }
