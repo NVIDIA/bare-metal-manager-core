@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{cfg::Options, client::create_forge_client, CarbideClientError};
 use ::rpc::forge as rpc;
+
+use crate::{cfg::Options, client::create_forge_client, CarbideClientError};
 
 pub(crate) async fn run(config: &Options, machine_id: &str) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
@@ -20,10 +21,13 @@ pub(crate) async fn run(config: &Options, machine_id: &str) -> Result<(), Carbid
     crate::ipmi::wait_until_ipmi_is_ready().await?;
 
     let mut ipmi_users = Vec::default();
-    let ipmi_user = crate::ipmi::set_ipmi_creds()?;
+    let ipmi_user = forge_host_support::ipmi::set_ipmi_creds()
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     ipmi_users.push(ipmi_user);
 
-    crate::ipmi::send_bmc_metadata_update(&mut client, machine_id, ipmi_users).await?;
+    forge_host_support::ipmi::send_bmc_metadata_update(&mut client, machine_id, ipmi_users)
+        .await
+        .map_err(|e| CarbideClientError::GenericError(e.to_string()))?;
     Ok(())
 }
 

@@ -28,6 +28,7 @@ const EXPECTED_FILES: [&str; 4] = [
 
 const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
 const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
+const FORGE_ADMIN_USER: &str = "forge_admin";
 
 /// Check the health of HBN
 pub async fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport {
@@ -53,6 +54,7 @@ pub async fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport
     check_network_stats(&mut hr, &container_id, host_routes).await;
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
     check_restricted_mode(&mut hr).await;
+    check_forge_admin_user(&mut hr).await;
 
     hr
 }
@@ -342,6 +344,75 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
     }
 }
 
+// An ipmitool user called 'forge_admin' should exist
+async fn check_forge_admin_user(hr: &mut HealthReport) {
+    let mut cmd = TokioCommand::new("ipmitool");
+    cmd.args(["user", "list", "1", "-c"]); // -c says CSV output
+    let out = match cmd.output().await {
+        Ok(out) => out,
+        Err(err) => {
+            hr.failed(
+                HealthCheck::ForgeAdminUser(IpmiUserCheck::Error),
+                format!("Error running: {}. {err}", super::pretty_cmd(cmd.as_std())),
+            );
+            return;
+        }
+    };
+    if !out.status.success() {
+        tracing::debug!(
+            "STDERR {}: {}",
+            super::pretty_cmd(cmd.as_std()),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        hr.failed(
+            HealthCheck::ForgeAdminUser(IpmiUserCheck::Error),
+            format!(
+                "{} for cmd '{}'",
+                out.status,
+                super::pretty_cmd(cmd.as_std())
+            ),
+        );
+        return;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    match has_forge_admin_user(&s) {
+        Ok(true) => {
+            hr.passed(HealthCheck::ForgeAdminUser(IpmiUserCheck::Exists));
+        }
+        Ok(false) => {
+            hr.failed(
+                HealthCheck::ForgeAdminUser(IpmiUserCheck::Missing),
+                format!("{FORGE_ADMIN_USER} does not exist"),
+            );
+        }
+        Err(err) => {
+            hr.failed(
+                HealthCheck::ForgeAdminUser(IpmiUserCheck::Error),
+                format!("Failed parsing ipmitool output. {err}. {s}"),
+            );
+        }
+    }
+}
+
+// See unit test for example valid 's'
+fn has_forge_admin_user(s: &str) -> eyre::Result<bool> {
+    for parts in s.lines().map(|l| l.split(',').collect::<Vec<&str>>()) {
+        if parts.len() != 6 {
+            eyre::bail!("Invalid 'ipmitool user list 1'. Line should have length 6 not {}: {parts:?}. Full output: {s}", parts.len());
+        }
+        if parts[1] == FORGE_ADMIN_USER {
+            if parts[5] != "ADMINISTRATOR" {
+                tracing::warn!(
+                    "ipmi user {FORGE_ADMIN_USER} needs privilege ADMINISTRATOR, has '{:?}'",
+                    parts[5]
+                );
+            }
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn parse_mlxprivhost(s: &str) -> eyre::Result<String> {
     let Some(level_line) = s.lines().find(|line| line.contains("level")) else {
         eyre::bail!("Invalid mlxprivhost output, missing 'level' line:\n{s}");
@@ -423,6 +494,13 @@ impl HealthReport {
     pub fn is_healthy(&self) -> bool {
         !self.checks_passed.is_empty() && self.checks_failed.is_empty()
     }
+
+    /// Is ipmi user forge_admin missing?
+    pub fn is_missing_ipmi_user(&self) -> bool {
+        self.checks_failed
+            .iter()
+            .any(|f| matches!(f, HealthCheck::ForgeAdminUser(IpmiUserCheck::Missing)))
+    }
 }
 
 // The things we check on an HBN to ensure it's in good health
@@ -438,6 +516,7 @@ pub enum HealthCheck {
     FileIsValid(String),
     BgpDaemonEnabled,
     RestrictedMode,
+    ForgeAdminUser(IpmiUserCheck),
 }
 
 impl fmt::Display for HealthReport {
@@ -469,16 +548,24 @@ impl fmt::Display for HealthCheck {
         match self {
             Self::ContainerExists => write!(f, "ContainerExists"),
             Self::SupervisorctlStatus => write!(f, "SupervisorctlStatus"),
-            Self::ServiceRunning(service_name) => write!(f, "ServiceRunning({})", service_name),
+            Self::ServiceRunning(service_name) => write!(f, "ServiceRunning({service_name})"),
             Self::DhcpRelay => write!(f, "DhcpRelay"),
             Self::BgpStats => write!(f, "BgpStats"),
             Self::Ifreload => write!(f, "Ifreload"),
-            Self::FileExists(file_name) => write!(f, "FileExists({})", file_name),
-            Self::FileIsValid(file_name) => write!(f, "FileIsValid({})", file_name),
+            Self::FileExists(file_name) => write!(f, "FileExists({file_name})"),
+            Self::FileIsValid(file_name) => write!(f, "FileIsValid({file_name})"),
             Self::BgpDaemonEnabled => write!(f, "BgpDaemonEnabled"),
             Self::RestrictedMode => write!(f, "RestrictedMode"),
+            Self::ForgeAdminUser(res) => write!(f, "ForgeAdminUser({res:?})"),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize)]
+pub enum IpmiUserCheck {
+    Exists,
+    Missing,
+    Error,
 }
 
 fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
@@ -600,6 +687,28 @@ disable_counter_rd            : TRUE
 
 "#;
 
+    const IPMITOOL_USERS_OUT_SUCCESS: &str = r#"1,root,false,true,true,ADMINISTRATOR
+2,forge_admin,true,true,true,ADMINISTRATOR
+3,,true,false,false,NO ACCESS
+4,,true,false,false,NO ACCESS
+5,,true,false,false,NO ACCESS
+6,,true,false,false,NO ACCESS
+7,,true,false,false,NO ACCESS
+8,,true,false,false,NO ACCESS
+9,,true,false,false,NO ACCESS
+10,,true,false,false,NO ACCESS
+11,,true,false,false,NO ACCESS
+12,,true,false,false,NO ACCESS
+13,,true,false,false,NO ACCESS
+14,,true,false,false,NO ACCESS
+15,,true,false,false,NO ACCESS
+"#;
+
+    const IPMITOOL_USERS_OUT_FAIL: &str = r#"1,root,false,true,true,ADMINISTRATOR
+2,,true,false,false,NO ACCESS
+3,,true,false,false,NO ACCESS
+"#;
+
     const BGP_SUMMARY_JSON_SUCCESS: &str = include_str!("hbn_bgp_summary.json");
     const BGP_SUMMARY_JSON_FAIL: &str = include_str!("hbn_bgp_summary_fail.json");
     const BGP_SUMMARY_JSON_WITH_IGNORE: &str = include_str!("hbn_bgp_summary_with_ignore.json");
@@ -643,5 +752,15 @@ disable_counter_rd            : TRUE
             super::parse_mlxprivhost(MLXPRIVHOST_OUT).unwrap(),
             "RESTRICTED"
         );
+    }
+
+    #[test]
+    fn test_has_forge_admin_user() {
+        assert!(super::has_forge_admin_user(IPMITOOL_USERS_OUT_SUCCESS).unwrap());
+        assert!(!super::has_forge_admin_user(IPMITOOL_USERS_OUT_FAIL).unwrap());
+        assert!(matches!(
+            super::has_forge_admin_user("invalid output"),
+            Err(_)
+        ));
     }
 }

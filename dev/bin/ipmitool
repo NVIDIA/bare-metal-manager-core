@@ -1,0 +1,29 @@
+#!/bin/bash
+#
+# forge-dpu-agent needs 'ipmitool user list 1' to work.
+# The integration tests puts this path, hence this script, on the front of the PATH to ensure it does.
+
+USER_LIST='1,root,false,true,true,ADMINISTRATOR
+2,forge_admin,true,true,true,ADMINISTRATOR
+3,,true,false,false,NO ACCESS
+4,,true,false,false,NO ACCESS
+5,,true,false,false,NO ACCESS
+6,,true,false,false,NO ACCESS
+7,,true,false,false,NO ACCESS
+8,,true,false,false,NO ACCESS
+9,,true,false,false,NO ACCESS
+10,,true,false,false,NO ACCESS
+11,,true,false,false,NO ACCESS
+12,,true,false,false,NO ACCESS
+13,,true,false,false,NO ACCESS
+14,,true,false,false,NO ACCESS
+15,,true,false,false,NO ACCESS
+'
+
+case "$1" in
+	# ipmitool user list 1 -c
+	"user" )
+		printf "$USER_LIST"
+		;;
+esac
+
