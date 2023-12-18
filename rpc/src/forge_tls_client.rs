@@ -79,17 +79,22 @@ pub struct ForgeClientConfig {
     pub client_cert: Option<ForgeClientCert>,
     pub enforce_tls: bool,
     pub use_mgmt_vrf: bool,
+    pub max_decoding_message_size: Option<usize>,
 }
 
 impl ForgeClientConfig {
     pub fn new(root_ca_path: String, client_cert: Option<ForgeClientCert>) -> Self {
         let disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok();
+        let max_decoding_message_size = std::env::var("TONIC_MAX_DECODING_MESSAGE_SIZE")
+            .ok()
+            .and_then(|ms| ms.parse::<usize>().ok());
 
         Self {
             root_ca_path,
             client_cert,
             enforce_tls: !disabled,
             use_mgmt_vrf: false,
+            max_decoding_message_size,
         }
     }
 
@@ -120,11 +125,16 @@ impl ForgeClientConfig {
             }
         };
 
+        let max_decoding_message_size = std::env::var("TONIC_MAX_DECODING_MESSAGE_SIZE")
+            .ok()
+            .and_then(|ms| ms.parse::<usize>().ok());
+
         let res = Self {
             root_ca_path: self.root_ca_path,
             client_cert: self.client_cert,
             enforce_tls: self.enforce_tls,
             use_mgmt_vrf,
+            max_decoding_message_size,
         };
 
         log::debug!("ForgeClientConfig {:?}", res);
@@ -342,7 +352,13 @@ impl ForgeTlsClient {
         let hyper_client = hyper::client::Client::builder()
             .http2_only(true)
             .build(connector);
-        let forge_client = ForgeClient::with_origin(hyper_client, uri);
+
+        let mut forge_client = ForgeClient::with_origin(hyper_client, uri);
+
+        if let Some(max_decoding_message_size) = self.forge_client_config.max_decoding_message_size
+        {
+            forge_client = forge_client.max_decoding_message_size(max_decoding_message_size);
+        }
 
         Ok(forge_client)
     }

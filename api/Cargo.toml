@@ -88,7 +88,7 @@ utils = { path = "../utils" }
 askama = "0.12.1"
 
 [build-dependencies]
-tonic-build = "0.8"
+tonic-build = "0.10.2"
 forge-version = { path = "../version" }
 
 [dev-dependencies]
