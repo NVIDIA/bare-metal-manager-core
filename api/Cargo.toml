@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 arc-swap = "1.6"
+askama = "0.12.1"
 async-trait = "*"
 axum = { version = "0.6.18", features = ["http2"] }
 base64 = "0.21.5"
@@ -46,6 +47,7 @@ toml = "0.8.8"
 patricia_tree = "^0"
 prometheus = "0.13"
 rand = "0.8"
+regex = "1.6"
 schemars = "*"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
@@ -70,7 +72,11 @@ tonic = { workspace = true }
 tonic-reflection = "0.9.0"
 url = { version = "2", features = ["serde"] }
 tower = "0.4"
-tower-http = { version = "0.4", features = ["add-extension", "auth", "normalize-path"] }
+tower-http = { version = "0.4", features = [
+    "add-extension",
+    "auth",
+    "normalize-path",
+] }
 tower-layer = "0.3"
 tracing = "*"
 tracing-opentelemetry = "0.22.0"
@@ -85,7 +91,6 @@ forge_secrets = { path = "../forge_secrets" }
 forge-version = { path = "../version" }
 rpc = { path = "../rpc" }
 utils = { path = "../utils" }
-askama = "0.12.1"
 
 [build-dependencies]
 tonic-build = "0.8"
@@ -95,4 +100,3 @@ forge-version = { path = "../version" }
 figment = { version = "0.10.10", features = ["env", "test", "toml"] }
 ctor = "0.1"
 lazy_static = "1.4.0"
-regex = "1.6"
