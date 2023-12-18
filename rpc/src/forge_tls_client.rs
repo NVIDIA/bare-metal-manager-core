@@ -357,7 +357,6 @@ impl ForgeTlsClient {
 
         if let Some(max_decoding_message_size) = self.forge_client_config.max_decoding_message_size
         {
-            tracing::info!("Setting max decoding message size to {max_decoding_message_size}");
             forge_client = forge_client.max_decoding_message_size(max_decoding_message_size);
         }
 
