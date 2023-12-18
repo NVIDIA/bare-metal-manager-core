@@ -37,6 +37,7 @@ futures-util = "0.3.28"
 netif = "0.1.6"
 rand = "0.8.5"
 forge-http-connector = { path = "../forge-http-connector" }
+tonic-build = "0.10.2"
 
 [build-dependencies]
-tonic-build = "0.8.0"
+tonic-build = "0.10.2"
