@@ -761,7 +761,6 @@ pub struct ShowBmcMachine {
     #[clap(long, action, help = "Show only hosts BMC machines")]
     pub hosts: bool,
 
-    #[clap(short, long)]
     pub bmc_machine: Option<String>,
 }
 
