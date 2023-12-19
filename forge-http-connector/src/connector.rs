@@ -3,6 +3,7 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -16,6 +17,7 @@ use hyper::http::Uri;
 use hyper::service::Service;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Sleep;
+use tokio_socks::tcp::Socks5Stream;
 use tracing::{info, trace, warn};
 
 use crate::resolver;
@@ -46,7 +48,7 @@ struct ConnectingTcpRemote {
 
 impl ConnectingTcpRemote {
     fn new(addrs: crate::resolver::SocketAddrs, connect_timeout: Option<Duration>) -> Self {
-        let connect_timeout = connect_timeout.map(|t| t / (addrs.len() as u32));
+        let connect_timeout = connect_timeout.map(|t| t / addrs.len() as u32);
 
         Self {
             addrs,
@@ -58,14 +60,36 @@ impl ConnectingTcpRemote {
 impl ConnectingTcpRemote {
     async fn connect(&mut self, config: &Config) -> Result<TcpStream, ConnectError> {
         let mut err = None;
+
         for addr in &mut self.addrs {
-            match connect(&addr, config, self.connect_timeout)?.await {
-                Ok(tcp) => {
-                    return Ok(tcp);
+            if let Some(proxy) = config.socks5_proxy.as_deref() {
+                let proxy_addr = SocketAddr::from_str(proxy)
+                    .map_err(|e| ConnectError::new("Invalid proxy setting", e))?;
+
+                match connect_with_socks_proxy(
+                    proxy_addr,
+                    addr,
+                    config.clone(),
+                    self.connect_timeout,
+                )?
+                .await
+                {
+                    Ok(tcp) => {
+                        return Ok(tcp);
+                    }
+                    Err(e) => {
+                        err = Some(e);
+                    }
                 }
-                Err(e) => {
-                    info!("connect error for {}: {:?}", addr, e);
-                    err = Some(e);
+            } else {
+                match connect(&addr, config, self.connect_timeout)?.await {
+                    Ok(tcp) => {
+                        return Ok(tcp);
+                    }
+                    Err(e) => {
+                        info!("connect error for {}: {:?}", addr, e);
+                        err = Some(e);
+                    }
                 }
             }
         }
@@ -195,9 +219,46 @@ fn connect(
     })
 }
 
+async fn proxy_connect(
+    proxy_addr: SocketAddr,
+    target: SocketAddr,
+    config: &Config,
+) -> Result<TcpStream, ConnectError> {
+    let proxy_stream = connect(&proxy_addr, config, None)?.await?;
+
+    Ok(Socks5Stream::connect_with_socket(proxy_stream, target)
+        .await
+        .map_err(|e| ConnectError::new("proxy connect error: {}", e))?
+        .into_inner())
+}
+
+fn connect_with_socks_proxy(
+    proxy_addr: SocketAddr,
+    target: SocketAddr,
+    config: Config,
+    connect_timeout: Option<Duration>,
+) -> Result<impl Future<Output = Result<TcpStream, ConnectError>>, ConnectError> {
+    Ok(async move {
+        let target_connect = proxy_connect(proxy_addr, target, &config);
+
+        match connect_timeout {
+            Some(dur) => match tokio::time::timeout(dur, target_connect).await {
+                Ok(Ok(s)) => Ok(s),
+                Ok(Err(e)) => Err(e),
+                Err(e) => Err(ConnectError::new(
+                    "Proxy connect timed out",
+                    io::Error::new(io::ErrorKind::TimedOut, e),
+                )),
+            },
+            None => target_connect.await,
+        }
+    })
+}
+
 impl<'a> ConnectingTcp<'a> {
     fn new(remote_addrs: resolver::SocketAddrs, config: &'a Config) -> Self {
         trace!("ConnectingTcp config: {:?}", config);
+
         if let Some(fallback_timeout) = config.happy_eyeballs_timeout {
             let (preferred_addrs, fallback_addrs) = remote_addrs
                 .split_by_preference(config.local_address_ipv4, config.local_address_ipv6);
@@ -344,6 +405,7 @@ struct Config {
     send_buffer_size: Option<usize>,
     recv_buffer_size: Option<usize>,
     interface: Option<String>,
+    socks5_proxy: Option<String>,
 }
 
 impl ForgeHttpConnector {
@@ -362,6 +424,7 @@ impl ForgeHttpConnector {
                 send_buffer_size: None,
                 recv_buffer_size: None,
                 interface: None,
+                socks5_proxy: None,
             }),
             resolver,
         }
@@ -466,6 +529,15 @@ impl ForgeHttpConnector {
     #[inline]
     pub fn set_reuse_address(&mut self, reuse_address: bool) -> &mut Self {
         self.config_mut().reuse_address = reuse_address;
+        self
+    }
+
+    /// Set the socks5 proxy to use for connections
+    ///
+    /// Default is `None`.
+    #[inline]
+    pub fn set_socks5_proxy(&mut self, socks5_proxy: Option<String>) -> &mut Self {
+        self.config_mut().socks5_proxy = socks5_proxy;
         self
     }
 
@@ -603,8 +675,6 @@ impl ForgeHttpConnector {
         };
 
         let c = ConnectingTcp::new(addrs, config);
-        let sock = c.connect().await?;
-
-        Ok(sock)
+        c.connect().await
     }
 }

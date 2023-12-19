@@ -35,9 +35,16 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         password: action.password,
         ..Default::default()
     };
+
+    let proxy = std::env::var("http_proxy")
+        .ok()
+        .or_else(|| std::env::var("https_proxy").ok())
+        .or_else(|| std::env::var("HTTP_PROXY").ok())
+        .or_else(|| std::env::var("HTTPS_PROXY").ok());
+
     use RedfishCommand::*;
     let pool = libredfish::RedfishClientPool::builder()
-        .proxy(std::env::var("REDFISH_PROXY").ok())
+        .proxy(proxy)
         .build()?;
     let redfish: Box<dyn Redfish> = match action.command.clone() {
         ChangeBmcPassword(_) => pool.create_standard_client(endpoint)?,
