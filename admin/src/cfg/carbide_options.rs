@@ -548,7 +548,9 @@ pub struct NetworkConfigQuery {
 #[clap(group(
         ArgGroup::new("show_machine")
         .required(true)
-        .args(&["all", "dpus", "hosts", "machine"])))]
+        .args(&["all", "dpus", "hosts", "machine"])
+    ),
+)]
 pub struct ShowMachine {
     #[clap(short, long, action, help = "Show all machines")]
     pub all: bool,
@@ -559,34 +561,18 @@ pub struct ShowMachine {
     #[clap(long, action, help = "Show only hosts")]
     pub hosts: bool,
 
-    #[clap(short, long)]
     pub machine: Option<String>,
 }
 
 #[derive(Parser, Debug)]
 #[clap(group(
         ArgGroup::new("show_managed_host")
+        .required(true)
         .args(&["all", "machine"])))]
 pub struct ShowManagedHost {
-    #[clap(
-        short,
-        long,
-        action,
-        required_unless_present = "host",
-        required_unless_present = "machine"
-    )]
+    #[clap(short, long, action)]
     pub all: bool,
 
-    // deprecated.  use --machine instead
-    #[clap(long, hide = true)]
-    pub host: Option<String>,
-
-    #[clap(
-        short,
-        long,
-        required_unless_present = "host",
-        required_unless_present = "all"
-    )]
     pub machine: Option<String>,
 
     #[clap(short, long, action)]
@@ -643,16 +629,12 @@ pub enum Instance {
 #[clap(group(
         ArgGroup::new("show_instance")
         .required(true)
-        .args(&["all", "instance", "machine"])))]
+        .args(&["all", "id"])))]
 pub struct ShowInstance {
     #[clap(short, long, action)]
     pub all: bool,
 
-    #[clap(short, long)]
-    pub instance: Option<String>,
-
-    #[clap(short, long)]
-    pub machine: Option<String>,
+    pub id: Option<String>,
 
     #[clap(short, long, action)]
     pub extrainfo: bool,
