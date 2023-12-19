@@ -45,6 +45,18 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         _interface: &MachineInterface,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        // Try to connect with HardwareDefault credentials
+        if let Ok(standard_client) = &self
+            .redfish_client_pool
+            .create_standard_client(&address.to_string(), None)
+            .await
+        {
+            let _ = &self
+                .redfish_client_pool
+                .change_root_password_to_site_default(*standard_client.clone())
+                .await
+                .map_err(map_redfish_client_creation_error)?;
+        }
         let client = &self
             .redfish_client_pool
             .create_client(
