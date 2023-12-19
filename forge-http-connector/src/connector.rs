@@ -404,6 +404,7 @@ struct Config {
     reuse_address: bool,
     send_buffer_size: Option<usize>,
     recv_buffer_size: Option<usize>,
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     interface: Option<String>,
     socks5_proxy: Option<String>,
 }
@@ -423,6 +424,7 @@ impl ForgeHttpConnector {
                 reuse_address: false,
                 send_buffer_size: None,
                 recv_buffer_size: None,
+                #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
                 interface: None,
                 socks5_proxy: None,
             }),
@@ -557,6 +559,10 @@ impl ForgeHttpConnector {
     #[inline]
     pub fn set_interface<S: Into<String>>(&mut self, interface: S) -> &mut Self {
         self.config_mut().interface = Some(interface.into());
+        self
+    }
+    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    pub fn set_interface<S: Into<String>>(&mut self, _interface: S) -> &mut Self {
         self
     }
 

@@ -2,12 +2,14 @@ use socket2::Socket;
 use std::io;
 use std::os::fd::{FromRawFd, IntoRawFd};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 use tracing::trace;
 
 pub struct Dsocket {
     inner: socket2::Socket,
 }
 
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 const VRF_NAME: &str = "mgmt";
 
 pub enum SocketProtocol {
@@ -85,8 +87,14 @@ impl Dsocket {
     /// # Errors
     ///
     /// Returns an `io::Error` if the kernel does not support the `SO_MARK` option.
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     pub fn set_mark(&self, mark: u32) -> Result<(), io::Error> {
         self.inner.set_mark(mark)
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    pub fn set_mark(&self, _mark: u32) -> Result<(), io::Error> {
+        Ok(())
     }
 
     /// Convenience method to set `SO_BINDTODEVICE` on underlying socket2 for `DpulyfeSocket`
@@ -94,8 +102,14 @@ impl Dsocket {
     /// # Errors
     ///
     /// Returns an `io::Error` if the underlying socket2 cannot bind to the specified interface.
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     pub fn bind_device(&self, interface: Option<&[u8]>) -> Result<(), io::Error> {
         self.inner.bind_device(interface)
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    pub fn bind_device(&self, _interface: Option<&[u8]>) -> Result<(), io::Error> {
+        Ok(())
     }
 
     /// Set `SO_BINDddODEVICE`, `O_NONBLOCKING` and `SO_REUSEADDR` on underlying socket2
@@ -104,6 +118,7 @@ impl Dsocket {
     /// # Errors
     ///
     /// Returns and `io::Error` if any of the underlying socket2 calls fail.
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     pub fn use_mgmt_vrf(&self) -> Result<(), io::Error> {
         trace!("Using SO_BINDTODEVICE to bind to mgmt VRF");
         self.bind_device(Some(VRF_NAME.as_bytes()))?;
@@ -111,6 +126,10 @@ impl Dsocket {
         self.set_nonblocking()
     }
 
+    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    pub fn use_mgmt_vrf(&self) -> Result<(), io::Error> {
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
     /// Convenience method to create a new IPv6 TCP Socket
     ///
     /// # Errors
