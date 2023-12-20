@@ -550,8 +550,8 @@ pub struct NetworkConfigQuery {
         .required(true)
         .args(&["all", "dpus", "hosts", "machine"])
     ),
+    disable_help_flag = true,
 )]
-#[clap(disable_help_flag = true)]
 pub struct ShowMachine {
     #[clap(long, action = clap::ArgAction::HelpLong)]
     help: Option<bool>,
@@ -572,17 +572,35 @@ pub struct ShowMachine {
 #[clap(group(
         ArgGroup::new("show_managed_host")
         .required(true)
-        .args(&["all", "machine"])))]
+        .args(&["all", "machine"])),
+        disable_help_flag = true,
+    )]
 pub struct ShowManagedHost {
-    #[clap(short, long, action)]
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
+    #[clap(short, long, action, help = "Show all managed hosts")]
     pub all: bool,
 
+    #[clap(help = "Show managed host specific details (using host or dpu machine id)")]
     pub machine: Option<String>,
 
-    #[clap(short, long, action)]
+    #[clap(
+        short,
+        long,
+        action,
+        help = "Show IP details in summary",
+        conflicts_with = "machine"
+    )]
     pub ips: bool,
 
-    #[clap(long, action)]
+    #[clap(
+        short,
+        long,
+        action,
+        help = "Show GPU and memory details in summary",
+        conflicts_with = "machine"
+    )]
     pub more: bool,
 
     #[clap(long, action, help = "Show only hosts in maintenance mode")]
@@ -633,7 +651,7 @@ pub enum Instance {
 #[clap(group(
         ArgGroup::new("show_instance")
         .required(true)
-        .args(&["all", "id"])))]
+        .args(&["all", "id"])),)]
 pub struct ShowInstance {
     #[clap(short, long, action)]
     pub all: bool,
@@ -754,15 +772,20 @@ pub enum BmcMachine {
 #[clap(group(
     ArgGroup::new("show_bmc_machine")
     .required(true)
-    .args(&["all", "dpus", "hosts", "bmc_machine"])))]
+    .args(&["all", "dpus", "hosts", "bmc_machine"])),
+    disable_help_flag = true,
+)]
 pub struct ShowBmcMachine {
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
     #[clap(short, long, action, help = "Show all BMC machines")]
     pub all: bool,
 
-    #[clap(long, action, help = "Show only DPUs BMC machines")]
+    #[clap(short, long, action, help = "Show only DPUs BMC machines")]
     pub dpus: bool,
 
-    #[clap(long, action, help = "Show only hosts BMC machines")]
+    #[clap(short, long, action, help = "Show only hosts BMC machines")]
     pub hosts: bool,
 
     pub bmc_machine: Option<String>,
