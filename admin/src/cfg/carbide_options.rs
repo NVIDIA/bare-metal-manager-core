@@ -551,14 +551,18 @@ pub struct NetworkConfigQuery {
         .args(&["all", "dpus", "hosts", "machine"])
     ),
 )]
+#[clap(disable_help_flag = true)]
 pub struct ShowMachine {
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
     #[clap(short, long, action, help = "Show all machines")]
     pub all: bool,
 
-    #[clap(long, action, help = "Show only DPUs")]
+    #[clap(short, long, action, help = "Show only DPUs")]
     pub dpus: bool,
 
-    #[clap(long, action, help = "Show only hosts")]
+    #[clap(short, long, action, help = "Show only hosts")]
     pub hosts: bool,
 
     pub machine: Option<String>,
