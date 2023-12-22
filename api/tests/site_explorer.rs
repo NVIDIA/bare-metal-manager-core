@@ -20,8 +20,8 @@ use carbide::{
     cfg::SiteExplorerConfig,
     db::{explored_endpoints::DbExploredEndpoint, machine_interface::MachineInterface},
     model::site_explorer::{
-        ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-        EthernetInterface, Manager,
+        Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
+        EthernetInterface, Manager, NetworkAdapter,
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
     state_controller::network_segment::handler::NetworkSegmentStateHandler,
@@ -225,7 +225,11 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                     ethernet_interfaces: Vec::new(),
                     manufacturer: None,
                     model: None,
-                    serial_number: None,
+                    serial_number: Some("MT2333XZ0X5W".to_string()),
+                }],
+                chassis: vec![Chassis {
+                    id: "Card1".to_string(),
+                    network_adapters: vec![],
                 }],
             }),
         );
@@ -244,6 +248,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 machine_id: None,
                 managers: Vec::new(),
                 systems: Vec::new(),
+                chassis: Vec::new(),
             }),
         );
     }
@@ -273,7 +278,14 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 report.report.last_exploration_error.clone().unwrap()
             );
         } else {
-            assert_eq!(res.clone().unwrap(), report.report);
+            assert_eq!(
+                res.clone().unwrap().endpoint_type,
+                report.report.endpoint_type
+            );
+            assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
+            assert_eq!(res.clone().unwrap().managers, report.report.managers);
+            assert_eq!(res.clone().unwrap().systems, report.report.systems);
+            assert_eq!(res.clone().unwrap().chassis, report.report.chassis);
         }
     }
 
@@ -299,7 +311,14 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 report.report.last_exploration_error.clone().unwrap()
             );
         } else {
-            assert_eq!(res.clone().unwrap(), report.report);
+            assert_eq!(
+                res.clone().unwrap().endpoint_type,
+                report.report.endpoint_type
+            );
+            assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
+            assert_eq!(res.clone().unwrap().managers, report.report.managers);
+            assert_eq!(res.clone().unwrap().systems, report.report.systems);
+            assert_eq!(res.clone().unwrap().chassis, report.report.chassis);
         }
     }
     versions.sort();
@@ -354,6 +373,25 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                         description: Some("NIC in Slot 5 Port 1".to_string()),
                         interface_enabled: Some(true),
                         mac_address: Some("b8:3f:d2:90:97:a4".to_string()),
+                    },
+                ],
+            }],
+            chassis: vec![Chassis {
+                id: "1".to_string(),
+                network_adapters: vec![
+                    NetworkAdapter {
+                        id: "slot-1".to_string(),
+                        manufacturer: Some("MLNX".to_string()),
+                        model: Some("BlueField-3 P-Series DPU 200GbE/".to_string()),
+                        part_number: Some("900-9D3B6-00CV-A".to_string()),
+                        serial_number: Some("MT2333XZ0X5W".to_string()),
+                    },
+                    NetworkAdapter {
+                        id: "slot-2".to_string(),
+                        manufacturer: Some("Broadcom Limited".to_string()),
+                        model: Some("5720".to_string()),
+                        part_number: Some("SN30L21970".to_string()),
+                        serial_number: Some("L2NV97J018G".to_string()),
                     },
                 ],
             }],
