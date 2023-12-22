@@ -106,7 +106,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
             machine_id: None,
             managers: vec![manager],
             systems: vec![system],
-            chassis: chassis,
+            chassis,
             vendor,
         })
     }
@@ -123,9 +123,28 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
 }
 
 async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishError> {
-    let system = client.get_system().await?;
+    let mut system = client.get_system().await?;
     let fetch_oob = system.id.to_lowercase().contains("bluefield");
     let ethernet_interfaces = fetch_ethernet_interfaces(client, true, fetch_oob).await?;
+
+    // This part processes dpu case and do two things such as
+    // 1. update system serial_number in case it is empty using chassis serial_number
+    // 2. format serial_number data using the same rules as in fetch_chassis()
+    if system.id.to_lowercase().contains("bluefield") {
+        if system.serial_number.is_none() {
+            let chassis = client.get_chassis("Card1").await?;
+            system.serial_number = chassis.serial_number;
+        }
+        system.serial_number = Some(
+            system
+                .serial_number
+                .as_ref()
+                .unwrap_or(&"".to_string())
+                .trim()
+                .to_string(),
+        )
+        .map(|m| m.to_uppercase());
+    }
 
     Ok(ComputerSystem {
         ethernet_interfaces,
