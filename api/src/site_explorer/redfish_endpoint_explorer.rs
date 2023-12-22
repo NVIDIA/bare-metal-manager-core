@@ -18,8 +18,8 @@ use regex::Regex;
 use crate::{
     db::machine_interface::MachineInterface,
     model::site_explorer::{
-        ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-        EthernetInterface, Manager,
+        Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
+        EthernetInterface, Manager, NetworkAdapter,
     },
     redfish::{RedfishClientCreationError, RedfishClientPool},
     site_explorer::EndpointExplorer,
@@ -96,6 +96,9 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         let system = fetch_system(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
+        let chassis = fetch_chassis(client.as_ref())
+            .await
+            .map_err(map_redfish_error)?;
 
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -103,7 +106,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
             machine_id: None,
             managers: vec![manager],
             systems: vec![system],
-            chassis: vec![],
+            chassis: chassis,
             vendor,
         })
     }
@@ -221,6 +224,49 @@ async fn get_oob_interface(client: &dyn Redfish) -> Result<EthernetInterface, Re
         }
     }
     Err(RedfishError::NoContent)
+}
+
+async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishError> {
+    let mut chassis: Vec<Chassis> = Vec::new();
+
+    let chassis_list = client.get_chassis_all().await?;
+    for chassis_id in &chassis_list {
+        let Ok(net_adapter_list) = client.get_chassis_network_adapters(chassis_id).await else {
+            continue;
+        };
+
+        let mut net_adapters: Vec<NetworkAdapter> = Vec::new();
+        for net_adapter_id in &net_adapter_list {
+            let value = client
+                .get_chassis_network_adapter(chassis_id, net_adapter_id)
+                .await?;
+
+            let net_adapter = NetworkAdapter {
+                id: value.id,
+                manufacturer: value.manufacturer,
+                model: value.model,
+                part_number: value.part_number,
+                serial_number: Some(
+                    value
+                        .serial_number
+                        .as_ref()
+                        .unwrap_or(&"".to_string())
+                        .trim()
+                        .to_string(),
+                )
+                .map(|m| m.to_uppercase()),
+            };
+
+            net_adapters.push(net_adapter);
+        }
+
+        chassis.push(Chassis {
+            id: chassis_id.to_string(),
+            network_adapters: net_adapters,
+        });
+    }
+
+    Ok(chassis)
 }
 
 fn map_redfish_client_creation_error(

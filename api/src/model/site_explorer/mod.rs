@@ -59,7 +59,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             vendor: report.vendor,
             managers: report.managers.into_iter().map(Into::into).collect(),
             systems: report.systems.into_iter().map(Into::into).collect(),
-            chassis: vec![],
+            chassis: report.chassis.into_iter().map(Into::into).collect(),
         }
     }
 }
