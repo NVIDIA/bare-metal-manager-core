@@ -82,7 +82,7 @@ async fn show_all_bmc_machines(
 fn convert_bmc_machines_to_nice_table(bmc_machine_list: forgerpc::BmcMachineList) -> Box<Table> {
     let mut table: Table = Table::new();
 
-    table.add_row(row![
+    table.set_titles(row![
         "Id",
         "State",
         "IP Address",

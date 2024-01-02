@@ -159,7 +159,7 @@ async fn convert_network_to_nice_table(
 ) -> Box<Table> {
     let mut table = Table::new();
 
-    table.add_row(row![
+    table.set_titles(row![
         "Id",
         "Name",
         "Created",

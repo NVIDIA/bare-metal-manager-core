@@ -39,7 +39,7 @@ pub async fn list_dpus_pending(api_config: Config) -> CarbideCliResult<()> {
 fn print_pending_dpus(dpus: ::rpc::forge::DpuReprovisioningListResponse) {
     let mut table = Table::new();
 
-    table.add_row(row![
+    table.set_titles(row![
         "Id",
         "State",
         "Initiator",
@@ -177,7 +177,7 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
         "BIOS Version",
     ];
 
-    table.add_row(Row::from(headers));
+    table.set_titles(Row::from(headers));
 
     machines
         .into_iter()

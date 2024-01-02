@@ -723,3 +723,35 @@ pub async fn get_site_exploration_report(
     })
     .await
 }
+
+pub async fn get_machine_ids(api_config: Config) -> CarbideCliResult<rpc::MachineIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(());
+        let machine_ids = client
+            .get_machine_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(machine_ids)
+    })
+    .await
+}
+
+pub async fn get_machines_by_id(
+    api_config: Config,
+    machine_ids: &[rpc::MachineId],
+) -> CarbideCliResult<rpc::MachineList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::MachineIdList {
+            machine_ids: Vec::from(machine_ids),
+        });
+        let machine_details = client
+            .find_machines_by_id(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(machine_details)
+    })
+    .await
+}

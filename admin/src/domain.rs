@@ -50,7 +50,7 @@ fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<
 fn convert_domain_to_nice_table(domains: forgerpc::DomainList) -> Box<Table> {
     let mut table = Table::new();
 
-    table.add_row(row!["Id", "Name", "Created",]);
+    table.set_titles(row!["Id", "Name", "Created",]);
 
     for domain in domains.domains {
         table.add_row(row![

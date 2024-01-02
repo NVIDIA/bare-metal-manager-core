@@ -89,6 +89,8 @@ service Forge {
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
+  rpc GetMachineIds(google.protobuf.Empty) returns (MachineIdList);
+  rpc FindMachinesById(MachineIdList) returns (MachineList);
 
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
@@ -1947,4 +1949,8 @@ message NetworkTopologyData {
 
 message RouteServers {
   repeated string route_servers = 1;
+}
+
+message MachineIdList {
+  repeated MachineId machine_ids = 1;
 }
