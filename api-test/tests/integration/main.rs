@@ -61,10 +61,7 @@ async fn test_integration() -> eyre::Result<()> {
         return Ok(());
     };
     let root_dir = PathBuf::from(repo_root.clone());
-    let (bins, has_all) = find_prerequisites();
-    if !has_all {
-        eyre::bail!("Missing pre-requisites");
-    }
+    let bins = find_prerequisites()?;
 
     // Put our fake `crictl` on front of path so that forge-dpu-agent's HBN health checks succeed
     let dev_bin = root_dir.join("dev/bin");
@@ -248,14 +245,13 @@ async fn host_boostrap(carbide_api_addr: SocketAddr) -> eyre::Result<String> {
     Ok(host_machine_id)
 }
 
-fn find_prerequisites() -> (HashMap<String, path::PathBuf>, bool) {
+fn find_prerequisites() -> eyre::Result<HashMap<String, PathBuf>> {
     let mut bins = HashMap::with_capacity(2);
     let paths: Vec<path::PathBuf> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
     bins.insert("vault", find_first_in("vault", &paths));
     bins.insert("grpcurl", find_first_in("grpcurl", &paths));
     bins.insert("curl", find_first_in("curl", &paths));
 
-    let mut has_all = true;
     let mut full_paths = HashMap::with_capacity(bins.len());
     for (k, v) in bins.drain() {
         match v {
@@ -263,15 +259,12 @@ fn find_prerequisites() -> (HashMap<String, path::PathBuf>, bool) {
                 full_paths.insert(k.to_string(), full_path);
             }
             None => {
-                tracing::error!("Missing {k}");
-                has_all = false;
+                eyre::bail!("Missing prerequisite binary: {k}");
             }
         }
     }
-    if !has_all {
-        tracing::error!("\tPATH: {:?}", paths);
-    }
-    (full_paths, has_all)
+
+    Ok(full_paths)
 }
 
 // Look for a binary in the given paths, return full path or None if not found
