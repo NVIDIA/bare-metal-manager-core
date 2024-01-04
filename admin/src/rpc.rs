@@ -737,7 +737,7 @@ pub async fn get_machine_ids(api_config: Config) -> CarbideCliResult<rpc::Machin
     .await
 }
 
-pub async fn get_machines_by_id(
+pub async fn get_machines_by_ids(
     api_config: Config,
     machine_ids: &[rpc::MachineId],
 ) -> CarbideCliResult<rpc::MachineList> {
@@ -746,7 +746,7 @@ pub async fn get_machines_by_id(
             machine_ids: Vec::from(machine_ids),
         });
         let machine_details = client
-            .find_machines_by_id(request)
+            .find_machines_by_ids(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;

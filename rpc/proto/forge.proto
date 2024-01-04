@@ -90,7 +90,7 @@ service Forge {
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
   rpc GetMachineIds(google.protobuf.Empty) returns (MachineIdList);
-  rpc FindMachinesById(MachineIdList) returns (MachineList);
+  rpc FindMachinesByIds(MachineIdList) returns (MachineList);
 
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
