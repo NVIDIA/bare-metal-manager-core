@@ -212,7 +212,7 @@ async fn show_all_machines(
     };
 
     let all_machine_ids = rpc::get_machine_ids(api_config.clone()).await?;
-    for machine_ids in all_machine_ids.machine_ids.chunks(10) {
+    for machine_ids in all_machine_ids.machine_ids.chunks(100) {
         let mut machines = rpc::get_machines_by_ids(api_config.clone(), machine_ids).await?;
         if f.only_dpus {
             machines
