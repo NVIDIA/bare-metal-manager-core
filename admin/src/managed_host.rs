@@ -133,7 +133,7 @@ fn convert_managed_hosts_to_nice_output(
     }
 
     // TODO additional discovery work needed for remaining information
-    table.add_row(Row::new(
+    table.set_titles(Row::new(
         headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
     ));
 

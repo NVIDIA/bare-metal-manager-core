@@ -188,7 +188,7 @@ fn convert_instance_to_nice_format(
 fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Table> {
     let mut table = Table::new();
 
-    table.add_row(row![
+    table.set_titles(row![
         "Id",
         "MachineId",
         "TenantOrg",

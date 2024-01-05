@@ -109,7 +109,7 @@ fn convert_machines_to_nice_table(
     if has_more {
         headers.extend_from_slice(&["Domain Name"]);
     }
-    table.add_row(Row::new(
+    table.set_titles(Row::new(
         headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
     ));
 

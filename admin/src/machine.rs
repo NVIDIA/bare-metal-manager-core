@@ -138,9 +138,9 @@ fn get_machine_type(machine_id: &str) -> String {
 }
 
 fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
-    let mut table = Table::new();
+    let mut table = Box::new(Table::new());
 
-    table.add_row(row![
+    table.set_titles(row![
         "Id",
         "State",
         "State Version",
@@ -193,7 +193,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
         ]);
     }
 
-    table.into()
+    table
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -207,20 +207,29 @@ async fn show_all_machines(
     api_config: Config,
     f: MachineFilter,
 ) -> CarbideCliResult<()> {
-    let mut machines = rpc::get_all_machines(api_config, false).await?;
-    if f.only_dpus {
-        machines
-            .machines
-            .retain(|m| m.machine_type == forgerpc::MachineType::Dpu as i32);
-    } else if f.only_hosts {
-        machines
-            .machines
-            .retain(|m| m.machine_type == forgerpc::MachineType::Host as i32);
+    let mut all_machines = forgerpc::MachineList {
+        machines: Vec::default(),
+    };
+
+    let all_machine_ids = rpc::get_machine_ids(api_config.clone()).await?;
+    for machine_ids in all_machine_ids.machine_ids.chunks(100) {
+        let mut machines = rpc::get_machines_by_ids(api_config.clone(), machine_ids).await?;
+        if f.only_dpus {
+            machines
+                .machines
+                .retain(|m| m.machine_type == forgerpc::MachineType::Dpu as i32);
+        } else if f.only_hosts {
+            machines
+                .machines
+                .retain(|m| m.machine_type == forgerpc::MachineType::Host as i32);
+        }
+        all_machines.machines.extend(machines.machines);
     }
+
     if json {
-        println!("{}", serde_json::to_string_pretty(&machines).unwrap());
+        println!("{}", serde_json::to_string_pretty(&all_machines).unwrap());
     } else {
-        convert_machines_to_nice_table(machines).printstd();
+        convert_machines_to_nice_table(all_machines).printstd();
     }
     Ok(())
 }

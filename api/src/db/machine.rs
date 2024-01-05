@@ -1382,6 +1382,18 @@ SELECT m.id FROM
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
+
+    pub async fn get_machine_ids(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<MachineId>, DatabaseError> {
+        let query = "select id from machines";
+        let machine_ids: Vec<DbMachineId> = sqlx::query_as(query)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(machine_ids.into_iter().map(MachineId::from).collect())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

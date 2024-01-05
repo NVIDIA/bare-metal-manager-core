@@ -73,7 +73,7 @@ use crate::machine_update_manager::MachineUpdateManager;
 use crate::model::bmc_machine::BmcMachineType;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
-use crate::model::machine::machine_id::try_parse_machine_id;
+use crate::model::machine::machine_id::{try_parse_machine_id, MachineIdParseError};
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
@@ -2232,6 +2232,63 @@ where
             .map_err(CarbideError::from)?;
 
         Ok(result)
+    }
+
+    async fn get_machine_ids(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::MachineIdList>, Status> {
+        log_request_data(&request);
+        let mut txn = self
+            .database_connection
+            .begin()
+            .await
+            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_machines", e))?;
+
+        let machine_ids = Machine::get_machine_ids(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        Ok(tonic::Response::new(rpc::MachineIdList {
+            machine_ids: machine_ids
+                .into_iter()
+                .map(|id| rpc::MachineId { id: id.to_string() })
+                .collect(),
+        }))
+    }
+
+    async fn find_machines_by_ids(
+        &self,
+        request: Request<rpc::MachineIdList>,
+    ) -> Result<Response<rpc::MachineList>, Status> {
+        log_request_data(&request);
+        let mut txn =
+            self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin find_machines_by_ids", e)
+            })?;
+        let search_config = MachineSearchConfig::default();
+
+        let machine_ids: Result<Vec<MachineId>, CarbideError> = request
+            .into_inner()
+            .machine_ids
+            .iter()
+            .map(|id| {
+                MachineId::from_str(&id.id).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(id.id.clone()))
+                })
+            })
+            .collect();
+
+        let machine_ids = machine_ids?;
+
+        let machines: Vec<Machine> =
+            Machine::find(&mut txn, ObjectFilter::List(&machine_ids), search_config)
+                .await
+                .map_err(CarbideError::from)?;
+
+        Ok(tonic::Response::new(rpc::MachineList {
+            machines: machines.into_iter().map(Machine::into).collect(),
+        }))
     }
 
     async fn find_machines(

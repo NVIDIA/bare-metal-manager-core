@@ -406,7 +406,7 @@ async fn main() -> color_eyre::Result<()> {
                         println!("No reported network status");
                     } else {
                         let mut table = Table::new();
-                        table.add_row(row![
+                        table.set_titles(row![
                             "Observed at",
                             "DPU machine ID",
                             "Network config version",
