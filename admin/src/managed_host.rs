@@ -13,6 +13,7 @@
 use std::convert::From;
 use std::fmt::Write;
 
+use ::rpc::site_explorer::ExploredManagedHost;
 use ::rpc::Machine;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
@@ -150,8 +151,9 @@ async fn show_managed_hosts(
     machines: Vec<Machine>,
     show_ips: bool,
     more_details: bool,
+    site_explorer_managed_host: Vec<ExploredManagedHost>,
 ) -> CarbideCliResult<()> {
-    let managed_hosts = utils::get_managed_host_output(machines);
+    let managed_hosts = utils::get_managed_host_output(machines, site_explorer_managed_host);
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&managed_hosts).unwrap()),
@@ -292,9 +294,21 @@ pub async fn handle_show(
     api_config: Config,
 ) -> CarbideCliResult<()> {
     let requested_machine = args.machine.or(args.host);
+    let site_report_managed_hosts = rpc::get_site_exploration_report(&api_config)
+        .await?
+        .managed_hosts;
+
     if args.all {
         let machines = rpc::get_all_machines(api_config, args.fix).await?.machines;
-        show_managed_hosts(output, output_format, machines, args.ips, args.more).await?;
+        show_managed_hosts(
+            output,
+            output_format,
+            machines,
+            args.ips,
+            args.more,
+            site_report_managed_hosts,
+        )
+        .await?;
     } else if let Some(requested_machine_id) = requested_machine {
         let mut machines = Vec::default();
         let requested_machine = rpc::get_machine(requested_machine_id, api_config.clone()).await?;
@@ -313,7 +327,7 @@ pub async fn handle_show(
         if args.fix {
             machines.retain(|m| m.maintenance_reference.is_some());
         }
-        for m in utils::get_managed_host_output(machines).into_iter() {
+        for m in utils::get_managed_host_output(machines, site_report_managed_hosts).into_iter() {
             show_managed_host_details_view(m)?;
         }
     }

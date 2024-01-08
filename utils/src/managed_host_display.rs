@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use rpc::forge::{MachineInterface, MachineType};
 use rpc::machine_discovery::MemoryDevice;
+use rpc::site_explorer::ExploredManagedHost;
 use rpc::{Machine, MachineId, Timestamp};
 use serde::Serialize;
 use tracing::warn;
@@ -84,8 +85,16 @@ pub struct ManagedHostOutput {
     pub dpu_last_observation_time: Option<String>,
 }
 
-pub fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput> {
+pub fn get_managed_host_output(
+    machines: Vec<Machine>,
+    site_explorer_managed_host: Vec<ExploredManagedHost>,
+) -> Vec<ManagedHostOutput> {
     let mut result = Vec::default();
+
+    let managed_host_map: HashMap<String, String> = site_explorer_managed_host
+        .iter()
+        .map(|x| (x.dpu_bmc_ip.clone(), x.host_bmc_ip.clone()))
+        .collect();
 
     for machine in machines.iter() {
         let mut managed_host_output = ManagedHostOutput::default();
@@ -193,6 +202,23 @@ pub fn get_managed_host_output(machines: Vec<Machine>) -> Vec<ManagedHostOutput>
                         managed_host_output.dpu_oob_ip = Some(primary_interface.address.join(","));
                         managed_host_output.dpu_oob_mac =
                             Some(primary_interface.mac_address.to_owned());
+                    }
+
+                    if let Some(dpu_bmc_ip) = &managed_host_output.dpu_bmc_ip {
+                        if let Some(host_bmc_ip) = &managed_host_output.host_bmc_ip {
+                            if let Some(site_host_bmc_ip) = managed_host_map.get(dpu_bmc_ip) {
+                                if host_bmc_ip != site_host_bmc_ip {
+                                    // If somehow these both ips are different, display error.
+                                    managed_host_output.host_bmc_ip = Some(format!(
+                                        "Error: M-{}/S-{}",
+                                        host_bmc_ip, site_host_bmc_ip
+                                    ));
+                                }
+                            }
+                        } else {
+                            managed_host_output.host_bmc_ip =
+                                managed_host_map.get(dpu_bmc_ip).cloned();
+                        }
                     }
                 };
             }

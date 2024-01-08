@@ -19,8 +19,8 @@ use axum::{Form, Json};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
-use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{self as forgerpc, GetSiteExplorationRequest};
 use serde::Deserialize;
 
 use super::filters;
@@ -150,7 +150,18 @@ async fn fetch_managed_hosts<
         .find_machines(request)
         .await
         .map(|response| response.into_inner())?;
-    Ok(utils::get_managed_host_output(all_machines.machines))
+
+    let request = tonic::Request::new(GetSiteExplorationRequest {});
+    let site_managed_hosts = state
+        .get_site_exploration_report(request)
+        .await
+        .map(|response| response.into_inner())?
+        .managed_hosts;
+
+    Ok(utils::get_managed_host_output(
+        all_machines.machines,
+        site_managed_hosts,
+    ))
 }
 
 #[derive(Template)]
@@ -263,7 +274,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
     for interface in host_machine.interfaces.iter() {
         if interface.primary_interface {
             if let Some(attached_machine_id) = interface.attached_dpu_machine_id.as_ref() {
-                match get_dpu_machine(state, attached_machine_id).await {
+                match get_dpu_machine(state.clone(), attached_machine_id).await {
                     Ok(attached_machine) => machines.push(attached_machine),
                     Err(err) => {
                         tracing::error!(%attached_machine_id, %err, "get_dpu_machine, skipping");
@@ -274,7 +285,14 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         }
     }
     machines.push(host_machine.clone());
-    let managed_host = utils::get_managed_host_output(machines)
+    let request = tonic::Request::new(GetSiteExplorationRequest {});
+    let site_managed_hosts = state
+        .get_site_exploration_report(request)
+        .await
+        .map(|response| response.into_inner().managed_hosts)
+        .unwrap_or(vec![]);
+
+    let managed_host = utils::get_managed_host_output(machines, site_managed_hosts)
         .into_iter()
         .next()
         .unwrap(); // safe, there's definitely one machine
