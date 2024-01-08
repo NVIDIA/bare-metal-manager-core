@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::ops::Add;
+use std::time::{Duration, Instant};
 use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
@@ -31,7 +33,11 @@ const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
 const FORGE_ADMIN_USER: &str = "forge_admin";
 
 /// Check the health of HBN
-pub async fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport {
+pub async fn health_check(
+    hbn_root: &Path,
+    host_routes: &[&str],
+    process_started_at: Instant,
+) -> HealthReport {
     let mut hr = HealthReport::new();
 
     let container_id = match hbn::get_hbn_container_id().await {
@@ -54,6 +60,7 @@ pub async fn health_check(hbn_root: &Path, host_routes: &[&str]) -> HealthReport
     check_network_stats(&mut hr, &container_id, host_routes).await;
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
     check_restricted_mode(&mut hr).await;
+    check_ipmi_device(&mut hr, process_started_at);
     check_forge_admin_user(&mut hr).await;
 
     hr
@@ -344,6 +351,27 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
     }
 }
 
+fn check_ipmi_device(hr: &mut HealthReport, process_started_at: Instant) {
+    // It can take up to 5 minutes after boot for the ipmi device to appear
+    let ipmi_dev_should_be_up_by_now = process_started_at.add(Duration::from_secs(60 * 6));
+    if Instant::now() < ipmi_dev_should_be_up_by_now {
+        hr.passed(HealthCheck::IpmiDeviceExists);
+        return;
+    }
+
+    let possible_devices = ["/dev/ipmi0", "/dev/ipmi/0", "/dev/ipmidev/0"];
+    for d in possible_devices {
+        if Path::new(d).exists() {
+            hr.passed(HealthCheck::IpmiDeviceExists);
+            return;
+        }
+    }
+    hr.failed(
+        HealthCheck::IpmiDeviceExists,
+        format!("IPMI device does not exist. Tried: {possible_devices:?}"),
+    );
+}
+
 // An ipmitool user called 'forge_admin' should exist
 async fn check_forge_admin_user(hr: &mut HealthReport) {
     let mut cmd = TokioCommand::new("ipmitool");
@@ -359,11 +387,17 @@ async fn check_forge_admin_user(hr: &mut HealthReport) {
         }
     };
     if !out.status.success() {
-        tracing::debug!(
-            "STDERR {}: {}",
-            super::pretty_cmd(cmd.as_std()),
-            String::from_utf8_lossy(&out.stderr)
-        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // The ipmi device takes ~5 mins to appear, we don't want to go unhealthy because of that.
+        if stderr.contains("Could not open device")
+            || stderr.contains("No such file or directory")
+            || stderr.contains("No data available")
+        {
+            tracing::trace!("No ipmi device, could not check for missing user yet.");
+            hr.passed(HealthCheck::ForgeAdminUser(IpmiUserCheck::Exists));
+            return;
+        }
+        tracing::debug!("STDERR {}: {stderr}", super::pretty_cmd(cmd.as_std()));
         hr.failed(
             HealthCheck::ForgeAdminUser(IpmiUserCheck::Error),
             format!(
@@ -517,6 +551,7 @@ pub enum HealthCheck {
     BgpDaemonEnabled,
     RestrictedMode,
     ForgeAdminUser(IpmiUserCheck),
+    IpmiDeviceExists,
 }
 
 impl fmt::Display for HealthReport {
@@ -557,6 +592,7 @@ impl fmt::Display for HealthCheck {
             Self::BgpDaemonEnabled => write!(f, "BgpDaemonEnabled"),
             Self::RestrictedMode => write!(f, "RestrictedMode"),
             Self::ForgeAdminUser(res) => write!(f, "ForgeAdminUser({res:?})"),
+            Self::IpmiDeviceExists => write!(f, "IpmiDeviceExists"),
         }
     }
 }

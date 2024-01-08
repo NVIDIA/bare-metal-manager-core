@@ -11,6 +11,7 @@
  */
 
 use std::process::Command;
+use std::time::Instant;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
@@ -128,7 +129,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // Does not take into account tenant ignored peers, so it can fail when the real check would
         // succeed.
         Some(AgentCommand::Health) => {
-            let health_report = health::health_check(&agent.hbn.root_dir, &[]).await;
+            let health_report =
+                health::health_check(&agent.hbn.root_dir, &[], Instant::now()).await;
             println!("{health_report}");
         }
 
