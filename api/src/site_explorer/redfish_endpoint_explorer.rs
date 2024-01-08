@@ -13,6 +13,7 @@
 use std::{net::IpAddr, sync::Arc};
 
 use libredfish::{Redfish, RedfishError};
+use regex::Regex;
 
 use crate::{
     db::machine_interface::MachineInterface,
@@ -78,7 +79,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
 
 async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     let manager = client.get_manager().await?;
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, false).await?;
+    let ethernet_interfaces = fetch_ethernet_interfaces(client, false, false).await?;
 
     Ok(Manager {
         ethernet_interfaces,
@@ -88,7 +89,8 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
 
 async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishError> {
     let system = client.get_system().await?;
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, true).await?;
+    let fetch_oob = system.id.to_lowercase().contains("bluefield");
+    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, fetch_oob).await?;
 
     Ok(ComputerSystem {
         ethernet_interfaces,
@@ -102,6 +104,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
 async fn fetch_ethernet_interfaces(
     client: &dyn Redfish,
     fetch_system_interfaces: bool,
+    fetch_oob: bool,
 ) -> Result<Vec<EthernetInterface>, RedfishError> {
     let eth_if_ids: Vec<String> = match match fetch_system_interfaces {
         false => client.get_manager_ethernet_interfaces().await,
@@ -138,7 +141,54 @@ async fn fetch_ethernet_interfaces(
         eth_ifs.push(iface);
     }
 
+    if fetch_oob {
+        // Temporary workaround untill get_system_ethernet_interface will return oob interface information
+        let oob_iface = get_oob_interface(client).await?;
+        eth_ifs.push(oob_iface);
+    }
+
     Ok(eth_ifs)
+}
+
+async fn get_oob_interface(client: &dyn Redfish) -> Result<EthernetInterface, RedfishError> {
+    // Temporary workaround until oob mac would be possible to get via Redfish
+    let boot_options = client.get_boot_options().await?;
+    let mac_pattern = Regex::new(r"MAC\((?<mac>[[:alnum:]]+)\,").unwrap();
+
+    for option in boot_options.members.iter() {
+        // odata_id: "/redfish/v1/Systems/Bluefield/BootOptions/Boot0001"
+        let option_id = option.odata_id.split('/').last().unwrap();
+        let boot_option = client.get_boot_option(option_id).await?;
+        // display_name: "NET-OOB-IPV4"
+        if boot_option.display_name.contains("OOB") {
+            if boot_option.uefi_device_path.is_none() {
+                return Err(RedfishError::NoContent);
+            }
+            // UefiDevicePath: "MAC(B83FD2909582,0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"
+            if let Some(captures) =
+                mac_pattern.captures(boot_option.uefi_device_path.unwrap().as_str())
+            {
+                let mac_addr_str = captures.name("mac").unwrap().as_str();
+                let mut mac_addr = String::new();
+
+                // Transform B83FD2909582 -> B8:3F:D2:90:95:82
+                for (i, c) in mac_addr_str.chars().enumerate() {
+                    mac_addr.push(c);
+                    if ((i + 1) % 2 == 0) && ((i + 1) < mac_addr_str.len()) {
+                        mac_addr.push(':');
+                    }
+                }
+
+                return Ok(EthernetInterface {
+                    description: Some("1G DPU OOB network interface".to_string()),
+                    id: Some("oob_net0".to_string()),
+                    interface_enabled: None,
+                    mac_address: Some(mac_addr),
+                });
+            }
+        }
+    }
+    Err(RedfishError::NoContent)
 }
 
 fn map_redfish_client_creation_error(
