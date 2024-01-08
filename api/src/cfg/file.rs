@@ -153,6 +153,10 @@ pub struct SiteExplorerConfig {
     /// `explorations_per_run`.
     #[serde(default = "SiteExplorerConfig::default_explorations_per_run")]
     pub explorations_per_run: u64,
+
+    #[serde(default)]
+    /// Whether SiteExplorer should create Managed Host state machine
+    pub create_machines: bool,
 }
 
 impl SiteExplorerConfig {
@@ -350,6 +354,7 @@ mod tests {
                 run_interval: 300,
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
+                create_machines: true,
             }
         );
     }
@@ -426,6 +431,7 @@ mod tests {
                 run_interval: 100,
                 concurrent_explorations: 5,
                 explorations_per_run: 11,
+                create_machines: true
             }
         );
     }
@@ -503,6 +509,7 @@ mod tests {
                 run_interval: 100,
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
+                create_machines: true,
             }
         );
     }

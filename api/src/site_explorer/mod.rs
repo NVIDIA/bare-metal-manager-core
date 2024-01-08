@@ -22,6 +22,7 @@ use crate::{
     db::{
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
+        machine::Machine,
         machine_interface::MachineInterface,
         network_segment::{NetworkSegment, NetworkSegmentType},
         DatabaseError,
@@ -79,6 +80,7 @@ impl SiteExplorer {
             run_interval: 0,
             concurrent_explorations: 0,
             explorations_per_run: 0,
+            create_machines: true,
         });
         SiteExplorer {
             database_connection,
@@ -218,6 +220,26 @@ impl SiteExplorer {
         Ok(())
     }
 
+    pub async fn create_managed_host(
+        &self,
+        dpu_report: &EndpointExplorationReport,
+        explored_host: ExploredManagedHost,
+    ) -> CarbideResult<(Machine, Machine)> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "begin load create_managed_host data", e)
+        })?;
+
+        let managed_host = dpu_report
+            .create_managed_host(&mut txn, explored_host)
+            .await?;
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "end create_managed_host data", e))?;
+
+        Ok(managed_host)
+    }
+
     async fn update_explored_managed_hosts(
         &self,
         metrics: &mut SiteExplorationMetrics,
@@ -271,11 +293,34 @@ impl SiteExplorer {
                         let sn = net_adapter.serial_number.as_ref().unwrap();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
                             let host_pf_mac_address = find_host_pf_mac_address(&ep, dpu_ep);
-                            managed_hosts.push(ExploredManagedHost {
+                            let explored_host = ExploredManagedHost {
                                 host_bmc_ip: ep.address,
                                 dpu_bmc_ip: dpu_ep.address,
                                 host_pf_mac_address,
-                            });
+                            };
+                            managed_hosts.push(explored_host.clone());
+
+                            if self.config.create_machines {
+                                if host_pf_mac_address.is_none() {
+                                    tracing::warn!("Can't create managed host, since no factory MAC address for host: {:#?}", ep);
+                                } else {
+                                    match self
+                                        .create_managed_host(&dpu_ep.report, explored_host)
+                                        .await
+                                    {
+                                        Ok((dpu_machine, host_machine)) => {
+                                            tracing::info!(
+                                                "Created managed host: DPU({})<->PredictedHost({})",
+                                                dpu_machine.id(),
+                                                host_machine.id()
+                                            );
+                                        }
+                                        Err(error) => {
+                                            tracing::error!(%error, "Failed to create managed host");
+                                        }
+                                    }
+                                }
+                            }
                             metrics.exploration_identified_managed_hosts += 1;
                             continue 'loop_hosts;
                         }

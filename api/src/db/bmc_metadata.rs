@@ -230,7 +230,7 @@ impl BmcMetaDataUpdateRequest {
         Ok(())
     }
 
-    async fn update_bmc_network_into_topologies(
+    pub async fn update_bmc_network_into_topologies(
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {

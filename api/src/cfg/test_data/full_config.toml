@@ -1,29 +1,29 @@
-listen="[::]:1081"
-metrics_endpoint="[::]:1080"
-database_url="postgres://a:b@postgresql"
-asn=123
-dhcp_servers=["1.2.3.4", "5.6.7.8"]
-route_servers=["9.10.11.12"]
-rapid_iterations=false
-otlp_endpoint="https://localhost:4317"
-initial_domain_name="forge.local"
-initial_dpu_agent_upgrade_policy="off"
-dpu_nic_firmware_intial_update_enabled=false
-dpu_nic_firmware_reprovision_update_enabled=true
-dpu_nic_firmware_update_version={ "BlueField SoC" = "24.38.1402", "BlueField-3 SmartNIC Main Card" = "32.38.1402" }
-max_concurrent_machine_updates=1
-machine_update_run_interval=60
-dpu_impi_tool_impl="fake"
-dpu_ipmi_reboot_attempts=1
+listen = "[::]:1081"
+metrics_endpoint = "[::]:1080"
+database_url = "postgres://a:b@postgresql"
+asn = 123
+dhcp_servers = ["1.2.3.4", "5.6.7.8"]
+route_servers = ["9.10.11.12"]
+rapid_iterations = false
+otlp_endpoint = "https://localhost:4317"
+initial_domain_name = "forge.local"
+initial_dpu_agent_upgrade_policy = "off"
+dpu_nic_firmware_intial_update_enabled = false
+dpu_nic_firmware_reprovision_update_enabled = true
+dpu_nic_firmware_update_version = { "BlueField SoC" = "24.38.1402", "BlueField-3 SmartNIC Main Card" = "32.38.1402" }
+max_concurrent_machine_updates = 1
+machine_update_run_interval = 60
+dpu_impi_tool_impl = "fake"
+dpu_ipmi_reboot_attempts = 1
 
 [tls]
-identity_pemfile_path="/path/to/cert"
-identity_keyfile_path="/path/to/key"
-root_cafile_path="/path/to/ca"
+identity_pemfile_path = "/path/to/cert"
+identity_keyfile_path = "/path/to/key"
+root_cafile_path = "/path/to/ca"
 
 [auth]
-permissive_mode=false
-casbin_policy_file="/path/to/policy"
+permissive_mode = false
+casbin_policy_file = "/path/to/policy"
 
 [pools.lo-ip]
 type = "ipv4"
@@ -63,3 +63,4 @@ reserve_first = 5
 enabled = false
 run_interval = 100
 explorations_per_run = 11
+create_machines = true

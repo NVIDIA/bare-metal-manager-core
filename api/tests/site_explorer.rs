@@ -13,26 +13,43 @@
 use std::{
     collections::HashMap,
     net::IpAddr,
+    str::FromStr,
     sync::{Arc, Mutex},
 };
 
 use carbide::{
     cfg::SiteExplorerConfig,
-    db::{explored_endpoints::DbExploredEndpoint, machine_interface::MachineInterface},
-    model::site_explorer::{
-        Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-        EthernetInterface, Manager, NetworkAdapter,
+    db::{
+        explored_endpoints::DbExploredEndpoint,
+        machine::{Machine, MachineSearchConfig},
+        machine_interface::MachineInterface,
+        machine_topology::MachineTopology,
+    },
+    model::{
+        machine::{DpuDiscoveringState, MachineState, ManagedHostState},
+        site_explorer::{
+            Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
+            EndpointType, EthernetInterface, ExploredManagedHost, Manager, NetworkAdapter,
+        },
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
-    state_controller::network_segment::handler::NetworkSegmentStateHandler,
+    state_controller::{
+        machine::handler::MachineStateHandler, metrics::IterationMetrics,
+        network_segment::handler::NetworkSegmentStateHandler,
+    },
 };
+use mac_address::MacAddress;
 use rpc::{
     forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
-    site_explorer::ExploredManagedHost,
+    site_explorer::ExploredManagedHost as RpcExploredManagedHost,
+    BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
 
 mod common;
 use common::{api_fixtures::TestEnv, network_segment::FIXTURE_CREATED_DOMAIN_UUID};
+use tonic::Request;
+
+use crate::common::api_fixtures::run_state_controller_iteration;
 
 #[ctor::ctor]
 fn setup() {
@@ -197,6 +214,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: 1,
+        create_machines: true,
     };
     let endpoint_explorer = Arc::new(FakeEndpointExplorer {
         reports: Arc::new(Mutex::new(HashMap::new())),
@@ -454,10 +472,217 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let managed_host = report.managed_hosts.clone().remove(0);
     assert_eq!(
         managed_host,
-        ExploredManagedHost {
+        RpcExploredManagedHost {
             host_bmc_ip: machines[1].ip.clone(),
             dpu_bmc_ip: machines[0].ip.clone(),
             host_pf_mac_address: Some("B8:3F:D2:90:97:A4".to_string()),
+        }
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+async fn test_site_explorer_creates_managed_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let _underlay_segment = create_underlay_network_segment(&env).await;
+    let _admin_segment = create_admin_network_segment(&env).await;
+
+    let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: oob_mac.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(!response.address.is_empty());
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: 1,
+        create_machines: true,
+    };
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let meter = opentelemetry::global::meter("test");
+    let explorer = SiteExplorer::new(
+        pool.clone(),
+        Some(&explorer_config),
+        meter,
+        endpoint_explorer.clone(),
+    );
+
+    let mut report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some("NVIDIA".to_string()),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "Bluefield_BMC".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("eth0".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("a0:88:c2:08:80:97".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: Vec::new(),
+            manufacturer: None,
+            model: None,
+            serial_number: Some("MT2328XZ185R".to_string()),
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            network_adapters: vec![],
+        }],
+    };
+    report.generate_machine_id();
+
+    assert!(report.machine_id.as_ref().is_some());
+    assert_eq!(
+        report.machine_id.as_ref().unwrap().to_string(),
+        "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg".to_string(),
+    );
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
+        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+    };
+
+    let (dpu_machine, host_machine) = explorer
+        .create_managed_host(&report, exploration_report)
+        .await?;
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::Initializing,
+        }
+    );
+    assert_eq!(
+        host_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::Initializing,
+        }
+    );
+
+    // Run ManagedHost state iteration
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(1), true, true);
+    let services = Arc::new(env.state_handler_services());
+    let mut iteration_metrics = IterationMetrics::default();
+    run_state_controller_iteration(
+        &services,
+        &pool,
+        &env.machine_state_controller_io,
+        host_machine.id().clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::Configuring,
+        }
+    );
+
+    run_state_controller_iteration(
+        &services,
+        &pool,
+        &env.machine_state_controller_io,
+        host_machine.id().clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+
+    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::Rebooting,
+        }
+    );
+
+    let machine_interfaces = MachineInterface::find_by_mac_address(&mut txn, oob_mac).await?;
+    assert!(!machine_interfaces.is_empty());
+    let topologies =
+        MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine.id().clone()]).await?;
+    assert!(topologies.contains_key(dpu_machine.id()));
+
+    let topology = &topologies[dpu_machine.id()][0];
+    assert!(topology.topology_update_needed());
+
+    let hardware_info = &topology.topology().discovery_data.info;
+    assert!(hardware_info.block_devices.is_empty());
+
+    let mut discovery_info = DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
+    discovery_info.block_devices = vec![BlockDevice {
+        model: "Fake block device".to_string(),
+        ..Default::default()
+    }];
+
+    let response = env
+        .api
+        .discover_machine(Request::new(MachineDiscoveryInfo {
+            machine_interface_id: Some(machine_interfaces[0].id.into()),
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.machine_id.is_some());
+
+    // Now let's check that DPU and host updated states and updated hardware information.
+    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DPUNotReady {
+            machine_state: MachineState::Init
+        }
+    );
+
+    let host_machine =
+        Machine::find_one(&mut txn, host_machine.id(), MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
+
+    assert_eq!(
+        host_machine.current_state(),
+        ManagedHostState::DPUNotReady {
+            machine_state: MachineState::Init
         }
     );
 

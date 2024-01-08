@@ -21,9 +21,6 @@ use http::StatusCode;
 use libredfish::{
     model::task::Task, standard::RedfishStandard, Endpoint, Redfish, RedfishError, RoleId,
 };
-use uuid::Uuid;
-
-use crate::db::bmc_metadata::UserRoles;
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
 
@@ -39,14 +36,6 @@ pub enum RedfishClientCreationError {
     NotImplemented,
 }
 
-#[derive(PartialEq, Debug, Clone)]
-pub enum RedfishCredentialType {
-    HardwareDefault,
-    SiteDefault,
-    BmcMachine { bmc_machine_id: String },
-    Machine { machine_id: String },
-}
-
 /// Allows to create Redfish clients for a certain Redfish BMC endpoint
 #[async_trait]
 pub trait RedfishClientPool: Send + Sync + 'static {
@@ -56,7 +45,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         &self,
         host: &str,
         port: Option<u16>,
-        credential_type: RedfishCredentialType,
+        credential_key: CredentialKey,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 
     async fn create_standard_client(
@@ -73,7 +62,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     async fn create_forge_admin_user(
         &self,
         client: Box<dyn Redfish>,
-        bmc_machine_id: Uuid,
+        machine_id: String,
     ) -> Result<(), RedfishClientCreationError>;
 }
 
@@ -98,26 +87,11 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         &self,
         host: &str,
         port: Option<u16>,
-        credential_type: RedfishCredentialType,
+        credential_key: CredentialKey,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let credentials_key: CredentialKey = match credential_type.clone() {
-            RedfishCredentialType::HardwareDefault => CredentialKey::DpuRedfish {
-                credential_type: CredentialType::HardwareDefault,
-            },
-            RedfishCredentialType::SiteDefault => CredentialKey::DpuRedfish {
-                credential_type: CredentialType::SiteDefault,
-            },
-            RedfishCredentialType::BmcMachine { bmc_machine_id } => CredentialKey::DpuRedfish {
-                credential_type: CredentialType::BmcMachine { bmc_machine_id },
-            },
-            RedfishCredentialType::Machine { machine_id } => CredentialKey::Bmc {
-                machine_id,
-                user_role: UserRoles::Administrator.to_string(),
-            },
-        };
         let credentials = self
             .credential_provider
-            .get_credentials(credentials_key)
+            .get_credentials(credential_key)
             .await
             .map_err(RedfishClientCreationError::MissingCredentials)?;
 
@@ -196,16 +170,14 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
     async fn create_forge_admin_user(
         &self,
         client: Box<dyn Redfish>,
-        bmc_machine_id: Uuid,
+        machine_id: String,
     ) -> Result<(), RedfishClientCreationError> {
         let username = FORGE_DPU_BMC_USERNAME.clone();
         let password = Credentials::generate_password();
         self.credential_provider
             .set_credentials(
                 CredentialKey::DpuRedfish {
-                    credential_type: CredentialType::BmcMachine {
-                        bmc_machine_id: bmc_machine_id.to_string(),
-                    },
+                    credential_type: CredentialType::Machine { machine_id },
                 },
                 Credentials::UsernamePassword {
                     username: username.to_string(),
@@ -248,7 +220,7 @@ pub struct RedfishSim {
 #[derive(Debug)]
 struct RedfishSimClient {
     _state: Arc<Mutex<RedfishSimState>>,
-    _credentials_type: RedfishCredentialType,
+    _credential_key: CredentialKey,
     _host: String,
     _port: Option<u16>,
 }
@@ -575,11 +547,11 @@ impl RedfishClientPool for RedfishSim {
         &self,
         host: &str,
         port: Option<u16>,
-        credential_type: RedfishCredentialType,
+        credential_key: CredentialKey,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         Ok(Box::new(RedfishSimClient {
             _state: self.state.clone(),
-            _credentials_type: credential_type,
+            _credential_key: credential_key,
             _host: host.to_string(),
             _port: port,
         }))
@@ -603,7 +575,7 @@ impl RedfishClientPool for RedfishSim {
     async fn create_forge_admin_user(
         &self,
         client: Box<dyn Redfish>,
-        _bmc_machine_id: Uuid,
+        _machine_id: String,
     ) -> Result<(), RedfishClientCreationError> {
         let username = FORGE_DPU_BMC_USERNAME.clone();
         let password = Credentials::generate_password();

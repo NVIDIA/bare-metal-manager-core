@@ -12,6 +12,7 @@
 
 use std::{net::IpAddr, sync::Arc};
 
+use forge_secrets::credentials::CredentialType;
 use libredfish::{Redfish, RedfishError};
 use regex::Regex;
 
@@ -52,7 +53,9 @@ impl RedfishEndpointExplorer {
             .create_client(
                 &address.to_string(),
                 None,
-                crate::redfish::RedfishCredentialType::SiteDefault,
+                forge_secrets::credentials::CredentialKey::DpuRedfish {
+                    credential_type: CredentialType::SiteDefault,
+                },
             )
             .await
     }
@@ -67,12 +70,15 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client;
+        // TODO: try DpuRedfish and HostRedfish credentials.
         let client_result = self
             .redfish_client_pool
             .create_client(
                 &address.to_string(),
                 None,
-                crate::redfish::RedfishCredentialType::SiteDefault,
+                forge_secrets::credentials::CredentialKey::DpuRedfish {
+                    credential_type: CredentialType::SiteDefault,
+                },
             )
             .await;
 
