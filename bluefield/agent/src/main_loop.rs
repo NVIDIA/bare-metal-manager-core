@@ -94,6 +94,7 @@ pub async fn run(
         rand::thread_rng().gen_range(min_cert_renewal_time..max_cert_renewal_time);
     let mut cert_renewal_time = Instant::now().add(Duration::from_secs(cert_renewal_period));
 
+    let started_at = Instant::now();
     let mut version_check_time = Instant::now(); // check it on the first loop
     let mut seen_blank = false;
     let mut is_hbn_up = false;
@@ -155,7 +156,8 @@ pub async fn run(
                     }
                 }
 
-                let health_report = health::health_check(&agent.hbn.root_dir, &tenant_peers).await;
+                let health_report =
+                    health::health_check(&agent.hbn.root_dir, &tenant_peers, started_at).await;
                 let is_missing_ipmi_user = health_report.is_missing_ipmi_user();
                 is_healthy = health_report.is_healthy();
                 is_hbn_up = health_report.is_up(); // subset of is_healthy
