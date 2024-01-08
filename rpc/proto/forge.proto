@@ -86,10 +86,11 @@ service Forge {
 
   // PRIVILEGED: Find things
   rpc FindBmcMachines(BmcMachineSearchQuery) returns (BmcMachineList);
+  // DEPRECATED: use FindMachineIds and FindMachinesByIds instead
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
-  rpc GetMachineIds(google.protobuf.Empty) returns (MachineIdList);
+  rpc FindMachineIds(MachineSearchConfig) returns (MachineIdList);
   rpc FindMachinesByIds(MachineIdList) returns (MachineList);
 
   // IPMI handling
@@ -961,6 +962,7 @@ message MachineSearchConfig {
   bool include_predicted_host = 3;
   bool only_maintenance = 4;
   bool include_associated_machine_id = 5;
+  bool include_hosts = 6;
 }
 
 message BmcMachineSearchQuery {

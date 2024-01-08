@@ -16,7 +16,9 @@ use std::path::Path;
 use std::str::FromStr;
 
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
-use ::rpc::forge::{self as rpc, MachineBootOverride, NetworkSegmentSearchConfig};
+use ::rpc::forge::{
+    self as rpc, MachineBootOverride, MachineSearchConfig, MachineType, NetworkSegmentSearchConfig,
+};
 use ::rpc::forge_tls_client::{self, ForgeClientT};
 use ::rpc::{MachineId, Uuid};
 
@@ -71,29 +73,21 @@ pub async fn get_network_device_topology(
 
 pub async fn get_all_machines(
     api_config: Config,
+    machine_type: Option<MachineType>,
     only_maintenance: bool,
 ) -> CarbideCliResult<rpc::MachineList> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::MachineSearchQuery {
-            id: None,
-            fqdn: None,
-            search_config: Some(rpc::MachineSearchConfig {
-                include_dpus: true,
-                include_history: true,
-                include_predicted_host: true,
-                only_maintenance,
-                include_associated_machine_id: false,
-            }),
-        });
-        let machine_details = client
-            .find_machines(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
+    let all_machine_ids =
+        find_machine_ids(api_config.clone(), machine_type, only_maintenance).await?;
+    let mut all_machines = rpc::MachineList {
+        machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
+    };
 
-        Ok(machine_details)
-    })
-    .await
+    for machine_ids in all_machine_ids.machine_ids.chunks(100) {
+        let machines = get_machines_by_ids(api_config.clone(), machine_ids).await?;
+        all_machines.machines.extend(machines.machines);
+    }
+
+    Ok(all_machines)
 }
 
 pub async fn reboot_instance(
@@ -724,11 +718,24 @@ pub async fn get_site_exploration_report(
     .await
 }
 
-pub async fn get_machine_ids(api_config: Config) -> CarbideCliResult<rpc::MachineIdList> {
+pub async fn find_machine_ids(
+    api_config: Config,
+    machine_type: Option<MachineType>,
+    only_maintenance: bool,
+) -> CarbideCliResult<rpc::MachineIdList> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(());
+        let include_dpus = machine_type.map(|t| t == MachineType::Dpu).unwrap_or(true);
+        let include_hosts = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
+        let request = tonic::Request::new(MachineSearchConfig {
+            include_dpus,
+            include_history: false,
+            include_predicted_host: true,
+            only_maintenance,
+            include_associated_machine_id: false,
+            include_hosts,
+        });
         let machine_ids = client
-            .get_machine_ids(request)
+            .find_machine_ids(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;

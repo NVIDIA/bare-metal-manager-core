@@ -43,18 +43,24 @@ use crate::{CarbideError, CarbideResult};
 /// MachineSearchConfig: Search parameters
 #[derive(Default, Debug)]
 pub struct MachineSearchConfig {
+    pub include_dpus: bool,
     pub include_history: bool,
+    pub include_predicted_host: bool,
     /// Only include machines in maintenance mode
     pub only_maintenance: bool,
     pub include_associated_machine_id: bool,
+    pub include_hosts: bool,
 }
 
 impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
     fn from(value: rpc::MachineSearchConfig) -> Self {
         MachineSearchConfig {
+            include_dpus: value.include_dpus,
             include_history: value.include_history,
+            include_predicted_host: value.include_predicted_host,
             only_maintenance: value.only_maintenance,
             include_associated_machine_id: value.include_associated_machine_id,
+            include_hosts: value.include_hosts,
         }
     }
 }
@@ -1383,14 +1389,41 @@ SELECT m.id FROM
         Ok(())
     }
 
-    pub async fn get_machine_ids(
+    pub async fn find_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
+        search_config: MachineSearchConfig,
     ) -> Result<Vec<MachineId>, DatabaseError> {
-        let query = "select id from machines";
-        let machine_ids: Vec<DbMachineId> = sqlx::query_as(query)
+        let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
+
+        if search_config.only_maintenance {
+            qb.push(" WHERE maintenance_reference IS NOT NULL");
+        }
+
+        // if no type is requested, find all
+        if search_config.include_dpus ^ search_config.include_hosts {
+            if !search_config.only_maintenance {
+                qb.push(" WHERE ");
+            } else {
+                qb.push(" AND ");
+            }
+
+            if search_config.include_dpus {
+                qb.push("id like 'fm100d%'");
+            } else {
+                qb.push("(");
+                if search_config.include_predicted_host {
+                    qb.push("id like 'fm100p%' OR ");
+                }
+                qb.push("id like 'fm100h%')");
+            }
+        }
+        tracing::info!("query: {}", qb.sql());
+
+        let q = qb.build_query_as();
+        let machine_ids: Vec<DbMachineId> = q
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "find_machine_ids", e))?;
 
         Ok(machine_ids.into_iter().map(MachineId::from).collect())
     }
