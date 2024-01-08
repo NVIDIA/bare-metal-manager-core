@@ -13,11 +13,13 @@ FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem"}
 
 # BFB stuff
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/Ubuntu22.04"
-BFB_NAME = "DOCA_2.2.0_BSP_4.2.0_Ubuntu_22.04-1.20230918.prod.bfb"
-HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/2.2.0v3/zip"
+BFB_NAME = "DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.23-10.prod.bfb"
+DOCA_VERSION = "2.5.0"
+HBN_VERSION = "2.0.0"
+HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_container_configs/versions/${DOCA_VERSION}v1/zip"
 IPXE_BANNER_VERSION = { script = ["echo ${VERSION:-$(git describe --tags --first-parent --always)}"] }
-DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:1.5.0-doca2.2.0"
-DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.14.2-doca2.2.0"
+DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.0.0-doca2.5.0"
+DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.15.5-doca2.5.0"
 K8S_PAUSE_URI = "k8s.gcr.io/pause:3.2"
 DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always | cut -c 2-)"] }
 
@@ -365,14 +367,12 @@ category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
 command = "rm"
 args = [ "-rf", "/tmp/bfb-dump/initramfs-tmp" ]
-cwd = "ipxe/upstream/src"
 
 [tasks.bfb-create-tmp]
 category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
 command = "mkdir"
 args = [ "-p", "/tmp/bfb-dump/initramfs-tmp" ]
-cwd = "ipxe/upstream/src"
 
 [tasks.bfb-download]
 category = "iPXE Kernel"
@@ -574,7 +574,7 @@ category = "iPXE Kernel"
 description = "Add the HBN configs to the bfb"
 command = "mv"
 args = [
-	"temp/scripts/doca_hbn/1.5.0/",
+	"temp/scripts/doca_hbn/${HBN_VERSION}/",
 	"scripts",
 ]
 cwd = "/tmp/bfb-dump/initramfs-tmp/doca_container_configs"
@@ -584,7 +584,7 @@ category = "iPXE Kernel"
 description = "Add the HBN scripts to the bfb"
 command = "mv"
 args = [
-	"temp/configs/2.2.0/",
+	"temp/configs/${DOCA_VERSION}/",
 	"configs",
 ]
 cwd = "/tmp/bfb-dump/initramfs-tmp/doca_container_configs"
