@@ -14,7 +14,7 @@ use std::{
     fs,
 };
 
-use ::rpc::{InstanceList, MachineList};
+use ::rpc::{site_explorer::ExploredManagedHost, InstanceList, MachineList};
 use serde::{Deserialize, Serialize};
 
 use crate::{cfg::carbide_options::InventoryAction, rpc, CarbideCliResult, Config};
@@ -56,6 +56,9 @@ enum TopYamlElement {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct BmcInfo {
     ansible_host: String,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_bmc_ip: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -129,8 +132,17 @@ fn get_dpu_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, DpuMach
 }
 
 /// Generate element containing all information needed to write a BMC Host.
-fn get_bmc_info(machines: &[&::rpc::Machine]) -> HashMap<String, BmcInfo> {
+fn get_bmc_info(
+    machines: &[&::rpc::Machine],
+    managed_hosts: Vec<ExploredManagedHost>,
+) -> HashMap<String, BmcInfo> {
     let mut bmc_element: HashMap<String, BmcInfo> = HashMap::new();
+    let mut known_ips: Vec<String> = Vec::new();
+
+    let managed_host_map: HashMap<String, String> = managed_hosts
+        .iter()
+        .map(|x| (x.dpu_bmc_ip.clone(), x.host_bmc_ip.clone()))
+        .collect();
 
     for machine in machines {
         let Some(bmc_ip) = machine
@@ -151,9 +163,25 @@ fn get_bmc_info(machines: &[&::rpc::Machine]) -> HashMap<String, BmcInfo> {
         bmc_element.insert(
             format!("{}-bmc", hostname),
             BmcInfo {
-                ansible_host: bmc_ip,
+                ansible_host: bmc_ip.clone(),
+                host_bmc_ip: managed_host_map.get(&bmc_ip).cloned(),
             },
         );
+
+        known_ips.push(bmc_ip);
+    }
+
+    for managed_host in managed_hosts {
+        if !known_ips.contains(&managed_host.dpu_bmc_ip) {
+            // Found a undiscovered dpu bmc ip.
+            bmc_element.insert(
+                format!("{}-undiscovered-bmc", managed_host.dpu_bmc_ip),
+                BmcInfo {
+                    ansible_host: managed_host.dpu_bmc_ip,
+                    host_bmc_ip: Some(managed_host.host_bmc_ip),
+                },
+            );
+        }
     }
 
     bmc_element
@@ -162,7 +190,7 @@ fn get_bmc_info(machines: &[&::rpc::Machine]) -> HashMap<String, BmcInfo> {
 /// Main entry function which print inventory.
 pub async fn print_inventory(api_config: Config, action: InventoryAction) -> CarbideCliResult<()> {
     let all_machines = rpc::get_all_machines(api_config.clone(), false).await?;
-    let all_instances = rpc::get_instances(api_config, None).await?;
+    let all_instances = rpc::get_instances(api_config.clone(), None).await?;
 
     let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines);
 
@@ -175,6 +203,10 @@ pub async fn print_inventory(api_config: Config, action: InventoryAction) -> Car
         "instances".to_string(),
         TopYamlElement::InstanceChildren(children),
     )]);
+
+    let site_report_managed_host = rpc::get_site_exploration_report(&api_config)
+        .await?
+        .managed_hosts;
 
     for (key, value) in instances.into_iter() {
         let mut ins_details: HashMap<String, InstanceDetails> = HashMap::new();
@@ -218,14 +250,14 @@ pub async fn print_inventory(api_config: Config, action: InventoryAction) -> Car
         "x86_host_bmcs".to_string(),
         TopYamlElement::BmcHostInfo(HashMap::from([(
             "hosts".to_string(),
-            get_bmc_info(&all_hosts),
+            get_bmc_info(&all_hosts, vec![]),
         )])),
     );
     final_group.insert(
         "dpu_bmcs".to_string(),
         TopYamlElement::BmcHostInfo(HashMap::from([(
             "hosts".to_string(),
-            get_bmc_info(&all_dpus),
+            get_bmc_info(&all_dpus, site_report_managed_host),
         )])),
     );
     let host_on_admin = all_hosts
