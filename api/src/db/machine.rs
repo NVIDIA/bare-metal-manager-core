@@ -1413,7 +1413,7 @@ SELECT m.id FROM
                     qb.push(" WHERE ");
                 }
 
-                qb.push("id NOT LIKE 'fm100d%'");
+                qb.push("NOT starts_with(id, 'fm100d')");
                 has_where = true;
             }
 
@@ -1424,7 +1424,7 @@ SELECT m.id FROM
                     qb.push(" WHERE ");
                 }
 
-                qb.push("id NOT LIKE 'fm100h%'");
+                qb.push("NOT starts_with(id, 'fm100h')");
                 has_where = true;
             }
 
@@ -1434,7 +1434,7 @@ SELECT m.id FROM
                 } else {
                     qb.push(" WHERE ");
                 }
-                qb.push("id NOT LIKE 'fm100p%'");
+                qb.push("NOT starts_with(id, 'fm100p')");
             }
         }
 
