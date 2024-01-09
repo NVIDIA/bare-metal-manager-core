@@ -725,14 +725,16 @@ pub async fn find_machine_ids(
 ) -> CarbideCliResult<rpc::MachineIdList> {
     with_forge_client(api_config, |mut client| async move {
         let include_dpus = machine_type.map(|t| t == MachineType::Dpu).unwrap_or(true);
-        let include_hosts = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
+        let exclude_hosts = machine_type
+            .map(|t| t != MachineType::Host)
+            .unwrap_or(false);
         let request = tonic::Request::new(MachineSearchConfig {
             include_dpus,
             include_history: false,
             include_predicted_host: true,
             only_maintenance,
             include_associated_machine_id: false,
-            include_hosts,
+            exclude_hosts,
         });
         let machine_ids = client
             .find_machine_ids(request)

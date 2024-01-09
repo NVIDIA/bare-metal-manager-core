@@ -213,7 +213,7 @@ async fn fetch_machines<C1: CredentialProvider + 'static, C2: CertificateProvide
             include_predicted_host: true,
             only_maintenance: false,
             include_associated_machine_id: false,
-            include_hosts: true,
+            exclude_hosts: false,
         }),
     });
     api.find_machines(request)

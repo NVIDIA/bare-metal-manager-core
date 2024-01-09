@@ -49,7 +49,7 @@ pub struct MachineSearchConfig {
     /// Only include machines in maintenance mode
     pub only_maintenance: bool,
     pub include_associated_machine_id: bool,
-    pub include_hosts: bool,
+    pub exclude_hosts: bool,
 }
 
 impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
@@ -60,7 +60,7 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
             include_predicted_host: value.include_predicted_host,
             only_maintenance: value.only_maintenance,
             include_associated_machine_id: value.include_associated_machine_id,
-            include_hosts: value.include_hosts,
+            exclude_hosts: value.exclude_hosts,
         }
     }
 }
@@ -1400,7 +1400,7 @@ SELECT m.id FROM
         }
 
         // if no type is requested, find all
-        if search_config.include_dpus ^ search_config.include_hosts {
+        if search_config.include_dpus ^ !search_config.exclude_hosts {
             if !search_config.only_maintenance {
                 qb.push(" WHERE ");
             } else {

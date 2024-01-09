@@ -299,7 +299,9 @@ pub async fn handle_show(
         .managed_hosts;
 
     if args.all {
-        let machines = rpc::get_all_machines(api_config, None, args.fix).await?.machines;
+        let machines = rpc::get_all_machines(api_config, None, args.fix)
+            .await?
+            .machines;
         show_managed_hosts(
             output,
             output_format,
