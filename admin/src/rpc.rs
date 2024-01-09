@@ -728,10 +728,12 @@ pub async fn find_machine_ids(
         let exclude_hosts = machine_type
             .map(|t| t != MachineType::Host)
             .unwrap_or(false);
+        let include_predicted_host = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
+
         let request = tonic::Request::new(MachineSearchConfig {
             include_dpus,
             include_history: false,
-            include_predicted_host: true,
+            include_predicted_host,
             only_maintenance,
             include_associated_machine_id: false,
             exclude_hosts,

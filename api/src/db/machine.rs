@@ -1394,31 +1394,51 @@ SELECT m.id FROM
         search_config: MachineSearchConfig,
     ) -> Result<Vec<MachineId>, DatabaseError> {
         let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
+        let mut has_where = false;
 
         if search_config.only_maintenance {
             qb.push(" WHERE maintenance_reference IS NOT NULL");
+            has_where = true;
         }
 
-        // if no type is requested, find all
-        if search_config.include_dpus ^ !search_config.exclude_hosts {
-            if !search_config.only_maintenance {
-                qb.push(" WHERE ");
-            } else {
-                qb.push(" AND ");
-            }
-
-            if search_config.include_dpus {
-                qb.push("id like 'fm100d%'");
-            } else {
-                qb.push("(");
-                if search_config.include_predicted_host {
-                    qb.push("id like 'fm100p%' OR ");
+        // only add additional criteria if not getting all machine types
+        if !search_config.include_dpus
+            || search_config.exclude_hosts
+            || !search_config.include_predicted_host
+        {
+            if !search_config.include_dpus {
+                if has_where {
+                    qb.push(" AND ");
+                } else {
+                    qb.push(" WHERE ");
                 }
-                qb.push("id like 'fm100h%')");
+
+                qb.push("id NOT LIKE 'fm100d%'");
+                has_where = true;
+            }
+
+            if search_config.exclude_hosts {
+                if has_where {
+                    qb.push(" AND ");
+                } else {
+                    qb.push(" WHERE ");
+                }
+
+                qb.push("id NOT LIKE 'fm100h%'");
+                has_where = true;
+            }
+
+            if !search_config.include_predicted_host {
+                if has_where {
+                    qb.push(" AND ");
+                } else {
+                    qb.push(" WHERE ");
+                }
+                qb.push("id NOT LIKE 'fm100p%'");
             }
         }
-        tracing::info!("query: {}", qb.sql());
 
+        tracing::info!("sql: {}", qb.sql());
         let q = qb.build_query_as();
         let machine_ids: Vec<DbMachineId> = q
             .fetch_all(&mut **txn)
