@@ -1401,41 +1401,35 @@ SELECT m.id FROM
             has_where = true;
         }
 
-        // only add additional criteria if not getting all machine types
-        if !search_config.include_dpus
-            || search_config.exclude_hosts
-            || !search_config.include_predicted_host
-        {
-            if !search_config.include_dpus {
-                if has_where {
-                    qb.push(" AND ");
-                } else {
-                    qb.push(" WHERE ");
-                }
-
-                qb.push("NOT starts_with(id, 'fm100d')");
-                has_where = true;
+        if !search_config.include_dpus {
+            if has_where {
+                qb.push(" AND ");
+            } else {
+                qb.push(" WHERE ");
             }
 
-            if search_config.exclude_hosts {
-                if has_where {
-                    qb.push(" AND ");
-                } else {
-                    qb.push(" WHERE ");
-                }
+            qb.push("NOT starts_with(id, 'fm100d')");
+            has_where = true;
+        }
 
-                qb.push("NOT starts_with(id, 'fm100h')");
-                has_where = true;
+        if search_config.exclude_hosts {
+            if has_where {
+                qb.push(" AND ");
+            } else {
+                qb.push(" WHERE ");
             }
 
-            if !search_config.include_predicted_host {
-                if has_where {
-                    qb.push(" AND ");
-                } else {
-                    qb.push(" WHERE ");
-                }
-                qb.push("NOT starts_with(id, 'fm100p')");
+            qb.push("NOT starts_with(id, 'fm100h')");
+            has_where = true;
+        }
+
+        if !search_config.include_predicted_host {
+            if has_where {
+                qb.push(" AND ");
+            } else {
+                qb.push(" WHERE ");
             }
+            qb.push("NOT starts_with(id, 'fm100p')");
         }
 
         tracing::info!("sql: {}", qb.sql());
