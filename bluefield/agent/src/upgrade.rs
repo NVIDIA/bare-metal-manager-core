@@ -81,7 +81,7 @@ pub async fn upgrade_check(
         .map(|response| response.into_inner())?;
 
     if resp.should_upgrade {
-        // We do this for two reason:
+        // We do this for two reasons:
         // - Move the file back on upgrade failure
         // - Kernel prevents overwriting inode of running binary, we'd get ETXTBSY.
         let mut backup = binary_path.clone();

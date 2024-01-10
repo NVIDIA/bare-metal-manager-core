@@ -520,7 +520,7 @@ fn instance_interface_acls_by_name(
 }
 
 // Update configuration file
-// Returns true if the file has changes, false othewise.
+// Returns true if the file has changes, false otherwise.
 fn write<P: AsRef<Path>>(
     // What to write into the file
     next_contents: String,
@@ -809,7 +809,7 @@ mod tests {
                 panic!("write_frr error: {err}");
             }
             Ok(None) => {
-                panic!("write_free says the config didn't change, that's wrong");
+                panic!("write_frr says the config didn't change, that's wrong");
             }
             Ok(Some(_)) => {
                 // success

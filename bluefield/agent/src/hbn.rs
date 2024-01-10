@@ -19,7 +19,7 @@ use tracing::{debug, trace};
 // execute commands in containers.  `RunCommandPredicate` provides abstraction over the `Command`
 // and `args` needed to execute health checks.
 // We need to move the dpu-agent out of the mgmt VRF because we want to expose services to instances
-// running on a X86 machine, eg FMDS, while still being able to use the mgmt VRF to connect to our control plane
+// running on an X86 machine, eg FMDS, while still being able to use the mgmt VRF to connect to our control plane
 #[derive(Debug)]
 pub struct RunCommandPredicate<'a> {
     pub command: TokioCommand,

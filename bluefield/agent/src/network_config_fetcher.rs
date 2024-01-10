@@ -47,7 +47,7 @@ pub struct NetworkConfigFetcher {
 impl Drop for NetworkConfigFetcher {
     fn drop(&mut self) {
         // Signal the background task and wait for it to shut down
-        // TODO: Might be nicer if it would be interrupted during waiting for 30s,
+        // TODO: Might be nicer if it would be interrupted during waiting for 30s
         self.state
             .is_cancelled
             .store(true, std::sync::atomic::Ordering::Relaxed);
