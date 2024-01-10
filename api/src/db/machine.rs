@@ -43,18 +43,24 @@ use crate::{CarbideError, CarbideResult};
 /// MachineSearchConfig: Search parameters
 #[derive(Default, Debug)]
 pub struct MachineSearchConfig {
+    pub include_dpus: bool,
     pub include_history: bool,
+    pub include_predicted_host: bool,
     /// Only include machines in maintenance mode
     pub only_maintenance: bool,
     pub include_associated_machine_id: bool,
+    pub exclude_hosts: bool,
 }
 
 impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
     fn from(value: rpc::MachineSearchConfig) -> Self {
         MachineSearchConfig {
+            include_dpus: value.include_dpus,
             include_history: value.include_history,
+            include_predicted_host: value.include_predicted_host,
             only_maintenance: value.only_maintenance,
             include_associated_machine_id: value.include_associated_machine_id,
+            exclude_hosts: value.exclude_hosts,
         }
     }
 }
@@ -1383,14 +1389,55 @@ SELECT m.id FROM
         Ok(())
     }
 
-    pub async fn get_machine_ids(
+    pub async fn find_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
+        search_config: MachineSearchConfig,
     ) -> Result<Vec<MachineId>, DatabaseError> {
-        let query = "select id from machines";
-        let machine_ids: Vec<DbMachineId> = sqlx::query_as(query)
+        let mut qb = sqlx::QueryBuilder::new("SELECT id FROM machines");
+        let mut has_where = false;
+
+        if search_config.only_maintenance {
+            qb.push(" WHERE maintenance_reference IS NOT NULL");
+            has_where = true;
+        }
+
+        if !search_config.include_dpus {
+            if has_where {
+                qb.push(" AND ");
+            } else {
+                qb.push(" WHERE ");
+            }
+
+            qb.push("NOT starts_with(id, 'fm100d')");
+            has_where = true;
+        }
+
+        if search_config.exclude_hosts {
+            if has_where {
+                qb.push(" AND ");
+            } else {
+                qb.push(" WHERE ");
+            }
+
+            qb.push("NOT starts_with(id, 'fm100h')");
+            has_where = true;
+        }
+
+        if !search_config.include_predicted_host {
+            if has_where {
+                qb.push(" AND ");
+            } else {
+                qb.push(" WHERE ");
+            }
+            qb.push("NOT starts_with(id, 'fm100p')");
+        }
+
+        tracing::info!("sql: {}", qb.sql());
+        let q = qb.build_query_as();
+        let machine_ids: Vec<DbMachineId> = q
             .fetch_all(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "find_machine_ids", e))?;
 
         Ok(machine_ids.into_iter().map(MachineId::from).collect())
     }

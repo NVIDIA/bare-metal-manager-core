@@ -2176,9 +2176,12 @@ where
             .load_machine(
                 &machine_id,
                 MachineSearchConfig {
+                    include_dpus: false,
                     include_history: true,
+                    include_predicted_host: false,
                     only_maintenance: false,
                     include_associated_machine_id: true,
+                    exclude_hosts: false,
                 },
             )
             .await?;
@@ -2234,9 +2237,9 @@ where
         Ok(result)
     }
 
-    async fn get_machine_ids(
+    async fn find_machine_ids(
         &self,
-        request: Request<()>,
+        request: Request<rpc::MachineSearchConfig>,
     ) -> Result<Response<rpc::MachineIdList>, Status> {
         log_request_data(&request);
         let mut txn = self
@@ -2245,7 +2248,9 @@ where
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_machines", e))?;
 
-        let machine_ids = Machine::get_machine_ids(&mut txn)
+        let search_config = request.into_inner().into();
+
+        let machine_ids = Machine::find_machine_ids(&mut txn, search_config)
             .await
             .map_err(CarbideError::from)?;
 
@@ -2291,6 +2296,7 @@ where
         }))
     }
 
+    // DEPRECATED: use GetMachineIds and FindMachinesByIds instead
     async fn find_machines(
         &self,
         request: Request<rpc::MachineSearchQuery>,

@@ -151,6 +151,7 @@ pub async fn get_machines(
             include_predicted_host: false,
             only_maintenance: false,
             include_associated_machine_id: false,
+            exclude_hosts: false,
         }),
     });
     let begin_ts: DateTime<Utc> = Utc::now();

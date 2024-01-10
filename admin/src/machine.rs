@@ -205,31 +205,13 @@ pub struct MachineFilter {
 async fn show_all_machines(
     json: bool,
     api_config: Config,
-    f: MachineFilter,
+    machine_type: Option<forgerpc::MachineType>,
 ) -> CarbideCliResult<()> {
-    let mut all_machines = forgerpc::MachineList {
-        machines: Vec::default(),
-    };
-
-    let all_machine_ids = rpc::get_machine_ids(api_config.clone()).await?;
-    for machine_ids in all_machine_ids.machine_ids.chunks(100) {
-        let mut machines = rpc::get_machines_by_ids(api_config.clone(), machine_ids).await?;
-        if f.only_dpus {
-            machines
-                .machines
-                .retain(|m| m.machine_type == forgerpc::MachineType::Dpu as i32);
-        } else if f.only_hosts {
-            machines
-                .machines
-                .retain(|m| m.machine_type == forgerpc::MachineType::Host as i32);
-        }
-        all_machines.machines.extend(machines.machines);
-    }
-
+    let machines = rpc::get_all_machines(api_config, machine_type, false).await?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&all_machines).unwrap());
+        println!("{}", serde_json::to_string_pretty(&machines).unwrap());
     } else {
-        convert_machines_to_nice_table(all_machines).printstd();
+        convert_machines_to_nice_table(machines).printstd();
     }
     Ok(())
 }
@@ -256,14 +238,18 @@ pub async fn handle_show(
     json: bool,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    if args.all || args.dpus || args.hosts {
-        let f = MachineFilter {
-            only_dpus: args.dpus,
-            only_hosts: args.hosts,
-        };
-        show_all_machines(json, api_config, f).await?;
-    } else if let Some(machine_id) = args.machine {
+    if let Some(machine_id) = args.machine {
         show_machine_information(machine_id, json, api_config).await?;
+    } else {
+        let machine_type = if args.all {
+            None
+        } else if args.dpus {
+            Some(forgerpc::MachineType::Dpu)
+        } else {
+            Some(forgerpc::MachineType::Host)
+        };
+
+        show_all_machines(json, api_config, machine_type).await?;
     }
 
     Ok(())

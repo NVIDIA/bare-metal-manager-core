@@ -27,6 +27,8 @@ use common::{
     mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
 };
 
+use crate::common::api_fixtures::{dpu::create_dpu_hardware_info, host::create_host_machine};
+
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
@@ -244,4 +246,168 @@ async fn test_find_all_machines_when_there_arent_any(pool: sqlx::PgPool) {
     .unwrap();
 
     assert!(machines.is_empty());
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_machine_ids(pool: sqlx::PgPool) {
+    let config = carbide::db::machine::MachineSearchConfig {
+        include_dpus: true,
+        include_history: false,
+        include_associated_machine_id: false,
+        only_maintenance: false,
+        include_predicted_host: true,
+        exclude_hosts: false,
+    };
+
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+    let host_machine_id =
+        MachineId::host_id_from_dpu_hardware_info(&create_dpu_hardware_info(&host_sim.config))
+            .unwrap();
+    let mut txn = pool.begin().await.unwrap();
+
+    let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
+
+    assert_eq!(machine_ids.len(), 2);
+    assert!(machine_ids.contains(&dpu_machine_id));
+    assert!(machine_ids.contains(&host_machine_id));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
+    let config = carbide::db::machine::MachineSearchConfig {
+        include_dpus: true,
+        include_history: false,
+        include_associated_machine_id: false,
+        only_maintenance: false,
+        include_predicted_host: false,
+        exclude_hosts: true,
+    };
+
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+    let host_machine_id =
+        MachineId::host_id_from_dpu_hardware_info(&create_dpu_hardware_info(&host_sim.config))
+            .unwrap();
+    let mut txn = pool.begin().await.unwrap();
+
+    let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
+
+    assert_eq!(machine_ids.len(), 1);
+    assert!(machine_ids.contains(&dpu_machine_id));
+    assert!(!machine_ids.contains(&host_machine_id));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
+    let config = carbide::db::machine::MachineSearchConfig {
+        include_dpus: false,
+        include_history: false,
+        include_associated_machine_id: false,
+        only_maintenance: false,
+        include_predicted_host: true,
+        exclude_hosts: true,
+    };
+
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+    let host_machine_id =
+        MachineId::host_id_from_dpu_hardware_info(&create_dpu_hardware_info(&host_sim.config))
+            .unwrap();
+    let mut txn = pool.begin().await.unwrap();
+
+    let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
+
+    assert_eq!(machine_ids.len(), 1);
+    assert!(!machine_ids.contains(&dpu_machine_id));
+    assert!(machine_ids.contains(&host_machine_id));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
+    let config = carbide::db::machine::MachineSearchConfig {
+        include_dpus: false,
+        include_history: false,
+        include_associated_machine_id: false,
+        only_maintenance: false,
+        include_predicted_host: false,
+        exclude_hosts: false,
+    };
+
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let _dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+    let mut txn = pool.begin().await.unwrap();
+
+    let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
+
+    assert!(machine_ids.is_empty());
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
+    let config = carbide::db::machine::MachineSearchConfig {
+        include_dpus: false,
+        include_history: false,
+        include_associated_machine_id: false,
+        only_maintenance: false,
+        include_predicted_host: false,
+        exclude_hosts: false,
+    };
+
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+
+    let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
+    let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
+
+    let mut txn = pool.begin().await.unwrap();
+
+    tracing::info!("finding machine ids");
+    let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
+    assert_eq!(machine_ids.len(), 1);
+    assert!(machine_ids.contains(&host_machine_id));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
+    let config = carbide::db::machine::MachineSearchConfig {
+        include_dpus: false,
+        include_history: false,
+        include_associated_machine_id: false,
+        only_maintenance: false,
+        include_predicted_host: true,
+        exclude_hosts: false,
+    };
+
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let dpu_machine_id =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+
+    let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
+    let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
+
+    let host_sim2 = env.start_managed_host_sim();
+    create_dpu_machine(&env, &host_sim2.config).await;
+    let predicted_host_machine_id =
+        MachineId::host_id_from_dpu_hardware_info(&create_dpu_hardware_info(&host_sim2.config))
+            .unwrap();
+
+    let mut txn = pool.begin().await.unwrap();
+
+    tracing::info!("finding machine ids");
+    let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
+    assert_eq!(machine_ids.len(), 2);
+    assert!(machine_ids.contains(&host_machine_id));
+    assert!(machine_ids.contains(&predicted_host_machine_id));
 }

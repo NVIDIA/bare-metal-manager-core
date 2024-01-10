@@ -203,11 +203,10 @@ pub async fn handle_dpu_versions(
         HashMap::default()
     };
 
-    let dpus = rpc::get_all_machines(api_config, false)
+    let dpus = rpc::get_all_machines(api_config, Some(MachineType::Dpu), false)
         .await?
         .machines
         .into_iter()
-        .filter(|m| m.machine_type() == MachineType::Dpu)
         .filter(|m| {
             if updates_only {
                 let product_name = m
