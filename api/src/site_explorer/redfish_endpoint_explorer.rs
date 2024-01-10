@@ -36,6 +36,26 @@ impl RedfishEndpointExplorer {
             redfish_client_pool,
         }
     }
+
+    async fn try_hardware_default_creds(
+        &self,
+        address: &IpAddr,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        let standard_client = self
+            .redfish_client_pool
+            .create_standard_client(&address.to_string(), None)
+            .await?;
+        self.redfish_client_pool
+            .change_root_password_to_site_default(*standard_client.clone())
+            .await?;
+        self.redfish_client_pool
+            .create_client(
+                &address.to_string(),
+                None,
+                crate::redfish::RedfishCredentialType::SiteDefault,
+            )
+            .await
+    }
 }
 
 #[async_trait::async_trait]
@@ -46,15 +66,26 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         _interface: &MachineInterface,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        let client = &self
+        let client;
+        let client_result = self
             .redfish_client_pool
             .create_client(
                 &address.to_string(),
                 None,
                 crate::redfish::RedfishCredentialType::SiteDefault,
             )
-            .await
-            .map_err(map_redfish_client_creation_error)?;
+            .await;
+
+        match client_result {
+            Ok(c) => client = c,
+            Err(RedfishClientCreationError::MissingCredentials(_)) => {
+                client = self
+                    .try_hardware_default_creds(address)
+                    .await
+                    .map_err(map_redfish_client_creation_error)?
+            }
+            Err(err) => return Err(map_redfish_client_creation_error(err)),
+        };
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
         let vendor = service_root.vendor();
