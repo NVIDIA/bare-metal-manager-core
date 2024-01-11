@@ -71,13 +71,90 @@ pub async fn get_network_device_topology(
     .await
 }
 
+// this uses deprecated APIs and should not be used.
+// exists for backwards compatability with older APIs
+pub async fn get_all_machines_deprecated(
+    api_config: Config,
+    machine_type: Option<MachineType>,
+    only_maintenance: bool,
+) -> CarbideCliResult<rpc::MachineList> {
+    let include_dpus = machine_type.map(|t| t == MachineType::Dpu).unwrap_or(true);
+    let exclude_hosts = machine_type
+        .map(|t| t != MachineType::Host)
+        .unwrap_or(false);
+    let include_predicted_host = machine_type.map(|t| t == MachineType::Host).unwrap_or(true);
+
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::MachineSearchQuery {
+            id: None,
+            fqdn: None,
+            search_config: Some(rpc::MachineSearchConfig {
+                include_dpus,
+                include_history: true,
+                include_predicted_host,
+                only_maintenance,
+                include_associated_machine_id: false,
+                exclude_hosts,
+            }),
+        });
+        let machine_details = client
+            .find_machines(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        let machines = machine_details
+            .machines
+            .into_iter()
+            .filter(|m| {
+                if only_maintenance && m.maintenance_reference.is_none() {
+                    return false;
+                }
+                if !include_dpus
+                    && m.id
+                        .as_ref()
+                        .map_or(false, |id| id.id.starts_with("fm100d"))
+                {
+                    return false;
+                }
+                if !include_predicted_host
+                    && m.id
+                        .as_ref()
+                        .map_or(false, |id| id.id.starts_with("fm100p"))
+                {
+                    return false;
+                }
+                if exclude_hosts
+                    && m.id
+                        .as_ref()
+                        .map_or(false, |id| !id.id.starts_with("fm100d"))
+                {
+                    return false;
+                }
+                true
+            })
+            .collect();
+        Ok(rpc::MachineList { machines })
+    })
+    .await
+}
+
 pub async fn get_all_machines(
     api_config: Config,
     machine_type: Option<MachineType>,
     only_maintenance: bool,
 ) -> CarbideCliResult<rpc::MachineList> {
-    let all_machine_ids =
-        find_machine_ids(api_config.clone(), machine_type, only_maintenance).await?;
+    let all_machine_ids = match find_machine_ids(api_config.clone(), machine_type, only_maintenance)
+        .await
+    {
+        Ok(all_machine_ids) => all_machine_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return get_all_machines_deprecated(api_config, machine_type, only_maintenance).await;
+        }
+        Err(e) => return Err(e),
+    };
     let mut all_machines = rpc::MachineList {
         machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
     };
