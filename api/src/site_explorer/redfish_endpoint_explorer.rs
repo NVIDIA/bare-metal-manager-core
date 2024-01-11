@@ -78,7 +78,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
 
         match client_result {
             Ok(c) => client = c,
-            Err(RedfishClientCreationError::MissingCredentials(_)) => {
+            Err(RedfishClientCreationError::RedfishError(e)) if e.is_unauthorized() => {
                 client = self
                     .try_hardware_default_creds(address)
                     .await
@@ -247,17 +247,9 @@ fn map_redfish_error(error: RedfishError) -> EndpointExplorationError {
             // TODO: It might actually also be TLS related
             EndpointExplorationError::Unreachable
         }
-        RedfishError::HTTPErrorCode {
-            url: _,
-            status_code,
-            response_body: _,
-        } if *status_code == http::StatusCode::UNAUTHORIZED
-            || *status_code == http::StatusCode::FORBIDDEN =>
-        {
-            EndpointExplorationError::Unauthorized {
-                details: error.to_string(),
-            }
-        }
+        error if error.is_unauthorized() => EndpointExplorationError::Unauthorized {
+            details: error.to_string(),
+        },
         _ => EndpointExplorationError::RedfishError {
             details: error.to_string(),
         },
