@@ -122,13 +122,24 @@ pub async fn run(
             Some(ref conf) => {
                 let mut tenant_peers = vec![];
                 if is_hbn_up {
-                    match ethernet_virtualization::update(
-                        &agent.hbn.root_dir,
-                        conf,
-                        agent.hbn.skip_reload,
-                    )
-                    .await
-                    {
+                    tracing::trace!("Desired network config is {:?}", conf);
+                    let update_result = match conf.network_virtualization_type {
+                        Some(x)
+                            if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+                                as i32 =>
+                        {
+                            ethernet_virtualization::update_nvue(&agent.hbn.root_dir, conf).await
+                        }
+                        _ => {
+                            ethernet_virtualization::update_files(
+                                &agent.hbn.root_dir,
+                                conf,
+                                agent.hbn.skip_reload,
+                            )
+                            .await
+                        }
+                    };
+                    match update_result {
                         Ok(has_changed) => {
                             has_changed_configs = has_changed;
                             tenant_peers = ethernet_virtualization::tenant_peers(conf);

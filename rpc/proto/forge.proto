@@ -393,8 +393,9 @@ message VpcCreationRequest {
 }
 
 enum VpcVirtualizationType {
-	ETHERNET_VIRTUALIZER = 0;
-	FORGE_NATIVE_NETWORKING = 1;
+  ETHERNET_VIRTUALIZER = 0;
+  FORGE_NATIVE_NETWORKING = 1;
+  ETHERNET_VIRTUALIZER_WITH_NVUE = 2;
 }
 
 message VpcUpdateRequest {
@@ -1219,7 +1220,7 @@ message CredentialResponse {
 }
 
 message GetSiteExplorationRequest {
-    
+
 }
 
 message ManagedHostNetworkConfigRequest {

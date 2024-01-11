@@ -13,18 +13,17 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
+use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
+use super::DatabaseError;
 use crate::db::UuidKeyedObjectFilter;
 use crate::model::config_version::ConfigVersion;
 use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
-use ::rpc::forge as rpc;
-
-use super::DatabaseError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
@@ -48,6 +47,8 @@ pub enum VpcVirtualizationType {
     EthernetVirtualizer = 0,
     #[sqlx(rename = "fnn")]
     ForgeNativeNetworking,
+    #[sqlx(rename = "etv_nvue")]
+    EthernetVirtualizerWithNvue,
 }
 
 impl fmt::Display for VpcVirtualizationType {
@@ -55,6 +56,7 @@ impl fmt::Display for VpcVirtualizationType {
         match self {
             Self::EthernetVirtualizer => write!(f, "etv"),
             Self::ForgeNativeNetworking => write!(f, "fnn"),
+            Self::EthernetVirtualizerWithNvue => write!(f, "etv_nvue"),
         }
     }
 }
@@ -68,6 +70,9 @@ impl TryFrom<i32> for VpcVirtualizationType {
             }
             x if x == rpc::VpcVirtualizationType::ForgeNativeNetworking as i32 => {
                 Self::ForgeNativeNetworking
+            }
+            x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
+                Self::EthernetVirtualizerWithNvue
             }
             _ => {
                 return Err(RpcDataConversionError::InvalidVpcVirtualizationType(value));
@@ -83,6 +88,7 @@ impl FromStr for VpcVirtualizationType {
         match s {
             "etv" => Ok(Self::EthernetVirtualizer),
             "fnn" => Ok(Self::ForgeNativeNetworking),
+            "etv_nvue" => Ok(Self::EthernetVirtualizerWithNvue),
             x => Err(CarbideError::GenericError(format!(
                 "Unknown virt type {}",
                 x

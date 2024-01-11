@@ -22,7 +22,7 @@ use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tracing::{debug, error, trace};
 
-use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces};
+use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
 
 // VPC writes these to various HBN config files
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
@@ -77,15 +77,98 @@ fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
     }
 }
 
+pub async fn update_nvue(
+    hbn_root: &Path,
+    nc: &rpc::ManagedHostNetworkConfigResponse,
+) -> eyre::Result<bool> {
+    let path = hbn_root.join(nvue::PATH);
+    let l_ip_str = match &nc.managed_host_config {
+        None => {
+            return Err(eyre::eyre!("Missing managed_host_config in response"));
+        }
+        Some(cfg) => {
+            if cfg.loopback_ip.is_empty() {
+                return Err(eyre::eyre!("Missing loopback IP"));
+            }
+            &cfg.loopback_ip
+        }
+    };
+    let loopback_ip = l_ip_str.parse().wrap_err_with(|| l_ip_str.clone())?;
+    let conf = nvue::NvueConfig {
+        loopback_ip,
+        asn: nc.asn,
+        dpu_hostname: "TODO".to_string(),
+        uplinks: UPLINKS.into_iter().map(String::from).collect(),
+        dhcp_servers: vec![],
+        route_servers: nc.route_servers.clone(),
+        l3_domains: vec![],
+
+        ct_name: "TODO".to_string(),
+        ct_l3_vni: "TODO".to_string(),
+        ct_vrf_loopback: "TODO".to_string(),
+        ct_networks: vec![],
+        ct_external_access: vec![],
+    };
+    let next_contents = nvue::build(conf)?;
+    let Some(post) = write(next_contents, &path, "NVUE config", "").wrap_err("NVUE config at {path}")? else {
+        // config didn't change
+        return Ok(false);
+    };
+
+    match nvue_post(&path).await {
+        Ok(_) => {
+            if post.path_bak.exists() {
+                if let Err(err) = fs::remove_file(&post.path_bak) {
+                    eyre::bail!(
+                        "remove .BAK on success {}: {err:#}",
+                        post.path_bak.display()
+                    );
+                }
+            }
+            Ok(true)
+        }
+        Err(err) => {
+            tracing::error!("update_nvue post command failed: {err}");
+
+            // If apply failed we won't be using the new config. Move it out of the way..
+            if let Err(err) = fs::rename(&post.path, &post.path_tmp) {
+                eyre::bail!(
+                    "rename {} to {} on error: {err:#}",
+                    post.path.display(),
+                    post.path_tmp.display()
+                );
+            }
+            // .. and copy the old one back.
+            // This also ensures that we retry writing the config on subsequent runs.
+            if post.path_bak.exists() {
+                if let Err(err) = fs::rename(&post.path_bak, &post.path) {
+                    eyre::bail!(
+                        "rename {} to {}, reverting on error: {err:#}",
+                        post.path_bak.display(),
+                        post.path.display()
+                    );
+                }
+            }
+
+            Err(err)
+        }
+    }
+}
+
+async fn nvue_post(path: &Path) -> eyre::Result<()> {
+    in_container_shell(&format!("nv config replace {}", path.display())).await?;
+    in_container_shell("nv config apply -y").await?;
+    in_container_shell("nv config save").await
+}
+
 /// Write out all the network config files.
 /// Returns true if any of them changed.
-pub async fn update(
+pub async fn update_files(
     hbn_root: &Path,
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
 ) -> eyre::Result<bool> {
-    trace!("Desired network config is {:?}", network_config);
     let paths = paths(hbn_root, network_config.is_production_mode);
 
     let mut errs = vec![];
@@ -652,7 +735,7 @@ async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
 }
 
 // Run the given command inside HBN container in a shell. Ignore the output.
-async fn in_container_shell(cmd: &'static str) -> Result<(), eyre::Report> {
+async fn in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
     let container_id = hbn::get_hbn_container_id().await?;
     let check_result = true;
 

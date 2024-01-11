@@ -41,6 +41,7 @@ mod interfaces;
 mod main_loop;
 mod mtu;
 mod network_config_fetcher;
+mod nvue;
 mod upgrade;
 mod util;
 
@@ -158,8 +159,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 client_certificate_expiry_unix_epoch_secs: None,
             };
             let mut has_changed_configs = false;
-            match ethernet_virtualization::update(&agent.hbn.root_dir, &conf, agent.hbn.skip_reload)
-                .await
+            match ethernet_virtualization::update_files(
+                &agent.hbn.root_dir,
+                &conf,
+                agent.hbn.skip_reload,
+            )
+            .await
             {
                 Ok(has_changed) => {
                     status_out.network_config_version =
@@ -265,6 +270,42 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     remote_id: opts.remote_id,
                     network_virtualization_type: Some(opts.network_virtualization_type),
                 })?;
+                std::fs::write(&opts.path, contents)?;
+                println!("Wrote {}", opts.path);
+            }
+
+            // Example:
+            // forge-dpu-agent write nvue
+            // --path /tmp/startup.yaml
+            // --loopback-ip 10.0.0.1
+            // --asn 65535
+            // --dpu-hostname bob
+            // --ct-name ct_name
+            // --ct-l3vni l3vnihere
+            // --ct-vrf-loopback 10.0.0.2
+            // --uplinks up1,up2
+            // --route-servers 10.217.126.5  # comma separated list
+            // --dhcp-servers 10.217.126.2  # comma separated list
+            // --l3-domain 4096,10.0.0.1,svi  # repeat for multiple
+            // --ct-external-access 4096  # comma separated list
+            // --ct-port-config '{"interface_name": "if1", "vlan": 123, "vni": 456, "gateway_cidr": "10.0.0.100/32"}' # repeated for multiple
+            WriteTarget::Nvue(opts) => {
+                let conf = nvue::NvueConfig {
+                    loopback_ip: opts.loopback_ip.to_string(),
+                    asn: opts.asn,
+                    dpu_hostname: opts.dpu_hostname,
+                    uplinks: opts.uplinks,
+                    dhcp_servers: opts.dhcp_servers,
+                    route_servers: opts.route_servers,
+                    l3_domains: vec![],
+
+                    ct_name: opts.ct_name,
+                    ct_l3_vni: opts.ct_l3vni,
+                    ct_vrf_loopback: opts.ct_vrf_loopback,
+                    ct_networks: vec![],
+                    ct_external_access: opts.ct_external_access,
+                };
+                let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);
             }
