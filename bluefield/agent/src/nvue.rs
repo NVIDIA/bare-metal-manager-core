@@ -29,8 +29,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         L3Domains: l3_domains,
     }];
 
-    let mut port_configs = Vec::with_capacity(conf.ct_networks.len());
-    for network in conf.ct_networks {
+    let mut port_configs = Vec::with_capacity(conf.ct_port_configs.len());
+    for network in conf.ct_port_configs {
         port_configs.push(TmplConfigPort {
             Name: network.interface_name.clone(),
             VlanID: network.vlan,
@@ -75,7 +75,7 @@ pub struct NvueConfig {
     pub ct_name: String,
     pub ct_l3_vni: String,
     pub ct_vrf_loopback: String,
-    pub ct_networks: Vec<Network>,
+    pub ct_port_configs: Vec<PortConfig>,
     pub ct_external_access: Vec<String>,
 }
 
@@ -86,7 +86,7 @@ pub struct L3Domain {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct Network {
+pub struct PortConfig {
     pub interface_name: String,
     pub vlan: u16,
     pub vni: u32,
@@ -98,7 +98,7 @@ pub struct Network {
 //
 
 #[allow(non_snake_case)]
-#[derive(Clone, Gtmpl)]
+#[derive(Clone, Gtmpl, Debug)]
 struct TmplNvue {
     IsFNN: bool,
     LoopbackIP: String,
@@ -119,7 +119,7 @@ struct TmplNvue {
 }
 
 #[allow(non_snake_case)]
-#[derive(Clone, Gtmpl)]
+#[derive(Clone, Gtmpl, Debug)]
 struct TmplComputeTenant {
     /// Tenant name/id with a max of 15 chars, because it's also used for the interface name.
     /// Linux is limited to 15 chars for interface names.
@@ -135,7 +135,7 @@ struct TmplComputeTenant {
 }
 
 #[allow(non_snake_case)]
-#[derive(Clone, Gtmpl)]
+#[derive(Clone, Gtmpl, Debug)]
 struct TmplConfigPort {
     Name: String,
     VlanID: u16,
@@ -157,14 +157,14 @@ struct TmplConfigPort {
 }
 
 #[allow(non_snake_case)]
-#[derive(Clone, Gtmpl)]
+#[derive(Clone, Gtmpl, Debug)]
 struct TmplInfra {
     /// Information to configure L3VNIs and the details of it
     L3Domains: Vec<TmplL3Domain>,
 }
 
 #[allow(non_snake_case)]
-#[derive(Clone, Gtmpl)]
+#[derive(Clone, Gtmpl, Debug)]
 struct TmplL3Domain {
     Name: String,
     Services: Vec<String>,

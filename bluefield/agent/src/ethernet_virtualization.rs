@@ -106,7 +106,7 @@ pub async fn update_nvue(
         ct_name: "TODO".to_string(),
         ct_l3_vni: "TODO".to_string(),
         ct_vrf_loopback: "TODO".to_string(),
-        ct_networks: vec![],
+        ct_port_configs: vec![],
         ct_external_access: vec![],
     };
     let next_contents = nvue::build(conf)?;
@@ -156,8 +156,12 @@ pub async fn update_nvue(
 }
 
 async fn nvue_post(path: &Path) -> eyre::Result<()> {
+    // Set this config as the pending one. This is where we'd get yaml parse errors and
+    // other validation errors.
     in_container_shell(&format!("nv config replace {}", path.display())).await?;
+    // Apply the pending config
     in_container_shell("nv config apply -y").await?;
+    // Persist the config to disk
     in_container_shell("nv config save").await
 }
 
