@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fs;
+use std::path::Path;
+
 use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
@@ -59,6 +62,56 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         }],
     };
     gtmpl::template(TMPL_FULL, params).map_err(|e| e.into())
+}
+
+// Apply the config at `config_path`.
+pub async fn apply(config_path: &Path, path_bak: &Path, path_tmp: &Path) -> eyre::Result<()> {
+    match run_apply(config_path).await {
+        Ok(_) => {
+            if path_bak.exists() {
+                if let Err(err) = fs::remove_file(path_bak) {
+                    eyre::bail!("remove .BAK on success {}: {err:#}", path_bak.display());
+                }
+            }
+            Ok(())
+        }
+        Err(err) => {
+            tracing::error!("update_nvue post command failed: {err}");
+
+            // If apply failed we won't be using the new config. Move it out of the way..
+            if let Err(err) = fs::rename(config_path, path_tmp) {
+                eyre::bail!(
+                    "rename {} to {} on error: {err:#}",
+                    config_path.display(),
+                    path_tmp.display()
+                );
+            }
+            // .. and copy the old one back.
+            // This also ensures that we retry writing the config on subsequent runs.
+            if path_bak.exists() {
+                if let Err(err) = fs::rename(path_bak, config_path) {
+                    eyre::bail!(
+                        "rename {} to {}, reverting on error: {err:#}",
+                        path_bak.display(),
+                        config_path.display()
+                    );
+                }
+            }
+
+            Err(err)
+        }
+    }
+}
+
+// Ask NVUE to use the config at `path`
+async fn run_apply(path: &Path) -> eyre::Result<()> {
+    // Set this config as the pending one. This is where we'd get yaml parse errors and
+    // other validation errors.
+    super::hbn::run_in_container_shell(&format!("nv config replace {}", path.display())).await?;
+    // Apply the pending config
+    super::hbn::run_in_container_shell("nv config apply -y").await?;
+    // Persist the config to disk
+    super::hbn::run_in_container_shell("nv config save").await
 }
 
 // What we need to configure NVUE

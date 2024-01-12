@@ -24,6 +24,7 @@ http-body = "0.4.5"
 hyper = "0.14"
 ipnetwork = "0.20.0"
 lazy_static = "*"
+libc = "*"
 mockall = "0.11.4"
 opentelemetry = { version = "0.21.0", features = ["logs"] }
 opentelemetry_sdk = { version = "0.21.1", features = ["logs", "rt-tokio"] }
@@ -57,3 +58,4 @@ tempfile = "3"
 axum-server = { version = "0.4.4", features = ["tls-rustls"] }
 prost = "0.11.9"
 chrono = "0.4.26"
+serde_yaml = "*"
