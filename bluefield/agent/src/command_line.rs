@@ -29,6 +29,7 @@ pub struct Options {
 }
 
 #[derive(Parser, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum AgentCommand {
     #[clap(about = "Run is the normal and default command")]
     Run(RunOptions),
@@ -68,6 +69,56 @@ pub enum WriteTarget {
     Interfaces(InterfacesOptions),
     #[clap(about = "Write /etc/supervisor/conf.d/default-isc-dhcp-relay.conf")]
     Dhcp(DhcpOptions),
+    #[clap(about = "Write /etc/nvue.d/startup.yaml")]
+    Nvue(NvueOptions),
+}
+
+#[derive(Parser, Debug)]
+pub struct NvueOptions {
+    #[clap(long, help = "Full path of NVUE's startup.yaml")]
+    pub path: String,
+
+    #[clap(long, help = "Forge Native Networking mode")]
+    pub is_fnn: bool,
+
+    #[clap(long)]
+    pub loopback_ip: Ipv4Addr,
+
+    #[clap(long)]
+    pub asn: u32,
+
+    #[clap(long)]
+    pub dpu_hostname: String,
+
+    #[clap(long, use_value_delimiter = true, help = "Comma separated")]
+    pub uplinks: Vec<String>,
+
+    #[clap(long, use_value_delimiter = true, help = "Comma separated")]
+    pub route_servers: Vec<String>,
+
+    #[clap(long, use_value_delimiter = true, help = "Comma separated")]
+    pub dhcp_servers: Vec<String>,
+
+    #[clap(
+        long,
+        help = "Format is l3vni,vrf_loopback,services_svi, e.g. --l3_domain 4096,10.0.0.1,svi . Repeats."
+    )]
+    pub l3_domain: Vec<String>,
+
+    #[clap(long, help = "Compute Tenant name")]
+    pub ct_name: String,
+
+    #[clap(long)]
+    pub ct_l3vni: String,
+
+    #[clap(long)]
+    pub ct_vrf_loopback: String,
+
+    #[clap(long, help = "Format is JSON see Network in nvue.rs. Repeats.")]
+    pub ct_port_config: Vec<String>,
+
+    #[clap(long, use_value_delimiter = true, help = "Comma separated")]
+    pub ct_external_access: Vec<String>,
 }
 
 #[derive(Parser, Debug)]
