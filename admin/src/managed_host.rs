@@ -293,7 +293,6 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    let requested_machine = args.machine.or(args.host);
     let site_report_managed_hosts = rpc::get_site_exploration_report(&api_config)
         .await?
         .managed_hosts;
@@ -311,7 +310,7 @@ pub async fn handle_show(
             site_report_managed_hosts,
         )
         .await?;
-    } else if let Some(requested_machine_id) = requested_machine {
+    } else if let Some(requested_machine_id) = args.machine {
         let mut machines = Vec::default();
         let requested_machine = rpc::get_machine(requested_machine_id, api_config.clone()).await?;
 

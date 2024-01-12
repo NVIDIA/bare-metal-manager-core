@@ -548,51 +548,59 @@ pub struct NetworkConfigQuery {
 #[clap(group(
         ArgGroup::new("show_machine")
         .required(true)
-        .args(&["all", "dpus", "hosts", "machine"])))]
+        .args(&["all", "dpus", "hosts", "machine"])
+    ),
+    disable_help_flag = true,
+)]
 pub struct ShowMachine {
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
     #[clap(short, long, action, help = "Show all machines")]
     pub all: bool,
 
-    #[clap(long, action, help = "Show only DPUs")]
+    #[clap(short, long, action, help = "Show only DPUs")]
     pub dpus: bool,
 
-    #[clap(long, action, help = "Show only hosts")]
+    #[clap(short, long, action, help = "Show only hosts")]
     pub hosts: bool,
 
-    #[clap(short, long)]
     pub machine: Option<String>,
 }
 
 #[derive(Parser, Debug)]
 #[clap(group(
         ArgGroup::new("show_managed_host")
-        .args(&["all", "machine"])))]
+        .required(true)
+        .args(&["all", "machine"])),
+        disable_help_flag = true,
+    )]
 pub struct ShowManagedHost {
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
+    #[clap(short, long, action, help = "Show all managed hosts")]
+    pub all: bool,
+
+    #[clap(help = "Show managed host specific details (using host or dpu machine id)")]
+    pub machine: Option<String>,
+
     #[clap(
         short,
         long,
         action,
-        required_unless_present = "host",
-        required_unless_present = "machine"
+        help = "Show IP details in summary",
+        conflicts_with = "machine"
     )]
-    pub all: bool,
-
-    // deprecated.  use --machine instead
-    #[clap(long, hide = true)]
-    pub host: Option<String>,
+    pub ips: bool,
 
     #[clap(
         short,
         long,
-        required_unless_present = "host",
-        required_unless_present = "all"
+        action,
+        help = "Show GPU and memory details in summary",
+        conflicts_with = "machine"
     )]
-    pub machine: Option<String>,
-
-    #[clap(short, long, action)]
-    pub ips: bool,
-
-    #[clap(long, action)]
     pub more: bool,
 
     #[clap(long, action, help = "Show only hosts in maintenance mode")]
@@ -643,16 +651,12 @@ pub enum Instance {
 #[clap(group(
         ArgGroup::new("show_instance")
         .required(true)
-        .args(&["all", "instance", "machine"])))]
+        .args(&["all", "id"])),)]
 pub struct ShowInstance {
     #[clap(short, long, action)]
     pub all: bool,
 
-    #[clap(short, long)]
-    pub instance: Option<String>,
-
-    #[clap(short, long)]
-    pub machine: Option<String>,
+    pub id: Option<String>,
 
     #[clap(short, long, action)]
     pub extrainfo: bool,
@@ -768,18 +772,22 @@ pub enum BmcMachine {
 #[clap(group(
     ArgGroup::new("show_bmc_machine")
     .required(true)
-    .args(&["all", "dpus", "hosts", "bmc_machine"])))]
+    .args(&["all", "dpus", "hosts", "bmc_machine"])),
+    disable_help_flag = true,
+)]
 pub struct ShowBmcMachine {
+    #[clap(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
+
     #[clap(short, long, action, help = "Show all BMC machines")]
     pub all: bool,
 
-    #[clap(long, action, help = "Show only DPUs BMC machines")]
+    #[clap(short, long, action, help = "Show only DPUs BMC machines")]
     pub dpus: bool,
 
-    #[clap(long, action, help = "Show only hosts BMC machines")]
+    #[clap(short, long, action, help = "Show only hosts BMC machines")]
     pub hosts: bool,
 
-    #[clap(short, long)]
     pub bmc_machine: Option<String>,
 }
 

@@ -260,32 +260,12 @@ async fn show_instance_details(
     api_config: Config,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
-    let instance = rpc::get_instances(api_config, Some(id)).await?;
-    if instance.instances.len() != 1 {
-        println!("Unknown UUID.");
-        return Err(CarbideCliError::GenericError("Unknow UUID".to_string()));
-    }
-
-    let instance = &instance.instances[0];
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(instance).unwrap());
+    let instance = if id.starts_with("fm100") {
+        rpc::get_instances_by_machine_id(api_config, id).await?
     } else {
-        println!(
-            "{}",
-            convert_instance_to_nice_format(instance, extrainfo).unwrap_or_else(|x| x.to_string())
-        );
-    }
-    Ok(())
-}
+        rpc::get_instances(api_config, Some(id)).await?
+    };
 
-async fn show_machine_details(
-    id: String,
-    json: bool,
-    api_config: Config,
-    extrainfo: bool,
-) -> CarbideCliResult<()> {
-    let instance = rpc::get_instances_by_machine_id(api_config, id).await?;
     if instance.instances.len() != 1 {
         println!("Unknown UUID.");
         return Err(CarbideCliError::GenericError("Unknow UUID".to_string()));
@@ -311,10 +291,8 @@ pub async fn handle_show(
 ) -> CarbideCliResult<()> {
     if args.all {
         show_all_instances(json, api_config).await?;
-    } else if let Some(instance_id) = args.instance {
-        show_instance_details(instance_id, json, api_config, args.extrainfo).await?;
-    } else if let Some(machine_id) = args.machine {
-        show_machine_details(machine_id, json, api_config, args.extrainfo).await?;
+    } else if let Some(id) = args.id {
+        show_instance_details(id, json, api_config, args.extrainfo).await?;
     }
 
     Ok(())
