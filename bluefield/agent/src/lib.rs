@@ -291,6 +291,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             // --ct-external-access 4096  # comma separated list
             // --ct-port-config '{"interface_name": "if1", "vlan": 123, "vni": 456, "gateway_cidr": "10.0.0.100/32"}' # repeated for multiple
             WriteTarget::Nvue(opts) => {
+                let mut port_configs = Vec::with_capacity(opts.ct_port_config.len());
+                for net_json in opts.ct_port_config {
+                    let c: nvue::PortConfig = serde_json::from_str(&net_json)?;
+                    port_configs.push(c);
+                }
                 let conf = nvue::NvueConfig {
                     loopback_ip: opts.loopback_ip.to_string(),
                     asn: opts.asn,
@@ -299,11 +304,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     dhcp_servers: opts.dhcp_servers,
                     route_servers: opts.route_servers,
                     l3_domains: vec![],
-
                     ct_name: opts.ct_name,
                     ct_l3_vni: opts.ct_l3vni,
                     ct_vrf_loopback: opts.ct_vrf_loopback,
-                    ct_networks: vec![],
+                    ct_port_configs: port_configs,
                     ct_external_access: opts.ct_external_access,
                 };
                 let contents = nvue::build(conf)?;
