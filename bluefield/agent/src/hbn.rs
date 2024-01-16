@@ -77,6 +77,25 @@ fn parse_container_id(json: &str) -> eyre::Result<String> {
     Ok(o.containers[0].id.clone())
 }
 
+// Run the given command inside HBN container in a shell. Ignore the output.
+pub async fn run_in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
+    let container_id = get_hbn_container_id().await?;
+    let check_result = true;
+
+    match run_in_container(&container_id, &["bash", "-c", cmd], check_result).await {
+        Ok(out) => {
+            tracing::debug!("{}", out);
+        }
+        Err(err) => {
+            return Err(eyre::eyre!("Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/frr/frr-reload or similar. \nCommand: {}",
+                err
+            ));
+        }
+    }
+    Ok(())
+}
+
+// Run the given command inside HBN container directly. Return stdout.
 pub async fn run_in_container(
     container_id: &str,
     command: &[&str],

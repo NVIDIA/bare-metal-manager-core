@@ -11,6 +11,7 @@
  */
 
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::CStr;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -77,11 +78,11 @@ fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
     }
 }
 
+// Update network config using nvue (`nv`). Return Ok(true) if the config change, Ok(false) if not.
 pub async fn update_nvue(
     hbn_root: &Path,
     nc: &rpc::ManagedHostNetworkConfigResponse,
 ) -> eyre::Result<bool> {
-    let path = hbn_root.join(nvue::PATH);
     let l_ip_str = match &nc.managed_host_config {
         None => {
             return Err(eyre::eyre!("Missing managed_host_config in response"));
@@ -94,75 +95,72 @@ pub async fn update_nvue(
         }
     };
     let loopback_ip = l_ip_str.parse().wrap_err_with(|| l_ip_str.clone())?;
+
+    let physical_name = DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf";
+    let networks = if nc.use_admin_network {
+        let admin_interface = nc
+            .admin_interface
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
+        vec![nvue::PortConfig {
+            interface_name: physical_name,
+            vlan: admin_interface.vlan_id as u16,
+            vni: admin_interface.vni,
+            gateway_cidr: admin_interface.gateway.clone(),
+        }]
+    } else {
+        let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
+        for net in &nc.tenant_interfaces {
+            let name = if net.function_type == rpc::InterfaceFunctionType::Physical as i32 {
+                physical_name.clone()
+            } else {
+                format!(
+                    "{}{}_sf",
+                    DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER,
+                    match net.virtual_function_id {
+                        Some(id) => id,
+                        None => {
+                            eyre::bail!("Missing virtual function id");
+                        }
+                    }
+                )
+            };
+            ifs.push(nvue::PortConfig {
+                interface_name: name,
+                vlan: net.vlan_id as u16,
+                vni: net.vni,
+                gateway_cidr: net.gateway.clone(),
+            });
+        }
+        ifs
+    };
+
     let conf = nvue::NvueConfig {
         loopback_ip,
         asn: nc.asn,
-        dpu_hostname: "TODO".to_string(),
+        dpu_hostname: hostname().wrap_err("gethostname error")?,
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
-        dhcp_servers: vec![],
+        dhcp_servers: nc.dhcp_servers.clone(),
         route_servers: nc.route_servers.clone(),
-        l3_domains: vec![],
+        ct_port_configs: networks,
+        ct_name: UPLINKS[0].to_string(),
 
-        ct_name: "TODO".to_string(),
-        ct_l3_vni: "TODO".to_string(),
-        ct_vrf_loopback: "TODO".to_string(),
-        ct_port_configs: vec![],
+        // FNN only, not used yet
+        ct_l3_vni: "FNN".to_string(),
+        ct_vrf_loopback: "FNN".to_string(),
         ct_external_access: vec![],
+        l3_domains: vec![],
     };
     let next_contents = nvue::build(conf)?;
+
+    let path = hbn_root.join(nvue::PATH);
     let Some(post) = write(next_contents, &path, "NVUE config", "").wrap_err("NVUE config at {path}")? else {
         // config didn't change
         return Ok(false);
     };
 
-    match nvue_post(&path).await {
-        Ok(_) => {
-            if post.path_bak.exists() {
-                if let Err(err) = fs::remove_file(&post.path_bak) {
-                    eyre::bail!(
-                        "remove .BAK on success {}: {err:#}",
-                        post.path_bak.display()
-                    );
-                }
-            }
-            Ok(true)
-        }
-        Err(err) => {
-            tracing::error!("update_nvue post command failed: {err}");
-
-            // If apply failed we won't be using the new config. Move it out of the way..
-            if let Err(err) = fs::rename(&post.path, &post.path_tmp) {
-                eyre::bail!(
-                    "rename {} to {} on error: {err:#}",
-                    post.path.display(),
-                    post.path_tmp.display()
-                );
-            }
-            // .. and copy the old one back.
-            // This also ensures that we retry writing the config on subsequent runs.
-            if post.path_bak.exists() {
-                if let Err(err) = fs::rename(&post.path_bak, &post.path) {
-                    eyre::bail!(
-                        "rename {} to {}, reverting on error: {err:#}",
-                        post.path_bak.display(),
-                        post.path.display()
-                    );
-                }
-            }
-
-            Err(err)
-        }
-    }
-}
-
-async fn nvue_post(path: &Path) -> eyre::Result<()> {
-    // Set this config as the pending one. This is where we'd get yaml parse errors and
-    // other validation errors.
-    in_container_shell(&format!("nv config replace {}", path.display())).await?;
-    // Apply the pending config
-    in_container_shell("nv config apply -y").await?;
-    // Persist the config to disk
-    in_container_shell("nv config save").await
+    nvue::apply(&path, &post.path_bak, &post.path_tmp).await?;
+    Ok(true)
 }
 
 /// Write out all the network config files.
@@ -216,7 +214,7 @@ pub async fn update_files(
     let has_changes = !post_actions.is_empty();
     if !skip_post {
         for post in post_actions {
-            match in_container_shell(post.cmd).await {
+            match hbn::run_in_container_shell(post.cmd).await {
                 Ok(_) => {
                     if post.path_bak.exists() {
                         if let Err(err) = fs::remove_file(&post.path_bak) {
@@ -377,7 +375,7 @@ pub async fn reset(
 
     if !skip_post {
         for post in post_actions {
-            if let Err(err) = in_container_shell(post.cmd).await {
+            if let Err(err) = hbn::run_in_container_shell(post.cmd).await {
                 errs.push(format!("reload '{}': {err}", post.cmd))
             }
         }
@@ -738,24 +736,6 @@ async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
     Ok(&remote_side[0].mac)
 }
 
-// Run the given command inside HBN container in a shell. Ignore the output.
-async fn in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
-    let container_id = hbn::get_hbn_container_id().await?;
-    let check_result = true;
-
-    match hbn::run_in_container(&container_id, &["bash", "-c", cmd], check_result).await {
-        Ok(out) => {
-            debug!("{}", out);
-        }
-        Err(err) => {
-            return Err(eyre::eyre!("Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/frr/free-reload. \nCommand: {}",
-                err
-            ));
-        }
-    }
-    Ok(())
-}
-
 // std::fs::read_to_string but limited to 4k bytes for safety
 fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
     let f = File::open(path)?;
@@ -774,17 +754,45 @@ fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
     Ok(s)
 }
 
+// Ask the OS for it's hostname.
+//
+// On a DPU this is correctly set to the DB hostname of the first interface, the hyphenated
+// two-word randomly generated name.
+fn hostname() -> eyre::Result<String> {
+    let mut buf = vec![0u8; 64 + 1]; // Linux HOST_NAME_MAX is 64
+    let res = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
+    if res != 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    let cstr = CStr::from_bytes_until_nul(&buf)?;
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::io::Write;
     use std::path::Path;
 
     use ::rpc::forge as rpc;
     use eyre::WrapErr;
 
+    use crate::nvue;
+
     #[ctor::ctor]
     fn setup() {
         forge_host_support::init_logging().unwrap();
+    }
+
+    #[test]
+    fn test_hostname() -> Result<(), Box<dyn std::error::Error>> {
+        let syscall_h = super::hostname()?;
+        let env_h = std::env::var("HOSTNAME")?;
+        assert_eq!(
+            syscall_h, env_h,
+            "libc::gethostname output should match shell's $HOSTNAME"
+        );
+        Ok(())
     }
 
     // Pretend we received a new config from API server. Apply it and check the resulting files.
@@ -962,6 +970,43 @@ mod tests {
         let out: Vec<super::IpShow> = serde_json::from_str(json)?;
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].address, "4e:1f:bd:97:23:3e");
+        Ok(())
+    }
+
+    #[test]
+    fn test_nvue_is_yaml() -> Result<(), Box<dyn std::error::Error>> {
+        let networks = vec![nvue::PortConfig {
+            interface_name: super::DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf",
+            vlan: 123u16,
+            vni: 5555,
+            gateway_cidr: "10.217.4.65/26".to_string(),
+        }];
+        let conf = nvue::NvueConfig {
+            loopback_ip: "10.217.5.39".to_string(),
+            asn: 65535,
+            dpu_hostname: super::hostname().wrap_err("gethostname error")?,
+            uplinks: super::UPLINKS.into_iter().map(String::from).collect(),
+            dhcp_servers: vec!["10.217.5.197".to_string()],
+            route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
+            ct_port_configs: networks,
+            ct_name: super::UPLINKS[0].to_string(),
+
+            // FNN only, not used yet
+            ct_l3_vni: "FNN".to_string(),
+            ct_vrf_loopback: "FNN".to_string(),
+            ct_external_access: vec![],
+            l3_domains: vec![],
+        };
+        let startup_yaml = nvue::build(conf)?;
+        const ERR_FILE: &str = "/tmp/test_nvue_startup.yaml";
+        let yaml_obj: Vec<serde_yaml::Value> = serde_yaml::from_str(&startup_yaml)
+            .map_err(|err| {
+                let mut f = fs::File::create(ERR_FILE).unwrap();
+                f.write_all(startup_yaml.as_bytes()).unwrap();
+                err
+            })
+            .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
+        assert_eq!(yaml_obj.len(), 2); // 'header' and 'set'
         Ok(())
     }
 
