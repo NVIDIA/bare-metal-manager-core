@@ -89,4 +89,8 @@ impl StateControllerIO for BmcMachineStateControllerIO {
             BmcMachineState::BmcReboot => ("bmc-reboot", ""),
         }
     }
+
+    fn state_sla(_state: &Self::ControllerState) -> std::time::Duration {
+        std::time::Duration::MAX
+    }
 }

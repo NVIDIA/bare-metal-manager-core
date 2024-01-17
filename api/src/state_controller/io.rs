@@ -84,4 +84,13 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     /// attribute on each metric. The 2nd value - if not empty - will be used for
     /// an optional substate attribute.
     fn metric_state_names(state: &Self::ControllerState) -> (&'static str, &'static str);
+
+    /// Defines the maximum time an object is expected to stay in a state.
+    ///
+    /// If an object stays in a state for longer than expected, a metric will
+    /// be emitted.
+    ///
+    /// `std::time::Duration::MAX` can be used to indicate that an object can stay
+    /// for an indefinite time in a state.
+    fn state_sla(state: &Self::ControllerState) -> std::time::Duration;
 }

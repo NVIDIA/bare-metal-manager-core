@@ -16,7 +16,7 @@ use crate::{
     db::{network_segment::NetworkSegment, UuidKeyedObjectFilter},
     model::{
         config_version::{ConfigVersion, Versioned},
-        network_segment::NetworkSegmentControllerState,
+        network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     },
     state_controller::{
         io::StateControllerIO, metrics::NoopMetricsEmitter,
@@ -110,6 +110,23 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
             NetworkSegmentControllerState::Deleting { deletion_state } => {
                 ("deleting", deletion_state_name(deletion_state))
             }
+        }
+    }
+
+    fn state_sla(state: &Self::ControllerState) -> std::time::Duration {
+        match state {
+            NetworkSegmentControllerState::Provisioning => std::time::Duration::from_secs(15 * 60),
+            NetworkSegmentControllerState::Ready => std::time::Duration::MAX,
+            NetworkSegmentControllerState::Deleting {
+                deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps { .. },
+            } => {
+                // Draining can take an indefinite time if the subnet is referenced
+                // by an instance
+                std::time::Duration::MAX
+            }
+            NetworkSegmentControllerState::Deleting {
+                deletion_state: NetworkSegmentDeletionState::DBDelete { .. },
+            } => std::time::Duration::from_secs(15 * 60),
         }
     }
 }

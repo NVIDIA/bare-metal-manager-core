@@ -123,6 +123,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                 num_objects = tracing::field::Empty,
                 num_errors = tracing::field::Empty,
                 states = tracing::field::Empty,
+                states_above_sla = tracing::field::Empty,
                 error_types = tracing::field::Empty,
                 times_in_state_s = tracing::field::Empty,
                 handler_latencies_us = tracing::field::Empty,
