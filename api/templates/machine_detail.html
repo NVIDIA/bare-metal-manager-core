@@ -17,6 +17,7 @@
 		<th>Network config (sent to forge-dpu-agent)</th>
 		<td style="height: 10em"><div style="height: 100%; overflow: auto; margin: 0; padding: 0;">{{ network_config|safe }}</div></td>
 	</tr>
+	{% endif %}
 	<tr><th>Sys Vendor</th><td>{{ sys_vendor }}</td></tr>
 	<tr><th>Product Name</th><td>{{ product_name }}</td></tr>
 	<tr><th>Product Serial</th><td>{{ product_serial }}</td></tr>
@@ -24,7 +25,6 @@
 	<tr><th>Board Serial</th><td>{{ board_serial }}</td></tr>
 	<tr><th>Bios Version</th><td>{{ bios_version }}</td></tr>
 	<tr><th>Board Version</th><td>{{ board_version }}</td></tr>
-	{% endif %}
 </table>
 
 <h3>Interfaces</h3>
