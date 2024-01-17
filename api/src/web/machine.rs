@@ -37,12 +37,15 @@ struct MachineRowDisplay {
     hostname: String,
     id: String,
     state: String,
-    state_version: String,
-    attached_dpu_id: String,
-    primary_interface_id: String,
+    associated_dpu_id: String,
+    associated_host_id: String,
+    sys_vendor: String,
+    product_serial: String,
     ip_address: String,
     mac_address: String,
     is_host: bool,
+    num_gpus: usize,
+    num_ib_ifs: usize,
 }
 
 impl From<forgerpc::Machine> for MachineRowDisplay {
@@ -52,38 +55,45 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             .into_iter()
             .filter(|x| x.primary_interface)
             .collect::<Vec<forgerpc::MachineInterface>>();
-        let (hostname, primary_interface_id, ip_address, mac_address, attached_dpu_id) =
-            if machine_interfaces.is_empty() {
-                (
-                    "None".to_string(),
-                    "None".to_string(),
-                    "None".to_string(),
-                    "None".to_string(),
-                    "None".to_string(),
-                )
-            } else {
-                let mi = machine_interfaces.remove(0);
-                (
-                    mi.hostname,
-                    mi.id.unwrap_or_default().to_string(),
-                    mi.address.join(","),
-                    mi.mac_address,
-                    mi.attached_dpu_machine_id
-                        .map(|x| x.to_string())
-                        .unwrap_or_else(|| "NA".to_string()),
-                )
-            };
+        let (hostname, ip_address, mac_address) = if machine_interfaces.is_empty() {
+            ("None".to_string(), "None".to_string(), "None".to_string())
+        } else {
+            let mi = machine_interfaces.remove(0);
+            (mi.hostname, mi.address.join(","), mi.mac_address)
+        };
+
+        let mut sys_vendor = String::new();
+        let mut product_serial = String::new();
+        let mut num_gpus = 0;
+        let mut num_ib_ifs = 0;
+        if let Some(di) = m.discovery_info.as_ref() {
+            if let Some(dmi) = di.dmi_data.as_ref() {
+                sys_vendor = dmi.sys_vendor.clone();
+                product_serial = dmi.product_serial.clone();
+            }
+            num_gpus = di.gpus.len();
+            num_ib_ifs = di.infiniband_interfaces.len();
+        }
 
         MachineRowDisplay {
             hostname,
             id: m.id.unwrap_or_default().id,
             state: m.state,
-            state_version: m.state_version,
-            attached_dpu_id,
-            primary_interface_id,
             ip_address,
             mac_address,
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
+            associated_dpu_id: m
+                .associated_dpu_machine_id
+                .map(|id| id.id)
+                .unwrap_or_default(),
+            associated_host_id: m
+                .associated_host_machine_id
+                .map(|id| id.id)
+                .unwrap_or_default(),
+            sys_vendor,
+            product_serial,
+            num_gpus,
+            num_ib_ifs,
         }
     }
 }
