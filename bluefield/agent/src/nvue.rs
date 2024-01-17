@@ -37,7 +37,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         port_configs.push(TmplConfigPort {
             Name: network.interface_name.clone(),
             VlanID: network.vlan,
-            L2VNI: network.vni,
+            L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
             IP: network.gateway_cidr.clone(),
             SviIP: "".to_string(),  // FNN only
             VrrMAC: "".to_string(), // FNN only
@@ -142,7 +142,7 @@ pub struct L3Domain {
 pub struct PortConfig {
     pub interface_name: String,
     pub vlan: u16,
-    pub vni: u32,
+    pub vni: Option<u32>, // admin network doens't haven one
     pub gateway_cidr: String,
 }
 
@@ -194,7 +194,8 @@ struct TmplConfigPort {
     VlanID: u16,
 
     /// Format: 24bit integer (usable range: 4096 to 16777215).
-    L2VNI: u32, // Previously called VNIDevice
+    /// Empty string if no tenant
+    L2VNI: String, // Previously called VNIDevice
     IP: String, // with mask, 1.1.1.1/20
 
     /// In a symmetrical EVPN configuration, an SVI (vlan interfaces) requires a separate IP that
