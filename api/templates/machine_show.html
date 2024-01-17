@@ -12,11 +12,13 @@
 		<th>Hostname</th>
 		<th>ID</th>
 		<th>State</th>
-		<th>State Version</th>
-		<th>Attached DPU</th>
-		<th>Primary Interface</th>
+		<th>Associated DPU/Host</th>
 		<th>IP Address</th>
 		<th>MAC Address</th>
+		<th>Sys Vendor</th>
+		<th>Product Serial</th>
+		<th>GPU #</th>
+		<th>IB IFs #</th>
 	</tr>
 	</thead>
 	<tbody>
@@ -27,18 +29,26 @@
 				<div class="machine_id"><div>{{ m.id }}</div><div>{{ m.id|machine_id_last() }}</div></div>
 			</td>
 			<td>{{ m.state }}</td>
-			<td>{{ m.state_version }}</td>
 			<td>{% if m.is_host %}
-				<a href="/admin/machine/{{ m.attached_dpu_id }}">
+				<a href="/admin/machine/{{ m.associated_dpu_id }}">
 					<div class="machine_id">
-						<div>{{ m.attached_dpu_id }}</div><div>{{ m.attached_dpu_id|machine_id_last() }}</div>
+						<div>{{ m.associated_dpu_id }}</div><div>{{ m.associated_dpu_id|machine_id_last() }}</div>
+					</div>
+				</a>
+				{% else %}
+				<a href="/admin/machine/{{ m.associated_host_id }}">
+					<div class="machine_id">
+						<div>{{ m.associated_host_id }}</div><div>{{ m.associated_host_id|machine_id_last() }}</div>
 					</div>
 				</a>
 				{% endif %}
 			</td>
-			<td>{{ m.primary_interface_id }}</td>
 			<td>{{ m.ip_address }}</td>
 			<td>{{ m.mac_address }}</td>
+			<td>{{ m.sys_vendor}}</td>
+			<td>{{ m.product_serial }}</td>
+			<td>{{ m.num_gpus }}</td>
+			<td>{{ m.num_ib_ifs }}</td>
 		</tr>
 	{% endfor %}
 	</tbody>
