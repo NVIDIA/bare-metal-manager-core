@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::{IpAddr, Ipv4Addr};
 use std::process::Command;
 use std::time::Instant;
 
@@ -22,6 +23,7 @@ use forge_host_support::{
     registration::register_machine,
 };
 pub use upgrade::upgrade_check;
+use util::UrlResolver;
 
 use crate::frr::FrrVlanConfig;
 
@@ -160,10 +162,49 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 client_certificate_expiry_unix_epoch_secs: None,
             };
             let mut has_changed_configs = false;
+
+            let (pxe_ip, ntp_ip, nameservers) = if !agent.machine.is_fake_dpu {
+                let mut url_resolver = UrlResolver::try_new()?;
+
+                let pxe_ip = *url_resolver
+                    .resolve("carbide-pxe.forge")
+                    .await?
+                    .get(0)
+                    .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
+
+                // This log should be removed after some time.
+                tracing::info!("Pxe server resolved as: {:?}", pxe_ip);
+
+                let ntp_ip = match url_resolver.resolve("carbide-ntp.forge").await {
+                    Ok(x) => {
+                        let ntp_server_ip = x.get(0);
+                        // This log should be removed after some time.
+                        tracing::info!("Ntp server resolved as: {:?}", ntp_server_ip);
+                        ntp_server_ip.cloned()
+                    }
+                    Err(e) => {
+                        tracing::error!("NTP server couldn't be resolved. Dhcp-server won't send NTP server IP in dhcpoffer/ack. Error: {}", e);
+                        None
+                    }
+                };
+
+                let nameservers = url_resolver.nameservers();
+                (pxe_ip, ntp_ip, nameservers)
+            } else {
+                (
+                    Ipv4Addr::from([127, 0, 0, 1]),
+                    None,
+                    vec![IpAddr::from([127, 0, 0, 1])],
+                )
+            };
+
             match ethernet_virtualization::update_files(
                 &agent.hbn.root_dir,
                 &conf,
                 agent.hbn.skip_reload,
+                pxe_ip,
+                ntp_ip,
+                nameservers,
             )
             .await
             {
@@ -264,7 +305,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             }
 
             WriteTarget::Dhcp(opts) => {
-                let contents = dhcp::build(dhcp::DhcpConfig {
+                let contents = dhcp::build_relay_config(dhcp::DhcpRelayConfig {
                     uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     vlan_ids: opts.vlan,
                     dhcp_servers: opts.dhcp,

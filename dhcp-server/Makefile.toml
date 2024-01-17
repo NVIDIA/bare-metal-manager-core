@@ -1,0 +1,28 @@
+[tasks.check-cross-installed]
+workspace = false
+script = '''
+#/usr/bin/env bash
+
+which cross >/dev/null && exit 0
+
+echo "!!!! ERROR: 'cross' binary not found. install with 'cargo install cross'. !!!!!"
+exit 1
+'''
+
+[tasks.build-dhcp-server]
+category = "Build"
+description = "Build dhcp-server for aarch architecture."
+workspace = false
+script = '''
+cross build --target aarch64-unknown-linux-gnu
+'''
+dependencies = [
+  { name = "check-cross-installed", path = "${REPO_ROOT}" },
+  { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+]
+
+[tasks.build-dhcp-server-ci]
+category = "Build"
+workspace = false
+command = "cargo"
+args = ["build", "--bin", "forge-dhcp-server"]

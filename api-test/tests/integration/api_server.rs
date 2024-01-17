@@ -143,6 +143,7 @@ pub async fn start(
         max_concurrent_machine_updates: Some(1),
         machine_update_run_interval: None,
         site_explorer: None,
+        dpu_dhcp_server_enabled: false,
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

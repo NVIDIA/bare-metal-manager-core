@@ -369,6 +369,7 @@ fn get_config() -> CarbideConfig {
         max_concurrent_machine_updates: None,
         machine_update_run_interval: None,
         site_explorer: None,
+        dpu_dhcp_server_enabled: false,
     }
 }
 

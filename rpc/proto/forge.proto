@@ -1270,6 +1270,12 @@ message ManagedHostNetworkConfigResponse {
 
   // IPv4 prefixes to be denied in the DPU ACL rules.
   repeated string deny_prefixes = 16;
+
+  // Enable forge DHCP on HBN
+  bool enable_dhcp = 100;
+
+  // Host primary interface id 
+  optional string host_interface_id = 102;
 }
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge
@@ -1297,6 +1303,12 @@ message FlatInterfaceConfig {
     // the prefix from the network segment this interface is attached to (which
     // could be independently derived from the `gateway` field).
     repeated string vpc_prefixes = 7;
+    // Prefix for ip 
+    string prefix = 8;
+    // FQDN 
+    string fqdn = 9;
+    // boot_url
+    optional string booturl = 10;
 }
 
 message ManagedHostNetworkStatusRequest {}

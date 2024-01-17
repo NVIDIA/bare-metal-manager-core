@@ -21,15 +21,20 @@ use tracing::warn;
 use crate::hbn;
 
 const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
-const EXPECTED_FILES: [&str; 4] = [
+const DHCP_RELAY_FILE: &str = "etc/supervisor/conf.d/default-isc-dhcp-relay.conf";
+const DHCP_SERVER_FILE: &str = "etc/supervisor/conf.d/default-forge-dhcp-server.conf";
+
+const EXPECTED_FILES: [&str; 5] = [
     "etc/frr/frr.conf",
     "etc/network/interfaces",
-    "etc/supervisor/conf.d/default-isc-dhcp-relay.conf",
+    DHCP_RELAY_FILE,
+    DHCP_SERVER_FILE,
     HBN_DAEMONS_FILE,
 ];
 
 const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
 const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
+const DHCP_SERVER_SERVICE: &str = "forge-dhcp-server-default";
 const FORGE_ADMIN_USER: &str = "forge_admin";
 
 /// Check the health of HBN
@@ -53,7 +58,7 @@ pub async fn health_check(
 
     // At this point HBN is up so we can configure it
 
-    check_dhcp_relay(&mut hr, &container_id).await;
+    check_dhcp_relay_and_server(&mut hr, &container_id).await;
     check_ifreload(&mut hr, &container_id).await;
     let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
     check_bgp_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
@@ -111,7 +116,8 @@ async fn check_hbn_services_running(
 // dhcp relay should be running
 // Very similar to check_hbn_services_running, except it happens _after_ we start configuring.
 // The other services must be up before we start configuring.
-async fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
+// Out of relay and dhcp server, only and only one should be up.
+async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) {
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
@@ -133,11 +139,46 @@ async fn check_dhcp_relay(hr: &mut HealthReport, container_id: &str) {
         }
     };
 
-    match st.status_of(DHCP_RELAY_SERVICE) {
-        SctlState::Running => hr.passed(HealthCheck::DhcpRelay),
-        status => {
-            warn!("check_dhcp_relay: {status}");
-            hr.failed(HealthCheck::DhcpRelay, status.to_string());
+    let relay_status = match st.status_of(DHCP_RELAY_SERVICE) {
+        SctlState::Running => {
+            hr.passed(HealthCheck::DhcpRelay);
+            None
+        }
+        status => Some(status),
+    };
+
+    let dhcp_server_status = match st.status_of(DHCP_SERVER_SERVICE) {
+        SctlState::Running => {
+            hr.passed(HealthCheck::DhcpServer);
+            None
+        }
+        status => Some(status),
+    };
+
+    match (relay_status, dhcp_server_status) {
+        (None, None) => {
+            warn!("check_dhcp_relay_and_server: Both can not be running together.");
+            hr.failed(
+                HealthCheck::DhcpRelay,
+                "Dhcp relay and server are running together".to_string(),
+            );
+            hr.failed(
+                HealthCheck::DhcpServer,
+                "Dhcp relay and server are running together".to_string(),
+            );
+        }
+        (Some(a), Some(b)) => {
+            warn!("check_dhcp_relay: {a}");
+            hr.failed(HealthCheck::DhcpRelay, a.to_string());
+
+            warn!("check_dhcp_server: {b}");
+            hr.failed(HealthCheck::DhcpRelay, b.to_string());
+        }
+        (Some(_), None) => {
+            // Relay is running, not dhcp-server. DPU is configured in relay mode. All good.
+        }
+        (None, Some(_)) => {
+            // Dhcp-server is running, not relay. DPU is configured in dhcp-server mode. All good.
         }
     }
 }
@@ -189,6 +230,9 @@ async fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
 
 // The files VPC creates should exist
 fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) {
+    const MIN_SIZE: u64 = 100;
+    let mut dhcp_relay_size = 0;
+    let mut dhcp_server_size = 0;
     for filename in expected_files {
         let path = hbn_root.join(filename);
         if path.exists() {
@@ -211,7 +255,11 @@ fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) 
                 continue;
             }
         };
-        if stat.len() < 100 {
+        if filename == &DHCP_SERVER_FILE {
+            dhcp_server_size = stat.len();
+        } else if filename == &DHCP_RELAY_FILE {
+            dhcp_relay_size = stat.len();
+        } else if stat.len() < MIN_SIZE {
             warn!("check_files {filename}: Too small");
             hr.failed(
                 HealthCheck::FileIsValid(filename.to_string()),
@@ -219,6 +267,21 @@ fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) 
             );
         }
         hr.passed(HealthCheck::FileIsValid(filename.to_string()));
+    }
+
+    if dhcp_relay_size < MIN_SIZE && dhcp_server_size < MIN_SIZE {
+        warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Too small");
+        hr.failed(
+            HealthCheck::FileIsValid(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
+            "Too small".to_string(),
+        );
+    }
+    if dhcp_relay_size > MIN_SIZE && dhcp_server_size > MIN_SIZE {
+        warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Both are valid. Only one can be valid.");
+        hr.failed(
+            HealthCheck::FileIsValid(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
+            "Both can not be valid together.".to_string(),
+        );
     }
 }
 
@@ -544,6 +607,7 @@ pub enum HealthCheck {
     SupervisorctlStatus,
     ServiceRunning(String),
     DhcpRelay,
+    DhcpServer,
     BgpStats,
     Ifreload,
     FileExists(String),
@@ -585,6 +649,7 @@ impl fmt::Display for HealthCheck {
             Self::SupervisorctlStatus => write!(f, "SupervisorctlStatus"),
             Self::ServiceRunning(service_name) => write!(f, "ServiceRunning({service_name})"),
             Self::DhcpRelay => write!(f, "DhcpRelay"),
+            Self::DhcpServer => write!(f, "DhcpServer"),
             Self::BgpStats => write!(f, "BgpStats"),
             Self::Ifreload => write!(f, "Ifreload"),
             Self::FileExists(file_name) => write!(f, "FileExists({file_name})"),

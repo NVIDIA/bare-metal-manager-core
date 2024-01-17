@@ -57,9 +57,9 @@ impl AgentConfig {
 pub struct ForgeSystemConfig {
     pub api_server: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pxe_server: Option<String>,
+    pub pxe_server: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    ntp_server: Option<String>,
+    pub ntp_server: Option<String>,
     #[serde(default = "default_root_ca")]
     pub root_ca: String,
     #[serde(default = "default_client_cert")]

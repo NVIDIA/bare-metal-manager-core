@@ -184,6 +184,9 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         ip: "127.0.0.1".to_string(),
         virtual_function_id: None,
         vpc_prefixes: vec![],
+        prefix: "127.0.0.1/32".to_string(),
+        fqdn: "host1".to_string(),
+        booturl: None,
     };
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
@@ -206,6 +209,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         route_servers: vec![],
         remote_id: "".to_string(),
         deny_prefixes: vec![],
+        enable_dhcp: false,
+        host_interface_id: None,
     };
     common::respond(netconf)
 }

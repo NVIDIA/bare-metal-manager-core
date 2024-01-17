@@ -1,0 +1,40 @@
+---
+config:
+  vlan101:
+    gateway: 10.90.101.1
+    prefix: 10.90.101.0/24
+
+    ip:
+      - giaddr: 10.100.73.1
+        address: 10.90.101.16
+        fqdn: host1.test.com
+
+      - giaddr: 10.100.85.1
+        address: 10.90.101.20
+        fqdn: host2.test.com
+
+  vlan102:
+    gateway: 10.90.102.1
+    prefix: 10.90.102.0/24
+
+    ip:
+      - giaddr: 10.100.73.2
+        address: 10.90.102.16
+        fqdn: host3.test.com
+
+      - giaddr: 10.100.85.2
+        address: 10.90.102.20
+        fqdn: host4.test.com
+
+  vlan201:
+    gateway: 10.90.201.1
+    prefix: 10.90.201.0/24
+
+    ip:
+      - giaddr: 10.100.73.3
+        address: 10.90.201.16
+        fqdn: host5.test.com
+
+      - giaddr: 10.100.85.3
+        address: 10.90.201.20
+        fqdn: host6.test.com

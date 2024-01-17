@@ -17,6 +17,7 @@ use tonic::Status;
 
 use crate::{
     db::{
+        domain::Domain,
         machine_interface::MachineInterface,
         machine_interface_address::MachineInterfaceAddress,
         network_prefix::NetworkPrefix,
@@ -57,6 +58,20 @@ pub async fn admin_network(
         }
     };
 
+    let domain = match admin_segment.subdomain_id {
+        Some(domain_id) => {
+            Domain::find_by_uuid(txn, domain_id)
+                .await
+                .map_err(CarbideError::from)?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "Domain",
+                    id: domain_id.to_string(),
+                })?
+                .name
+        }
+        None => "unknowndomain".to_string(),
+    };
+
     let interface =
         MachineInterface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
             .await
@@ -74,6 +89,9 @@ pub async fn admin_network(
         gateway: prefix.gateway_cidr().unwrap_or_default(),
         ip: address.address.to_string(),
         vpc_prefixes: vec![],
+        prefix: prefix.prefix.to_string(),
+        fqdn: format!("{}.{}", interface.hostname(), domain),
+        booturl: None,
     };
     Ok(cfg)
 }
@@ -140,5 +158,10 @@ pub async fn tenant_network(
         gateway: v4_prefix.gateway_cidr().unwrap_or_default(),
         ip: address.to_string(),
         vpc_prefixes,
+        prefix: v4_prefix.prefix.to_string(),
+        // FIXME: Right now we are sending instance id as hostname. This should be replaced by
+        // user's provided fqdn later.
+        fqdn: instance_id.to_string(),
+        booturl: None,
     })
 }
