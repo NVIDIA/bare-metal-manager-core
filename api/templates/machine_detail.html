@@ -17,6 +17,13 @@
 		<th>Network config (sent to forge-dpu-agent)</th>
 		<td style="height: 10em"><div style="height: 100%; overflow: auto; margin: 0; padding: 0;">{{ network_config|safe }}</div></td>
 	</tr>
+	<tr><th>Sys Vendor</th><td>{{ sys_vendor }}</td></tr>
+	<tr><th>Product Name</th><td>{{ product_name }}</td></tr>
+	<tr><th>Product Serial</th><td>{{ product_serial }}</td></tr>
+	<tr><th>Chassis Serial</th><td>{{ chassis_serial }}</td></tr>
+	<tr><th>Board Serial</th><td>{{ board_serial }}</td></tr>
+	<tr><th>Bios Version</th><td>{{ bios_version }}</td></tr>
+	<tr><th>Board Version</th><td>{{ board_version }}</td></tr>
 	{% endif %}
 </table>
 
@@ -36,6 +43,30 @@
 	<tr><th>Addresses</th><td>{{ interface.addresses }}</td></tr>
 </table>
 {% endfor %}
+
+{% if is_host %}
+<h3>InfiniBand Interfaces</h3>
+<table>
+	<thead>
+		<tr>
+			<th>Device</th>
+			<th>Vendor</th>
+			<th>GUID</th>
+			<th>Slot</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for interface in ib_interfaces %}
+		<tr>
+			<td>{{ interface.device }}</td>
+			<td>{{ interface.vendor }}</td>
+			<td>{{ interface.guid }}</td>
+			<td>{{ interface.slot }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+{% endif %}
 
 <h3>History</h3>
 <table>

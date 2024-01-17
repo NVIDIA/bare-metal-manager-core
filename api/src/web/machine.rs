@@ -233,7 +233,15 @@ struct MachineDetail {
     is_host: bool,
     network_config: String,
     history: Vec<MachineHistoryDisplay>,
+    bios_version: String,
+    board_version: String,
+    product_name: String,
+    product_serial: String,
+    board_serial: String,
+    chassis_serial: String,
+    sys_vendor: String,
     interfaces: Vec<MachineInterfaceDisplay>,
+    ib_interfaces: Vec<MachineIbInterfaceDisplay>,
 }
 
 struct MachineHistoryDisplay {
@@ -252,6 +260,14 @@ struct MachineInterfaceDisplay {
     primary: String,
     mac_address: String,
     addresses: String,
+}
+
+#[derive(Debug, Default)]
+struct MachineIbInterfaceDisplay {
+    guid: String,
+    device: String,
+    vendor: String,
+    slot: String,
 }
 
 impl From<forgerpc::Machine> for MachineDetail {
@@ -296,6 +312,39 @@ impl From<forgerpc::Machine> for MachineDetail {
             });
         }
 
+        let mut bios_version = String::new();
+        let mut board_version = String::new();
+        let mut product_name = String::new();
+        let mut product_serial = String::new();
+        let mut board_serial = String::new();
+        let mut chassis_serial = String::new();
+        let mut sys_vendor = String::new();
+        let mut ib_interfaces = Vec::new();
+        if let Some(di) = m.discovery_info.as_ref() {
+            if let Some(dmi) = di.dmi_data.as_ref() {
+                product_name = dmi.product_name.clone();
+                product_serial = dmi.product_serial.clone();
+                board_serial = dmi.board_serial.clone();
+                chassis_serial = dmi.chassis_serial.clone();
+                sys_vendor = dmi.sys_vendor.clone();
+                bios_version = dmi.bios_version.clone();
+                board_version = dmi.board_version.clone();
+            }
+
+            for iface in di.infiniband_interfaces.iter() {
+                let mut iface_display = MachineIbInterfaceDisplay {
+                    guid: iface.guid.clone(),
+                    ..Default::default()
+                };
+                if let Some(props) = iface.pci_properties.as_ref() {
+                    iface_display.device = props.device.clone();
+                    iface_display.vendor = props.vendor.clone();
+                    iface_display.slot = props.slot.clone().unwrap_or_default();
+                }
+                ib_interfaces.push(iface_display);
+            }
+        }
+
         let machine_id = m.id.unwrap_or_default().id;
         MachineDetail {
             id: machine_id.clone(),
@@ -306,7 +355,15 @@ impl From<forgerpc::Machine> for MachineDetail {
             network_config: String::new(), // filled in later
             hostname,
             history,
+            bios_version,
+            board_version,
+            product_serial,
+            chassis_serial,
+            board_serial,
+            sys_vendor,
+            product_name,
             interfaces,
+            ib_interfaces,
             host_id: m
                 .associated_host_machine_id
                 .map_or_else(String::default, |id| id.to_string()),
