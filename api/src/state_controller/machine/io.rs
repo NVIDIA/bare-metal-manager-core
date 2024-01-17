@@ -16,7 +16,10 @@ use crate::{
     db::host_machine::HostMachine,
     model::{
         config_version::{ConfigVersion, Versioned},
-        machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
+        machine::{
+            machine_id::MachineId, InstanceState, MachineState, ManagedHostState,
+            ManagedHostStateSnapshot,
+        },
     },
     state_controller::{
         io::StateControllerIO,
@@ -139,6 +142,36 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::ForceDeletion => ("forcedeletion", ""),
             ManagedHostState::Failed { .. } => ("failed", ""),
             ManagedHostState::DPUReprovision { .. } => ("reprovisioning", ""),
+        }
+    }
+
+    fn state_sla(state: &Self::ControllerState) -> std::time::Duration {
+        // TODO: For all states that include retries, we need to look at the accumulated time
+        // in the state instead of just the time for that retry
+        match state {
+            ManagedHostState::DPUNotReady { machine_state } => {
+                // Init has no SLA since starting discovery requires a manual action
+                match machine_state {
+                    MachineState::Init => std::time::Duration::MAX,
+                    MachineState::WaitingForDiscovery => std::time::Duration::MAX,
+                    _ => std::time::Duration::from_secs(30 * 60),
+                }
+            }
+            ManagedHostState::HostNotReady { machine_state } => match machine_state {
+                MachineState::Init => std::time::Duration::MAX,
+                MachineState::WaitingForDiscovery => std::time::Duration::MAX,
+                _ => std::time::Duration::from_secs(30 * 60),
+            },
+            ManagedHostState::Ready => std::time::Duration::MAX,
+            ManagedHostState::Assigned { instance_state } => match instance_state {
+                InstanceState::Ready => std::time::Duration::MAX,
+                _ => std::time::Duration::from_secs(30 * 60),
+            },
+            ManagedHostState::WaitingForCleanup { .. } => std::time::Duration::from_secs(30 * 60),
+            ManagedHostState::Created => std::time::Duration::from_secs(30 * 60),
+            ManagedHostState::ForceDeletion => std::time::Duration::from_secs(30 * 60),
+            ManagedHostState::Failed { .. } => std::time::Duration::MAX,
+            ManagedHostState::DPUReprovision { .. } => std::time::Duration::from_secs(30 * 60),
         }
     }
 }

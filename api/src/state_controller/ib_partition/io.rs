@@ -102,4 +102,13 @@ impl StateControllerIO for IBPartitionStateControllerIO {
             IBPartitionControllerState::Deleting => ("deleting", ""),
         }
     }
+
+    fn state_sla(state: &Self::ControllerState) -> std::time::Duration {
+        match state {
+            IBPartitionControllerState::Provisioning => std::time::Duration::from_secs(15 * 60),
+            IBPartitionControllerState::Ready => std::time::Duration::MAX,
+            IBPartitionControllerState::Error => std::time::Duration::MAX,
+            IBPartitionControllerState::Deleting => std::time::Duration::from_secs(15 * 60),
+        }
+    }
 }

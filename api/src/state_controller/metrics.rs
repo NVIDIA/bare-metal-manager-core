@@ -89,6 +89,12 @@ impl CommonIterationMetrics {
         let state_metrics = self.state_metrics.entry((state, substate)).or_default();
 
         state_metrics.num_objects += 1;
+        if let Some(state) = object_metrics.state.as_ref() {
+            if object_metrics.time_in_state > IO::state_sla(state) {
+                state_metrics.num_objects_above_sla += 1;
+            }
+        }
+
         state_metrics
             .time_in_state
             .push(object_metrics.time_in_state);
@@ -111,6 +117,8 @@ impl CommonIterationMetrics {
 pub struct StateMetrics {
     /// Amount of objects in the state
     pub num_objects: usize,
+    /// Amount of objects that have been in the state for more than the SLA allows
+    pub num_objects_above_sla: usize,
     /// The time the objects had been in that state
     pub time_in_state: Vec<Duration>,
     /// How long we took to execute state handlers in this state
@@ -261,6 +269,7 @@ pub struct CommonMetricsEmitter<IO> {
     controller_iteration_latency: Histogram<f64>,
     total_objects_gauge: ObservableGauge<u64>,
     objects_per_state_gauge: ObservableGauge<u64>,
+    objects_per_state_above_sla_gauge: ObservableGauge<u64>,
     errors_per_state_gauge: ObservableGauge<u64>,
     time_in_state_histogram: Histogram<f64>,
     handler_latency_in_state_histogram: Histogram<f64>,
@@ -288,6 +297,13 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             .u64_observable_gauge(format!("{}_per_state", object_type))
             .with_description(format!(
                 "The number of {} in the system with a given state",
+                object_type
+            ))
+            .init();
+        let objects_per_state_above_sla_gauge: ObservableGauge<u64> = meter
+            .u64_observable_gauge(format!("{}_per_state_above_sla", object_type))
+            .with_description(format!(
+                "The number of {} in the system which had been longer in a state than allowed per SLA",
                 object_type
             ))
             .init();
@@ -321,6 +337,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         Self {
             controller_iteration_latency,
             objects_per_state_gauge,
+            objects_per_state_above_sla_gauge,
             total_objects_gauge,
             errors_per_state_gauge,
             handler_latency_in_state_histogram,
@@ -332,6 +349,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
     fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
         vec![
             self.objects_per_state_gauge.as_any(),
+            self.objects_per_state_above_sla_gauge.as_any(),
             self.total_objects_gauge.as_any(),
             self.errors_per_state_gauge.as_any(),
         ]
@@ -362,6 +380,11 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             attrs.push(substate_attr.clone());
 
             observer.observe_u64(&self.objects_per_state_gauge, m.num_objects as u64, &attrs);
+            observer.observe_u64(
+                &self.objects_per_state_above_sla_gauge,
+                m.num_objects_above_sla as u64,
+                &attrs,
+            );
 
             // Placeholder attribute that we will mutate for each error via .last_mut()
             attrs.push(KeyValue::new("error", "".to_string()));
@@ -425,6 +448,7 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
         let mut total_objects = 0;
         let mut total_errors = 0;
         let mut states: HashMap<String, usize> = HashMap::new();
+        let mut states_above_sla: HashMap<String, usize> = HashMap::new();
         let mut error_types: HashMap<String, HashMap<String, usize>> = HashMap::new();
         let mut times_in_state: HashMap<String, LatencyStats> = HashMap::new();
         let mut handler_latencies: HashMap<String, LatencyStats> = HashMap::new();
@@ -459,6 +483,9 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
             }
 
             states.insert(state_name.clone(), m.num_objects);
+            if m.num_objects_above_sla > 0 {
+                states_above_sla.insert(state_name.clone(), m.num_objects_above_sla);
+            }
         }
 
         span.record("objects_total", total_objects);
@@ -466,6 +493,10 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
         span.record(
             "states",
             serde_json::to_string(&states).unwrap_or_else(|_| "{}".to_string()),
+        );
+        span.record(
+            "states_above_sla",
+            serde_json::to_string(&states_above_sla).unwrap_or_else(|_| "{}".to_string()),
         );
         if !error_types.is_empty() {
             span.record(
