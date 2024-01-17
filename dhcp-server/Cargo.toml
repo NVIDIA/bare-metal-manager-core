@@ -1,0 +1,40 @@
+[package]
+name = "dhcp-server"
+version = "0.1.0"
+edition.workspace = true
+license-file.workspace = true
+authors.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "forge-dhcp-server"
+path = "src/main.rs"
+
+[dependencies]
+rpc = { path = "../rpc" }
+serde_yaml = "0.9.27"
+serde = { version = "1.0.190", features = ["derive"] }
+tokio = { workspace = true }
+tonic = { workspace = true }
+prost = "0.12"
+tokio-rustls = { version = "0.24.1", features = ["dangerous_configuration"] }
+hyper = "0.14.27"
+hyper-rustls = { version = "0.24.2", features = ["http2"] }
+rustls-pemfile = "1.0.3"
+eyre = "0.6.8"
+tower = { version = "0.4", features = ["full"] }
+toml = "0.8.6"
+ipnetwork = "0.20.0"
+clap = { version = "4.4.7", features = ["derive"] }
+dhcproto = "0.11.0"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+thiserror = "1.0.24"
+lru = "0.12.0"
+lazy_static = "1.4.0"
+socket2 = "0.5.5"
+utils = { path = "../utils" }
+
+[build-dependencies]
+tonic-build = { version = "^0.10", features = ["prost"] }

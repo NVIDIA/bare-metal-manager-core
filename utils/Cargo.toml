@@ -14,5 +14,6 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "1.0.44"
 tracing = "*"
 tokio = { workspace = true }
+ipnetwork = "0.20.0"
 
 rpc = { path = "../rpc" }

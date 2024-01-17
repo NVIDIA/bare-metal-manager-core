@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,6 +39,7 @@ use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLaye
 use crate::mtu;
 use crate::network_config_fetcher;
 use crate::upgrade;
+use crate::util::UrlResolver;
 
 // Main loop when running in daemon mode
 pub async fn run(
@@ -99,6 +102,42 @@ pub async fn run(
     let mut seen_blank = false;
     let mut is_hbn_up = false;
     let mut has_logged_stable = false;
+
+    let (pxe_ip, ntp_ip, nameservers) = if !agent.machine.is_fake_dpu {
+        let mut url_resolver = UrlResolver::try_new()?;
+
+        let pxe_ip = *url_resolver
+            .resolve("carbide-pxe.forge")
+            .await?
+            .get(0)
+            .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
+
+        // This log should be removed after some time.
+        tracing::info!("Pxe server resolved as: {:?}", pxe_ip);
+
+        let ntp_ip = match url_resolver.resolve("carbide-ntp.forge").await {
+            Ok(x) => {
+                let ntp_server_ip = x.get(0);
+                // This log should be removed after some time.
+                tracing::info!("Ntp server resolved as: {:?}", ntp_server_ip);
+                ntp_server_ip.cloned()
+            }
+            Err(e) => {
+                tracing::error!("NTP server couldn't be resolved. Dhcp-server won't send NTP server IP in dhcpoffer/ack. Error: {}", e);
+                None
+            }
+        };
+
+        let nameservers = url_resolver.nameservers();
+        (pxe_ip, ntp_ip, nameservers)
+    } else {
+        (
+            Ipv4Addr::from([127, 0, 0, 1]),
+            None,
+            vec![IpAddr::from([127, 0, 0, 1])],
+        )
+    };
+
     loop {
         let mut is_healthy = false;
         let mut has_changed_configs = false;
@@ -135,6 +174,9 @@ pub async fn run(
                                 &agent.hbn.root_dir,
                                 conf,
                                 agent.hbn.skip_reload,
+                                pxe_ip,
+                                ntp_ip,
+                                nameservers.clone(),
                             )
                             .await
                         }

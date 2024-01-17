@@ -127,6 +127,10 @@ pub struct CarbideConfig {
 
     /// SiteExplorer related configuration
     pub site_explorer: Option<SiteExplorerConfig>,
+
+    /// Enable DHCP server on DPU to serve host.
+    #[serde(default)]
+    pub dpu_dhcp_server_enabled: bool,
 }
 
 /// SiteExplorer related configuration

@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::Read;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::{fs, io, net::Ipv4Addr};
 
@@ -35,46 +36,66 @@ const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 const MAX_EXPECTED_SIZE: u64 = 4096;
 
 struct Paths {
-    dhcp: PathBuf,
+    dhcp_relay: PathBuf,
     interfaces: PathBuf,
     frr: PathBuf,
     daemons: PathBuf,
     acl_rules: PathBuf,
+    dhcp_server: DhcpServerPaths,
+}
+
+struct DhcpServerPaths {
+    server: PathBuf,
+    config: PathBuf,
+    host_config: PathBuf,
 }
 
 /// How we tell HBN to notice the new file we wrote
 #[derive(Debug)]
 struct PostAction {
-    cmd: &'static str,
+    cmd: Option<&'static str>,
     path: PathBuf,
     path_bak: PathBuf,
     path_tmp: PathBuf,
 }
 
 fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
-    let (mut dhcp, mut interfaces, mut frr, mut daemons, mut acl_rules) = (
-        hbn_root.join(dhcp::PATH),
+    let (mut dhcp_relay, mut interfaces, mut frr, mut daemons, mut acl_rules) = (
+        hbn_root.join(dhcp::RELAY_PATH),
         hbn_root.join(interfaces::PATH),
         hbn_root.join(frr::PATH),
         hbn_root.join(daemons::PATH),
         hbn_root.join(acl_rules::PATH),
     );
+
+    let mut server = hbn_root.join(dhcp::SERVER_PATH);
+    let mut config = hbn_root.join(dhcp::SERVER_CONFIG_PATH);
+    let mut host_config = hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH);
+
     if is_prod_mode {
         trace!("Ethernet virtualization running in production mode");
     } else {
         trace!("Ethernet virtualization running in test mode");
-        dhcp.set_extension("TEST");
+        dhcp_relay.set_extension("TEST");
         interfaces.set_extension("TEST");
         frr.set_extension("TEST");
         daemons.set_extension("TEST");
         acl_rules.as_mut_os_string().push(".TEST");
+        server.set_extension("TEST");
+        config.set_extension("TEST");
+        host_config.set_extension("TEST");
     }
     Paths {
-        dhcp,
+        dhcp_relay,
         interfaces,
         frr,
         daemons,
         acl_rules,
+        dhcp_server: DhcpServerPaths {
+            server,
+            config,
+            host_config,
+        },
     }
 }
 
@@ -154,7 +175,7 @@ pub async fn update_nvue(
     let next_contents = nvue::build(conf)?;
 
     let path = hbn_root.join(nvue::PATH);
-    let Some(post) = write(next_contents, &path, "NVUE config", "").wrap_err("NVUE config at {path}")? else {
+    let Some(post) = write(next_contents, &path, "NVUE config", None).wrap_err("NVUE config at {path}")? else {
         // config didn't change
         return Ok(false);
     };
@@ -170,18 +191,14 @@ pub async fn update_files(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
+    pxe_ip: Ipv4Addr,
+    ntp_ip: Option<Ipv4Addr>,
+    nameservers: Vec<IpAddr>,
 ) -> eyre::Result<bool> {
     let paths = paths(hbn_root, network_config.is_production_mode);
 
     let mut errs = vec![];
     let mut post_actions = vec![];
-    match write_dhcp_relay_config(paths.dhcp, network_config) {
-        Ok(Some(post_action)) => {
-            post_actions.push(post_action);
-        }
-        Ok(None) => {}
-        Err(err) => errs.push(format!("write_dhcp_relay_config: {err:#}")),
-    }
     match write_interfaces(paths.interfaces, network_config) {
         Ok(Some(post_action)) => {
             post_actions.push(post_action);
@@ -195,6 +212,35 @@ pub async fn update_files(
         }
         Ok(None) => {}
         Err(err) => errs.push(format!("write_frr: {err:#}")),
+    }
+
+    // Dhcp server listen on vlan interfaces, so interface must be up before running dhcp server.
+    if network_config.enable_dhcp {
+        // Start DHCP Server in hbn.
+        match write_dhcp_server_config(
+            paths.dhcp_relay,
+            &paths.dhcp_server,
+            network_config,
+            pxe_ip,
+            ntp_ip,
+            nameservers,
+        ) {
+            Ok(Some((post_action, err))) => {
+                post_actions.extend(post_action);
+                errs.extend(err);
+            }
+            Ok(None) => {}
+            Err(err) => errs.push(format!("write dhcp server config file: {err:#}")),
+        }
+    } else {
+        match write_dhcp_relay_config(paths.dhcp_relay, paths.dhcp_server.server, network_config) {
+            Ok(Some((post_action, err))) => {
+                post_actions.extend(post_action);
+                errs.extend(err);
+            }
+            Ok(None) => {}
+            Err(err) => errs.push(format!("write_dhcp_relay_config: {err:#}")),
+        }
     }
     match write_daemons(paths.daemons) {
         Ok(Some(post_action)) => {
@@ -214,7 +260,8 @@ pub async fn update_files(
     let has_changes = !post_actions.is_empty();
     if !skip_post {
         for post in post_actions {
-            match hbn::run_in_container_shell(post.cmd).await {
+            let cmd = post.cmd.unwrap_or("");
+            match hbn::run_in_container_shell(cmd).await {
                 Ok(_) => {
                     if post.path_bak.exists() {
                         if let Err(err) = fs::remove_file(&post.path_bak) {
@@ -226,7 +273,7 @@ pub async fn update_files(
                     }
                 }
                 Err(err) => {
-                    errs.push(format!("running reload cmd '{}': {err:#}", post.cmd));
+                    errs.push(format!("running reload cmd '{}': {err:#}", cmd));
 
                     // If reload failed we won't be using the new config. Move it out of the way..
                     if let Err(err) = fs::rename(&post.path, &post.path_tmp) {
@@ -347,22 +394,37 @@ pub async fn reset(
 
     let mut errs = vec![];
     let mut post_actions = vec![];
-    match write(dhcp::blank(), paths.dhcp, "DHCP relay", dhcp::RELOAD_CMD) {
+    match write(
+        dhcp::blank(),
+        paths.dhcp_relay,
+        "DHCP relay",
+        Some(dhcp::RELOAD_CMD),
+    ) {
         Ok(Some(post)) => post_actions.push(post),
         Ok(None) => {}
         Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
     }
     match write(
+        dhcp::blank(),
+        paths.dhcp_server.server,
+        "DHCP server",
+        Some(dhcp::RELOAD_CMD),
+    ) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("Write blank DHCP server: {err:#}")),
+    }
+    match write(
         interfaces::blank(),
         paths.interfaces,
         "/etc/network/interfaces",
-        interfaces::RELOAD_CMD,
+        Some(interfaces::RELOAD_CMD),
     ) {
         Ok(Some(post)) => post_actions.push(post),
         Ok(None) => {}
         Err(err) => errs.push(format!("write blank interfaces: {err:#}")),
     }
-    match write(frr::blank(), paths.frr, "frr.conf", frr::RELOAD_CMD) {
+    match write(frr::blank(), paths.frr, "frr.conf", Some(frr::RELOAD_CMD)) {
         Ok(Some(post)) => post_actions.push(post),
         Ok(None) => {}
         Err(err) => errs.push(format!("write blank frr: {err:#}")),
@@ -375,8 +437,9 @@ pub async fn reset(
 
     if !skip_post {
         for post in post_actions {
-            if let Err(err) = hbn::run_in_container_shell(post.cmd).await {
-                errs.push(format!("reload '{}': {err}", post.cmd))
+            let cmd = post.cmd.unwrap_or("");
+            if let Err(err) = hbn::run_in_container_shell(cmd).await {
+                errs.push(format!("reload '{}': {err}", cmd))
             }
         }
     }
@@ -400,10 +463,117 @@ fn dhcp_servers(nc: &rpc::ManagedHostNetworkConfigResponse) -> Vec<Ipv4Addr> {
     dhcp_servers
 }
 
+type WriteResult = Result<Option<(Vec<PostAction>, Vec<String>)>, eyre::Report>;
+
+// In case DHCP server has to be configured in HBN,
+// 1. stop dhcp-relay
+// 2. Copy dhcp_config file
+// 3. Copy host_config file
+// 4. Reload supervisord
+fn write_dhcp_server_config<P: AsRef<Path>>(
+    dhcp_relay_path: P,
+    dhcp_server_path: &DhcpServerPaths,
+    nc: &rpc::ManagedHostNetworkConfigResponse,
+    pxe_ip: Ipv4Addr,
+    ntp_ip: Option<Ipv4Addr>,
+    nameservers: Vec<IpAddr>,
+) -> WriteResult {
+    let mut errs = vec![];
+    let mut post_actions = vec![];
+    match write(dhcp::blank(), dhcp_relay_path, "DHCP relay", None) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
+    }
+
+    let vlan_ids = if nc.use_admin_network {
+        let vlan_intf = nc
+            .admin_interface
+            .as_ref()
+            .map(|x| format!("vlan{}", x.vlan_id))
+            .ok_or_else(|| eyre::eyre!("Admin interface missing on admin network."))?;
+        vec![vlan_intf]
+    } else {
+        nc.tenant_interfaces
+            .iter()
+            .map(|x| format!("vlan{}", x.vlan_id))
+            .collect()
+    };
+
+    let Some(mh_nc) = &nc.managed_host_config else {
+        return Err(eyre::eyre!("Loopback IP is missing. Can't write dhcp-server config."))
+    };
+
+    let loopback_ip = mh_nc.loopback_ip.parse()?;
+
+    let next_contents =
+        dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig { vlan_ids })?;
+    match write(
+        next_contents,
+        dhcp_server_path.server.clone(),
+        "DHCP server",
+        None,
+    ) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("Write DHCP server: {err:#}")),
+    }
+
+    let nameservers = nameservers
+        .iter()
+        .filter_map(|x| match x {
+            IpAddr::V4(x) => Some(*x),
+            _ => None,
+        })
+        .collect::<Vec<Ipv4Addr>>();
+
+    let next_contents = dhcp::build_server_config(pxe_ip, ntp_ip, nameservers, loopback_ip)?;
+    match write(
+        next_contents,
+        dhcp_server_path.config.clone(),
+        "DHCP server config",
+        None,
+    ) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("Write DHCP server config: {err:#}")),
+    }
+
+    let next_contents = dhcp::build_server_host_config(nc.clone())?;
+    match write(
+        next_contents,
+        dhcp_server_path.host_config.clone(),
+        "DHCP server host config",
+        None,
+    ) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("Write DHCP server host config: {err:#}")),
+    }
+
+    // Reboot dhcp-server.
+    if let Some(val) = post_actions.last_mut() {
+        val.cmd = Some(dhcp::RELOAD_DHCP_SERVER);
+    }
+
+    Ok(Some((post_actions, errs)))
+}
+
 fn write_dhcp_relay_config<P: AsRef<Path>>(
     path: P,
+    dhcp_server_path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-) -> Result<Option<PostAction>, eyre::Report> {
+) -> WriteResult {
+    let mut errs = vec![];
+    let mut post_actions = vec![];
+
+    // Stop dhcp server if running.
+    match write(dhcp::blank(), dhcp_server_path, "DHCP server blank", None) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
+    }
+
     let vlan_ids = if nc.use_admin_network {
         let admin_interface = nc
             .admin_interface
@@ -413,14 +583,26 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
     } else {
         nc.tenant_interfaces.iter().map(|n| n.vlan_id).collect()
     };
-    let next_contents = dhcp::build(dhcp::DhcpConfig {
+    let next_contents = dhcp::build_relay_config(dhcp::DhcpRelayConfig {
         dhcp_servers: dhcp_servers(nc),
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         vlan_ids,
         remote_id: nc.remote_id.clone(),
         network_virtualization_type: nc.network_virtualization_type,
     })?;
-    write(next_contents, path, "DHCP relay", dhcp::RELOAD_CMD)
+
+    match write(next_contents, path, "DHCP relay", None) {
+        Ok(Some(post)) => post_actions.push(post),
+        Ok(None) => {}
+        Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
+    };
+
+    // Run supervisorctl reload only once.
+    if let Some(val) = post_actions.last_mut() {
+        val.cmd = Some(dhcp::RELOAD_CMD);
+    }
+
+    Ok(Some((post_actions, errs)))
 }
 
 fn write_interfaces<P: AsRef<Path>>(
@@ -493,7 +675,7 @@ fn write_interfaces<P: AsRef<Path>>(
         next_contents,
         path,
         "/etc/network/interfaces",
-        interfaces::RELOAD_CMD,
+        Some(interfaces::RELOAD_CMD),
     )
 }
 
@@ -546,7 +728,7 @@ fn write_frr<P: AsRef<Path>>(
         route_servers: nc.route_servers.clone(),
         use_admin_network: nc.use_admin_network,
     })?;
-    write(next_contents, path, "frr.conf", frr::RELOAD_CMD)
+    write(next_contents, path, "frr.conf", Some(frr::RELOAD_CMD))
 }
 
 /// The etc/frr/daemons file has no templated parts
@@ -555,7 +737,7 @@ fn write_daemons<P: AsRef<Path>>(path: P) -> Result<Option<PostAction>, eyre::Re
         daemons::build(),
         path,
         "etc/frr/daemons",
-        daemons::RESTART_CMD,
+        Some(daemons::RESTART_CMD),
     )
 }
 
@@ -570,7 +752,12 @@ fn write_acl_rules<P: AsRef<Path>>(
         deny_prefixes: dpu_network_config.deny_prefixes.clone(),
     };
     let contents = acl_rules::build(config)?;
-    write(contents, path, "forge-acl.rules", acl_rules::RELOAD_CMD)
+    write(
+        contents,
+        path,
+        "forge-acl.rules",
+        Some(acl_rules::RELOAD_CMD),
+    )
 }
 
 // Compute the interface names along with the specific ACL config for each
@@ -614,7 +801,7 @@ fn write<P: AsRef<Path>>(
     // Human readable description of the file, for error messages
     file_type: &str,
     // Reload or restart command to run after updating the file
-    post_cmd: &'static str,
+    post_cmd: Option<&'static str>,
 ) -> Result<Option<PostAction>, eyre::Report> {
     // later we will remove the tmp file on drop, but for now it may help with debugging
     let mut path_tmp = path.as_ref().to_path_buf();
@@ -772,10 +959,12 @@ fn hostname() -> eyre::Result<String> {
 mod tests {
     use std::fs;
     use std::io::Write;
-    use std::path::Path;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::path::{Path, PathBuf};
 
-    use ::rpc::forge as rpc;
     use eyre::WrapErr;
+    use rpc::forge as rpc;
+    use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use crate::nvue;
 
@@ -808,6 +997,9 @@ mod tests {
             gateway: "10.217.5.123/28".to_string(),
             ip: "10.217.5.123".to_string(),
             vpc_prefixes: vec![],
+            prefix: "10.217.5.123/28".to_string(),
+            fqdn: "myhost.forge".to_string(),
+            booturl: Some("test".to_string()),
         };
         let tenant_interfaces = vec![
             rpc::FlatInterfaceConfig {
@@ -818,6 +1010,9 @@ mod tests {
                 gateway: "10.217.5.169/29".to_string(),
                 ip: "10.217.5.170".to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
+                prefix: "10.217.5.169/29".to_string(),
+                fqdn: "myhost.forge.1".to_string(),
+                booturl: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -827,6 +1022,9 @@ mod tests {
                 gateway: "10.217.5.161/30".to_string(),
                 ip: "10.217.5.162".to_string(),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
+                prefix: "10.217.5.162/30".to_string(),
+                fqdn: "myhost.forge.2".to_string(),
+                booturl: None,
             },
         ];
         let netconf = rpc::ManagedHostNetworkConfig {
@@ -865,13 +1063,16 @@ mod tests {
             vpc_vni: None,
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
             deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
+            enable_dhcp: false,
+            host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
         };
 
         let f = tempfile::NamedTempFile::new()?;
+        let g = tempfile::NamedTempFile::new()?;
 
         // What we're testing
 
-        match super::write_dhcp_relay_config(&f, &network_config) {
+        match super::write_dhcp_relay_config(&f, &g, &network_config) {
             Err(err) => {
                 panic!("write_dhcp_relay_config error: {err}");
             }
@@ -947,6 +1148,10 @@ mod tests {
         let frr_contents = super::read_limited(frr_path)?;
         assert_eq!(frr_contents, crate::frr::TMPL_EMPTY);
 
+        // check dhcp server
+        let dhcp_path = hbn_root.join("etc/supervisor/conf.d/default-forge-dhcp-server.conf");
+        let dhcp_contents = super::read_limited(dhcp_path)?;
+        assert_eq!(dhcp_contents, crate::dhcp::TMPL_EMPTY);
         Ok(())
     }
 
@@ -1045,6 +1250,223 @@ mod tests {
         let r = crate::util::compare_lines(left_contents, right_contents, None);
         eprint!("Diff output:\n{}", r.report());
         assert!(r.is_identical());
+        Ok(())
+    }
+
+    fn validate_dhcp_config(received: DhcpConfig, expected: DhcpConfig) {
+        assert_eq!(received.lease_time_secs, expected.lease_time_secs);
+        assert_eq!(received.renewal_time_secs, expected.renewal_time_secs);
+        assert_eq!(received.rebinding_time_secs, expected.rebinding_time_secs);
+        assert_eq!(received.carbide_nameservers, expected.carbide_nameservers);
+        assert_eq!(received.carbide_api_url, expected.carbide_api_url);
+        assert_eq!(received.carbide_ntpserver, expected.carbide_ntpserver);
+        assert_eq!(
+            received.carbide_provisioning_server_ipv4,
+            expected.carbide_provisioning_server_ipv4
+        );
+        assert_eq!(received.carbide_dhcp_server, expected.carbide_dhcp_server);
+    }
+
+    fn validate_host_config(received: HostConfig, expected: HostConfig) {
+        assert_eq!(received.host_interface_id, expected.host_interface_id);
+
+        let mut vlans_received = received.host_ip_addresses.keys().collect::<Vec<&String>>();
+        let mut vlans_expected = expected.host_ip_addresses.keys().collect::<Vec<&String>>();
+
+        vlans_expected.sort();
+        vlans_received.sort();
+
+        assert_eq!(vlans_received, vlans_expected);
+
+        for vlan in vlans_received {
+            let ip_config_received = received.host_ip_addresses.get(vlan).unwrap();
+            let ip_config_expected = expected.host_ip_addresses.get(vlan).unwrap();
+
+            assert_eq!(ip_config_received.fqdn, ip_config_expected.fqdn);
+            assert_eq!(ip_config_received.booturl, ip_config_expected.booturl);
+            assert_eq!(ip_config_received.gateway, ip_config_expected.gateway);
+            assert_eq!(ip_config_received.address, ip_config_expected.address);
+            assert_eq!(ip_config_received.prefix, ip_config_expected.prefix);
+        }
+    }
+
+    #[test]
+    fn test_with_tenant_dhcp_server() -> Result<(), Box<dyn std::error::Error>> {
+        // The config we received from API server
+        // Admin won't be used
+        let admin_interface = rpc::FlatInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical.into(),
+            virtual_function_id: None,
+            vlan_id: 1,
+            vni: 1001,
+            gateway: "10.217.5.123".to_string(),
+            ip: "10.217.5.123".to_string(),
+            vpc_prefixes: vec![],
+            prefix: "10.217.5.123".to_string(),
+            fqdn: "myhost.forge".to_string(),
+            booturl: Some("test".to_string()),
+        };
+        let tenant_interfaces = vec![
+            rpc::FlatInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual.into(),
+                virtual_function_id: Some(0),
+                vlan_id: 196,
+                vni: 1025196,
+                gateway: "10.217.5.169".to_string(),
+                ip: "10.217.5.170".to_string(),
+                vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
+                prefix: "10.217.5.169/29".to_string(),
+                fqdn: "myhost.forge.1".to_string(),
+                booturl: None,
+            },
+            rpc::FlatInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical.into(),
+                virtual_function_id: None,
+                vlan_id: 185,
+                vni: 1025185,
+                gateway: "10.217.5.161".to_string(),
+                ip: "10.217.5.162".to_string(),
+                vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
+                prefix: "10.217.5.162/30".to_string(),
+                fqdn: "myhost.forge.2".to_string(),
+                booturl: None,
+            },
+        ];
+        let netconf = rpc::ManagedHostNetworkConfig {
+            loopback_ip: "10.217.5.39".to_string(),
+        };
+
+        let dhcp_config = DhcpConfig {
+            carbide_nameservers: vec![Ipv4Addr::from([10, 1, 1, 1])],
+            carbide_ntpserver: Some(Ipv4Addr::from([127, 0, 0, 1])),
+            carbide_provisioning_server_ipv4: Ipv4Addr::from([10, 0, 0, 1]),
+            lease_time_secs: 604800,
+            renewal_time_secs: 3600,
+            rebinding_time_secs: 432000,
+            carbide_api_url: None,
+            carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+        };
+
+        let mut network_config = rpc::ManagedHostNetworkConfigResponse {
+            is_production_mode: false,
+            asn: 4259912557,
+            // yes it's in there twice I dunno either
+            dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
+            vni_device: "vxlan5555".to_string(),
+
+            managed_host_config: Some(netconf),
+            managed_host_config_version: "V1-T1666644937952267".to_string(),
+
+            use_admin_network: true,
+            admin_interface: Some(admin_interface),
+
+            tenant_interfaces,
+            instance_config_version: "V1-T1666644937952999".to_string(),
+
+            instance_id: Some(
+                uuid::Uuid::try_from("60cef902-9779-4666-8362-c9bb4b37184f")
+                    .wrap_err("Uuid::try_from")?
+                    .into(),
+            ),
+            remote_id: "test".to_string(),
+
+            network_virtualization_type: None,
+            vpc_vni: None,
+            route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
+            deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
+            enable_dhcp: true,
+            host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
+        };
+
+        let f = tempfile::NamedTempFile::new()?;
+        let g = tempfile::NamedTempFile::new()?;
+        let h = tempfile::NamedTempFile::new()?;
+        let i = tempfile::NamedTempFile::new()?;
+
+        match super::write_dhcp_server_config(
+            &f,
+            &super::DhcpServerPaths {
+                server: PathBuf::from(g.path()),
+                config: PathBuf::from(h.path()),
+                host_config: PathBuf::from(i.path()),
+            },
+            &network_config,
+            Ipv4Addr::from([10, 0, 0, 1]),
+            Some(Ipv4Addr::from([127, 0, 0, 1])),
+            vec![IpAddr::from([10, 1, 1, 1])],
+        ) {
+            Err(err) => {
+                panic!("write_dhcp_server error: {err}");
+            }
+            Ok(None) => {
+                panic!("write_dhcp_server says the config didn't change, that's wrong");
+            }
+            Ok(Some(_)) => {
+                // success
+            }
+        }
+        let dhcp_contents = super::read_limited(g.path())?;
+        assert!(dhcp_contents.contains("vlan1"));
+
+        let dhcp_config_received: DhcpConfig =
+            serde_yaml::from_str(&super::read_limited(h.path())?)?;
+        validate_dhcp_config(dhcp_config_received, dhcp_config);
+
+        let dhcp_host_config: HostConfig = serde_yaml::from_str(&super::read_limited(i.path())?)?;
+        validate_host_config(
+            dhcp_host_config,
+            HostConfig::try_from(network_config.clone())?,
+        );
+
+        // tenant host config.
+        network_config.use_admin_network = false;
+
+        match super::write_dhcp_server_config(
+            &f,
+            &super::DhcpServerPaths {
+                server: PathBuf::from(g.path()),
+                config: PathBuf::from(h.path()),
+                host_config: PathBuf::from(i.path()),
+            },
+            &network_config,
+            Ipv4Addr::from([10, 0, 0, 1]),
+            None,
+            vec![IpAddr::from([10, 1, 1, 1])],
+        ) {
+            Err(err) => {
+                panic!("write_dhcp_server error: {err}");
+            }
+            Ok(None) => {
+                panic!("write_dhcp_server says the config didn't change, that's wrong");
+            }
+            Ok(Some(_)) => {
+                // success
+            }
+        }
+        let dhcp_config = DhcpConfig {
+            carbide_nameservers: vec![Ipv4Addr::from([10, 1, 1, 1])],
+            carbide_ntpserver: None,
+            carbide_provisioning_server_ipv4: Ipv4Addr::from([10, 0, 0, 1]),
+            lease_time_secs: 604800,
+            renewal_time_secs: 3600,
+            rebinding_time_secs: 432000,
+            carbide_api_url: None,
+            carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
+        };
+        let dhcp_contents = super::read_limited(g.path())?;
+        assert!(dhcp_contents.contains("vlan196"));
+        assert!(dhcp_contents.contains("vlan185"));
+
+        let dhcp_config_received: DhcpConfig =
+            serde_yaml::from_str(&super::read_limited(h.path())?)?;
+        validate_dhcp_config(dhcp_config_received, dhcp_config);
+
+        let dhcp_host_config: HostConfig = serde_yaml::from_str(&super::read_limited(i.path())?)?;
+        validate_host_config(
+            dhcp_host_config,
+            HostConfig::try_from(network_config.clone())?,
+        );
+
         Ok(())
     }
 }

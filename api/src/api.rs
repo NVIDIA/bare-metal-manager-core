@@ -1196,6 +1196,14 @@ where
             remote_id: dpu_machine_id.remote_id(),
             network_virtualization_type: network_virtualization_type.map(|nvt| nvt as i32),
             vpc_vni: vpc_vni.map(|vni| vni as u32),
+            enable_dhcp: self.runtime_config.dpu_dhcp_server_enabled,
+            host_interface_id: snapshot.host_snapshot.interfaces.iter().find_map(|x| {
+                if x.is_primary {
+                    Some(x.id.to_string())
+                } else {
+                    None
+                }
+            }),
         };
         Ok(Response::new(resp))
     }
