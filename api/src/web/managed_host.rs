@@ -143,7 +143,7 @@ async fn fetch_managed_hosts<
             include_history: true,
             include_predicted_host: true,
             only_maintenance: false,
-            include_associated_machine_id: false,
+            include_associated_machine_id: true,
             exclude_hosts: false,
         }),
     });
