@@ -126,7 +126,7 @@ pub async fn update_nvue(
         vec![nvue::PortConfig {
             interface_name: physical_name,
             vlan: admin_interface.vlan_id as u16,
-            vni: admin_interface.vni,
+            vni: None,
             gateway_cidr: admin_interface.gateway.clone(),
         }]
     } else {
@@ -149,7 +149,7 @@ pub async fn update_nvue(
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 vlan: net.vlan_id as u16,
-                vni: net.vni,
+                vni: Some(net.vni), // TODO should this be nc.vni_device?
                 gateway_cidr: net.gateway.clone(),
             });
         }
@@ -1183,7 +1183,7 @@ mod tests {
         let networks = vec![nvue::PortConfig {
             interface_name: super::DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf",
             vlan: 123u16,
-            vni: 5555,
+            vni: Some(5555),
             gateway_cidr: "10.217.4.65/26".to_string(),
         }];
         let conf = nvue::NvueConfig {
