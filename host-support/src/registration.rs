@@ -67,7 +67,7 @@ pub async fn register_machine(
 
     let request = tonic::Request::new(info);
 
-    tracing::debug!("register_machine request {:?}", request);
+    //tracing::debug!("register_machine request {:?}", request);
 
     let response = client
         .discover_machine(request)

@@ -84,7 +84,9 @@ pub async fn run_in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
 
     match run_in_container(&container_id, &["bash", "-c", cmd], check_result).await {
         Ok(out) => {
-            tracing::debug!("{}", out);
+            if !out.is_empty() {
+                tracing::debug!("{}", out);
+            }
         }
         Err(err) => {
             return Err(eyre::eyre!("Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/frr/frr-reload or similar. \nCommand: {}",
