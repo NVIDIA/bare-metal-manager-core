@@ -203,10 +203,18 @@ case "$1" in
 			"vtysh" )
 				printf "$BGP_SUMMARY"
 				;;
+			# crictl exec <container-id> nv config replace /etc/nvue.d/startup.yaml
+			# crictl exec <container-id> nv config apply -y
+			# crictl exec <container-id> nv config save
+			"nv" )
+				;;
 			# crictl exec -it <container-id> bridge -j fdb show vlan 21
 			# NOT USED YET - need to add instance creation to integration test
 			"bridge" )
 				printf "$FDB"
 				;;
+			"*" )
+				echo "Unexpected argments to crictl: $@"
+				exit 1
 		esac
 esac

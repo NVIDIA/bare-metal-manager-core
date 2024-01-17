@@ -175,7 +175,7 @@ pub async fn update_nvue(
     let next_contents = nvue::build(conf)?;
 
     let path = hbn_root.join(nvue::PATH);
-    let Some(post) = write(next_contents, &path, "NVUE config", None).wrap_err("NVUE config at {path}")? else {
+    let Some(post) = write(next_contents, &path, "NVUE", None).wrap_err("NVUE config at {path}")? else {
         // config didn't change
         return Ok(false);
     };

@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use base64::prelude::*;
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -19,6 +18,7 @@ use std::{
 
 use ::rpc::machine_discovery as rpc_discovery;
 use ::utils::cmd::CmdError;
+use base64::prelude::*;
 use libudev::Device;
 use rpc::machine_discovery::MemoryDevice;
 use tracing::{error, warn};
@@ -318,7 +318,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
 
     let mut cpus: Vec<rpc_discovery::Cpu> = Vec::new();
     for cpu_num in 0..cpu_info.num_cores() {
-        tracing::debug!("CPU info: {:?}", cpu_info.get_info(cpu_num));
+        //tracing::debug!("CPU info: {:?}", cpu_info.get_info(cpu_num));
         match arch {
             CpuArchitecture::Aarch64 => {
                 cpus.push(rpc_discovery::Cpu {
@@ -604,7 +604,9 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     }
 
     tracing::debug!("Discovered Disks: {:?}", disks);
-    tracing::debug!("Discovered CPUs: {:?}", cpus);
+    if !cpus.is_empty() {
+        tracing::debug!("Discovered CPUs[0]: {:?}", cpus[0]);
+    }
     tracing::debug!("Discovered NICS: {:?}", nics);
     tracing::debug!("Discovered IBS: {:?}", ibs);
     tracing::debug!("Discovered NVMES: {:?}", nvmes);
