@@ -43,8 +43,8 @@
 			</td>
 			<td>{{ host.state }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
-			<td>{{ host.host_bmc_ip }}</td>
-			<td>{{ host.dpu_bmc_ip }}</td>
+			<td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td>
+			<td><a href="/admin/explored_endpoint/{{ host.dpu_bmc_ip }}">{{ host.dpu_bmc_ip }}</a></td>
 			<td>{{ host.host_admin_ip }}</td>
 		<tr/>
 	{% endfor %}
@@ -88,8 +88,8 @@
 			</td>
 			<td>{{ host.state }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
-			<td>{{ host.host_bmc_ip }}</td>
-			<td>{{ host.dpu_bmc_ip }}</td>
+			<td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td>
+			<td><a href="/admin/explored_endpoint/{{ host.dpu_bmc_ip }}">{{ host.dpu_bmc_ip }}</a></td>
 			<td>{{ host.host_admin_ip }}</td>
 			<td>{{ host.num_gpus }}</td>
 			<td>{{ host.num_ib_ifs }}</td>

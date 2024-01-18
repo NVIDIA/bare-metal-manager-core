@@ -46,7 +46,7 @@
 	<tr><th>Network</th><td>{% if is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy"></div>{{ network_err_message }}{% endif %}</div></td></tr>
 	<tr><th>BMC Version</th><td>{{ host_bmc_version }}</td></tr>
 	<tr><th>BMC Firmware Version</th><td>{{ host_bmc_firmware_version }}</td></tr>
-	<tr><th>BMC IP</th><td>{{ host_bmc_ip }}</td></tr>
+	<tr><th>BMC IP</th><td><a href="/admin/explored_endpoint/{{ host_bmc_ip }}">{{ host_bmc_ip }}</a></td></tr>
 	<tr><th>BMC MAC</th><td>{{ host_bmc_mac }}</td></tr>
 </table>
 
@@ -61,7 +61,7 @@
 	<tr><th>Admin MAC</th><td>{{ dpu_oob_mac }}</td></tr>
 	<tr><th>BMC Version</th><td>{{ dpu_bmc_version }}</td></tr>
 	<tr><th>BMC Firmware Version</th><td>{{ dpu_bmc_firmware_version }}</td></tr>
-	<tr><th>BMC IP</th><td>{{ dpu_bmc_ip }}</td></tr>
+	<tr><th>BMC IP</th><td><a href="/admin/explored_endpoint/{{ dpu_bmc_ip }}">{{ dpu_bmc_ip }}</a></td></tr>
 	<tr><th>BMC MAC</th><td>{{ dpu_bmc_mac }}</td></tr>
 </table>
 
