@@ -18,6 +18,7 @@ use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 use ::rpc::machine_discovery::DpuData;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
+use eyre::WrapErr;
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
@@ -121,7 +122,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 agent,
                 Some(options),
             )
-            .await?;
+            .await
+            .wrap_err("main_loop exit")?;
         }
 
         // enumerate hardware and exit
@@ -166,9 +168,23 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             let (pxe_ip, ntp_ip, nameservers) = if !agent.machine.is_fake_dpu {
                 let mut url_resolver = UrlResolver::try_new()?;
 
+                const DEFAULT_PXE_SERVER: &str = "carbide-pxe.forge";
+                let pxe_hostname = match agent.forge_system.pxe_server {
+                    None => DEFAULT_PXE_SERVER.to_string(),
+                    Some(full_url) => match url::Url::parse(&full_url) {
+                        Ok(u) => u.host_str().unwrap_or(DEFAULT_PXE_SERVER).to_string(),
+                        Err(err) => {
+                            tracing::error!(
+                                "Config file pxe_server is invalid url: {full_url}. {err:#}"
+                            );
+                            DEFAULT_PXE_SERVER.to_string()
+                        }
+                    },
+                };
                 let pxe_ip = *url_resolver
-                    .resolve("carbide-pxe.forge")
-                    .await?
+                    .resolve(&pxe_hostname)
+                    .await
+                    .wrap_err("netconf DNS resolver for carbide-pxe")?
                     .get(0)
                     .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
 

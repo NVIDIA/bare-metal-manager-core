@@ -11,3 +11,4 @@ export NET_GATEWAY=172.20.0.1
 
 export CONTAINER_REPO_ROOT=/app/code
 export PGSSLMODE=disable
+export IGNORE_MGMT_VRF=true

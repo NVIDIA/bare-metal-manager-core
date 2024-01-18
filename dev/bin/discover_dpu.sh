@@ -46,18 +46,22 @@ simulate_boot() {
   MACHINE_INTERFACE_ID=$(echo $RESULT | jq ".machineInterfaceId.value" | tr -d '"')
   echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
 
+  #HACK work-around for k8s NAT of outside network traffic
+  REAL_IP=$(${REPO_ROOT}/dev/bin/psql.sh "select address from machine_interface_addresses where interface_id='${MACHINE_INTERFACE_ID}';" | tr -d '[:space:]"')
+  echo "Machines real IP: ${REAL_IP}"
   if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-	#HACK work-around for k8s NAT of outside network traffic
-	REAL_IP=$(${REPO_ROOT}/dev/bin/psql.sh "select address from machine_interface_addresses where interface_id='${MACHINE_INTERFACE_ID}';" | tr -d '[:space:]"')
-	echo "Machines real IP: ${REAL_IP}"
-	${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='10.244.0.1';"
+    ${REPO_ROOT}/dev/bin/psql.sh "UPDATE machine_interface_addresses SET address='10.244.0.1';"
   fi
 
   echo "Sending pxe boot request"
   curl "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/pxe/boot?uuid=${MACHINE_INTERFACE_ID}&buildarch=arm64"
 
   echo "Sending cloud-init request"
-  curl "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/user-data"
+  if [ "$FORGE_BOOTSTRAP_KIND" == "docker" ]; then
+	curl -H "X-Forwarded-For: ${REAL_IP}" "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/user-data"
+  else # kube
+	curl "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/user-data"
+  fi
 
   echo "Sending DiscoverMachine"
   # Simulate the Machine discovery request of a DPU
@@ -76,7 +80,7 @@ simulate_boot() {
   echo "DPU discovery completed. Waiting for it reached in Host/WaitingForDiscovery state."
 
   if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-	${REPO_ROOT}/dev/bin/psql.sh "update machine_interface_addresses set address='${REAL_IP}';"
+	${REPO_ROOT}/dev/bin/psql.sh "UPDATE machine_interface_addresses SET address='${REAL_IP}';"
   fi
 
   MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')

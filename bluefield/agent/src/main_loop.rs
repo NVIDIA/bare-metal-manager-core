@@ -21,6 +21,7 @@ use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client;
 use axum::Router;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
+use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::registration;
 use opentelemetry_sdk as sdk;
@@ -108,7 +109,8 @@ pub async fn run(
 
         let pxe_ip = *url_resolver
             .resolve("carbide-pxe.forge")
-            .await?
+            .await
+            .wrap_err("DNS resolver for carbide-pxe")?
             .get(0)
             .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
 

@@ -11,6 +11,8 @@
  */
 use std::{env, fmt::Debug, fmt::Display};
 
+use ::rpc::forge;
+use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientConfig};
 use clap::Parser;
 use rocket::figment::Figment;
 use rocket::log::private::error;
@@ -23,11 +25,8 @@ use rocket::{
     Request,
 };
 use rocket_dyn_templates::Template;
-use serde::Serialize;
-
-use ::rpc::forge;
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientConfig};
 use rpc::forge::CloudInitInstructionsRequest;
+use serde::Serialize;
 
 mod logging;
 mod machine_architecture;
@@ -306,7 +305,9 @@ async fn main() -> Result<(), rocket::Error> {
 
 fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
     Ok(RuntimeConfig {
-        internal_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079".to_string(),
+        internal_api_url: figment
+            .extract_inner::<String>("carbide_api_internal_url")
+            .unwrap_or("https://carbide-api.forge-system.svc.cluster.local:1079".to_string()),
         client_facing_api_url: figment
             .extract_inner::<String>("carbide_api_url")
             .map_err(|_| "Could not extract carbide_api_client_facing_url from config")?,
