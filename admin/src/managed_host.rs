@@ -86,6 +86,7 @@ impl From<ManagedHostOutputWrapper> for Row {
         if src.more_details {
             row_data.extend_from_slice(&[
                 value.host_gpu_count.to_string(),
+                value.host_ib_ifs_count.to_string(),
                 value.host_memory.unwrap_or(UNKNOWN.to_owned()),
             ]);
         }
@@ -130,7 +131,7 @@ fn convert_managed_hosts_to_nice_output(
     }
 
     if more_details {
-        headers.extend_from_slice(&["GPU #", "Host Memory"]);
+        headers.extend_from_slice(&["GPU #", "IB IFs #", "Host Memory"]);
     }
 
     // TODO additional discovery work needed for remaining information
@@ -215,6 +216,10 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         ("  Serial Number", m.host_serial_number.clone()),
         ("  BIOS Version", m.host_bios_version.clone()),
         ("  GPU Count", Some(m.host_gpu_count.to_string())),
+        (
+            "  InfiniBand Interface Count",
+            Some(m.host_ib_ifs_count.to_string()),
+        ),
         ("  Memory", m.host_memory.clone()),
         ("  Admin IP", m.host_admin_ip.clone()),
         ("  Admin MAC", m.host_admin_mac.clone()),

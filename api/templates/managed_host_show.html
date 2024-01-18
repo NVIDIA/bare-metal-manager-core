@@ -65,6 +65,7 @@
 			<th>DPU BMC IP</th>
 			<th>Admin/OOB IP</th>
 			<th>GPU #</th>
+			<th>IB IFs #</th>
 			<th>Host Memory</th>
 		<tr/>
 	</thead>
@@ -91,6 +92,7 @@
 			<td>{{ host.dpu_bmc_ip }}</td>
 			<td>{{ host.host_admin_ip }}</td>
 			<td>{{ host.num_gpus }}</td>
+			<td>{{ host.num_ib_ifs }}</td>
 			<td>{{ host.host_memory }}</td>
 		<tr/>
 	{% endfor %}

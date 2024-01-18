@@ -261,7 +261,7 @@ struct MachineHistoryDisplay {
 }
 
 struct MachineInterfaceDisplay {
-    sn: usize,
+    index: usize,
     id: String,
     dpu_id: String,
     segment_id: String,
@@ -298,7 +298,7 @@ impl From<forgerpc::Machine> for MachineDetail {
                 hostname = interface.hostname.clone();
             }
             interfaces.push(MachineInterfaceDisplay {
-                sn: i,
+                index: i,
                 id: interface.id.clone().unwrap_or_default().to_string(),
                 dpu_id: interface
                     .attached_dpu_machine_id
