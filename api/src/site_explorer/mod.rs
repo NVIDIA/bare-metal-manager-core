@@ -10,9 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::IpAddr, sync::Arc, time::Duration};
 
-use mac_address::MacAddress;
 use sqlx::PgPool;
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
@@ -222,41 +221,33 @@ impl SiteExplorer {
             }
         }
 
-        // Collect all DPU BMC MACs. We will match the Host on DPUs and not the other way around,
-        // since the DPU MAC is actually stable.
-        let mut dpu_bmc_mac_to_endpoint = HashMap::new();
+        // Match HOST and DPU using SerialNumber.
+        // Compare DPU system.serial_number with HOST chassis.network_adapters[].serial_number
+        let mut dpu_sn_to_endpoint = HashMap::new();
         for ep in explored_dpus.iter() {
-            if let Some(mac_address) = ep
+            if let Some(sn) = ep
                 .report
-                .managers
+                .systems
                 .get(0)
-                .and_then(|m| m.ethernet_interfaces.get(0))
-                .and_then(|iface| iface.mac_address.as_ref())
-                .and_then(|mac| MacAddress::from_str(mac).ok())
+                .and_then(|system| system.serial_number.as_ref())
             {
-                dpu_bmc_mac_to_endpoint.insert(mac_address, ep);
+                dpu_sn_to_endpoint.insert(sn, ep);
             }
         }
 
         let mut managed_hosts = Vec::new();
         'loop_hosts: for ep in explored_hosts {
-            for system in ep.report.systems.iter() {
-                for iface in system.ethernet_interfaces.iter() {
-                    if let Some(possible_dpu_bmc_macs) = iface
-                        .mac_address
-                        .as_ref()
-                        .and_then(|mac| MacAddress::from_str(mac).ok())
-                        .and_then(matching_dpu_bmc_macs)
-                    {
-                        for mac in possible_dpu_bmc_macs {
-                            if let Some(dpu_ep) = dpu_bmc_mac_to_endpoint.get(&mac) {
-                                managed_hosts.push(ExploredManagedHost {
-                                    host_bmc_ip: ep.address,
-                                    dpu_bmc_ip: dpu_ep.address,
-                                });
-                                metrics.exploration_identified_managed_hosts += 1;
-                                continue 'loop_hosts;
-                            }
+            for chassis in ep.report.chassis.iter() {
+                for net_adapter in chassis.network_adapters.iter() {
+                    if net_adapter.serial_number.is_some() {
+                        let sn = net_adapter.serial_number.as_ref().unwrap();
+                        if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
+                            managed_hosts.push(ExploredManagedHost {
+                                host_bmc_ip: ep.address,
+                                dpu_bmc_ip: dpu_ep.address,
+                            });
+                            metrics.exploration_identified_managed_hosts += 1;
+                            continue 'loop_hosts;
                         }
                     }
                 }
@@ -542,82 +533,5 @@ impl SiteExplorer {
         }
 
         Ok(())
-    }
-}
-
-/// For a given Bluefield BMC MAC, calculates potentially matching Host (PF0)
-/// MAC addresses (also known as basemac).
-/// TODO: This logic is brittle and should no longer exist as soon as Bluefield
-/// redfish provides the Host MAC via redfish
-///
-/// We calculate the matching MACs as MACs whose address is 1 or 2 bytes higher
-fn matching_dpu_bmc_macs(host_mac: MacAddress) -> Option<[MacAddress; 2]> {
-    let bytes = host_mac.bytes();
-    let mut padded_bytes = [0u8; 8];
-    padded_bytes[2..8].copy_from_slice(&bytes[..]);
-    let u64_host_mac = u64::from_be_bytes(padded_bytes);
-
-    if u64_host_mac > 281474976710653u64 {
-        // We need at least 2 higher valid 48bit values
-        return None;
-    }
-
-    let u64_mac1 = u64_host_mac + 1;
-    let u64_mac2 = u64_host_mac + 2;
-
-    let mut mac1_bytes = [0u8; 6];
-    let mut mac2_bytes = [0u8; 6];
-    mac1_bytes.copy_from_slice(&u64::to_be_bytes(u64_mac1)[2..8]);
-    mac2_bytes.copy_from_slice(&u64::to_be_bytes(u64_mac2)[2..8]);
-
-    Some([MacAddress::from(mac1_bytes), MacAddress::from(mac2_bytes)])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_matching_dpu_bmc_macs() {
-        assert_eq!(
-            matching_dpu_bmc_macs("ab:cd:ef:12:34:56".parse().unwrap()),
-            Some([
-                "ab:cd:ef:12:34:57".parse().unwrap(),
-                "ab:cd:ef:12:34:58".parse().unwrap()
-            ])
-        );
-
-        assert_eq!(
-            matching_dpu_bmc_macs("ab:cd:ef:12:34:5e".parse().unwrap()),
-            Some([
-                "ab:cd:ef:12:34:5f".parse().unwrap(),
-                "ab:cd:ef:12:34:60".parse().unwrap()
-            ])
-        );
-
-        assert_eq!(
-            matching_dpu_bmc_macs("ab:cd:ef:ff:ff:ff".parse().unwrap()),
-            Some([
-                "ab:cd:f0:00:00:00".parse().unwrap(),
-                "ab:cd:f0:00:00:01".parse().unwrap()
-            ])
-        );
-
-        assert_eq!(
-            matching_dpu_bmc_macs("ff:ff:ff:ff:ff:fd".parse().unwrap()),
-            Some([
-                "ff:ff:ff:ff:ff:fe".parse().unwrap(),
-                "ff:ff:ff:ff:ff:ff".parse().unwrap()
-            ])
-        );
-
-        assert_eq!(
-            matching_dpu_bmc_macs("ff:ff:ff:ff:ff:ff".parse().unwrap()),
-            None
-        );
-        assert_eq!(
-            matching_dpu_bmc_macs("ff:ff:ff:ff:ff:fe".parse().unwrap()),
-            None
-        );
     }
 }

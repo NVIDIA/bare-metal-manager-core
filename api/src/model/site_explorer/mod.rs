@@ -39,6 +39,9 @@ pub struct EndpointExplorationReport {
     /// `Systems` reported by Redfish
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub systems: Vec<ComputerSystem>,
+    /// `Chassis` reported by Redfish
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chassis: Vec<Chassis>,
     /// If the endpoint is a BMC that belongs to a Machine and enough data is
     /// available to calculate the `MachineId`, this field contains the `MachineId`
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -56,6 +59,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             vendor: report.vendor,
             managers: report.managers.into_iter().map(Into::into).collect(),
             systems: report.systems.into_iter().map(Into::into).collect(),
+            chassis: report.chassis.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -120,6 +124,7 @@ impl EndpointExplorationReport {
             last_exploration_error: Some(e),
             managers: Vec::new(),
             systems: Vec::new(),
+            chassis: Vec::new(),
             vendor: None,
             machine_id: None,
         }
@@ -290,6 +295,53 @@ impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
     }
 }
 
+/// `Chassis` definition. Matches redfish definition
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Chassis {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub network_adapters: Vec<NetworkAdapter>,
+}
+
+impl From<Chassis> for rpc::site_explorer::Chassis {
+    fn from(chassis: Chassis) -> Self {
+        rpc::site_explorer::Chassis {
+            id: chassis.id,
+            network_adapters: chassis
+                .network_adapters
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
+}
+
+/// `NetworkAdapter` definition. Matches redfish definition
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct NetworkAdapter {
+    pub id: String,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+    #[serde(rename = "PartNumber")]
+    pub part_number: Option<String>,
+    #[serde(rename = "SerialNumber")]
+    pub serial_number: Option<String>,
+}
+
+impl From<NetworkAdapter> for rpc::site_explorer::NetworkAdapter {
+    fn from(adapter: NetworkAdapter) -> Self {
+        rpc::site_explorer::NetworkAdapter {
+            id: adapter.id,
+            manufacturer: adapter.manufacturer,
+            model: adapter.model,
+            part_number: adapter.part_number,
+            serial_number: adapter.serial_number,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,6 +398,10 @@ mod tests {
                 manufacturer: None,
                 model: None,
                 serial_number: Some("MT2242XZ00NX".to_string()),
+            }],
+            chassis: vec![Chassis {
+                id: "NIC.Slot.1".to_string(),
+                network_adapters: vec![],
             }],
             machine_id: None,
         };

@@ -377,10 +377,29 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
 
+    async fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
+        todo!()
+    }
+
     async fn get_chassis(
         &self,
         _id: &str,
     ) -> Result<libredfish::model::chassis::Chassis, RedfishError> {
+        todo!()
+    }
+
+    async fn get_chassis_network_adapters(
+        &self,
+        _chassis_id: &str,
+    ) -> Result<Vec<String>, RedfishError> {
+        todo!()
+    }
+
+    async fn get_chassis_network_adapter(
+        &self,
+        _chassis_id: &str,
+        _id: &str,
+    ) -> Result<libredfish::model::chassis::NetworkAdapter, RedfishError> {
         todo!()
     }
 
@@ -534,10 +553,6 @@ impl Redfish for RedfishSimClient {
     async fn get_system_event_log(
         &self,
     ) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
-        todo!()
-    }
-
-    async fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
         todo!()
     }
 

@@ -21,6 +21,8 @@ message EndpointExplorationReport {
     repeated Manager managers = 12;
     // `Systems` reported by Redfish
     repeated ComputerSystem systems = 13;
+    // `Chassis` reported by Redfish
+    repeated Chassis chassis = 14;
 }
 
 message ExploredEndpoint {
@@ -69,4 +71,19 @@ message EthernetInterface {
     optional string description = 2;
     optional bool interface_enabled = 3;
     optional string mac_address = 4;
+}
+
+// `Chassis` definition. Matches redfish definition
+message Chassis {
+    string id = 1;
+    repeated NetworkAdapter network_adapters = 2;
+}
+
+// `NetworkAdapter` definition. Matches redfish definition
+message NetworkAdapter {
+    string id = 1;
+    optional string manufacturer = 2;
+    optional string model = 3;
+    optional string part_number = 4;
+    optional string serial_number = 5;
 }
