@@ -30,7 +30,7 @@
 <h3>Interfaces</h3>
 {% for interface in interfaces %}
 <table>
-	<tr><th>SN</th><td>{{ interface.sn }}</td></tr>
+	<tr><th>Index</th><td>{{ interface.index }}</td></tr>
 	<tr><th>ID</th><td><a href="/admin/interface/{{ interface.id }}">{{ interface.id }}</a></td></tr>
 	{% if is_host %}
 		<tr><th>DPU ID</th><td><a href="/admin/machine/{{ interface.dpu_id }}">{{ interface.dpu_id }}</a></td></tr>

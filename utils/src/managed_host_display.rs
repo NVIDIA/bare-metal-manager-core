@@ -64,6 +64,7 @@ pub struct ManagedHostOutput {
     pub host_bmc_firmware_version: Option<String>,
     pub host_admin_ip: Option<String>,
     pub host_admin_mac: Option<String>,
+    pub host_ib_ifs_count: usize,
     pub host_gpu_count: usize,
     pub host_memory: Option<String>,
     pub maintenance_reference: Option<String>,
@@ -152,6 +153,10 @@ pub fn get_managed_host_output(
             .discovery_info
             .as_ref()
             .map_or(0, |di| di.gpus.len());
+        managed_host_output.host_ib_ifs_count = machine
+            .discovery_info
+            .as_ref()
+            .map_or(0, |di| di.infiniband_interfaces.len());
         managed_host_output.host_memory = machine
             .discovery_info
             .as_ref()

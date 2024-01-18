@@ -198,7 +198,7 @@ struct NetworkSegmentDetail {
 }
 
 struct NetworkSegmentPrefix {
-    sn: usize,
+    index: usize,
     id: String,
     prefix: String,
     gateway: String,
@@ -217,7 +217,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
         let mut prefixes = Vec::new();
         for (i, p) in segment.prefixes.into_iter().enumerate() {
             prefixes.push(NetworkSegmentPrefix {
-                sn: i,
+                index: i,
                 id: p.id.clone().unwrap_or_default().to_string(),
                 prefix: p.prefix,
                 gateway: p
