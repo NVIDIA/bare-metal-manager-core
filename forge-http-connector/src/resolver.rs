@@ -173,7 +173,8 @@ impl ForgeResolverOpts {
 
     #[must_use]
     pub fn use_mgmt_vrf(mut self) -> Self {
-        self.use_mgmt_vrf = true;
+        let ignore_mgmt_vrf = std::env::var("IGNORE_MGMT_VRF").is_ok();
+        self.use_mgmt_vrf = !ignore_mgmt_vrf;
         self
     }
 }

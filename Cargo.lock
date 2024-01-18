@@ -91,6 +91,7 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+ "url",
  "utils",
  "uuid 1.6.1",
 ]
