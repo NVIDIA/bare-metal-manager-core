@@ -142,8 +142,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
                 .unwrap_or(&"".to_string())
                 .trim()
                 .to_string(),
-        )
-        .map(|m| m.to_uppercase());
+        );
     }
 
     Ok(ComputerSystem {
@@ -272,8 +271,7 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
                         .unwrap_or(&"".to_string())
                         .trim()
                         .to_string(),
-                )
-                .map(|m| m.to_uppercase()),
+                ),
             };
 
             net_adapters.push(net_adapter);
