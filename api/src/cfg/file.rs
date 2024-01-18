@@ -270,6 +270,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .max_concurrent_machine_updates
                 .unwrap_or_default(),
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
+            dpu_dhcp_server_enabled: value.dpu_dhcp_server_enabled,
         }
     }
 }

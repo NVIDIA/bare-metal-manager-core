@@ -45,7 +45,7 @@ pub async fn handle_show_version(
 
         let mut table = Table::new();
 
-        table.add_row(Row::new(vec![Cell::new("Property"), Cell::new("Value")]));
+        table.set_titles(row!["Property", "Value"]);
         r!(table, config, listen);
         r!(table, config, metrics_endpoint);
         r!(table, config, otlp_endpoint);
@@ -80,6 +80,7 @@ pub async fn handle_show_version(
         r!(table, config, dpu_nic_firmware_reprovision_update_enabled);
         r!(table, config, max_concurrent_machine_updates);
         r!(table, config, machine_update_runtime_interval);
+        r!(table, config, dpu_dhcp_server_enabled);
 
         _ = table.print_tty(true);
     }
