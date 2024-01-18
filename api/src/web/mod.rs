@@ -30,6 +30,7 @@ use crate::cfg::CarbideConfig;
 use crate::ethernet_virtualization::EthVirtData;
 
 mod domain;
+mod explored_endpoint;
 mod filters;
 mod instance;
 mod interface;
@@ -54,6 +55,12 @@ pub fn routes<C1: CredentialProvider + 'static, C2: CertificateProvider + 'stati
             .route("/domain.json", get(domain::show_json))
             .route("/dpu", get(machine::show_dpus_html))
             .route("/dpu.json", get(machine::show_dpus_json))
+            .route("/explored_endpoint", get(explored_endpoint::show_html))
+            .route("/explored_endpoint.json", get(explored_endpoint::show_json))
+            .route(
+                "/explored_endpoint/:endpoint_ip",
+                get(explored_endpoint::detail),
+            )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/instance", get(instance::show_html))
