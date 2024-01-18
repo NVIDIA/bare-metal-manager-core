@@ -144,6 +144,11 @@ impl SiteExplorer {
                 elapsed_us = tracing::field::Empty,
                 otel.status_code = tracing::field::Empty,
                 otel.status_message = tracing::field::Empty,
+                identified_managed_hosts = tracing::field::Empty,
+                endpoint_explorations = tracing::field::Empty,
+                endpoint_explorations_success = tracing::field::Empty,
+                endpoint_explorations_failures = tracing::field::Empty,
+                endpoint_explorations_failures_by_type = tracing::field::Empty,
             );
 
             let res = self
@@ -152,6 +157,28 @@ impl SiteExplorer {
                 .await;
             let elapsed = metrics.start_time.elapsed();
             explore_site_span.record("elapsed_us", elapsed.as_micros());
+            explore_site_span.record(
+                "identified_managed_hosts",
+                metrics.exploration_identified_managed_hosts,
+            );
+            explore_site_span.record("endpoint_explorations", metrics.endpoint_explorations);
+            explore_site_span.record(
+                "endpoint_explorations_success",
+                metrics.endpoint_explorations_success,
+            );
+            explore_site_span.record(
+                "endpoint_explorations_failures",
+                metrics
+                    .endpoint_explorations_failures_by_type
+                    .values()
+                    .sum::<usize>(),
+            );
+            explore_site_span.record(
+                "endpoint_explorations_failures_by_type",
+                serde_json::to_string(&metrics.endpoint_explorations_failures_by_type)
+                    .unwrap_or_default(),
+            );
+
             match &res {
                 Ok(()) => {
                     explore_site_span.record("otel.status_code", "ok");
