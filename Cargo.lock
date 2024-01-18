@@ -2580,7 +2580,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.5",
  "tokio",
  "tower-service",
  "tracing",
@@ -2926,9 +2926,9 @@ checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
 name = "libredfish"
-version = "0.15.2"
+version = "0.15.3"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "30282c0dc991daac3d197006c08afa88c46899f40ab38e199653d70dccd524de"
+checksum = "4acdf2fc73efedfc5169e4b4f6b061532482c3b4522e69f907ae49b8784673ba"
 dependencies = [
  "async-trait",
  "log",
