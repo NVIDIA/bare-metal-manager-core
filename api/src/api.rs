@@ -4774,7 +4774,7 @@ where
             .map_err(|e| CarbideError::DatabaseError(file!(), "begin agent upgrade policy", e))?;
         let initial_policy: AgentUpgradePolicy = carbide_config
             .initial_dpu_agent_upgrade_policy
-            .unwrap_or(super::cfg::AgentUpgradePolicyChoice::Off)
+            .unwrap_or(super::cfg::AgentUpgradePolicyChoice::UpOnly)
             .into();
         let current_policy = DpuAgentUpgradePolicy::get(&mut txn).await?;
         // Only set if the very first time, it's the initial policy
