@@ -11,6 +11,11 @@
 	<tr>
 		<th>Host BMC IP</th>
 		<th>DPU BMC IP</th>
+		<th>DPU Machine ID</th>
+		<th>Host Vendor</th>
+		<th>Host Serial Nrs</th>
+		<th>DPU Serial Nrs</th>
+		<th>DPU OOB MAC</th>
 	</tr>
 </thead>
 <tbody>
@@ -18,6 +23,15 @@
 	<tr>
 		<td><a href="/admin/explored_endpoint/{{ mh.host_bmc_ip }}">{{ mh.host_bmc_ip }}</a></td>
 		<td><a href="/admin/explored_endpoint/{{ mh.dpu_bmc_ip }}">{{ mh.dpu_bmc_ip }}</a></td>
+		<td>{{ mh.host_vendor }}</td>
+		<td>
+			{% if !mh.dpu_machine_id.is_empty() %}
+			<a href="/admin/machine/{{ mh.dpu_machine_id }}">{{ mh.dpu_machine_id }}</a>
+			{% endif %}
+		</td>
+		<td>{{ mh.host_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
+		<td>{{ mh.dpu_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
+		<td>{{ mh.dpu_oob_mac }}</td>
 	</tr>
 {% endfor %}
 </tbody>
@@ -30,6 +44,8 @@
 	<tr>
 		<th>Address</th>
 		<th>Endpoint Type</th>
+		<th>BMC MAC</th>
+		<th>Vendor</th>
 		<th>Machine ID</th>
 		<th>Serial Numbers</th>
 		<th>Last Exploration Error</th>
@@ -40,6 +56,8 @@
 		<tr>
 			<td><a href="/admin/explored_endpoint/{{ ep.address }}">{{ ep.address }}</a></td>
 			<td>{{ ep.endpoint_type }}</td>
+			<td>{{ ep.bmc_mac_addrs|join("\n")|escape|linebreaksbr|safe }}</td>
+			<td>{{ ep.vendor }}</td>
 			<td>
 				{% if !ep.machine_id.is_empty() %}
 				<a href="/admin/machine/{{ ep.machine_id }}">{{ ep.machine_id }}</a>

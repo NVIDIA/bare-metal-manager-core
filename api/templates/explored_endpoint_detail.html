@@ -10,7 +10,7 @@
 	{% when Some with (report) %}
 	<tr><th>Endpoint Type</th><td>{{ report.endpoint_type }}</td></tr>
 	<tr><th>Vendor</th><td>{% match report.vendor %}{% when Some with (vendor) %} {{ vendor }} {% else %}{% endmatch %}</td></tr>
-	<tr><th>Machine ID</th><td>{% match report.machine_id %}{% when Some with (machine_id) %} {{ machine_id }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Machine ID</th><td>{% match report.machine_id %}{% when Some with (machine_id) %} <a href="/admin/machine/{{ machine_id }}">{{ machine_id }}</a> {% else %}{% endmatch %}</td></tr>
 	<tr><th>Last Exploration Error</th><td>{% match report.last_exploration_error %}{% when Some with (last_exploration_error) %} {{ last_exploration_error }} {% else %}{% endmatch %}</td></tr>
 	{% else %}
 	{% endmatch %}
@@ -27,8 +27,8 @@
 	<tr><th>Manufacturer</th><td>{% match system.manufacturer %}{% when Some with (manufacturer) %} {{ manufacturer }} {% else %}{% endmatch %}</td></tr>
 	<tr><th>Model</th><td>{% match system.model %}{% when Some with (model) %} {{ model }} {% else %}{% endmatch %}</td></tr>
 	<tr><th>Serial Number</th><td>{% match system.serial_number %}{% when Some with (serial_number) %} {{ serial_number }} {% else %}{% endmatch %}</td></tr>
-	<tr><th>Ethernet Interfaces</th><td>
-		<table>
+	<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
+		<table style="width: auto;">
 			<thead>
 				<tr>
 					<th>ID</th>
@@ -42,8 +42,8 @@
 				<tr>
 					<td>{% match iface.id %}{% when Some with (id) %} {{ id }} {% else %}{% endmatch %}</td>
 					<td>{% match iface.mac_address %}{% when Some with (mac_address) %} {{ mac_address }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
 					<td>{% match iface.interface_enabled %}{% when Some with (interface_enabled) %} {{ interface_enabled }} {% else %}{% endmatch %}</td>
+					<td>{% match iface.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
 				</tr>
 			{% endfor %}
 			</tbody>
@@ -56,8 +56,8 @@
 {% for manager in report.managers %}
 <table>
 	<tr><th>ID</th><td>{{ manager.id }}</td></tr>
-	<tr><th>Ethernet Interfaces</th><td>
-		<table>
+	<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
+		<table style="width: auto;">
 			<thead>
 				<tr>
 					<th>ID</th>
@@ -85,8 +85,8 @@
 {% for chassis in report.chassis %}
 <table>
 	<tr><th>ID</th><td>{{ chassis.id }}</td></tr>
-	<tr><th>Network Adapters</th><td>
-		<table>
+	<tr><th>Network Adapters</th><td style="padding: 0;">
+		<table style="width: auto;">
 			<thead>
 				<tr>
 					<th>ID</th>
