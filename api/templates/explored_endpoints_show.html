@@ -40,8 +40,12 @@
 		<tr>
 			<td><a href="/admin/explored_endpoint/{{ ep.address }}">{{ ep.address }}</a></td>
 			<td>{{ ep.endpoint_type }}</td>
-			<td>{{ ep.machine_id }}</td>
-			<td>{{ ep.serial_numbers|join("\n")|linebreaks }}</td>
+			<td>
+				{% if !ep.machine_id.is_empty() %}
+				<a href="/admin/machine/{{ ep.machine_id }}">{{ ep.machine_id }}</a>
+				{% endif %}
+			</td>
+			<td>{{ ep.serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
 			<td>{{ ep.last_exploration_error }}</td>
 		</tr>
 	{% endfor %}

@@ -34,9 +34,15 @@ struct ExploredEndpointsShow {
 
 impl From<SiteExplorationReport> for ExploredEndpointsShow {
     fn from(report: SiteExplorationReport) -> Self {
+        let mut endpoints: Vec<ExploredEndpointDisplay> =
+            report.endpoints.into_iter().map(Into::into).collect();
+        endpoints.sort_by_key(|ep| ep.address.clone());
+        let mut managed_hosts = report.managed_hosts;
+        managed_hosts.sort_by_key(|mh| mh.host_bmc_ip.clone());
+
         Self {
-            endpoints: report.endpoints.into_iter().map(Into::into).collect(),
-            managed_hosts: report.managed_hosts,
+            endpoints,
+            managed_hosts,
         }
     }
 }
