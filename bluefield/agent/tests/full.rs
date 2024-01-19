@@ -69,7 +69,7 @@ struct TestOut {
     hbn_root_dir: Option<tempfile::TempDir>,
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_etv() -> eyre::Result<()> {
     let out = run_common_parts(false).await?;
     if out.is_skip {
@@ -91,7 +91,7 @@ async fn test_etv() -> eyre::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_nvue() -> eyre::Result<()> {
     let out = run_common_parts(true).await?;
     if out.is_skip {
@@ -195,10 +195,10 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
         }
     });
 
-    // Let it run twice
-    // First time it noticed HBN is up. Second time it applies config.
-    // In config above period.main_loop_active_secs is 1 seconds, so make this 2 seconds
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Let it run twice. First time it noticed HBN is up. Second time it applies config.
+    // In config above period.main_loop_active_secs is 1 seconds, so make this 2 seconds, plus 1
+    // for slow CI.
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     join_handle.abort();
 
