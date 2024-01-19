@@ -21,7 +21,7 @@ use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-use rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
+use rpc::site_explorer::{ExploredEndpoint, SiteExplorationReport};
 
 use crate::api::Api;
 
@@ -29,16 +29,66 @@ use crate::api::Api;
 #[template(path = "explored_endpoints_show.html")]
 struct ExploredEndpointsShow {
     endpoints: Vec<ExploredEndpointDisplay>,
-    managed_hosts: Vec<ExploredManagedHost>,
+    managed_hosts: Vec<ExploredManagedHostDisplay>,
 }
 
 impl From<SiteExplorationReport> for ExploredEndpointsShow {
     fn from(report: SiteExplorationReport) -> Self {
-        let mut endpoints: Vec<ExploredEndpointDisplay> =
-            report.endpoints.into_iter().map(Into::into).collect();
-        endpoints.sort_by_key(|ep| ep.address.clone());
-        let mut managed_hosts = report.managed_hosts;
-        managed_hosts.sort_by_key(|mh| mh.host_bmc_ip.clone());
+        let endpoints: Vec<ExploredEndpointDisplay> =
+            report.endpoints.iter().map(Into::into).collect();
+
+        let mut managed_hosts = Vec::new();
+        for mh in report.managed_hosts {
+            let host = match report
+                .endpoints
+                .binary_search_by(|ep| ep.address.cmp(&mh.host_bmc_ip))
+            {
+                Ok(idx) => Some(&report.endpoints[idx]),
+                Err(_) => None,
+            };
+            let host = host.and_then(|h| h.report.as_ref());
+            // We can only binary search by host because the endpoints list is
+            // sorted by that
+            let dpu = report
+                .endpoints
+                .iter()
+                .find(|ep| ep.address == mh.dpu_bmc_ip);
+            let dpu = dpu.and_then(|dpu| dpu.report.as_ref());
+
+            managed_hosts.push(ExploredManagedHostDisplay {
+                host_bmc_ip: mh.host_bmc_ip,
+                dpu_bmc_ip: mh.dpu_bmc_ip,
+                dpu_machine_id: dpu
+                    .map(|report| report.machine_id().to_string())
+                    .unwrap_or_default(),
+                host_vendor: host
+                    .map(|report| report.vendor().to_string())
+                    .unwrap_or_default(),
+                host_serial_numbers: host
+                    .map(|report| {
+                        report
+                            .systems
+                            .iter()
+                            .filter_map(|sys| sys.serial_number.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                dpu_serial_numbers: dpu
+                    .map(|report| {
+                        report
+                            .systems
+                            .iter()
+                            .filter_map(|sys| sys.serial_number.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                dpu_oob_mac: dpu
+                    .and_then(|report| report.systems.get(0))
+                    .and_then(|sys| sys.ethernet_interfaces.get(0))
+                    .and_then(|iface| iface.mac_address.clone())
+                    .unwrap_or_default(),
+            });
+        }
 
         Self {
             endpoints,
@@ -47,24 +97,51 @@ impl From<SiteExplorationReport> for ExploredEndpointsShow {
     }
 }
 
+struct ExploredManagedHostDisplay {
+    host_bmc_ip: String,
+    dpu_bmc_ip: String,
+    dpu_machine_id: String,
+    host_vendor: String,
+    dpu_serial_numbers: Vec<String>,
+    host_serial_numbers: Vec<String>,
+    dpu_oob_mac: String,
+}
 struct ExploredEndpointDisplay {
     address: String,
     endpoint_type: String,
     last_exploration_error: String,
+    vendor: String,
+    bmc_mac_addrs: Vec<String>,
     machine_id: String,
     serial_numbers: Vec<String>,
 }
 
-impl From<ExploredEndpoint> for ExploredEndpointDisplay {
-    fn from(ep: ExploredEndpoint) -> Self {
+impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
+    fn from(ep: &ExploredEndpoint) -> Self {
         let report_ref = ep.report.as_ref();
         Self {
-            address: ep.address,
+            address: ep.address.clone(),
             endpoint_type: report_ref
                 .map(|report| report.endpoint_type.clone())
                 .unwrap_or_default(),
             last_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.clone())
+                .unwrap_or_default(),
+            bmc_mac_addrs: report_ref
+                .map(|report| {
+                    report
+                        .managers
+                        .iter()
+                        .flat_map(|m| {
+                            m.ethernet_interfaces
+                                .iter()
+                                .filter_map(|iface| iface.mac_address.clone())
+                        })
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default(),
+            vendor: report_ref
+                .and_then(|report| report.vendor.clone())
                 .unwrap_or_default(),
             machine_id: report_ref
                 .and_then(|report| report.machine_id.clone())
@@ -129,6 +206,14 @@ async fn fetch_explored_endpoints<
     api.get_site_exploration_report(request)
         .await
         .map(|response| response.into_inner())
+        .map(|mut report| {
+            // Sort everything for a a pretter display
+            report.endpoints.sort_by(|a, b| a.address.cmp(&b.address));
+            report
+                .managed_hosts
+                .sort_by(|a, b| a.host_bmc_ip.cmp(&b.host_bmc_ip));
+            report
+        })
 }
 
 #[derive(Template)]
