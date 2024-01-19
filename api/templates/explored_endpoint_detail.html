@@ -28,7 +28,7 @@
 	<tr><th>Model</th><td>{% match system.model %}{% when Some with (model) %} {{ model }} {% else %}{% endmatch %}</td></tr>
 	<tr><th>Serial Number</th><td>{% match system.serial_number %}{% when Some with (serial_number) %} {{ serial_number }} {% else %}{% endmatch %}</td></tr>
 	<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
-		<table style="width: auto;">
+		<table style="width: 100%;">
 			<thead>
 				<tr>
 					<th>ID</th>
@@ -57,7 +57,7 @@
 <table>
 	<tr><th>ID</th><td>{{ manager.id }}</td></tr>
 	<tr><th>Ethernet Interfaces</th><td style="padding: 0;">
-		<table style="width: auto;">
+		<table style="width: 100%;">
 			<thead>
 				<tr>
 					<th>ID</th>
@@ -86,7 +86,7 @@
 <table>
 	<tr><th>ID</th><td>{{ chassis.id }}</td></tr>
 	<tr><th>Network Adapters</th><td style="padding: 0;">
-		<table style="width: auto;">
+		<table style="width: 100%;">
 			<thead>
 				<tr>
 					<th>ID</th>
