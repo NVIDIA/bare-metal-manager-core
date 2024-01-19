@@ -69,7 +69,7 @@ struct TestOut {
     hbn_root_dir: Option<tempfile::TempDir>,
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_etv() -> eyre::Result<()> {
     let out = run_common_parts(false).await?;
     if out.is_skip {
@@ -91,7 +91,7 @@ async fn test_etv() -> eyre::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_nvue() -> eyre::Result<()> {
     let out = run_common_parts(true).await?;
     if out.is_skip {
