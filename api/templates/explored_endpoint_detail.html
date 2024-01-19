@@ -71,8 +71,8 @@
 				<tr>
 					<td>{% match iface.id %}{% when Some with (id) %} {{ id }} {% else %}{% endmatch %}</td>
 					<td>{% match iface.mac_address %}{% when Some with (mac_address) %} {{ mac_address }} {% else %}{% endmatch %}</td>
-					<td>{% match iface.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
 					<td>{% match iface.interface_enabled %}{% when Some with (interface_enabled) %} {{ interface_enabled }} {% else %}{% endmatch %}</td>
+					<td>{% match iface.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
 				</tr>
 			{% endfor %}
 			</tbody>
