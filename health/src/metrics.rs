@@ -164,15 +164,18 @@ fn export_fans(meter: Meter, fans: Vec<Fan>, machine_id: &str) -> Result<(), Hea
 
 fn export_voltages(
     meter: Meter,
-    voltages: Vec<Voltages>,
+    voltages: Option<Vec<Voltages>>,
     machine_id: &str,
 ) -> Result<(), HealthError> {
+    if voltages.is_none() {
+        return Ok(());
+    }
     let voltage_sensors = meter
         .f64_observable_gauge("hw.voltage")
         .with_description("Voltages for this hardware")
         .with_unit(Unit::new("V"))
         .init();
-    for voltage in voltages.iter() {
+    for voltage in voltages.unwrap().iter() {
         if voltage.reading_volts.is_none() {
             continue;
         }
