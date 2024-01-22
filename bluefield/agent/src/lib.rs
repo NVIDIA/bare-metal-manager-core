@@ -43,6 +43,8 @@ mod instance_metadata_endpoint;
 mod instance_metadata_fetcher;
 mod instrumentation;
 mod interfaces;
+
+mod machine_inventory_updater;
 mod main_loop;
 mod mtu;
 mod network_config_fetcher;

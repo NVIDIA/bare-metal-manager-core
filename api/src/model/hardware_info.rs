@@ -12,9 +12,11 @@
 
 //! Describes hardware that is discovered by Forge
 
-use base64::prelude::*;
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use base64::prelude::*;
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
 
@@ -718,6 +720,74 @@ impl BMCVendor {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DpuAgentInventoryReport {
+    pub machine_id: String,
+    pub inventory: MachineInventory,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MachineInventory {
+    pub components: Vec<MachineInventorySoftwareComponent>,
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MachineInventorySoftwareComponent {
+    name: String,
+    version: String,
+    url: String,
+}
+
+impl Display for MachineInventorySoftwareComponent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}:{}", self.url, self.name, self.version)
+    }
+}
+
+impl TryFrom<::rpc::forge::MachineInventory> for MachineInventory {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::forge::MachineInventory) -> Result<Self, Self::Error> {
+        Ok(MachineInventory {
+            components: value
+                .components
+                .into_iter()
+                .map(MachineInventorySoftwareComponent::try_from)
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+impl TryFrom<::rpc::forge::MachineInventorySoftwareComponent>
+    for MachineInventorySoftwareComponent
+{
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::forge::MachineInventorySoftwareComponent) -> Result<Self, Self::Error> {
+        Ok(MachineInventorySoftwareComponent {
+            name: value.name,
+            version: value.version,
+            url: value.url,
+        })
+    }
+}
+
+impl From<MachineInventory> for rpc::forge::MachineInventory {
+    fn from(value: MachineInventory) -> Self {
+        rpc::forge::MachineInventory {
+            components: value
+                .components
+                .into_iter()
+                .map(|c| rpc::forge::MachineInventorySoftwareComponent {
+                    name: c.name,
+                    version: c.version,
+                    url: c.url,
+                })
+                .collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -726,6 +796,29 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/src/model/hardware_info/test_data"
     );
+
+    #[test]
+    fn test_machine_inventory_json_representation() {
+        let inventory = MachineInventory {
+            components: vec![
+                MachineInventorySoftwareComponent {
+                    name: "foo".to_string(),
+                    version: "1.0".to_string(),
+                    url: "".to_string(),
+                },
+                MachineInventorySoftwareComponent {
+                    name: "bar".to_string(),
+                    version: "2.0".to_string(),
+                    url: "nvidia.com".to_string(),
+                },
+            ],
+        };
+        let json = serde_json::to_string(&inventory).unwrap();
+        assert_eq!(
+            json,
+            r#"{"components":[{"name":"foo","version":"1.0","url":""},{"name":"bar","version":"2.0","url":"nvidia.com"}]}"#
+        );
+    }
 
     #[test]
     fn serialize_blockdev() {

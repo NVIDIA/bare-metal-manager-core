@@ -53,6 +53,7 @@ main-loop-active-secs = 1
 network-config-fetch-secs = 1
 main-loop-idle-secs = 30
 version-check-secs = 1800
+inventory-update-secs = 5
 "#;
 
 #[derive(Default, Debug)]

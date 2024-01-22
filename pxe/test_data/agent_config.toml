@@ -26,3 +26,4 @@ main-loop-idle-secs = 30
 main-loop-active-secs = 10
 network-config-fetch-secs = 30
 version-check-secs = 1800
+inventory-update-secs = 3600

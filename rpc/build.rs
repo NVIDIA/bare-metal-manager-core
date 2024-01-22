@@ -83,6 +83,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.MachineInterface", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineState", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineArchitecture", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.MachineInventory", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.MachineInventorySoftwareComponent",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.NetworkHealth", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
