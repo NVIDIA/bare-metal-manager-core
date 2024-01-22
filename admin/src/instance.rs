@@ -47,7 +47,7 @@ fn convert_instance_to_nice_format(
                 .status
                 .as_ref()
                 .and_then(|status| status.tenant.as_ref())
-                .and_then(|tenant| forgerpc::TenantState::from_i32(tenant.state))
+                .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
                 .map(|state| format!("{:?}", state))
                 .unwrap_or_default(),
         ),
@@ -65,7 +65,7 @@ fn convert_instance_to_nice_format(
             instance
                 .status
                 .as_ref()
-                .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{:?}", state))
                 .unwrap_or_default(),
         ),
@@ -75,7 +75,7 @@ fn convert_instance_to_nice_format(
                 .status
                 .as_ref()
                 .and_then(|status| status.network.as_ref())
-                .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{:?}", state))
                 .unwrap_or_default(),
         ),
@@ -149,7 +149,8 @@ fn convert_instance_to_nice_format(
             let data = &[
                 (
                     "FUNCTION_TYPE",
-                    forgerpc::InterfaceFunctionType::from_i32(interface.function_type)
+                    forgerpc::InterfaceFunctionType::try_from(interface.function_type)
+                        .ok()
                         .map(|ty| format!("{:?}", ty))
                         .unwrap_or_else(|| "INVALID".to_string()),
                 ),
@@ -209,14 +210,14 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .status
             .as_ref()
             .and_then(|status| status.tenant.as_ref())
-            .and_then(|tenant| forgerpc::TenantState::from_i32(tenant.state))
+            .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
             .map(|state| format!("{:?}", state))
             .unwrap_or_default();
 
         let configs_synced = instance
             .status
             .as_ref()
-            .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+            .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
             .map(|state| format!("{:?}", state))
             .unwrap_or_default();
 

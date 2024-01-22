@@ -18,7 +18,6 @@ use ::rpc::forge as rpc;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-
 use sqlx::{Postgres, Transaction};
 
 use super::{machine::DbMachineId, DatabaseError};
@@ -117,12 +116,12 @@ impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
             .ok_or_else(|| CarbideError::GenericError("Machine id is null".to_string()))?;
         Ok(BmcMetaDataGetRequest {
             machine_id: try_parse_machine_id(&machine_id)?,
-            role: UserRoles::from(match rpc::UserRoles::from_i32(value.role) {
-                Some(x) => x,
-                None => {
-                    return Err(CarbideError::GenericError(
-                        "Invalid role found.".to_string(),
-                    ));
+            role: UserRoles::from(match rpc::UserRoles::try_from(value.role) {
+                Ok(x) => x,
+                Err(err) => {
+                    return Err(CarbideError::GenericError(format!(
+                        "Invalid role found: {err}."
+                    )));
                 }
             }),
         })
@@ -181,8 +180,8 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
     fn try_from(request: rpc::BmcMetaDataUpdateRequest) -> CarbideResult<Self> {
         let mut data: Vec<BmcMetadataItem> = Vec::new();
         for v in request.data {
-            let role = UserRoles::from(rpc::UserRoles::from_i32(v.role).ok_or_else(|| {
-                CarbideError::GenericError(format!("Can't convert role: {:?}", v.role))
+            let role = UserRoles::from(rpc::UserRoles::try_from(v.role).map_err(|err| {
+                CarbideError::GenericError(format!("Can't convert role: {:?}: {err}", v.role))
             })?);
             data.push(BmcMetadataItem {
                 username: v.user.clone(),

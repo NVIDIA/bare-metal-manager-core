@@ -11,6 +11,7 @@
  */
 
 use std::num::ParseIntError;
+
 use utils::cmd::CmdError;
 
 #[derive(thiserror::Error, Debug)]
@@ -43,6 +44,9 @@ pub enum CarbideClientError {
 
     #[error("Invalid gRPC enum value: {0}")]
     DiscriminantError(#[from] rpc::DiscriminantError),
+
+    #[error("Error decoding gRPC enum value: {0}")]
+    RpcDecodeError(String), // This should be '#[from] prost::DecodeError)' but don't work
 
     #[error("Subprocess failed: {0}")]
     SubprocessError(#[from] CmdError),

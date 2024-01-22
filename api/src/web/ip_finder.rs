@@ -62,10 +62,10 @@ pub async fn find<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
             }
         };
         for m in out.matches {
-            let ip_type = match forgerpc::IpType::from_i32(m.ip_type) {
-                Some(t) => t,
-                None => {
-                    tracing::error!(ip_type = m.ip_type, "Invalid IpType");
+            let ip_type = match forgerpc::IpType::try_from(m.ip_type) {
+                Ok(t) => t,
+                Err(err) => {
+                    tracing::error!(ip_type = m.ip_type, error = %err, "Invalid IpType");
                     continue;
                 }
             };

@@ -52,7 +52,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
             created: segment.created.unwrap_or_default().to_string(),
             state: format!(
                 "{:?}",
-                forgerpc::TenantState::from_i32(segment.state).unwrap_or_default()
+                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
             sub_domain: String::new(), // filled in later
             mtu: segment.mtu.unwrap_or(-1),
@@ -102,10 +102,10 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
         let segment_type = n.segment_type;
         let mut display: NetworkSegmentRowDisplay = n.into();
         display.sub_domain = domain_name;
-        match forgerpc::NetworkSegmentType::from_i32(segment_type) {
-            Some(forgerpc::NetworkSegmentType::Admin) => admin.push(display),
-            Some(forgerpc::NetworkSegmentType::Underlay) => underlay.push(display),
-            Some(forgerpc::NetworkSegmentType::Tenant) => tenant.push(display),
+        match forgerpc::NetworkSegmentType::try_from(segment_type) {
+            Ok(forgerpc::NetworkSegmentType::Admin) => admin.push(display),
+            Ok(forgerpc::NetworkSegmentType::Underlay) => underlay.push(display),
+            Ok(forgerpc::NetworkSegmentType::Tenant) => tenant.push(display),
             _ => {
                 tracing::error!(segment_type, "Invalid NetworkSegmentType, skipping");
             }
@@ -248,7 +248,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 .unwrap_or("Not Deleted".to_string()),
             state: format!(
                 "{:?}",
-                forgerpc::TenantState::from_i32(segment.state).unwrap_or_default()
+                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
             domain_id: segment
                 .subdomain_id
@@ -257,7 +257,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
             domain_name: String::new(), // filled in later
             segment_type: format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::from_i32(segment.segment_type).unwrap_or_default()
+                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
             ),
             prefixes,
             history,

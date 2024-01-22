@@ -181,13 +181,13 @@ async fn show<C1: CredentialProvider + 'static, C2: CertificateProvider + 'stati
     let mut machines: Vec<MachineRowDisplay> = Vec::new();
     use forgerpc::MachineType;
     for m in all_machines.machines.drain(..) {
-        match MachineType::from_i32(m.machine_type) {
-            Some(MachineType::Host) => {
+        match MachineType::try_from(m.machine_type) {
+            Ok(MachineType::Host) => {
                 if include_hosts {
                     machines.push(m.into());
                 }
             }
-            Some(MachineType::Dpu) => {
+            Ok(MachineType::Dpu) => {
                 if include_dpus {
                     machines.push(m.into());
                 }

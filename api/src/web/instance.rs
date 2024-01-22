@@ -53,14 +53,14 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .status
             .as_ref()
             .and_then(|status| status.tenant.as_ref())
-            .and_then(|tenant| forgerpc::TenantState::from_i32(tenant.state))
+            .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
             .map(|state| format!("{:?}", state))
             .unwrap_or_default();
 
         let configs_synced = instance
             .status
             .as_ref()
-            .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+            .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
             .map(|state| format!("{:?}", state))
             .unwrap_or_default();
 
@@ -175,9 +175,10 @@ impl From<forgerpc::Instance> for InstanceDetail {
             for (i, interface) in if_configs.iter().enumerate() {
                 let status = &if_status[i];
                 interfaces.push(InstanceInterface {
-                    function_type: forgerpc::InterfaceFunctionType::from_i32(
+                    function_type: forgerpc::InterfaceFunctionType::try_from(
                         interface.function_type,
                     )
+                    .ok()
                     .map(|ty| format!("{:?}", ty))
                     .unwrap_or_else(|| "INVALID".to_string()),
                     vf_id: status
@@ -207,7 +208,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .status
                 .as_ref()
                 .and_then(|status| status.tenant.as_ref())
-                .and_then(|tenant| forgerpc::TenantState::from_i32(tenant.state))
+                .and_then(|tenant| forgerpc::TenantState::try_from(tenant.state).ok())
                 .map(|state| format!("{:?}", state))
                 .unwrap_or_default(),
             tenant_state_details: instance
@@ -219,14 +220,14 @@ impl From<forgerpc::Instance> for InstanceDetail {
             configs_synced: instance
                 .status
                 .as_ref()
-                .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{:?}", state))
                 .unwrap_or_default(),
             network_config_synced: instance
                 .status
                 .as_ref()
                 .and_then(|status| status.network.as_ref())
-                .and_then(|status| forgerpc::SyncState::from_i32(status.configs_synced))
+                .and_then(|status| forgerpc::SyncState::try_from(status.configs_synced).ok())
                 .map(|state| format!("{:?}", state))
                 .unwrap_or_default(),
             network_config_version: instance.network_config_version,

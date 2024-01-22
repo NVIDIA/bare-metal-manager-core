@@ -53,7 +53,7 @@ async fn get_partition_state(api: &TestApi, ib_partition_id: uuid::Uuid) -> Tena
         .remove(0);
     let status = segment.status.unwrap();
 
-    TenantState::from_i32(status.state).unwrap()
+    TenantState::try_from(status.state).unwrap()
 }
 
 async fn test_ib_partition_lifecycle_impl(

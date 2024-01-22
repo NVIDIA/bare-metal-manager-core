@@ -2796,8 +2796,8 @@ where
                 .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {}", e)))?,
         };
 
-        let arch = rpc::MachineArchitecture::from_i32(request.arch)
-            .ok_or(Status::invalid_argument("Unknown arch received."))?;
+        let arch = rpc::MachineArchitecture::try_from(request.arch)
+            .map_err(|_| Status::invalid_argument("Unknown arch received."))?;
         let pxe_script =
             PxeInstructions::get_pxe_instructions(&mut txn, interface_id, arch).await?;
 
