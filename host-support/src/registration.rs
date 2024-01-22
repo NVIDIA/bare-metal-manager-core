@@ -15,6 +15,9 @@ use ::rpc::forge::MachineCertificate;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 use ::rpc::machine_discovery as rpc_discovery;
 
+use ::rpc::forge_tls_client::DEFAULT_CLIENT_CERT;
+use ::rpc::forge_tls_client::DEFAULT_CLIENT_KEY;
+
 #[derive(thiserror::Error, Debug)]
 pub enum RegistrationError {
     #[error("Transport error {0}")]
@@ -102,11 +105,36 @@ pub async fn write_certs(machine_certificate: Option<MachineCertificate>) {
         combined_cert.append(&mut "\n".to_string().into_bytes());
         combined_cert.append(&mut machine_certificate.issuing_ca);
         combined_cert.append(&mut "\n".to_string().into_bytes());
-        let _ = tokio::fs::write("/opt/forge/machine_cert.pem", combined_cert).await;
-        let _ = tokio::fs::write(
-            "/opt/forge/machine_cert.key",
+        match tokio::fs::write(DEFAULT_CLIENT_CERT, combined_cert).await {
+            Ok(_val) => tracing::info!(
+                "Wrote new machine certificate PEM to: {:?}",
+                DEFAULT_CLIENT_CERT
+            ),
+            Err(err) => {
+                tracing::error!(
+                    error = format!("{err:#}"),
+                    "Failed to write new machine certificate PEM to: {:?}",
+                    DEFAULT_CLIENT_CERT
+                );
+            }
+        }
+        match tokio::fs::write(
+            DEFAULT_CLIENT_KEY,
             machine_certificate.private_key.as_slice(),
         )
-        .await;
+        .await
+        {
+            Ok(_val) => tracing::info!(
+                "Wrote new machine certificate key to: {:?}",
+                DEFAULT_CLIENT_KEY
+            ),
+            Err(err) => {
+                tracing::error!(
+                    error = format!("{err:#}"),
+                    "Failed to write new machine certificate key to: {:?}",
+                    DEFAULT_CLIENT_KEY
+                );
+            }
+        }
     }
 }

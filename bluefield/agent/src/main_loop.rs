@@ -372,6 +372,7 @@ async fn renew_certificates(
     match client.renew_machine_certificate(request).await {
         Ok(response) => {
             let machine_certificate_result = response.into_inner();
+            tracing::info!("Received new machine certificate. Attempting to write to disk.");
             registration::write_certs(machine_certificate_result.machine_certificate).await;
         }
         Err(err) => {
