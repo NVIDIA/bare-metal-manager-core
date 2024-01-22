@@ -21,5 +21,5 @@ If you're new or bored, feel free to do one of these:
 
 ## If you see something, say something
 
-If you see possible improvements or doing things that are sub-optimial, but don't have time to fix it, just file a jira and move on.
+If you see possible improvements or doing things that are sub-optimal, but don't have time to fix it, just file a jira and move on.
 
