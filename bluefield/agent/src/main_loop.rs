@@ -48,12 +48,11 @@ pub async fn run(
     mac_address: &str,
     forge_client_config: forge_tls_client::ForgeClientConfig,
     agent: AgentConfig,
-    options: Option<command_line::RunOptions>,
+    options: command_line::RunOptions,
 ) -> eyre::Result<()> {
     let mut term_signal = signal(SignalKind::terminate())?;
 
-    let enable_metadata_service = options.map(|o| o.enable_metadata_service).unwrap_or(false);
-    if enable_metadata_service {
+    if options.enable_metadata_service {
         if let (Some(metadata_service_config), Some(telemetry_config)) =
             (&agent.metadata_service, &agent.telemetry)
         {

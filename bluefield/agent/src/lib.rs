@@ -84,24 +84,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     .use_mgmt_vrf()?;
 
     match cmdline.cmd {
-        // TODO until Oct 2023 forge-dpu-agent in prod used this
-        // Now the systemd service calls 'run'. Remove this in the future.
+        // Until Oct 2023 forge-dpu-agent in prod used this to mean 'run'.
         None => {
-            let Registration {
-                machine_id,
-                factory_mac_address,
-            } = register(&agent).await?;
-            main_loop::run(
-                &machine_id,
-                &factory_mac_address,
-                forge_client_config,
-                agent,
-                None,
-            )
-            .await?;
+            tracing::error!("Missing cmd. Try `forge-dpu-agent --help`");
         }
 
-        // "run" is the normal and default command
+        // "run" is the normal command
         Some(AgentCommand::Run(options)) => {
             let Registration {
                 machine_id,
@@ -120,7 +108,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 &factory_mac_address,
                 forge_client_config,
                 agent,
-                Some(options),
+                options,
             )
             .await
             .wrap_err("main_loop exit")?;
