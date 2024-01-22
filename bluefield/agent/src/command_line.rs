@@ -31,7 +31,9 @@ pub struct Options {
 #[derive(Parser, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum AgentCommand {
-    #[clap(about = "Run is the normal and default command")]
+    #[clap(
+        about = "Run is the normal command. Runs main loop forever, configures networking, etc."
+    )]
     Run(RunOptions),
 
     #[clap(about = "Detect hardware and exit")]
