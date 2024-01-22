@@ -163,11 +163,13 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
         let mut assigned_vfs: u8 = 0;
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
         for iface in config.interfaces.into_iter() {
-            let iface_type = rpc::InterfaceFunctionType::from_i32(iface.function_type)
-                .and_then(|ty| InterfaceFunctionType::try_from(ty).ok())
-                .ok_or(RpcDataConversionError::InvalidInterfaceFunctionType(
-                    iface.function_type,
-                ))?;
+            let rpc_iface_type = rpc::InterfaceFunctionType::try_from(iface.function_type)
+                .map_err(|_| {
+                    RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
+                })?;
+            let iface_type = InterfaceFunctionType::try_from(rpc_iface_type).map_err(|_| {
+                RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
+            })?;
 
             let function_id = match iface_type {
                 InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},

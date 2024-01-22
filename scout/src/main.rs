@@ -152,7 +152,8 @@ async fn query_api(config: &Options, machine_id: &str) -> CarbideClientResult<Ac
     let request = tonic::Request::new(query);
     let mut client = client::create_forge_client(config).await?;
     let response = client.forge_agent_control(request).await?.into_inner();
-    let action = Action::try_from(response.action)?;
+    let action = Action::try_from(response.action)
+        .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
     Ok(action)
 }
 

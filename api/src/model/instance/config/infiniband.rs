@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use uuid::Uuid;
 
 use rpc::forge as rpc;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 // TODO(k82cn): It's better to move FunctionId/FunctionType to a standalone model.
 use super::network::{InterfaceFunctionId, InterfaceFunctionType};
@@ -77,11 +77,13 @@ impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
         let mut assigned_vfs: u8 = 0;
         let mut ib_interfaces = Vec::with_capacity(config.ib_interfaces.len());
         for iface in config.ib_interfaces.into_iter() {
-            let iface_type = rpc::InterfaceFunctionType::from_i32(iface.function_type)
-                .and_then(|ty| InterfaceFunctionType::try_from(ty).ok())
-                .ok_or(RpcDataConversionError::InvalidInterfaceFunctionType(
-                    iface.function_type,
-                ))?;
+            let rpc_iface_type = rpc::InterfaceFunctionType::try_from(iface.function_type)
+                .map_err(|_| {
+                    RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
+                })?;
+            let iface_type = InterfaceFunctionType::try_from(rpc_iface_type).map_err(|_| {
+                RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
+            })?;
 
             let function_id = match iface_type {
                 InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},

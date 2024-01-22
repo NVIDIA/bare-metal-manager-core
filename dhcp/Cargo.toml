@@ -24,7 +24,7 @@ opentelemetry-semantic-conventions = "0.13.0"
 opentelemetry-prometheus = "0.14.1"
 opentelemetry-otlp = { version = "0.14.0", features = ["metrics"] }
 opentelemetry_sdk = { version = "0.21.1", features = ["logs", "rt-tokio"] }
-prost = "0.11.3"
+prost = "0.12"
 rpc = { path = "../rpc" }
 tokio = { workspace = true }
 tonic = { workspace = true }

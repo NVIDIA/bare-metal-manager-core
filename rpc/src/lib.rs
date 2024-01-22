@@ -37,18 +37,15 @@ pub use crate::protos::forge::{
     NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState,
     TenantConfig, TenantState, Uuid,
 };
-
 pub use crate::protos::forge::{
     IbPartition, IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
     IbPartitionList, IbPartitionQuery, InstanceIbInterfaceConfig, InstanceIbInterfaceStatus,
     InstanceInfinibandConfig, InstanceInfinibandStatus,
 };
-
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
 };
-
 pub use crate::protos::site_explorer;
 
 pub mod forge_tls_client;
@@ -182,35 +179,9 @@ pub struct DiscriminantError(i32);
 
 impl std::error::Error for DiscriminantError {}
 
-impl TryFrom<i32> for CredentialPurpose {
-    type Error = DiscriminantError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            x if x == Self::Hbn as i32 => Ok(Self::Hbn),
-            x if x == Self::LoginUser as i32 => Ok(Self::LoginUser),
-            _ => Err(DiscriminantError(value)),
-        }
-    }
-}
-
 impl std::fmt::Display for DiscriminantError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "Invalid enum value: {}", self.0)
-    }
-}
-
-impl TryFrom<i32> for forge_agent_control_response::Action {
-    type Error = DiscriminantError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            x if x == Self::Noop as i32 => Ok(Self::Noop),
-            x if x == Self::Reset as i32 => Ok(Self::Reset),
-            x if x == Self::Discovery as i32 => Ok(Self::Discovery),
-            x if x == Self::Rebuild as i32 => Ok(Self::Rebuild),
-            _ => Err(DiscriminantError(value)),
-        }
     }
 }
 
@@ -271,31 +242,6 @@ impl serde::Serialize for forge::MachineId {
 impl MachineInterface {
     pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, MacParseError> {
         Ok(Some(MacAddress::from_str(&self.mac_address)?))
-    }
-}
-
-impl TryFrom<i32> for ResourcePoolType {
-    type Error = DiscriminantError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            x if x == Self::Integer as i32 => Ok(Self::Integer),
-            x if x == Self::Ipv4 as i32 => Ok(Self::Ipv4),
-            _ => Err(DiscriminantError(value)),
-        }
-    }
-}
-
-impl TryFrom<i32> for CredentialType {
-    type Error = DiscriminantError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            x if x == Self::HostBmc as i32 => Ok(Self::HostBmc),
-            x if x == Self::Dpubmc as i32 => Ok(Self::Dpubmc),
-            x if x == Self::Ufm as i32 => Ok(Self::Ufm),
-            _ => Err(DiscriminantError(value)),
-        }
     }
 }
 

@@ -30,7 +30,7 @@ authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 tokio = { version = "1", features = ["full", "tracing"] }
-tonic = { version = "0.9.0", features = ["tls"] }
+tonic = { version = "0.10", features = ["tls"] }
 
 [profile.release]
 debug = true            # Enable debuginfo

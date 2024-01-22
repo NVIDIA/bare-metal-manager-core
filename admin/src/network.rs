@@ -11,15 +11,13 @@
  */
 use std::fmt::Write;
 
+use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 use serde::Deserialize;
 
-use ::rpc::forge as forgerpc;
-
-use crate::Config;
-
 use super::cfg::carbide_options::ShowNetwork;
 use super::{default_uuid, rpc, CarbideCliError, CarbideCliResult};
+use crate::Config;
 
 #[derive(Deserialize)]
 struct NetworkState {
@@ -56,7 +54,7 @@ async fn convert_network_to_nice_format(
             "STATE",
             format!(
                 "{:?}",
-                forgerpc::TenantState::from_i32(segment.state).unwrap_or_default()
+                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
         ),
         (
@@ -71,7 +69,7 @@ async fn convert_network_to_nice_format(
             "TYPE",
             format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::from_i32(segment.segment_type).unwrap_or_default()
+                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
             ),
         ),
     ];
@@ -181,7 +179,7 @@ async fn convert_network_to_nice_table(
             segment.created.unwrap_or_default(),
             format!(
                 "{:?}",
-                forgerpc::TenantState::from_i32(segment.state).unwrap_or_default()
+                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
             domain,
             segment.mtu.unwrap_or(-1),
@@ -200,7 +198,7 @@ async fn convert_network_to_nice_table(
             segment.version,
             format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::from_i32(segment.segment_type).unwrap_or_default()
+                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
             ),
         ]);
     }
