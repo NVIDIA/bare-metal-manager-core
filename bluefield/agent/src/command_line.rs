@@ -9,9 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{net::Ipv4Addr, path::PathBuf};
+use std::{fmt, net::Ipv4Addr, path::PathBuf};
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 #[derive(Parser)]
 #[clap(name = "forge-dpu-agent")]
@@ -61,6 +61,11 @@ pub struct NetconfParams {
         help = "Factory MAC address - pf interface"
     )]
     pub mac_address: String,
+    #[clap(
+        long,
+        help = "Use this network_virtualization_type for both service network and all instances."
+    )]
+    pub override_network_virtualization_type: Option<NetworkVirtualizationType>,
 }
 
 #[derive(Parser, Debug)]
@@ -133,12 +138,8 @@ pub struct FrrOptions {
     pub loopback_ip: Ipv4Addr,
     #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
     pub vlan: Vec<String>,
-    #[clap(
-        long,
-        default_value = "0",
-        help = "0 for Ethernet Virtualizer, 1 for Forge Native Networking"
-    )]
-    pub network_virtualization_type: i32,
+    #[clap(long, default_value = "etv")]
+    pub network_virtualization_type: NetworkVirtualizationType,
     #[clap(long, default_value = "0")]
     pub vpc_vni: u32,
     #[clap(long, use_value_delimiter = true)]
@@ -163,12 +164,8 @@ pub struct InterfacesOptions {
         help = "Format is JSON see PortConfig in interfaces.rs. Repeats."
     )]
     pub network: Vec<String>,
-    #[clap(
-        long,
-        default_value = "0",
-        help = "0 for Ethernet Virtualizer, 1 for Forge Native Networking"
-    )]
-    pub network_virtualization_type: i32,
+    #[clap(long, default_value = "etv")]
+    pub network_virtualization_type: NetworkVirtualizationType,
 }
 
 #[derive(Parser, Debug)]
@@ -181,12 +178,8 @@ pub struct DhcpOptions {
     pub dhcp: Vec<Ipv4Addr>,
     #[clap(long, help = "Remote ID to be filled in Option 82 - Agent Remote ID")]
     pub remote_id: String,
-    #[clap(
-        long,
-        default_value = "0",
-        help = "0 for Ethernet Virtualizer, 1 for Forge Native Networking"
-    )]
-    pub network_virtualization_type: i32,
+    #[clap(long, default_value = "etv")]
+    pub network_virtualization_type: NetworkVirtualizationType,
 }
 
 #[derive(Parser, Debug)]
@@ -198,6 +191,51 @@ pub struct RunOptions {
         help = "Use this machine id instead of building it from hardware enumeration. Development/testing only"
     )]
     pub override_machine_id: Option<String>,
+    #[clap(
+        long,
+        help = "Use this network_virtualization_type for both service network and all instances."
+    )]
+    pub override_network_virtualization_type: Option<NetworkVirtualizationType>,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+pub enum NetworkVirtualizationType {
+    Etv,
+    Fnn,
+    EtvNvue, // clap default is kebab-case, so this is "etv-nvue"
+}
+
+impl fmt::Display for NetworkVirtualizationType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // enums are a special case where their debug impl is their name
+        fmt::Debug::fmt(self, f)
+    }
+}
+
+impl From<rpc::forge::VpcVirtualizationType> for NetworkVirtualizationType {
+    fn from(v: rpc::forge::VpcVirtualizationType) -> Self {
+        match v {
+            rpc::forge::VpcVirtualizationType::EthernetVirtualizer => Self::Etv,
+            rpc::forge::VpcVirtualizationType::ForgeNativeNetworking => Self::Fnn,
+            rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue => Self::EtvNvue,
+        }
+    }
+}
+
+impl From<NetworkVirtualizationType> for rpc::forge::VpcVirtualizationType {
+    fn from(nvt: NetworkVirtualizationType) -> Self {
+        match nvt {
+            NetworkVirtualizationType::Etv => {
+                rpc::forge::VpcVirtualizationType::EthernetVirtualizer
+            }
+            NetworkVirtualizationType::Fnn => {
+                rpc::forge::VpcVirtualizationType::ForgeNativeNetworking
+            }
+            NetworkVirtualizationType::EtvNvue => {
+                rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue
+            }
+        }
+    }
 }
 
 impl Options {

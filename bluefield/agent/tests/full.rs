@@ -176,6 +176,7 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
         cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
             enable_metadata_service: TEST_METADATA_SERVICE,
             override_machine_id: None,
+            override_network_virtualization_type: None,
         })),
     };
 

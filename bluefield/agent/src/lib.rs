@@ -17,6 +17,7 @@ use std::time::Instant;
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 use ::rpc::machine_discovery::DpuData;
+use command_line::NetworkVirtualizationType;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_host_support::{
@@ -50,6 +51,14 @@ mod upgrade;
 mod util;
 
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
+
+// What to use if the server doesn't send it.
+//
+// In practice this will be used for the service network (admin network) because carbide-api
+// doesn't send that.
+// It won't be used for instance networks which default in api/src/db/vpc.rs. Keep in sync.
+pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: NetworkVirtualizationType =
+    NetworkVirtualizationType::Etv;
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     if cmdline.version {
@@ -202,16 +211,24 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 )
             };
 
-            match ethernet_virtualization::update_files(
-                &agent.hbn.root_dir,
-                &conf,
-                agent.hbn.skip_reload,
-                pxe_ip,
-                ntp_ip,
-                nameservers,
-            )
-            .await
-            {
+            let update_result = match params.override_network_virtualization_type {
+                Some(NetworkVirtualizationType::EtvNvue) => {
+                    ethernet_virtualization::update_nvue(&agent.hbn.root_dir, &conf).await
+                }
+                _ => {
+                    ethernet_virtualization::update_files(
+                        &agent.hbn.root_dir,
+                        &conf,
+                        agent.hbn.skip_reload,
+                        pxe_ip,
+                        ntp_ip,
+                        nameservers,
+                        NetworkVirtualizationType::Etv,
+                    )
+                    .await
+                }
+            };
+            match update_result {
                 Ok(has_changed) => {
                     status_out.network_config_version =
                         Some(conf.managed_host_config_version.clone());
@@ -274,7 +291,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     loopback_ip: opts.loopback_ip,
                     access_vlans,
-                    network_virtualization_type: Some(opts.network_virtualization_type),
+                    network_virtualization_type: opts.network_virtualization_type,
                     vpc_vni: Some(opts.vpc_vni),
                     route_servers: opts.route_servers.clone(),
                     use_admin_network: opts.admin,
@@ -302,7 +319,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     loopback_ip: opts.loopback_ip,
                     vni_device: opts.vni_device,
                     networks,
-                    network_virtualization_type: Some(opts.network_virtualization_type),
+                    network_virtualization_type: opts.network_virtualization_type,
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);
@@ -314,7 +331,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     vlan_ids: opts.vlan,
                     dhcp_servers: opts.dhcp,
                     remote_id: opts.remote_id,
-                    network_virtualization_type: Some(opts.network_virtualization_type),
+                    network_virtualization_type: opts.network_virtualization_type,
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);

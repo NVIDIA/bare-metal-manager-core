@@ -15,7 +15,7 @@ use std::net::Ipv4Addr;
 use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
-use ::rpc::forge as rpc;
+use crate::command_line::NetworkVirtualizationType;
 
 pub const PATH: &str = "etc/network/interfaces";
 const TMPL_FULL_ETV: &str = include_str!("../templates/interfaces_etv");
@@ -46,11 +46,13 @@ pub fn build(conf: InterfacesConfig) -> Result<String, eyre::Report> {
         VNIDevice: conf.vni_device,
     };
     let tmpl_path = match conf.network_virtualization_type {
-        None => TMPL_FULL_ETV,
-        Some(x) if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => TMPL_FULL_ETV,
-        Some(x) if x == rpc::VpcVirtualizationType::ForgeNativeNetworking as i32 => TMPL_FULL_FNN,
-        Some(x) => {
-            eyre::bail!("Invalid network_virtualization_type {x}");
+        NetworkVirtualizationType::Etv => TMPL_FULL_ETV,
+        NetworkVirtualizationType::Fnn => TMPL_FULL_FNN,
+        NetworkVirtualizationType::EtvNvue => {
+            eyre::bail!(
+                "network_virtualization_type {:?} should never get here",
+                conf.network_virtualization_type
+            );
         }
     };
     gtmpl::template(tmpl_path, params).map_err(|e| e.into())
@@ -66,7 +68,7 @@ pub struct InterfacesConfig {
     pub uplinks: Vec<String>,
     pub vni_device: String,
     pub networks: Vec<Network>,
-    pub network_virtualization_type: Option<i32>,
+    pub network_virtualization_type: NetworkVirtualizationType,
 }
 
 #[derive(Deserialize, Debug)]

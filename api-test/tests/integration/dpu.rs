@@ -124,6 +124,7 @@ pub async fn bootstrap(
         cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
             enable_metadata_service: false,
             override_machine_id: Some(dmi.to_string()),
+            override_network_virtualization_type: None,
         })),
     }));
 
