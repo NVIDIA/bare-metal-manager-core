@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 arc-swap = "1.6"
 askama = "0.12.1"
+askama_escape = "0.10"
 async-trait = "*"
 axum = { version = "0.6.18", features = ["http2"] }
 base64 = "0.21.5"
