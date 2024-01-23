@@ -23,7 +23,7 @@ pub async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
 
     while now.elapsed() <= MAX_TIMEOUT {
         if Cmd::new("ipmitool")
-            .args(vec!["lan", "print"])
+            .args(vec!["user", "list", "1"])
             .output()
             .is_ok()
         {
