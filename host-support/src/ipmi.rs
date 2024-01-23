@@ -365,6 +365,7 @@ fn set_ipmi_props(id: &String, role: IpmitoolRoles, sys_vendor: &str) -> eyre::R
         "https://www.mellanox.com" => Ok(()),
         "Supermicro" => Ok(()),
         "NVIDIA" => Ok(()),
+        "HPE" => Ok(()),
         other => {
             return Err(eyre::eyre!(
                 "The chassis vendor was an unexpected result - {other}"
