@@ -150,6 +150,7 @@ mkdir -p ${HBN_ROOT}/etc/frr
 mkdir -p ${HBN_ROOT}/etc/network
 mkdir -p ${HBN_ROOT}/etc/supervisor/conf.d
 mkdir -p ${HBN_ROOT}/etc/cumulus/acl/policy.d
+mkdir -p ${HBN_ROOT}/etc/nvue.d
 
 if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
 	# The one we got from kubectl earlier
@@ -180,10 +181,10 @@ skip-reload = true
 # API_CONTAINER=$(docker ps | grep carbide-api | awk -F" " '{print $NF}')
 # docker exec -ti ${API_CONTAINER} /opt/forge-dpu-agent netconf --dpu-machine-id ${DPU_MACHINE_ID}
 # 1. First run writes the new config, ask HBN to reload
-cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
+cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --override-network-virtualization-type etv-nvue
 echo "HBN files are in ${HBN_ROOT}"
 # 2. Second run detects healthy network and reports it
-cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
+cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --override-network-virtualization-type etv-nvue
 
 # Wait until DPU becomes ready
 MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')

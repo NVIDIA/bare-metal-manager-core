@@ -16,7 +16,6 @@ use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use tokio::process::Command as TokioCommand;
-use tracing::warn;
 
 use crate::hbn;
 
@@ -85,7 +84,7 @@ async fn check_hbn_services_running(
     {
         Ok(s) => s,
         Err(err) => {
-            warn!("check_hbn_services_running supervisorctl status: {err}");
+            tracing::warn!("check_hbn_services_running supervisorctl status: {err}");
             hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
             return;
         }
@@ -93,7 +92,7 @@ async fn check_hbn_services_running(
     let st = match parse_status(&sctl) {
         Ok(s) => s,
         Err(err) => {
-            warn!("check_hbn_services_running supervisorctl status parse: {err}");
+            tracing::warn!("check_hbn_services_running supervisorctl status parse: {err}");
             hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
             return;
         }
@@ -104,7 +103,7 @@ async fn check_hbn_services_running(
         match st.status_of(&service) {
             SctlState::Running => hr.passed(HealthCheck::ServiceRunning(service)),
             status => {
-                warn!("check_hbn_services_running {service}: {status}");
+                tracing::warn!("check_hbn_services_running {service}: {status}");
                 hr.failed(
                     HealthCheck::ServiceRunning(service.clone()),
                     status.to_string(),
@@ -126,7 +125,7 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
     {
         Ok(s) => s,
         Err(err) => {
-            warn!("check_hbn_services_running supervisorctl status: {err}");
+            tracing::warn!("check_hbn_services_running supervisorctl status: {err}");
             hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
             return;
         }
@@ -134,7 +133,7 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
     let st = match parse_status(&sctl) {
         Ok(s) => s,
         Err(err) => {
-            warn!("check_hbn_services_running supervisorctl status parse: {err}");
+            tracing::warn!("check_hbn_services_running supervisorctl status parse: {err}");
             hr.failed(HealthCheck::SupervisorctlStatus, err.to_string());
             return;
         }
@@ -158,7 +157,7 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
 
     match (relay_status, dhcp_server_status) {
         (None, None) => {
-            warn!("check_dhcp_relay_and_server: Both can not be running together.");
+            tracing::warn!("check_dhcp_relay_and_server: Both can not be running together.");
             hr.failed(
                 HealthCheck::DhcpRelay,
                 "Dhcp relay and server are running together".to_string(),
@@ -169,10 +168,10 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
             );
         }
         (Some(a), Some(b)) => {
-            warn!("check_dhcp_relay: {a}");
+            tracing::warn!("check_dhcp_relay: {a}");
             hr.failed(HealthCheck::DhcpRelay, a.to_string());
 
-            warn!("check_dhcp_server: {b}");
+            tracing::warn!("check_dhcp_server: {b}");
             hr.failed(HealthCheck::DhcpRelay, b.to_string());
         }
         (Some(_), None) => {
@@ -196,7 +195,7 @@ async fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_rou
     {
         Ok(s) => s,
         Err(err) => {
-            warn!("check_network_stats show bgp summary: {err}");
+            tracing::warn!("check_network_stats show bgp summary: {err}");
             hr.failed(HealthCheck::BgpStats, err.to_string());
             return;
         }
@@ -204,7 +203,7 @@ async fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_rou
     match check_bgp(&bgp_stats, host_routes) {
         Ok(_) => hr.passed(HealthCheck::BgpStats),
         Err(err) => {
-            warn!("check_network_stats bgp: {err}");
+            tracing::warn!("check_network_stats bgp: {err}");
             hr.failed(HealthCheck::BgpStats, err.to_string());
         }
     }
@@ -218,12 +217,12 @@ async fn check_ifreload(hr: &mut HealthReport, container_id: &str) {
             if stdout.is_empty() {
                 hr.passed(HealthCheck::Ifreload);
             } else {
-                warn!("check_ifreload: {stdout}");
+                tracing::warn!("check_ifreload: {stdout}");
                 hr.failed(HealthCheck::Ifreload, stdout);
             }
         }
         Err(err) => {
-            warn!("check_ifreload: {err}");
+            tracing::warn!("check_ifreload: {err}");
             hr.failed(HealthCheck::Ifreload, err.to_string());
         }
     }
@@ -248,7 +247,7 @@ fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) 
         let stat = match std::fs::metadata(path) {
             Ok(s) => s,
             Err(err) => {
-                warn!("check_files {filename}: {err}");
+                tracing::warn!("check_files {filename}: {err}");
                 hr.failed(
                     HealthCheck::FileIsValid(filename.to_string()),
                     err.to_string(),
@@ -261,7 +260,7 @@ fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) 
         } else if filename == &DHCP_RELAY_FILE {
             dhcp_relay_size = stat.len();
         } else if stat.len() < MIN_SIZE {
-            warn!("check_files {filename}: Too small");
+            tracing::warn!("check_files {filename}: Too small");
             hr.failed(
                 HealthCheck::FileIsValid(filename.to_string()),
                 "Too small".to_string(),
@@ -271,14 +270,14 @@ fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) 
     }
 
     if dhcp_relay_size < MIN_SIZE && dhcp_server_size < MIN_SIZE {
-        warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Too small");
+        tracing::warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Too small");
         hr.failed(
             HealthCheck::FileIsValid(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
             "Too small".to_string(),
         );
     }
     if dhcp_relay_size > MIN_SIZE && dhcp_server_size > MIN_SIZE {
-        warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Both are valid. Only one can be valid.");
+        tracing::warn!("check_files {DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}: Both are valid. Only one can be valid.");
         hr.failed(
             HealthCheck::FileIsValid(format!("{DHCP_RELAY_FILE} and {DHCP_SERVER_FILE}")),
             "Both can not be valid together.".to_string(),
@@ -290,7 +289,7 @@ fn check_bgp_daemon_enabled(hr: &mut HealthReport, hbn_daemons_file: &str) {
     let daemons = match std::fs::read_to_string(hbn_daemons_file) {
         Ok(s) => s,
         Err(err) => {
-            warn!("check_bgp_daemon_enabled: {err}");
+            tracing::warn!("check_bgp_daemon_enabled: {err}");
             hr.failed(
                 HealthCheck::BgpDaemonEnabled,
                 format!("Trying to open and read {hbn_daemons_file}: {err}"),
@@ -675,14 +674,14 @@ fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
     for line in status_out.lines() {
         let parts: Vec<&str> = line.split_ascii_whitespace().collect();
         if parts.len() < 2 {
-            warn!("supervisorctl status line too short: '{line}'");
+            tracing::warn!("supervisorctl status line too short: '{line}'");
             continue;
         }
         let state: SctlState = match parts[1].parse() {
             Ok(s) => s,
             Err(_err) => {
                 // unreachable but future proof. SctlState::from_str is currently infallible.
-                warn!(
+                tracing::warn!(
                     "supervisorctl status invalid state '{}' in line '{line}'",
                     parts[1]
                 );

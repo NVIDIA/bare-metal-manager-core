@@ -213,7 +213,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
             let update_result = match params.override_network_virtualization_type {
                 Some(NetworkVirtualizationType::EtvNvue) => {
-                    ethernet_virtualization::update_nvue(&agent.hbn.root_dir, &conf).await
+                    ethernet_virtualization::update_nvue(
+                        &agent.hbn.root_dir,
+                        &conf,
+                        agent.hbn.skip_reload,
+                    )
+                    .await
                 }
                 _ => {
                     ethernet_virtualization::update_files(
@@ -240,6 +245,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     has_changed_configs = has_changed;
                 }
                 Err(err) => {
+                    tracing::error!("netconf error: {err:#}");
                     status_out.network_config_error = Some(err.to_string());
                 }
             }

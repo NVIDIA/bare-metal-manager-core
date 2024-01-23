@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use eyre::WrapErr;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
-use tracing::{debug, trace};
 
 // Containerd is started in the mgmt VRF.  Processes started in the MGMT VRF are not reachable
 // from the default VRF.  This means that we need to run crictl commands in the MGMT VRF in order to
@@ -32,7 +32,7 @@ impl<'a> RunCommandPredicate<'a> {
     /// and `DpulyfeHttpConnector`
     pub fn new(container_id: &'a str) -> Self {
         let ignore_mgmt_vrf = std::env::var("IGNORE_MGMT_VRF").is_ok();
-        trace!("IGNORE_MGMT_VRF is {}: ", ignore_mgmt_vrf);
+        tracing::trace!("IGNORE_MGMT_VRF is {}: ", ignore_mgmt_vrf);
 
         match ignore_mgmt_vrf {
             true => Self {
@@ -50,18 +50,11 @@ impl<'a> RunCommandPredicate<'a> {
 pub async fn get_hbn_container_id() -> eyre::Result<String> {
     let mut crictl = TokioCommand::new("crictl");
     let cmd = crictl.args(["ps", "--name=doca-hbn", "-o=json"]);
-    let out = cmd.output().await?;
+    let cmd_str = super::pretty_cmd(cmd.as_std());
+    let out = cmd.output().await.wrap_err(cmd_str.to_string())?;
     if !out.status.success() {
-        debug!(
-            "STDERR {}: {}",
-            super::pretty_cmd(cmd.as_std()),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        return Err(eyre::eyre!(
-            "{} for cmd '{}'",
-            out.status,
-            super::pretty_cmd(cmd.as_std())
-        ));
+        tracing::debug!("STDERR {cmd_str}: {}", String::from_utf8_lossy(&out.stderr));
+        return Err(eyre::eyre!("{} for cmd '{cmd_str}'", out.status,));
     }
 
     parse_container_id(&String::from_utf8_lossy(&out.stdout))
@@ -111,7 +104,7 @@ pub async fn run_in_container(
     let cmd = crictl.args(args);
     let out = cmd.output().await?;
     if need_success && !out.status.success() {
-        debug!(
+        tracing::debug!(
             "STDERR {}: {}",
             super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&out.stderr)

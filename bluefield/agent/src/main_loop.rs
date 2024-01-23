@@ -176,7 +176,12 @@ pub async fn run(
                     tracing::trace!("Desired network config is {:?}", conf);
                     let update_result = match nvt {
                         NetworkVirtualizationType::EtvNvue => {
-                            ethernet_virtualization::update_nvue(&agent.hbn.root_dir, conf).await
+                            ethernet_virtualization::update_nvue(
+                                &agent.hbn.root_dir,
+                                conf,
+                                agent.hbn.skip_reload,
+                            )
+                            .await
                         }
                         _ => {
                             ethernet_virtualization::update_files(
@@ -214,6 +219,7 @@ pub async fn run(
                             }
                         }
                         Err(err) => {
+                            tracing::error!("Error writing network configuration: {err:#}");
                             status_out.network_config_error = Some(err.to_string());
                         }
                     }

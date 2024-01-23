@@ -22,7 +22,6 @@ use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
 use eyre::WrapErr;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
-use tracing::{debug, error, trace};
 
 use crate::command_line::NetworkVirtualizationType;
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
@@ -74,9 +73,9 @@ fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
     let mut host_config = hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH);
 
     if is_prod_mode {
-        trace!("Ethernet virtualization running in production mode");
+        tracing::trace!("Ethernet virtualization running in production mode");
     } else {
-        trace!("Ethernet virtualization running in test mode");
+        tracing::trace!("Ethernet virtualization running in test mode");
         dhcp_relay.set_extension("TEST");
         interfaces.set_extension("TEST");
         frr.set_extension("TEST");
@@ -104,6 +103,8 @@ fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
 pub async fn update_nvue(
     hbn_root: &Path,
     nc: &rpc::ManagedHostNetworkConfigResponse,
+    // if true don't run the `nv` commands after writing the file
+    skip_post: bool,
 ) -> eyre::Result<bool> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -176,12 +177,14 @@ pub async fn update_nvue(
     let next_contents = nvue::build(conf)?;
 
     let path = hbn_root.join(nvue::PATH);
-    let Some(post) = write(next_contents, &path, "NVUE", None).wrap_err("NVUE config at {path}")? else {
+    let Some(post) = write(next_contents, &path, "NVUE", None).wrap_err(format!("NVUE config at {}", path.display()))? else {
         // config didn't change
         return Ok(false);
     };
 
-    nvue::apply(&path, &post.path_bak, &post.path_tmp).await?;
+    if !skip_post {
+        nvue::apply(&path, &post.path_bak, &post.path_tmp).await?;
+    }
     Ok(true)
 }
 
@@ -312,7 +315,6 @@ pub async fn update_files(
 
     let err_message = errs.join(", ");
     if !err_message.is_empty() {
-        error!(err_message);
         eyre::bail!(err_message);
     }
     Ok(has_changes)
@@ -399,7 +401,7 @@ pub async fn reset(
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
 ) {
-    debug!("Setting network config to blank");
+    tracing::debug!("Setting network config to blank");
     let paths = paths(hbn_root, true);
     dhcp::blank();
 
@@ -457,7 +459,7 @@ pub async fn reset(
 
     let err_message = errs.join(", ");
     if !err_message.is_empty() {
-        error!(err_message);
+        tracing::error!(err_message);
     }
 }
 
@@ -467,7 +469,7 @@ fn dhcp_servers(nc: &rpc::ManagedHostNetworkConfigResponse) -> Vec<Ipv4Addr> {
         match server.parse() {
             Ok(s) => dhcp_servers.push(s),
             Err(err) => {
-                error!("Invalid DHCP server from remote: {server}. {err:#}");
+                tracing::error!("Invalid DHCP server from remote: {server}. {err:#}");
             }
         }
     }
@@ -834,7 +836,7 @@ fn write<P: AsRef<Path>>(
     if !has_changed {
         return Ok(None);
     }
-    debug!("Applying new {file_type} config");
+    tracing::debug!("Applying new {file_type} config");
 
     let mut path_bak = path.to_path_buf();
     path_bak.set_extension("BAK");
@@ -907,7 +909,7 @@ async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
     let cmd = cmd.args(["-j", "address", "show", &ovs_side.to_string()]);
     let ip_out = cmd.output().await?;
     if !ip_out.status.success() {
-        debug!(
+        tracing::debug!(
             "STDERR {}: {}",
             super::pretty_cmd(cmd.as_std()),
             String::from_utf8_lossy(&ip_out.stderr)
