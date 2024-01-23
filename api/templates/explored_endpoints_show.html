@@ -15,6 +15,7 @@
 		<th>DPU Machine ID</th>
 		<th>Host Serial Nrs</th>
 		<th>DPU Serial Nrs</th>
+		<th>Host PF MAC</th>
 		<th>DPU OOB MAC</th>
 	</tr>
 </thead>
@@ -35,6 +36,7 @@
 		</td>
 		<td>{{ mh.host_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
 		<td>{{ mh.dpu_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
+		<td>{{ mh.host_pf_mac }}</td>
 		<td>{{ mh.dpu_oob_mac }}</td>
 	</tr>
 {% endfor %}

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::net::IpAddr;
 
@@ -21,6 +22,8 @@ pub struct DbExploredManagedHost {
     host_bmc_ip: IpAddr,
     /// The IP address of the node we explored
     dpu_bmc_ip: IpAddr,
+    /// The MAC address that is visible to the host (provided by the DPU)
+    host_pf_mac_address: Option<MacAddress>,
 }
 
 impl<'r> FromRow<'r, PgRow> for DbExploredManagedHost {
@@ -28,6 +31,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredManagedHost {
         Ok(DbExploredManagedHost {
             host_bmc_ip: row.try_get("host_bmc_ip")?,
             dpu_bmc_ip: row.try_get("dpu_bmc_ip")?,
+            host_pf_mac_address: row.try_get("host_pf_mac_address")?,
         })
     }
 }
@@ -37,6 +41,7 @@ impl From<DbExploredManagedHost> for ExploredManagedHost {
         Self {
             host_bmc_ip: host.host_bmc_ip,
             dpu_bmc_ip: host.dpu_bmc_ip,
+            host_pf_mac_address: host.host_pf_mac_address,
         }
     }
 }
@@ -67,11 +72,12 @@ impl DbExploredManagedHost {
         // TODO: Optimize me into a single query
         for host in explored_hosts {
             let query = "
-            INSERT INTO explored_managed_hosts (host_bmc_ip, dpu_bmc_ip)
-            VALUES ($1, $2)";
+            INSERT INTO explored_managed_hosts (host_bmc_ip, dpu_bmc_ip, host_pf_mac_address)
+            VALUES ($1, $2, $3)";
             let _result = sqlx::query(query)
                 .bind(host.host_bmc_ip)
                 .bind(host.dpu_bmc_ip)
+                .bind(host.host_pf_mac_address)
                 .execute(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

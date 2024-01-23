@@ -12,6 +12,7 @@
 
 use std::{collections::HashMap, net::IpAddr, sync::Arc, time::Duration};
 
+use mac_address::MacAddress;
 use sqlx::PgPool;
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
@@ -269,9 +270,11 @@ impl SiteExplorer {
                     if net_adapter.serial_number.is_some() {
                         let sn = net_adapter.serial_number.as_ref().unwrap();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
+                            let host_pf_mac_address = find_host_pf_mac_address(&ep, dpu_ep);
                             managed_hosts.push(ExploredManagedHost {
                                 host_bmc_ip: ep.address,
                                 dpu_bmc_ip: dpu_ep.address,
+                                host_pf_mac_address,
                             });
                             metrics.exploration_identified_managed_hosts += 1;
                             continue 'loop_hosts;
@@ -561,4 +564,54 @@ impl SiteExplorer {
 
         Ok(())
     }
+}
+
+/// Identifies the MAC address that is used by the pf0 interface that
+/// the DPU exposes to the host.
+///
+/// Note: This method uses MAC address prefix matching between a DPUs BMC
+/// MAC address and any other MAC address on the system. This mechanism is not
+/// necessarily 100% reliable, and might lead to incorrect results if the host
+/// uses different NICs which uses similar MAC address ranges.
+///
+/// The method should be migrated to the DPU directly providing the
+/// MAC address: https://redmine.mellanox.com/issues/3749837
+fn find_host_pf_mac_address(
+    host_ep: &ExploredEndpoint,
+    dpu_ep: &ExploredEndpoint,
+) -> Option<MacAddress> {
+    let dpu_bmc_mac = match dpu_ep
+        .report
+        .managers
+        .get(0)
+        .and_then(|manager| manager.ethernet_interfaces.get(0))
+        .and_then(|iface| iface.mac_address.clone())
+    {
+        Some(mac) => mac,
+        _ => return None,
+    };
+    // Bmc  mac: a0:88:c2:08:80:97
+    // Base mac: a0:88:c2:08:80:72
+    let bmc_prefix: String = dpu_bmc_mac.chars().take(12).collect();
+
+    for host_interface in host_ep
+        .report
+        .systems
+        .iter()
+        .flat_map(|sys| sys.ethernet_interfaces.iter())
+    {
+        let host_mac = match host_interface.mac_address.as_ref() {
+            None => continue,
+            Some(mac) => mac,
+        };
+
+        if host_mac.starts_with(bmc_prefix.as_str()) {
+            match host_mac.parse::<MacAddress>() {
+                Ok(mac) => return Some(mac),
+                Err(_) => continue,
+            };
+        }
+    }
+
+    None
 }

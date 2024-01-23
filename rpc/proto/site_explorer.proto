@@ -37,10 +37,12 @@ message ExploredEndpoint {
 
 // A combination of DPU and host that was discovered via Site Exploration
 message ExploredManagedHost {
-    /// The Hosts BMC IP
+    // The Hosts BMC IP
     string host_bmc_ip = 1;
-    /// The DPUs BMC IP
+    // The DPUs BMC IP
     string dpu_bmc_ip = 2;
+    // The MAC address that is visible to the host (provided by the DPU)
+    optional string host_pf_mac_address = 3;
 }
 
 message SiteExplorationReport {

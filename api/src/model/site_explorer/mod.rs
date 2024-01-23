@@ -12,6 +12,7 @@
 
 use std::net::IpAddr;
 
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
@@ -94,6 +95,41 @@ pub struct ExploredManagedHost {
     pub host_bmc_ip: IpAddr,
     /// The DPUs BMC IP
     pub dpu_bmc_ip: IpAddr,
+    /// The MAC address that is visible to the host (provided by the DPU)
+    #[serde(with = "serialize_option_display", default)]
+    pub host_pf_mac_address: Option<MacAddress>,
+}
+
+/// Serialization methods for types which support FromStr/Display
+mod serialize_option_display {
+    use std::fmt::Display;
+    use std::str::FromStr;
+
+    use serde::{de, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<T, S>(value: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: Display,
+        S: Serializer,
+    {
+        match value {
+            Some(value) => serializer.serialize_str(&value.to_string()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        T: FromStr,
+        T::Err: Display,
+        D: Deserializer<'de>,
+    {
+        let value: Option<String> = Option::deserialize(deserializer)?;
+        match value {
+            None => Ok(None),
+            Some(value) => Ok(Some(T::from_str(&value).map_err(de::Error::custom)?)),
+        }
+    }
 }
 
 impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
@@ -101,6 +137,7 @@ impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
         rpc::site_explorer::ExploredManagedHost {
             host_bmc_ip: host.host_bmc_ip.to_string(),
             dpu_bmc_ip: host.dpu_bmc_ip.to_string(),
+            host_pf_mac_address: host.host_pf_mac_address.map(|mac| mac.to_string()),
         }
     }
 }
@@ -379,6 +416,39 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<EndpointExplorationReport>(&serialized).unwrap(),
             report
+        );
+    }
+
+    #[test]
+    fn serialize_explored_managed_host() {
+        let host = ExploredManagedHost {
+            host_bmc_ip: "1.2.3.4".parse().unwrap(),
+            dpu_bmc_ip: "1.2.3.5".parse().unwrap(),
+            host_pf_mac_address: Some("11:22:33:44:55:66".parse().unwrap()),
+        };
+        let serialized = serde_json::to_string(&host).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"HostBmcIp":"1.2.3.4","DpuBmcIp":"1.2.3.5","HostPfMacAddress":"11:22:33:44:55:66"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ExploredManagedHost>(&serialized).unwrap(),
+            host
+        );
+
+        let host = ExploredManagedHost {
+            host_bmc_ip: "1.2.3.4".parse().unwrap(),
+            dpu_bmc_ip: "1.2.3.5".parse().unwrap(),
+            host_pf_mac_address: None,
+        };
+        let serialized = serde_json::to_string(&host).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"HostBmcIp":"1.2.3.4","DpuBmcIp":"1.2.3.5","HostPfMacAddress":null}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ExploredManagedHost>(&serialized).unwrap(),
+            host
         );
     }
 
