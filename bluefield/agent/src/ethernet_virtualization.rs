@@ -183,7 +183,7 @@ pub async fn update_nvue(
     };
 
     if !skip_post {
-        nvue::apply(&path, &post.path_bak, &post.path_tmp).await?;
+        nvue::apply(hbn_root, &path, &post.path_bak, &post.path_tmp).await?;
     }
     Ok(true)
 }
