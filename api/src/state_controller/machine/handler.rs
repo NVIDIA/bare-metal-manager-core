@@ -1081,7 +1081,9 @@ async fn record_infiniband_status_observation(
         .ib_fabric_manager
         .connect(DEFAULT_IB_FABRIC_NAME.to_string())
         .await
-        .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+        .map_err(|x| {
+            StateHandlerError::IBFabricError(format!("Failed to connect to fabric manager: {x}"))
+        })?;
 
     for ib in &ib_interfaces {
         let guid = ib.guid.clone().ok_or(StateHandlerError::MissingData {
