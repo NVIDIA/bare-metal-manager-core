@@ -23,6 +23,7 @@ use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 use rpc::site_explorer::{ExploredEndpoint, SiteExplorationReport};
 
+use super::filters;
 use crate::api::Api;
 
 #[derive(Template)]
