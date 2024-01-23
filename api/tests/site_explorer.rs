@@ -457,6 +457,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         ExploredManagedHost {
             host_bmc_ip: machines[1].ip.clone(),
             dpu_bmc_ip: machines[0].ip.clone(),
+            host_pf_mac_address: Some("B8:3F:D2:90:97:A4".to_string()),
         }
     );
 

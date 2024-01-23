@@ -82,6 +82,7 @@ impl From<SiteExplorationReport> for ExploredEndpointsShow {
                             .collect()
                     })
                     .unwrap_or_default(),
+                host_pf_mac: mh.host_pf_mac_address.clone().unwrap_or_default(),
                 dpu_oob_mac: dpu
                     .and_then(|report| report.systems.get(0))
                     .and_then(|sys| sys.ethernet_interfaces.get(0))
@@ -104,6 +105,7 @@ struct ExploredManagedHostDisplay {
     host_vendor: String,
     dpu_serial_numbers: Vec<String>,
     host_serial_numbers: Vec<String>,
+    host_pf_mac: String,
     dpu_oob_mac: String,
 }
 struct ExploredEndpointDisplay {
