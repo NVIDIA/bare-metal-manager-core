@@ -76,7 +76,7 @@ pub async fn apply(config_path: &Path, path_bak: &Path, path_tmp: &Path) -> eyre
             Ok(())
         }
         Err(err) => {
-            tracing::error!("update_nvue post command failed: {err}");
+            tracing::error!("update_nvue post command failed: {err:#}");
 
             // If apply failed we won't be using the new config. Move it out of the way..
             if let Err(err) = fs::rename(config_path, path_tmp) {
