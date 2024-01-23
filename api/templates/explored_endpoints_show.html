@@ -26,7 +26,11 @@
 		<td>{{ mh.host_vendor }}</td>
 		<td>
 			{% if !mh.dpu_machine_id.is_empty() %}
-			<a href="/admin/machine/{{ mh.dpu_machine_id }}">{{ mh.dpu_machine_id }}</a>
+			<a href="/admin/machine/{{ mh.dpu_machine_id }}">
+				<div class="machine_id">
+					<div>{{ mh.dpu_machine_id }}</div><div>{{ mh.dpu_machine_id|machine_id_last() }}</div>
+				</div>
+			</a>
 			{% endif %}
 		</td>
 		<td>{{ mh.host_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
@@ -60,7 +64,11 @@
 			<td>{{ ep.vendor }}</td>
 			<td>
 				{% if !ep.machine_id.is_empty() %}
-				<a href="/admin/machine/{{ ep.machine_id }}">{{ ep.machine_id }}</a>
+				<a href="/admin/machine/{{ ep.machine_id }}">
+					<div class="machine_id">
+						<div>{{ ep.machine_id }}</div><div>{{ ep.machine_id|machine_id_last() }}</div>
+					</div>
+				</a>
 				{% endif %}
 			</td>
 			<td>{{ ep.serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
