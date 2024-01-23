@@ -17,20 +17,12 @@
 
 use askama_escape::Escaper;
 
-// "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0" -> "acguc0"
-pub fn machine_id_last<T: std::fmt::Display>(d: T) -> ::askama::Result<String> {
-    let s = d.to_string();
-    if s.len() < 25 || !s.starts_with("fm100") {
-        return Ok(s);
-    }
-    Ok(s[s.len() - 6..].to_string())
-}
-
 /// Generates HTML links for Machine IDs
 pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> {
     let full_id = id.to_string();
     let short_id = if full_id.len() < 25
         || !full_id.starts_with("fm100")
+        || full_id.as_bytes()[5] == b'p' // Predicted Hosts are not linked
         || full_id.chars().any(|c| !c.is_ascii_alphanumeric())
     {
         // Not a Machine ID. Escape HTML to make it safe for post processing with safe filter
@@ -38,16 +30,17 @@ pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> 
         askama_escape::Html.write_escaped(&mut output, &full_id)?;
         return Ok(output);
     } else {
+        // "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0" -> "acguc0"
         &full_id[full_id.len() - 6..]
     };
 
     let formatted = format!(
-        r#"""
+        r#"
     <a href="/admin/machine/{full_id}">
         <div class="machine_id">
             <div>{full_id}</div><div>{short_id}</div>
         </div>
-    </a>"""#
+    </a>"#
     );
 
     Ok(formatted)

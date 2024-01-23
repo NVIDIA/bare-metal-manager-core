@@ -23,13 +23,7 @@
 			<td><a href="/admin/interface/{{ iface.id }}">{{ iface.id }}</a></td>
 			<td>{{ iface.mac_address }}</td>
 			<td>{{ iface.ip_address }}</td>
-			<td>
-				<a href="/admin/machine/{{ iface.machine_id }}">
-					<div class="machine_id">
-						<div>{{ iface.machine_id }}</div><div>{{ iface.machine_id|machine_id_last() }}</div>
-					</div>
-				</a>
-			</td>
+			<td>{{ iface.machine_id|machine_id_link|safe }}</td>
 			<td>{{ iface.hostname }}</td>
 			<td>{{ iface.vendor }}</td>
 			<td>{{ iface.domain_name }}</td>
