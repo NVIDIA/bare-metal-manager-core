@@ -659,6 +659,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "askama",
+ "askama_escape",
  "async-trait",
  "axum",
  "base64",
