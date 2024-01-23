@@ -68,15 +68,15 @@ pub struct ForgeSystemConfig {
     pub client_key: String,
 }
 
-fn default_root_ca() -> String {
+pub fn default_root_ca() -> String {
     rpc::forge_tls_client::default_root_ca().to_string()
 }
 
-fn default_client_cert() -> String {
+pub fn default_client_cert() -> String {
     rpc::forge_tls_client::default_client_cert().to_string()
 }
 
-fn default_client_key() -> String {
+pub fn default_client_key() -> String {
     rpc::forge_tls_client::default_client_key().to_string()
 }
 
@@ -85,14 +85,16 @@ fn default_client_key() -> String {
 pub struct MachineConfig {
     pub interface_id: uuid::Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    mac_address: Option<String>,
+    pub mac_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    hostname: Option<String>,
+    pub hostname: Option<String>,
     /// Override normal upgrade command. For automated testing only.
     #[serde(default)]
     pub override_upgrade_cmd: Option<String>,
     /// Local dev only. Pretend to be a DPU for discovery.
-    #[serde(default)]
+    /// If it's set to false, don't even serialize it out
+    /// to config.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_fake_dpu: bool,
 }
 
@@ -158,6 +160,27 @@ impl Default for IterationTime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test");
+
+    #[test]
+    // Load up the input, which is a minimum barebones
+    // config, and then dump it back out to a string,
+    // which should then have defaults set (and match
+    // the expected output config).
+    fn test_load_forge_agent_config_defaults() {
+        let input_config: AgentConfig = toml::from_str(
+            fs::read_to_string(format!("{}/min_agent_config/input.toml", TEST_DATA_DIR))
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let observed_output = toml::to_string(&input_config).unwrap();
+        let expected_output =
+            fs::read_to_string(format!("{}/min_agent_config/output.toml", TEST_DATA_DIR)).unwrap();
+        assert_eq!(observed_output, expected_output);
+    }
 
     #[test]
     fn test_load_forge_agent_config_full() {
