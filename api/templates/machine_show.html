@@ -25,22 +25,12 @@
 	{% for m in machines %}
 		<tr>
 			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
-			<td>
-				<div class="machine_id"><div>{{ m.id }}</div><div>{{ m.id|machine_id_last() }}</div></div>
-			</td>
+			<td>{{ m.id|machine_id_link|safe }}</td>
 			<td>{{ m.state }}</td>
 			<td>{% if m.is_host %}
-				<a href="/admin/machine/{{ m.associated_dpu_id }}">
-					<div class="machine_id">
-						<div>{{ m.associated_dpu_id }}</div><div>{{ m.associated_dpu_id|machine_id_last() }}</div>
-					</div>
-				</a>
+				{{ m.associated_dpu_id|machine_id_link|safe }}
 				{% else %}
-				<a href="/admin/machine/{{ m.associated_host_id }}">
-					<div class="machine_id">
-						<div>{{ m.associated_host_id }}</div><div>{{ m.associated_host_id|machine_id_last() }}</div>
-					</div>
-				</a>
+				{{ m.associated_host_id|machine_id_link|safe }}
 				{% endif %}
 			</td>
 			<td>{{ m.ip_address }}</td>

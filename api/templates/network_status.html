@@ -22,13 +22,7 @@
 		{% for st in unhealthy %}
 		<tr>
 			<td>{{ st.observed_at }}</td>
-			<td>
-				<a href="/admin/machine/{{ st.dpu_machine_id }}">
-					<div class="machine_id">
-						<div>{{ st.dpu_machine_id }}</div><div>{{ st.dpu_machine_id|machine_id_last() }}</div>
-					</div>
-				</a>
-			</td>
+			<td>{{ st.dpu_machine_id|machine_id_link|safe}}</td>
 			<td>{{ st.check_failed }}</td>
 			<td>{{ st.agent_version }}</td>
 			<td>{{ st.network_config_version }}</td>
@@ -52,13 +46,7 @@
 		{% for st in healthy %}
 		<tr>
 			<td>{{ st.observed_at }}</td>
-			<td>
-				<a href="/admin/machine/{{ st.dpu_machine_id }}">
-					<div class="machine_id">
-						<div>{{ st.dpu_machine_id }}</div><div>{{ st.dpu_machine_id|machine_id_last() }}</div>
-					</div>
-				</a>
-			</td>
+			<td>{{ st.dpu_machine_id|machine_id_link|safe }}</td>
 			<td>{{ st.agent_version }}</td>
 			<td>{{ st.network_config_version }}</td>
 		</tr>
