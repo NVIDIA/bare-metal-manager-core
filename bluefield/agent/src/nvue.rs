@@ -13,6 +13,7 @@
 use std::fs;
 use std::path::Path;
 
+use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
@@ -65,8 +66,13 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
 }
 
 // Apply the config at `config_path`.
-pub async fn apply(config_path: &Path, path_bak: &Path, path_tmp: &Path) -> eyre::Result<()> {
-    match run_apply(config_path).await {
+pub async fn apply(
+    hbn_root: &Path,
+    config_path: &Path,
+    path_bak: &Path,
+    path_tmp: &Path,
+) -> eyre::Result<()> {
+    match run_apply(hbn_root, config_path).await {
         Ok(_) => {
             if path_bak.exists() {
                 if let Err(err) = fs::remove_file(path_bak) {
@@ -104,10 +110,22 @@ pub async fn apply(config_path: &Path, path_bak: &Path, path_tmp: &Path) -> eyre
 }
 
 // Ask NVUE to use the config at `path`
-async fn run_apply(path: &Path) -> eyre::Result<()> {
+async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
+    let mut in_container_path = path
+        .strip_prefix(hbn_root)
+        .wrap_err("Stripping hbn_root prefix from path to make in-container path")?
+        .to_path_buf();
+    // If hbn_root ends with "/", the stripped path will have it removed from start. Add back.
+    if !in_container_path.has_root() {
+        in_container_path = Path::new("/").join(in_container_path);
+    }
     // Set this config as the pending one. This is where we'd get yaml parse errors and
     // other validation errors.
-    super::hbn::run_in_container_shell(&format!("nv config replace {}", path.display())).await?;
+    super::hbn::run_in_container_shell(&format!(
+        "nv config replace {}",
+        in_container_path.display()
+    ))
+    .await?;
     // Apply the pending config
     super::hbn::run_in_container_shell("nv config apply -y").await?;
     // Persist the config to disk
