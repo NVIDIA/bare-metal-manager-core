@@ -12,10 +12,11 @@
 
 use std::net::Ipv4Addr;
 
-use gtmpl_derive::Gtmpl;
-
 use ::rpc::forge::{self as rpc};
+use gtmpl_derive::Gtmpl;
 use utils::models::dhcp::HostConfig;
+
+use crate::command_line::NetworkVirtualizationType;
 
 pub const RELAY_PATH: &str = "etc/supervisor/conf.d/default-isc-dhcp-relay.conf";
 
@@ -44,11 +45,13 @@ pub fn build_relay_config(conf: DhcpRelayConfig) -> Result<String, eyre::Report>
         RemoteId: conf.remote_id,
     };
     let tmpl_path = match conf.network_virtualization_type {
-        None => TMPL_FULL_ETV,
-        Some(x) if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => TMPL_FULL_ETV,
-        Some(x) if x == rpc::VpcVirtualizationType::ForgeNativeNetworking as i32 => TMPL_FULL_FNN,
-        Some(x) => {
-            eyre::bail!("Invalid network_virtualization_type {x}");
+        NetworkVirtualizationType::Etv => TMPL_FULL_ETV,
+        NetworkVirtualizationType::Fnn => TMPL_FULL_FNN,
+        NetworkVirtualizationType::EtvNvue => {
+            eyre::bail!(
+                "network_virtualization_type {:?} should never get here",
+                conf.network_virtualization_type
+            );
         }
     };
     gtmpl::template(tmpl_path, params).map_err(|e| e.into())
@@ -96,7 +99,7 @@ pub struct DhcpRelayConfig {
     pub vlan_ids: Vec<u32>,
     pub dhcp_servers: Vec<Ipv4Addr>,
     pub remote_id: String,
-    pub network_virtualization_type: Option<i32>,
+    pub network_virtualization_type: NetworkVirtualizationType,
 }
 
 pub struct DhcpServerSupervisordConfig {
@@ -133,7 +136,7 @@ mod tests {
             vlan_ids: vec![177],
             dhcp_servers: vec![[10, 180, 248, 25].into()],
             remote_id: "test".to_string(),
-            network_virtualization_type: None,
+            network_virtualization_type: crate::command_line::NetworkVirtualizationType::Etv,
         };
         let output = build_relay_config(params)?;
         assert_eq!(

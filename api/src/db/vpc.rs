@@ -25,6 +25,11 @@ use crate::model::config_version::ConfigVersion;
 use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
 
+// What to use if Cloud UI doesn't send it, which it never does so this is used for all vpcs / instances.
+// Keep in sync with bluefield/agent/src/lib.rs
+const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
+    VpcVirtualizationType::EthernetVirtualizer;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
     pub id: Uuid,
@@ -265,7 +270,7 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
 
     fn try_from(value: rpc::VpcCreationRequest) -> Result<Self, Self::Error> {
         let virt_type = match value.network_virtualization_type {
-            None => VpcVirtualizationType::EthernetVirtualizer,
+            None => DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
             Some(v) => v.try_into()?,
         };
         Ok(NewVpc {

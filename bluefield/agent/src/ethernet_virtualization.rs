@@ -24,6 +24,7 @@ use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tracing::{debug, error, trace};
 
+use crate::command_line::NetworkVirtualizationType;
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
 
 // VPC writes these to various HBN config files
@@ -194,19 +195,24 @@ pub async fn update_files(
     pxe_ip: Ipv4Addr,
     ntp_ip: Option<Ipv4Addr>,
     nameservers: Vec<IpAddr>,
+    network_virtualization_type: NetworkVirtualizationType,
 ) -> eyre::Result<bool> {
     let paths = paths(hbn_root, network_config.is_production_mode);
 
     let mut errs = vec![];
     let mut post_actions = vec![];
-    match write_interfaces(paths.interfaces, network_config) {
+    match write_interfaces(
+        paths.interfaces,
+        network_config,
+        network_virtualization_type,
+    ) {
         Ok(Some(post_action)) => {
             post_actions.push(post_action);
         }
         Ok(None) => {}
         Err(err) => errs.push(format!("write_interfaces: {err:#}")),
     }
-    match write_frr(paths.frr, network_config) {
+    match write_frr(paths.frr, network_config, network_virtualization_type) {
         Ok(Some(post_action)) => {
             post_actions.push(post_action);
         }
@@ -233,7 +239,12 @@ pub async fn update_files(
             Err(err) => errs.push(format!("write dhcp server config file: {err:#}")),
         }
     } else {
-        match write_dhcp_relay_config(paths.dhcp_relay, paths.dhcp_server.server, network_config) {
+        match write_dhcp_relay_config(
+            paths.dhcp_relay,
+            paths.dhcp_server.server,
+            network_config,
+            network_virtualization_type,
+        ) {
             Ok(Some((post_action, err))) => {
                 post_actions.extend(post_action);
                 errs.extend(err);
@@ -563,6 +574,7 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
     path: P,
     dhcp_server_path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
+    network_virtualization_type: NetworkVirtualizationType,
 ) -> WriteResult {
     let mut errs = vec![];
     let mut post_actions = vec![];
@@ -588,7 +600,7 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         vlan_ids,
         remote_id: nc.remote_id.clone(),
-        network_virtualization_type: nc.network_virtualization_type,
+        network_virtualization_type,
     })?;
 
     match write(next_contents, path, "DHCP relay", None) {
@@ -608,6 +620,7 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
 fn write_interfaces<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
+    network_virtualization_type: NetworkVirtualizationType,
 ) -> Result<Option<PostAction>, eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -669,7 +682,7 @@ fn write_interfaces<P: AsRef<Path>>(
         vni_device: nc.vni_device.clone(),
         loopback_ip,
         networks,
-        network_virtualization_type: nc.network_virtualization_type,
+        network_virtualization_type,
     })?;
     write(
         next_contents,
@@ -682,6 +695,7 @@ fn write_interfaces<P: AsRef<Path>>(
 fn write_frr<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
+    network_virtualization_type: NetworkVirtualizationType,
 ) -> Result<Option<PostAction>, eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -723,7 +737,7 @@ fn write_frr<P: AsRef<Path>>(
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         loopback_ip,
         access_vlans,
-        network_virtualization_type: nc.network_virtualization_type,
+        network_virtualization_type,
         vpc_vni: nc.vpc_vni,
         route_servers: nc.route_servers.clone(),
         use_admin_network: nc.use_admin_network,
@@ -1054,7 +1068,6 @@ mod tests {
             remote_id: "test".to_string(),
 
             // For FNN:
-            // network_virtualization_type: Some(rpc::VpcVirtualizationType::ForgeNativeNetworking as i32),
             // vpc_vni: Some(2024500),
             // route_servers: vec![],
 
@@ -1072,7 +1085,12 @@ mod tests {
 
         // What we're testing
 
-        match super::write_dhcp_relay_config(&f, &g, &network_config) {
+        match super::write_dhcp_relay_config(
+            &f,
+            &g,
+            &network_config,
+            crate::DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
+        ) {
             Err(err) => {
                 panic!("write_dhcp_relay_config error: {err}");
             }
@@ -1086,7 +1104,11 @@ mod tests {
         let expected = include_str!("../templates/tests/tenant_dhcp-relay.conf");
         compare(&f, expected)?;
 
-        match super::write_interfaces(&f, &network_config) {
+        match super::write_interfaces(
+            &f,
+            &network_config,
+            crate::DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
+        ) {
             Err(err) => {
                 panic!("write_interfaces error: {err}");
             }
@@ -1100,7 +1122,11 @@ mod tests {
         let expected = include_str!("../templates/tests/tenant_interfaces");
         compare(&f, expected)?;
 
-        match super::write_frr(&f, &network_config) {
+        match super::write_frr(
+            &f,
+            &network_config,
+            crate::DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
+        ) {
             Err(err) => {
                 panic!("write_frr error: {err}");
             }

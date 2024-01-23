@@ -18,10 +18,9 @@ use std::{
     time::{self, Duration},
 };
 
+use grpcurl::grpcurl;
 use sqlx::migrate::MigrateDatabase;
 use tokio::time::sleep;
-
-use grpcurl::grpcurl;
 
 mod api_server;
 mod dpu;
@@ -153,6 +152,7 @@ async fn test_integration() -> eyre::Result<()> {
         cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
             enable_metadata_service: false,
             override_machine_id: Some(dpu_info.machine_id.clone()),
+            override_network_virtualization_type: None,
         })),
     }));
     tokio::time::sleep(Duration::from_secs(1)).await;

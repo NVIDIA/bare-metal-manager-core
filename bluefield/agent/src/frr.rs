@@ -14,7 +14,7 @@ use std::net::Ipv4Addr;
 
 use gtmpl_derive::Gtmpl;
 
-use ::rpc::forge as rpc;
+use crate::command_line::NetworkVirtualizationType;
 
 pub const PATH: &str = "etc/frr/frr.conf";
 const TMPL_FULL_ETV: &str = include_str!("../templates/frr_etv.conf");
@@ -54,11 +54,13 @@ pub fn build(conf: FrrConfig) -> Result<String, eyre::Report> {
         UseAdminNetwork: conf.use_admin_network,
     };
     let tmpl_path = match conf.network_virtualization_type {
-        None => TMPL_FULL_ETV,
-        Some(x) if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => TMPL_FULL_ETV,
-        Some(x) if x == rpc::VpcVirtualizationType::ForgeNativeNetworking as i32 => TMPL_FULL_FNN,
-        Some(x) => {
-            eyre::bail!("Invalid network_virtualization_type {x}");
+        NetworkVirtualizationType::Etv => TMPL_FULL_ETV,
+        NetworkVirtualizationType::Fnn => TMPL_FULL_FNN,
+        NetworkVirtualizationType::EtvNvue => {
+            eyre::bail!(
+                "network_virtualization_type {:?} should never get here",
+                conf.network_virtualization_type
+            );
         }
     };
     match gtmpl::template(tmpl_path, params) {
@@ -86,7 +88,7 @@ pub struct FrrConfig {
     pub loopback_ip: Ipv4Addr,
     pub uplinks: Vec<String>,
     pub access_vlans: Vec<FrrVlanConfig>,
-    pub network_virtualization_type: Option<i32>,
+    pub network_virtualization_type: NetworkVirtualizationType,
     pub vpc_vni: Option<u32>,
     pub route_servers: Vec<String>,
     pub use_admin_network: bool,
@@ -133,7 +135,7 @@ mod tests {
             uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
             loopback_ip: [192, 168, 0, 1].into(),
             access_vlans: vec![],
-            network_virtualization_type: None,
+            network_virtualization_type: crate::command_line::NetworkVirtualizationType::Etv,
             vpc_vni: None,
             route_servers: vec![],
             use_admin_network: true,

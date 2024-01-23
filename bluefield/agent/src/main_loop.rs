@@ -18,6 +18,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use ::rpc::forge as rpc;
+use ::rpc::forge::VpcVirtualizationType;
 use ::rpc::forge_tls_client;
 use axum::Router;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
@@ -32,6 +33,7 @@ use tokio::signal::unix::{signal, SignalKind};
 pub use upgrade::upgrade_check;
 
 use crate::command_line;
+use crate::command_line::NetworkVirtualizationType;
 use crate::ethernet_virtualization;
 use crate::health;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
@@ -160,14 +162,20 @@ pub async fn run(
         };
         match *network_config_reader.read() {
             Some(ref conf) => {
+                // i32 -> VpcVirtualizationType -> NetworkVirtualizationType
+                let nvt_from_remote = conf
+                    .network_virtualization_type
+                    .and_then(|vi| VpcVirtualizationType::try_from(vi).ok())
+                    .map(|v| v.into());
+                let nvt = options
+                    .override_network_virtualization_type // dev
+                    .or(nvt_from_remote) // instance networks
+                    .unwrap_or(super::DEFAULT_NETWORK_VIRTUALIZATION_TYPE); // admin/service network
                 let mut tenant_peers = vec![];
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {:?}", conf);
-                    let update_result = match conf.network_virtualization_type {
-                        Some(x)
-                            if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
-                                as i32 =>
-                        {
+                    let update_result = match nvt {
+                        NetworkVirtualizationType::EtvNvue => {
                             ethernet_virtualization::update_nvue(&agent.hbn.root_dir, conf).await
                         }
                         _ => {
@@ -178,6 +186,7 @@ pub async fn run(
                                 pxe_ip,
                                 ntp_ip,
                                 nameservers.clone(),
+                                nvt,
                             )
                             .await
                         }
