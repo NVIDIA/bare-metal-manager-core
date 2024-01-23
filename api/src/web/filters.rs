@@ -22,7 +22,6 @@ pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> 
     let full_id = id.to_string();
     let short_id = if full_id.len() < 25
         || !full_id.starts_with("fm100")
-        || full_id.as_bytes()[5] == b'p' // Predicted Hosts are not linked
         || full_id.chars().any(|c| !c.is_ascii_alphanumeric())
     {
         // Not a Machine ID. Escape HTML to make it safe for post processing with safe filter
