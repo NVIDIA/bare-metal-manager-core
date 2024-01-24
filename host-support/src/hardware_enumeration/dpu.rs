@@ -270,6 +270,15 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         factory_mac.insert(14, ':');
     }
 
+    /*
+    TODO: Disabling LLDP integration in the agent until
+    https://nvbugspro.nvidia.com/bug/4468860 is handled.
+
+    Since wait_until_all_ports_available, get_lldp_port_info,
+    and get_port_lldp_info are all cozy together, this is
+    the only thing that needs to be commented out to disable
+    entirely.
+
     wait_until_all_ports_available();
     let mut switches: Vec<LldpSwitchData> = vec![];
     for port in LLDP_PORTS.iter() {
@@ -280,6 +289,11 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
             Err(_e) => {}
         }
     }
+    */
+
+    // TODO: Just pass through empty switches to DpuData
+    // until the above block of code can be re-enabled.
+    let switches: Vec<LldpSwitchData> = vec![];
 
     let dpu_info = DpuData {
         part_number: part_number[0].clone(),
