@@ -73,10 +73,11 @@ impl From<ManagedHostOutputWrapper> for Row {
         ];
 
         if src.has_maintenance {
-            row_data.extend_from_slice(&[
+            row_data.extend_from_slice(&[format!(
+                "{}\n{}",
                 value.maintenance_reference.unwrap_or_default(),
-                value.maintenance_start_time.unwrap_or_default(),
-            ]);
+                value.maintenance_start_time.unwrap_or_default()
+            )]);
         }
 
         if src.show_ips {
@@ -118,7 +119,7 @@ fn convert_managed_hosts_to_nice_output(
     let mut headers = vec!["Hostname", "Machine IDs (H/D)", "State"];
     // if any machines in the list are in maintenance mode we add the columns
     if has_maintenance {
-        headers.extend_from_slice(&["Maintenance reference", "Maintenance since"]);
+        headers.extend_from_slice(&["Maintenance reference/since"]);
     }
 
     if show_ips {
