@@ -34,6 +34,7 @@ uuid = "1.0"
 # local crate dependencies
 rpc = { path = "../rpc" }
 forge-host-support = { path = "../host-support" }
+forge-tls = { path = "../tls" }
 forge-version = { path = "../version" }
 utils = { path = "../utils" }
 

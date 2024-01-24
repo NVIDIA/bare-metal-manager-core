@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use clap::{ArgAction, Parser};
+use forge_tls::default as tls_default;
 
 #[derive(Parser)]
 #[clap(name = "carbide-api")]
@@ -122,7 +123,7 @@ pub struct Daemon {
     #[clap(
         long,
         env = "ROOT_CA_FILE_PATH",
-        default_value = "/opt/forge/forge_root.pem"
+        default_value = tls_default::ROOT_CA,
     )]
     pub root_cafile_path: String,
 

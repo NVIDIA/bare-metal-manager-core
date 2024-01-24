@@ -42,6 +42,7 @@ use cfg::carbide_options::{
     MigrateAction, NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
 };
 use clap::CommandFactory; // for CarbideOptions::command()
+use forge_tls::default as tls_default;
 use prettytable::{row, Table};
 use serde::Deserialize;
 use tonic::transport::Uri;
@@ -183,12 +184,10 @@ fn get_client_cert_info(
     }
 
     // this is the location for most compiled clients executing on x86 hosts or DPUs
-    if Path::new("/opt/forge/machine_cert.pem").exists()
-        && Path::new("/opt/forge/machine_cert.key").exists()
-    {
+    if Path::new(tls_default::CLIENT_CERT).exists() && Path::new(tls_default::CLIENT_KEY).exists() {
         return ForgeClientCert {
-            cert_path: "/opt/forge/machine_cert.pem".to_string(),
-            key_path: "/opt/forge/machine_cert.key".to_string(),
+            cert_path: tls_default::CLIENT_CERT.to_string(),
+            key_path: tls_default::CLIENT_KEY.to_string(),
         };
     }
 
@@ -212,8 +211,10 @@ fn get_client_cert_info(
            2. environment variables CLIENT_KEY_PATH and CLIENT_CERT_PATH or
            3. add client_key_path and client_cert_path in $HOME/.config/carbide_api_cli.json.
            4. a file existing at "/var/run/secrets/spiffe.io/tls.crt" and "/var/run/secrets/spiffe.io/tls.key".
-           5. a file existing at "/opt/forge/machine_cert.pem" and "/opt/forge/machine_cert.key".
-           6. a file existing at "$REPO_ROOT/dev/certs/server_identity.pem" and "$REPO_ROOT/dev/certs/server_identity.key."###
+           5. a file existing at "{}" and "{}".
+           6. a file existing at "$REPO_ROOT/dev/certs/server_identity.pem" and "$REPO_ROOT/dev/certs/server_identity.key."###,
+        tls_default::CLIENT_CERT,
+        tls_default::CLIENT_KEY
     )
 }
 
@@ -239,8 +240,8 @@ fn get_forge_root_ca_path(
     }
 
     // this is the location for most compiled clients executing on x86 hosts or DPUs
-    if Path::new("/opt/forge/forge_root.pem").exists() {
-        return "/opt/forge/forge_root.pem".to_string();
+    if Path::new(tls_default::ROOT_CA).exists() {
+        return tls_default::ROOT_CA.to_string();
     }
 
     // and this is the location for developers executing from within carbide's repo
@@ -261,8 +262,9 @@ fn get_forge_root_ca_path(
            2. environment variable FORGE_ROOT_CA_PATH or
            3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json.
            4. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
-           5. a file existing at "/opt/forge/forge_root.pem".
-           6. a file existing at "$REPO_ROOT/dev/certs/forge_developer_local_only_root_cert_pem"."###
+           5. a file existing at "{}".
+           6. a file existing at "$REPO_ROOT/dev/certs/forge_developer_local_only_root_cert_pem"."###,
+        tls_default::ROOT_CA
     )
 }
 

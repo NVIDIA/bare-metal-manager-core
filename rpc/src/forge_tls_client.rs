@@ -26,27 +26,6 @@ pub type ForgeClientT = ForgeClient<hyper::Client<HttpsConnector<ForgeHttpConnec
 //and is only necessary for as long as we're optionally validating TLS
 struct DummyTlsVerifier;
 
-/// Where we bake the root CA in our containers
-pub const DEFAULT_ROOT_CA: &str = "/opt/forge/forge_root.pem";
-
-pub fn default_root_ca() -> &'static str {
-    DEFAULT_ROOT_CA
-}
-
-/// Where we write the client cert in our clients
-pub const DEFAULT_CLIENT_CERT: &str = "/opt/forge/machine_cert.pem";
-
-pub fn default_client_cert() -> &'static str {
-    DEFAULT_CLIENT_CERT
-}
-
-/// Where we write the client key in our clients
-pub const DEFAULT_CLIENT_KEY: &str = "/opt/forge/machine_cert.key";
-
-pub fn default_client_key() -> &'static str {
-    DEFAULT_CLIENT_KEY
-}
-
 pub const DEFAULT_DOMAIN: &str = "forge.local";
 
 const VRF_NAME: &str = "mgmt";

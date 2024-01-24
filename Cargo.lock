@@ -26,6 +26,7 @@ dependencies = [
  "clap 4.4.18",
  "clap_complete",
  "color-eyre",
+ "forge-tls",
  "forge-version",
  "libredfish",
  "prettytable-rs",
@@ -671,6 +672,7 @@ dependencies = [
  "data-encoding",
  "eyre",
  "figment",
+ "forge-tls",
  "forge-version",
  "forge_secrets",
  "futures",
@@ -752,6 +754,7 @@ dependencies = [
  "clap 4.4.18",
  "eui48",
  "forge-host-support",
+ "forge-tls",
  "forge-version",
  "ip_network",
  "itertools 0.12.0",
@@ -1538,6 +1541,7 @@ dependencies = [
  "derive_builder 0.13.0",
  "dhcproto 0.9.0",
  "eyre",
+ "forge-tls",
  "hyper",
  "ipnetwork",
  "lazy_static",
@@ -1568,6 +1572,7 @@ dependencies = [
  "clap 4.4.18",
  "dhcproto 0.11.0",
  "eyre",
+ "forge-tls",
  "hyper",
  "hyper-rustls",
  "ipnetwork",
@@ -1987,6 +1992,7 @@ dependencies = [
  "base64",
  "csv",
  "eyre",
+ "forge-tls",
  "forge_secrets",
  "libudev",
  "procfs",
@@ -2027,6 +2033,10 @@ dependencies = [
  "tower-service",
  "tracing",
 ]
+
+[[package]]
+name = "forge-tls"
+version = "0.1.0"
 
 [[package]]
 name = "forge-version"
@@ -5033,6 +5043,7 @@ dependencies = [
  "efivar",
  "eyre",
  "forge-host-support",
+ "forge-tls",
  "forge-version",
  "lazy_static",
  "libc",

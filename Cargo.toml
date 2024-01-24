@@ -20,6 +20,7 @@ members = [
   "version",
   "utils",
   "dhcp-server",
+  "tls",
 ]
 
 [workspace.package]
