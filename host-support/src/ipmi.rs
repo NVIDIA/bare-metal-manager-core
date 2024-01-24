@@ -72,6 +72,7 @@ fn get_lan_print() -> eyre::Result<String> {
     } else {
         Ok(Cmd::new("ipmitool")
             .attempts(5)
+            .ignore_return(true)
             .args(vec!["lan", "print"])
             .output()?)
     }
@@ -236,7 +237,7 @@ impl IpmiUserRecord {
     }
 
     pub fn is_free(&self) -> bool {
-        self.name.is_empty()
+        self.name.is_empty() || self.name.as_str() == "(Empty User)"
     }
 }
 
