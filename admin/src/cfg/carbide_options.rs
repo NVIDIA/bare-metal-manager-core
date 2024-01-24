@@ -702,7 +702,6 @@ pub struct ShowDomain {
     #[clap(short, long, action)]
     pub all: bool,
 
-    #[clap(short, long)]
     pub domain: Option<String>,
 }
 
@@ -721,7 +720,6 @@ pub struct ShowNetwork {
     #[clap(short, long, action)]
     pub all: bool,
 
-    #[clap(short, long)]
     pub network: Option<String>,
 }
 
