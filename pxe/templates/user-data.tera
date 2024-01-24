@@ -150,7 +150,7 @@ write_files:
       net.ipv4.ip_forward = 1
       net.ipv6.conf.all.forwarding = 1
       kernel.shmmax = 4294967296
-      vm.hubetlb_shm_group = 0
+      vm.hugetlb_shm_group = 0
       vm.nr_hugepages=2048
       vm.min_free_kbytes=67584
   - path: /etc/systemd/network/35-uplink.network
