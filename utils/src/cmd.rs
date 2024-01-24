@@ -50,6 +50,7 @@ pub type CmdResult<T> = std::result::Result<T, CmdError>;
 pub struct Cmd {
     command: Command,
     attempts: u32,
+    ignore_return: bool,
 }
 
 impl Cmd {
@@ -57,6 +58,7 @@ impl Cmd {
         Self {
             command: Command::new(program),
             attempts: 1,
+            ignore_return: false,
         }
     }
 
@@ -82,6 +84,11 @@ impl Cmd {
         self
     }
 
+    pub fn ignore_return(mut self, ignore: bool) -> Self {
+        self.ignore_return = ignore;
+        self
+    }
+
     pub fn output(mut self) -> CmdResult<String> {
         if cfg!(test) {
             return Ok("test string".to_string());
@@ -96,7 +103,7 @@ impl Cmd {
 
             last_output = Some(output.clone());
 
-            if output.status.success() {
+            if output.status.success() || self.ignore_return {
                 return String::from_utf8(output.stdout)
                     .map_err(|_| CmdError::output_parse_error(&self.command));
             }
