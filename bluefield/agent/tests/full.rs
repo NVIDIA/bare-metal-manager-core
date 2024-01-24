@@ -101,7 +101,7 @@ async fn test_nvue() -> eyre::Result<()> {
     // The files were written
     let td = out.hbn_root_dir.unwrap();
     let hbn_root = td.path();
-    let startup_yaml = hbn_root.join("etc/nvue.d/startup.yaml");
+    let startup_yaml = hbn_root.join(agent::nvue::PATH);
     assert!(startup_yaml.exists());
 
     // Check it's YAML

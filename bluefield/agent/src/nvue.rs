@@ -17,7 +17,7 @@ use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
-pub const PATH: &str = "etc/nvue.d/startup.yaml";
+pub const PATH: &str = "etc/nvue.d/startup_applied.yaml";
 
 const TMPL_FULL: &str = include_str!("../templates/nvue_startup.conf");
 
@@ -50,6 +50,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         LoopbackIP: conf.loopback_ip,
         ASN: conf.asn,
         DPUHostname: conf.dpu_hostname,
+        SearchDomain: conf.dpu_search_domain,
         Uplinks: conf.uplinks.clone(),
         RouteServers: conf.route_servers.clone(),
         DHCPServers: conf.dhcp_servers.clone(),
@@ -137,6 +138,7 @@ pub struct NvueConfig {
     pub loopback_ip: String,
     pub asn: u32,
     pub dpu_hostname: String,
+    pub dpu_search_domain: String,
     pub uplinks: Vec<String>,
     pub route_servers: Vec<String>,
     pub dhcp_servers: Vec<String>,
@@ -174,7 +176,8 @@ struct TmplNvue {
     IsFNN: bool,
     LoopbackIP: String,
     ASN: u32,
-    DPUHostname: String,
+    DPUHostname: String,  // The first part of the FQDN
+    SearchDomain: String, // The rest of the FQDN
     Uplinks: Vec<String>,
     RouteServers: Vec<String>,
 
