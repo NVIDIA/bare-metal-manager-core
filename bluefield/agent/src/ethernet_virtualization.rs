@@ -158,10 +158,12 @@ pub async fn update_nvue(
         ifs
     };
 
+    let hostname = hostname().wrap_err("gethostname error")?;
     let conf = nvue::NvueConfig {
         loopback_ip,
         asn: nc.asn,
-        dpu_hostname: hostname().wrap_err("gethostname error")?,
+        dpu_hostname: hostname.hostname,
+        dpu_search_domain: hostname.search_domain,
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         dhcp_servers: nc.dhcp_servers.clone(),
         route_servers: nc.route_servers.clone(),
@@ -961,14 +963,32 @@ fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
 //
 // On a DPU this is correctly set to the DB hostname of the first interface, the hyphenated
 // two-word randomly generated name.
-fn hostname() -> eyre::Result<String> {
+fn hostname() -> eyre::Result<Hostname> {
     let mut buf = vec![0u8; 64 + 1]; // Linux HOST_NAME_MAX is 64
     let res = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
     if res != 0 {
         return Err(io::Error::last_os_error().into());
     }
     let cstr = CStr::from_bytes_until_nul(&buf)?;
-    Ok(cstr.to_string_lossy().into_owned())
+    let fqdn = cstr.to_string_lossy().into_owned();
+    let hostname = fqdn
+        .split('.')
+        .next()
+        .map(|s| s.to_owned())
+        .ok_or(eyre::eyre!("Empty hostname?"))?;
+    let search_domain = fqdn.split('.').skip(1).collect::<Vec<&str>>().join(".");
+    Ok(Hostname {
+        fqdn,
+        hostname,
+        search_domain,
+    })
+}
+
+struct Hostname {
+    #[allow(dead_code)]
+    fqdn: String,
+    hostname: String,
+    search_domain: String,
 }
 
 #[cfg(test)]
@@ -992,11 +1012,13 @@ mod tests {
     #[test]
     fn test_hostname() -> Result<(), Box<dyn std::error::Error>> {
         let syscall_h = super::hostname()?;
-        let env_h = std::env::var("HOSTNAME")?;
-        assert_eq!(
-            syscall_h, env_h,
-            "libc::gethostname output should match shell's $HOSTNAME"
-        );
+        match std::env::var("HOSTNAME") {
+            Ok(env_h) => assert_eq!(
+                syscall_h.fqdn, env_h,
+                "libc::gethostname output should match shell's $HOSTNAME"
+            ),
+            Err(_) => tracing::debug!("Env var $HOSTNAME missing, skipping test, not important"),
+        }
         Ok(())
     }
 
@@ -1214,10 +1236,12 @@ mod tests {
             vni: Some(5555),
             gateway_cidr: "10.217.4.65/26".to_string(),
         }];
+        let hostname = super::hostname().wrap_err("gethostname error")?;
         let conf = nvue::NvueConfig {
             loopback_ip: "10.217.5.39".to_string(),
             asn: 65535,
-            dpu_hostname: super::hostname().wrap_err("gethostname error")?,
+            dpu_hostname: hostname.hostname,
+            dpu_search_domain: hostname.search_domain,
             uplinks: super::UPLINKS.into_iter().map(String::from).collect(),
             dhcp_servers: vec!["10.217.5.197".to_string()],
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],

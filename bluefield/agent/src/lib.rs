@@ -46,7 +46,7 @@ mod interfaces;
 mod main_loop;
 mod mtu;
 mod network_config_fetcher;
-mod nvue;
+pub mod nvue; // pub so that integration tests can read nvue::PATH
 mod upgrade;
 mod util;
 
@@ -368,6 +368,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     loopback_ip: opts.loopback_ip.to_string(),
                     asn: opts.asn,
                     dpu_hostname: opts.dpu_hostname,
+                    dpu_search_domain: "".to_string(),
                     uplinks: opts.uplinks,
                     dhcp_servers: opts.dhcp_servers,
                     route_servers: opts.route_servers,
