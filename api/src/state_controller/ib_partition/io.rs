@@ -103,12 +103,21 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Self::ControllerState) -> std::time::Duration {
-        match state {
-            IBPartitionControllerState::Provisioning => std::time::Duration::from_secs(15 * 60),
-            IBPartitionControllerState::Ready => std::time::Duration::MAX,
-            IBPartitionControllerState::Error => std::time::Duration::MAX,
-            IBPartitionControllerState::Deleting => std::time::Duration::from_secs(15 * 60),
+    fn time_in_state_above_sla(state: &Versioned<Self::ControllerState>) -> bool {
+        let time_in_state = chrono::Utc::now()
+            .signed_duration_since(state.version.timestamp())
+            .to_std()
+            .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
+
+        match &state.value {
+            IBPartitionControllerState::Provisioning => {
+                time_in_state > std::time::Duration::from_secs(15 * 60)
+            }
+            IBPartitionControllerState::Ready => false,
+            IBPartitionControllerState::Error => false,
+            IBPartitionControllerState::Deleting => {
+                time_in_state > std::time::Duration::from_secs(15 * 60)
+            }
         }
     }
 }

@@ -31,6 +31,8 @@ pub struct CommonObjectHandlerMetrics<IO: StateControllerIO> {
     pub state: Option<IO::ControllerState>,
     /// The time the object was in the this state
     pub time_in_state: Duration,
+    /// Whether the object was in the state for longer than allowed by the SLA
+    pub time_in_state_above_sla: bool,
     /// How long we took to execute the state handler
     pub handler_latency: Duration,
     /// If state handling fails, this contains the error
@@ -43,6 +45,7 @@ impl<IO: StateControllerIO> Default for CommonObjectHandlerMetrics<IO> {
             state: None,
             handler_latency: Duration::from_secs(0),
             time_in_state: Duration::from_secs(0),
+            time_in_state_above_sla: false,
             error: None,
         }
     }
@@ -89,10 +92,8 @@ impl CommonIterationMetrics {
         let state_metrics = self.state_metrics.entry((state, substate)).or_default();
 
         state_metrics.num_objects += 1;
-        if let Some(state) = object_metrics.state.as_ref() {
-            if object_metrics.time_in_state > IO::state_sla(state) {
-                state_metrics.num_objects_above_sla += 1;
-            }
+        if object_metrics.time_in_state_above_sla {
+            state_metrics.num_objects_above_sla += 1;
         }
 
         state_metrics
