@@ -17,10 +17,9 @@
 			<th>DPU ID</th>
 			<th>State</th>
 			<th>DPU Health</th>
-			<th>Host BMC IP</th>
-			<th>DPU BMC IP</th>
-			<th>ADMIN/OOB IP</th>
-		<tr/>
+			<th>IPs</th>
+			<th>MACs</th>
+		</tr>
 	</thead>
 	<tbody>
 	{% for host in maintenance %}
@@ -32,9 +31,22 @@
 			<td>{{ host.dpu_machine_id|machine_id_link|safe}}</td>
 			<td>{{ host.state }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
-			<td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td>
-			<td><a href="/admin/explored_endpoint/{{ host.dpu_bmc_ip }}">{{ host.dpu_bmc_ip }}</a></td>
-			<td>{{ host.host_admin_ip }}</td>
+			<td style="padding: 0;">
+				<table style="width: 100%;">
+					<tr><th>Host BMC</th><td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>
+					<tr><th>DPU BMC</th><td><a href="/admin/explored_endpoint/{{ host.dpu_bmc_ip }}">{{ host.dpu_bmc_ip }}</a></td></tr>
+					<tr><th>Host Admin</th><td>{{ host.host_admin_ip }}</td></tr>
+					<tr><th>DPU OOB</th><td>{{ host.dpu_oob_ip }}</td></tr>
+				</table>
+			</td>
+			<td style="padding: 0;">
+				<table style="width: 100%;">
+					<tr><th>Host BMC</th><td>{{ host.host_bmc_mac }}</td></tr>
+					<tr><th>DPU BMC</th><td>{{ host.dpu_bmc_mac }}</td></tr>
+					<tr><th>Host PF</th><td>{{ host.host_admin_mac }}</td></tr>
+					<tr><th>DPU OOB</th><td>{{ host.dpu_oob_mac }}</td></tr>
+				</table>
+			</td>
 		<tr/>
 	{% endfor %}
 	</tbody>
@@ -50,9 +62,8 @@
 			<th>DPU ID</th>
 			<th>State</th>
 			<th>DPU Health</th>
-			<th>Host BMC IP</th>
-			<th>DPU BMC IP</th>
-			<th>Admin/OOB IP</th>
+			<th>IPs</th>
+			<th>MACs</th>
 			<th>GPU #</th>
 			<th>IB IFs #</th>
 			<th>Host Memory</th>
@@ -66,13 +77,26 @@
 			<td>{{ host.dpu_machine_id|machine_id_link|safe }}</td>
 			<td>{{ host.state }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
-			<td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td>
-			<td><a href="/admin/explored_endpoint/{{ host.dpu_bmc_ip }}">{{ host.dpu_bmc_ip }}</a></td>
-			<td>{{ host.host_admin_ip }}</td>
+			<td style="padding: 0;">
+				<table style="width: 100%;">
+					<tr><th>Host BMC</th><td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>
+					<tr><th>DPU BMC</th><td><a href="/admin/explored_endpoint/{{ host.dpu_bmc_ip }}">{{ host.dpu_bmc_ip }}</a></td></tr>
+					<tr><th>Host Admin</th><td>{{ host.host_admin_ip }}</td></tr>
+					<tr><th>DPU OOB</th><td>{{ host.dpu_oob_ip }}</td></tr>
+				</table>
+			</td>
+			<td style="padding: 0;">
+				<table style="width: 100%;">
+					<tr><th>Host BMC</th><td>{{ host.host_bmc_mac }}</td></tr>
+					<tr><th>DPU BMC</th><td>{{ host.dpu_bmc_mac }}</td></tr>
+					<tr><th>Host PF</th><td>{{ host.host_admin_mac }}</td></tr>
+					<tr><th>DPU OOB</th><td>{{ host.dpu_oob_mac }}</td></tr>
+				</table>
+			</td>
 			<td>{{ host.num_gpus }}</td>
 			<td>{{ host.num_ib_ifs }}</td>
 			<td>{{ host.host_memory }}</td>
-		<tr/>
+		</tr>
 	{% endfor %}
 	</tbody>
 </table>
