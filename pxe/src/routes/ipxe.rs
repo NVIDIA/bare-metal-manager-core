@@ -103,7 +103,7 @@ pub async fn boot(contents: MachineInterface, config: RuntimeConfig) -> Result<T
         eprintln!("{}", err);
         format!(
             r#"
-echo Failed to fetch custome_ipxe: {} ||
+echo Failed to fetch custom_ipxe: {} ||
 exit 101 ||
 "#,
             err

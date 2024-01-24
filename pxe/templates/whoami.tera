@@ -8,4 +8,4 @@ set white ${esc:string}[37m
 
 echo ${nvgreen}${bold}Machine Information:
 echo ${nvgreen}${bold}FQDN.....${boldoff}${white} {{ fqdn }}
-echo ${nvgreen}${bold}Mac Address..${boldoff}${white} {{ mac_address }}
+echo ${nvgreen}${bold}MAC Address..${boldoff}${white} {{ mac_address }}

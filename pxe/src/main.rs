@@ -310,13 +310,13 @@ fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
             .unwrap_or("https://carbide-api.forge-system.svc.cluster.local:1079".to_string()),
         client_facing_api_url: figment
             .extract_inner::<String>("carbide_api_url")
-            .map_err(|_| "Could not extract carbide_api_client_facing_url from config")?,
+            .map_err(|_| "Could not extract carbide_api_url from config")?,
         pxe_url: figment
             .extract_inner::<String>("carbide_pxe_url")
             .map_err(|_| "Could not extract carbide_pxe_url from config")?,
         ntp_server: figment
             .extract_inner::<String>("carbide_ntp_server")
-            .map_err(|_| "Could not extract ntp_server from config")?,
+            .map_err(|_| "Could not extract carbide_ntp_server from config")?,
         forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH")
             .map_err(|_| "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string())?,
         server_cert_path: env::var("FORGE_CLIENT_CERT_PATH")
