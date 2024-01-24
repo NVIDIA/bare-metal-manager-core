@@ -751,6 +751,7 @@ dependencies = [
  "base64",
  "clap 4.4.18",
  "eui48",
+ "forge-host-support",
  "forge-version",
  "ip_network",
  "itertools 0.12.0",

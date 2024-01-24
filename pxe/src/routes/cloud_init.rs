@@ -20,6 +20,7 @@ use rocket_dyn_templates::Template;
 use rpc::forge;
 
 use crate::{Machine, RuntimeConfig};
+use forge_host_support::agent_config;
 
 fn user_data_handler(
     machine_interface_id: rpc::Uuid,
@@ -80,10 +81,11 @@ fn generate_forge_agent_config(
     domain: &forge::Domain,
     config: &RuntimeConfig,
 ) -> String {
-    let api_url = config.client_facing_api_url.as_str();
-    let pxe_url = config.pxe_url.as_str();
-    let ntp_server = config.ntp_server.as_str();
+    let api_url = config.client_facing_api_url.clone();
+    let pxe_url = config.pxe_url.clone();
+    let ntp_server = config.ntp_server.clone();
 
+    let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
     let mac_address = machine_interface.mac_address.clone();
     let hostname = format!("{}.{}", machine_interface.hostname, domain.name);
 
@@ -91,36 +93,48 @@ fn generate_forge_agent_config(
     let instance_metadata_service_address = "0.0.0.0:7777";
     let telemetry_metrics_service_address = "0.0.0.0:8888";
 
-    let content = format!(
-        "
-        [forge-system]
-        api-server = \"{api_url}\"
-        pxe-server = \"{pxe_url}\"
-        ntp-server = \"{ntp_server}\"
+    let config = agent_config::AgentConfig {
+        forge_system: agent_config::ForgeSystemConfig {
+            api_server: api_url,
+            pxe_server: Some(pxe_url),
+            ntp_server: Some(ntp_server),
+            // TODO: These should *probably* just inherit from
+            // RuntimeConfig, but for whatever reason these have
+            // historically been ignored here, so leaving as-is
+            // for the time being.
+            root_ca: agent_config::default_root_ca(),
+            client_cert: agent_config::default_client_cert(),
+            client_key: agent_config::default_client_key(),
+        },
 
-        [machine]
-        interface-id = \"{machine_interface_id}\"
-        mac-address = \"{mac_address}\"
-        hostname = \"{hostname}\"
+        machine: agent_config::MachineConfig {
+            interface_id,
+            mac_address: Some(mac_address),
+            hostname: Some(hostname),
+            override_upgrade_cmd: None,
+            // This will get stripped from the serialized config
+            // as part of the default value being excluded.
+            is_fake_dpu: false,
+        },
 
-        [metadata-service]
-        address = \"{instance_metadata_service_address}\"
+        metadata_service: Some(agent_config::MetadataServiceConfig {
+            address: instance_metadata_service_address.to_string(),
+        }),
 
-        [telemetry]
-        metrics-address = \"{telemetry_metrics_service_address}\"
-        "
-    );
+        telemetry: Some(agent_config::TelemetryConfig {
+            metrics_address: telemetry_metrics_service_address.to_string(),
+        }),
 
-    let mut lines: Vec<&str> = content.split('\n').map(|line| line.trim_start()).collect();
-    while let Some(line) = lines.first() {
-        if line.is_empty() {
-            lines.remove(0);
-        } else {
-            break;
-        }
-    }
+        // TODO: In the original implementation of how we'd
+        // build a string for this config, these were excluded
+        // entirely. Now they're being passed w/ their default
+        // values. Good? Or should we do some work to skip
+        // serialization here?
+        hbn: agent_config::HBNConfig::default(),
+        period: agent_config::IterationTime::default(),
+    };
 
-    lines.join("\n")
+    toml::to_string(&config).unwrap()
 }
 
 fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, String>) {
@@ -209,6 +223,9 @@ pub fn routes() -> Vec<Route> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
 
     #[test]
     fn forge_agent_config() {
@@ -255,6 +272,16 @@ mod tests {
 
         let config =
             generate_forge_agent_config(&interface_id, &interface, &domain, &runtime_config);
+
+        // The intent here is to actually test what the written
+        // configuration file looks like, so we can visualize to
+        // make sure it's going to look like what we think it's
+        // supposed to look like. Obviously as various new fields
+        // get added to AgentConfig, then our test config will also
+        // need to be updated accordingly, but that should be ok.
+        let test_config =
+            fs::read_to_string(format!("{}/agent_config.toml", TEST_DATA_DIR)).unwrap();
+        assert_eq!(config, test_config);
 
         let data: toml::Value = config.parse().unwrap();
 
@@ -313,6 +340,14 @@ mod tests {
                 .unwrap(),
             "abc.myforge.com"
         );
+
+        // Check to make sure is_fake_dpu gets skipped
+        // from the serialized output.
+        let skipped = match data.get("machine").unwrap().get("is_fake_dpu") {
+            Some(_val) => false,
+            None => true,
+        };
+        assert!(skipped);
 
         assert_eq!(
             data.get("metadata-service")

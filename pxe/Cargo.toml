@@ -23,10 +23,14 @@ serde_json = "*"
 tera = "*"
 thiserror = "1.0"
 tokio = { workspace = true }
+toml = "0.8.8"
 tonic = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
 rpc = { path = "../rpc" }
+
+# Local dependencies
+forge-host-support = { path = "../host-support" }
 
 [build-dependencies]
 tonic-build = "0.10.2"
