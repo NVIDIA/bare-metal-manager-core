@@ -17,7 +17,7 @@ use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
-pub const PATH: &str = "etc/nvue.d/startup_applied.yaml";
+pub const PATH: &str = "var/support/nvue_startup.yaml";
 
 const TMPL_FULL: &str = include_str!("../templates/nvue_startup.conf");
 
@@ -53,6 +53,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         SearchDomain: conf.dpu_search_domain,
         Uplinks: conf.uplinks.clone(),
         RouteServers: conf.route_servers.clone(),
+        UseLocalDHCP: conf.use_local_dhcp,
         DHCPServers: conf.dhcp_servers.clone(),
         Infrastructure: infra,
         ComputeTENANTs: vec![TmplComputeTenant {
@@ -120,16 +121,32 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
     if !in_container_path.has_root() {
         in_container_path = Path::new("/").join(in_container_path);
     }
+
     // Set this config as the pending one. This is where we'd get yaml parse errors and
-    // other validation errors.
+    // other validation errors. Stores the pending config internally somewhere.
     super::hbn::run_in_container_shell(&format!(
         "nv config replace {}",
         in_container_path.display()
     ))
     .await?;
-    // Apply the pending config
+
+    // Apply the pending config.
+    //
+    // - Writes:
+    //   . /etc/frr/frr.conf
+    //   . /etc/network/interfaces
+    //   . /etc/frr/daemons
+    //   . /etc/supervisor/conf.d/isc-dhcp-relay-default
+    //   . and others (acls, nginx, ...)
+    // - Restarts necessary services.
+    // - Log is in /var/lib/hbn/var/lib/nvue/config/apply_log.txt
+    // Once this returns networking should be ready to use.
     super::hbn::run_in_container_shell("nv config apply -y").await?;
+
     // Persist the config to disk
+    //
+    // - Writes the config to /etc/nvue.d/startup.yaml - location is not configurable
+    // - Erases *everything else* in /etc/nvue.d/
     super::hbn::run_in_container_shell("nv config save").await
 }
 
@@ -143,6 +160,7 @@ pub struct NvueConfig {
     pub route_servers: Vec<String>,
     pub dhcp_servers: Vec<String>,
     pub l3_domains: Vec<L3Domain>,
+    pub use_local_dhcp: bool,
 
     // Currently we have a single tenant. Later this will be Vec<ComputeTenant>
     pub ct_name: String,
@@ -180,6 +198,10 @@ struct TmplNvue {
     SearchDomain: String, // The rest of the FQDN
     Uplinks: Vec<String>,
     RouteServers: Vec<String>,
+
+    // true to use dhcp-server in HBN container (new)
+    // false to use dhcp-relay (old)
+    UseLocalDHCP: bool,
 
     /// Format: IPv4 address of (per tenant) dhcp server
     DHCPServers: Vec<String>, // Previously 'Servers'

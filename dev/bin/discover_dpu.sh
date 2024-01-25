@@ -150,7 +150,7 @@ mkdir -p ${HBN_ROOT}/etc/frr
 mkdir -p ${HBN_ROOT}/etc/network
 mkdir -p ${HBN_ROOT}/etc/supervisor/conf.d
 mkdir -p ${HBN_ROOT}/etc/cumulus/acl/policy.d
-mkdir -p ${HBN_ROOT}/etc/nvue.d
+mkdir -p ${HBN_ROOT}/var/support
 
 if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
 	# The one we got from kubectl earlier
