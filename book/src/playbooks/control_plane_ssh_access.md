@@ -65,6 +65,11 @@ Host pdxjump 10.217.0.131
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
+Host tpejump 198.100.173.0
+  Hostname 198.100.173.0
+  Compression yes
+  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+  
 Host *
   StrictHostKeyChecking no
   ServerAliveInterval 30
