@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::path::{Path, PathBuf};
-
+use forge_tls::default as tls_default;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// HBN container root
 const HBN_DEFAULT_ROOT: &str = "/var/lib/hbn";
@@ -69,15 +69,15 @@ pub struct ForgeSystemConfig {
 }
 
 pub fn default_root_ca() -> String {
-    rpc::forge_tls_client::default_root_ca().to_string()
+    tls_default::default_root_ca().to_string()
 }
 
 pub fn default_client_cert() -> String {
-    rpc::forge_tls_client::default_client_cert().to_string()
+    tls_default::default_client_cert().to_string()
 }
 
 pub fn default_client_key() -> String {
-    rpc::forge_tls_client::default_client_key().to_string()
+    tls_default::default_client_key().to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

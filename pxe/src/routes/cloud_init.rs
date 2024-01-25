@@ -223,6 +223,7 @@ pub fn routes() -> Vec<Route> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use forge_tls::default as tls_default;
     use std::fs;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
@@ -263,9 +264,9 @@ mod tests {
             client_facing_api_url: "https://127.0.0.1:8001".to_string(),
             pxe_url: "http://127.0.0.1:8080".to_string(),
             ntp_server: "127.0.0.2".to_string(),
-            forge_root_ca_path: rpc::forge_tls_client::DEFAULT_ROOT_CA.to_string(),
-            server_cert_path: rpc::forge_tls_client::DEFAULT_CLIENT_CERT.to_string(),
-            server_key_path: rpc::forge_tls_client::DEFAULT_CLIENT_KEY.to_string(),
+            forge_root_ca_path: tls_default::ROOT_CA.to_string(),
+            server_cert_path: tls_default::CLIENT_CERT.to_string(),
+            server_key_path: tls_default::CLIENT_KEY.to_string(),
         };
 
         let interface_id: rpc::Uuid = interface.id.clone().unwrap();

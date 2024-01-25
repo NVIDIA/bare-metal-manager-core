@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use clap::Parser;
+use forge_tls::default as tls_default;
 
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
@@ -29,21 +30,21 @@ pub(crate) struct Options {
     #[clap(
         long,
         help = "Full path of root CA in PEM format",
-        default_value_t = rpc::forge_tls_client::DEFAULT_ROOT_CA.to_string(),
+        default_value_t = tls_default::ROOT_CA.to_string(),
     )]
     pub root_ca: String,
 
     #[clap(
     long,
     help = "Full path of client cert in PEM format",
-    default_value_t = rpc::forge_tls_client::DEFAULT_CLIENT_CERT.to_string(),
+    default_value_t = tls_default::CLIENT_CERT.to_string(),
     )]
     pub client_cert: String,
 
     #[clap(
     long,
     help = "Full path of client key",
-    default_value_t = rpc::forge_tls_client::DEFAULT_CLIENT_KEY.to_string(),
+    default_value_t = tls_default::CLIENT_KEY.to_string(),
     )]
     pub client_key: String,
 

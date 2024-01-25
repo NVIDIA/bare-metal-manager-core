@@ -36,5 +36,8 @@ lazy_static = "1.4.0"
 socket2 = "0.5.5"
 utils = { path = "../utils" }
 
+# local crate dependencies
+forge-tls = { path = "../tls" }
+
 [build-dependencies]
 tonic-build = { version = "^0.10", features = ["prost"] }

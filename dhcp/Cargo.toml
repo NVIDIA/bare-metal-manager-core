@@ -30,6 +30,9 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 uuid = "1.0"
 
+# local crate dependencies
+forge-tls = { path = "../tls" }
+
 [dev-dependencies]
 eyre = "*"
 dhcproto = "0.9.0"

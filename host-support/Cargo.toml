@@ -26,6 +26,7 @@ uuid = "1.0"
 
 # local crate dependencies
 forge_secrets = { path = "../forge_secrets" }
+forge-tls = { path = "../tls" }
 rpc = { path = "../rpc" }
 utils = { path = "../utils" }
 csv = "1.2.1"
