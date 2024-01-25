@@ -139,7 +139,7 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
     fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
-    fs::create_dir_all(hbn_root.join("etc/nvue.d"))?;
+    fs::create_dir_all(hbn_root.join("var/support"))?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
     state.lock().await.is_nvue = is_nvue;

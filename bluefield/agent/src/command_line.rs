@@ -76,7 +76,7 @@ pub enum WriteTarget {
     Interfaces(InterfacesOptions),
     #[clap(about = "Write /etc/supervisor/conf.d/default-isc-dhcp-relay.conf")]
     Dhcp(DhcpOptions),
-    #[clap(about = "Write /etc/nvue.d/startup.yaml")]
+    #[clap(about = "Write NVUE startup.yaml")]
     Nvue(NvueOptions),
 }
 

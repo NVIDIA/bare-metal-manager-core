@@ -169,6 +169,7 @@ pub async fn update_nvue(
         route_servers: nc.route_servers.clone(),
         ct_port_configs: networks,
         ct_name: UPLINKS[0].to_string(),
+        use_local_dhcp: nc.enable_dhcp,
 
         // FNN only, not used yet
         ct_l3_vni: "FNN".to_string(),
@@ -1247,6 +1248,7 @@ mod tests {
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
             ct_port_configs: networks,
             ct_name: super::UPLINKS[0].to_string(),
+            use_local_dhcp: false,
 
             // FNN only, not used yet
             ct_l3_vni: "FNN".to_string(),
