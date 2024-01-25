@@ -31,4 +31,19 @@
 </table>
 {% endfor %}
 
+<h2>InfiniBand Interfaces</h2>
+{% for interface in ib_interfaces %}
+<table>
+	<tr><th>Device</th><td>{{ interface.device }}</td></tr>
+	<tr><th>Vendor</th><td>{{ interface.vendor }}</td></tr>
+	<tr><th>Device Instance</th><td>{{ interface.device_instance }}</td></tr>
+	<tr><th>Function type</th><td>{{ interface.function_type }}</td></tr>
+	<tr><th>VF ID</th><td>{{ interface.vf_id }}</td></tr>
+	<tr><th>IB Partition ID</th><td>{{ interface.ib_partition_id }}</td></tr>
+	<tr><th>PF GUID</th><td>{{ interface.pf_guid }}</td></tr>
+	<tr><th>GUID</th><td>{{ interface.guid }}</td></tr>
+	<tr><th>LID</th><td>{{ interface.lid }}</td></tr>
+</table>
+{% endfor %}
+
 {% endblock %}

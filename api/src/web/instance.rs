@@ -38,6 +38,8 @@ struct InstanceDisplay {
     tenant_state: String,
     configs_synced: String,
     ip_addresses: String,
+    num_eth_ifs: usize,
+    num_ib_ifs: usize,
 }
 
 impl From<forgerpc::Instance> for InstanceDisplay {
@@ -75,6 +77,19 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .flat_map(|status| status.addresses.iter().map(|addr| addr.as_str()))
             .collect();
 
+        let num_eth_ifs = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.network.as_ref())
+            .map(|network| network.interfaces.len())
+            .unwrap_or_default();
+        let num_ib_ifs = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.infiniband.as_ref())
+            .map(|ib| ib.ib_interfaces.len())
+            .unwrap_or_default();
+
         Self {
             id: instance.id.unwrap_or_default().to_string(),
             machine_id: instance
@@ -85,6 +100,8 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             tenant_state,
             configs_synced,
             ip_addresses: instance_addresses.join(","),
+            num_eth_ifs,
+            num_ib_ifs,
         }
     }
 }
@@ -146,6 +163,7 @@ struct InstanceDetail {
     userdata: String,
     always_boot_custom_ipxe: bool,
     interfaces: Vec<InstanceInterface>,
+    ib_interfaces: Vec<InstanceIbInterface>,
 }
 
 struct InstanceInterface {
@@ -154,6 +172,19 @@ struct InstanceInterface {
     segment_id: String,
     mac_address: String,
     addresses: String,
+}
+
+struct InstanceIbInterface {
+    device: String,
+    vendor: String,
+    device_instance: u32,
+    function_type: String,
+    vf_id: String,
+    ib_partition_id: String,
+
+    pf_guid: String,
+    guid: String,
+    lid: u32,
 }
 
 impl From<forgerpc::Instance> for InstanceDetail {
@@ -195,6 +226,47 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 });
             }
         }
+
+        let mut ib_interfaces = Vec::new();
+        let ib_if_configs = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.infiniband.as_ref())
+            .map(|config| config.ib_interfaces.as_slice())
+            .unwrap_or_default();
+        let ib_if_status = instance
+            .status
+            .as_ref()
+            .and_then(|status| status.infiniband.as_ref())
+            .map(|status: &rpc::InstanceInfinibandStatus| status.ib_interfaces.as_slice())
+            .unwrap_or_default();
+        if ib_if_configs.len() == ib_if_status.len() {
+            for (i, config) in ib_if_configs.iter().enumerate() {
+                let status = &ib_if_status[i];
+                ib_interfaces.push(InstanceIbInterface {
+                    device: config.device.clone(),
+                    vendor: config.vendor.clone().unwrap_or_default(),
+                    device_instance: config.device_instance,
+                    function_type: forgerpc::InterfaceFunctionType::try_from(config.function_type)
+                        .ok()
+                        .map(|ty| format!("{:?}", ty))
+                        .unwrap_or_else(|| "INVALID".to_string()),
+                    vf_id: config
+                        .virtual_function_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                    ib_partition_id: config
+                        .ib_partition_id
+                        .as_ref()
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                    pf_guid: status.pf_guid.clone().unwrap_or_default(),
+                    guid: status.guid.clone().unwrap_or_default(),
+                    lid: status.lid,
+                })
+            }
+        }
+
         Self {
             id: instance.id.clone().unwrap_or_default().value,
             machine_id: instance.machine_id.clone().unwrap_or_default().id,
@@ -250,6 +322,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .map(|tenant| tenant.always_boot_with_custom_ipxe)
                 .unwrap_or_default(),
             interfaces,
+            ib_interfaces,
         }
     }
 }
