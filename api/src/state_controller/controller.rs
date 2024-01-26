@@ -317,6 +317,8 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                             .signed_duration_since(controller_state.version.timestamp())
                             .to_std()
                             .unwrap_or(Duration::from_secs(60 * 60 * 24));
+                        metrics.common.time_in_state_above_sla =
+                            IO::time_in_state_above_sla(&controller_state);
 
                         let mut ctx = StateHandlerContext {
                             services: &services,

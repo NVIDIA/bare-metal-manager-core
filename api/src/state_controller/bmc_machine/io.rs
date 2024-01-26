@@ -90,7 +90,7 @@ impl StateControllerIO for BmcMachineStateControllerIO {
         }
     }
 
-    fn state_sla(_state: &Self::ControllerState) -> std::time::Duration {
-        std::time::Duration::MAX
+    fn time_in_state_above_sla(_state: &Versioned<Self::ControllerState>) -> bool {
+        false
     }
 }

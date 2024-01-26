@@ -113,20 +113,26 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Self::ControllerState) -> std::time::Duration {
-        match state {
-            NetworkSegmentControllerState::Provisioning => std::time::Duration::from_secs(15 * 60),
-            NetworkSegmentControllerState::Ready => std::time::Duration::MAX,
+    fn time_in_state_above_sla(state: &Versioned<Self::ControllerState>) -> bool {
+        let time_in_state = chrono::Utc::now()
+            .signed_duration_since(state.version.timestamp())
+            .to_std()
+            .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
+        match &state.value {
+            NetworkSegmentControllerState::Provisioning => {
+                time_in_state > std::time::Duration::from_secs(15 * 60)
+            }
+            NetworkSegmentControllerState::Ready => false,
             NetworkSegmentControllerState::Deleting {
                 deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps { .. },
             } => {
                 // Draining can take an indefinite time if the subnet is referenced
                 // by an instance
-                std::time::Duration::MAX
+                false
             }
             NetworkSegmentControllerState::Deleting {
                 deletion_state: NetworkSegmentDeletionState::DBDelete { .. },
-            } => std::time::Duration::from_secs(15 * 60),
+            } => time_in_state > std::time::Duration::from_secs(15 * 60),
         }
     }
 }
