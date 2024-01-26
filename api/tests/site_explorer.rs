@@ -247,6 +247,10 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 }],
                 chassis: vec![Chassis {
                     id: "Card1".to_string(),
+                    manufacturer: Some("Nvidia".to_string()),
+                    model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+                    part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+                    serial_number: Some("MT2333XZ0X5W".to_string()),
                     network_adapters: vec![],
                 }],
             }),
@@ -396,6 +400,10 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             }],
             chassis: vec![Chassis {
                 id: "1".to_string(),
+                manufacturer: Some("Lenovo".to_string()),
+                model: Some("7Z73CTOLWW".to_string()),
+                part_number: Some("SB27A42862".to_string()),
+                serial_number: Some("J304AYYZ".to_string()),
                 network_adapters: vec![
                     NetworkAdapter {
                         id: "slot-1".to_string(),
@@ -549,6 +557,10 @@ async fn test_site_explorer_creates_managed_host(
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+            serial_number: Some("MT2328XZ185R".to_string()),
             network_adapters: vec![],
         }],
     };

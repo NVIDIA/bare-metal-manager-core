@@ -272,6 +272,10 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
 
     let chassis_list = client.get_chassis_all().await?;
     for chassis_id in &chassis_list {
+        let Ok(desc) = client.get_chassis(chassis_id).await else {
+            continue;
+        };
+
         let Ok(net_adapter_list) = client.get_chassis_network_adapters(chassis_id).await else {
             continue;
         };
@@ -302,6 +306,10 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
 
         chassis.push(Chassis {
             id: chassis_id.to_string(),
+            manufacturer: desc.manufacturer,
+            model: desc.model,
+            part_number: desc.part_number,
+            serial_number: desc.serial_number,
             network_adapters: net_adapters,
         });
     }

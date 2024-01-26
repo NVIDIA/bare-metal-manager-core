@@ -78,7 +78,11 @@ message EthernetInterface {
 // `Chassis` definition. Matches redfish definition
 message Chassis {
     string id = 1;
-    repeated NetworkAdapter network_adapters = 2;
+    optional string manufacturer = 2;
+    optional string model = 3;
+    optional string part_number = 4;
+    optional string serial_number = 5;
+    repeated NetworkAdapter network_adapters = 11;
 }
 
 // `NetworkAdapter` definition. Matches redfish definition
