@@ -16,4 +16,5 @@ tracing = "*"
 tokio = { workspace = true }
 ipnetwork = "0.20.0"
 
-rpc = { path = "../rpc" }
+# [local-dependencies]
+rpc = { path = "../../rpc" }

@@ -11,7 +11,6 @@ authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 hickory-resolver = { version = "0.24.0"}
 tokio = { workspace = true, features=["rt", "macros"] }
 log = "0.4.19"
-dsocket = { path = "../dsocket" }
 tracing = "0.1.40"
 socket2 = "0.5.5"
 hyper = { version = "0.14.27", default-features = false, features = ["client", "runtime", "tcp"] }
@@ -24,6 +23,8 @@ tower-service = "0.3.2"
 tower = "0.4.13"
 tokio-socks = "0.5.1"
 
+# [local-dependencies]
+dsocket = { path = "../dsocket" }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

@@ -14,10 +14,8 @@ path = "src/main.rs"
 async-trait = "0.1.43"
 clap = { workspace = true }
 eyre = "*"
-forge-version = { path = "../version" }
 futures = "0.3"
 itertools = "*"
-rpc = { path = "../rpc" }
 thiserror = "1.0"
 tokio = { workspace = true }
 tonic = { workspace = true }
@@ -25,5 +23,9 @@ tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 trust-dns-server = { version = "0.21.1" }
 
+# [local-dependencies]
+forge-version = { path = "../common/version" }
+rpc = { path = "../rpc" }
+
 [build-dependencies]
-forge-version = { path = "../version" }
+forge-version = { path = "../common/version" }

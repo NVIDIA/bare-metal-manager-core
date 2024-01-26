@@ -12,7 +12,6 @@ name = "forge-dhcp-server"
 path = "src/main.rs"
 
 [dependencies]
-rpc = { path = "../rpc" }
 serde_yaml = "0.9.27"
 serde = { version = "1.0.190", features = ["derive"] }
 tokio = { workspace = true }
@@ -34,10 +33,11 @@ thiserror = "1.0.24"
 lru = "0.12.0"
 lazy_static = "1.4.0"
 socket2 = "0.5.5"
-utils = { path = "../utils" }
 
-# local crate dependencies
-forge-tls = { path = "../tls" }
+# [local-dependencies]
+forge-tls = { path = "../common/tls" }
+rpc = { path = "../rpc" }
+utils = { path = "../common/utils" }
 
 [build-dependencies]
 tonic-build = { version = "^0.10", features = ["prost"] }

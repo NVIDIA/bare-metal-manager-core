@@ -31,10 +31,10 @@ thiserror = "1"
 tokio = { workspace = true }
 tonic = { workspace = true }
 
-# local crate dependencies
+# [local-dependencies]
 rpc = { path = "../rpc" }
-forge-version = { path = "../version" }
-utils = { path = "../utils" }
+forge-version = { path = "../common/version" }
+utils = { path = "../common/utils" }
 
 [build-dependencies]
-forge-version = { path = "../version" }
+forge-version = { path = "../common/version" }
