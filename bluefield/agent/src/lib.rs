@@ -364,6 +364,20 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     let c: nvue::PortConfig = serde_json::from_str(&net_json)?;
                     port_configs.push(c);
                 }
+                let access_vlans = opts
+                    .vlan
+                    .into_iter()
+                    .map(|s| {
+                        let mut parts = s.split(',');
+                        let vlan_id = parts.next().unwrap().parse().unwrap();
+                        let ip = parts.next().unwrap().to_string();
+                        nvue::VlanConfig {
+                            vlan_id,
+                            network: ip.clone() + "/32",
+                            ip,
+                        }
+                    })
+                    .collect();
                 let conf = nvue::NvueConfig {
                     loopback_ip: opts.loopback_ip.to_string(),
                     asn: opts.asn,
@@ -379,6 +393,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     ct_vrf_loopback: opts.ct_vrf_loopback,
                     ct_port_configs: port_configs,
                     ct_external_access: opts.ct_external_access,
+                    ct_access_vlans: access_vlans,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;
