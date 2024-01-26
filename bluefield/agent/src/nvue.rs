@@ -19,7 +19,8 @@ use serde::Deserialize;
 
 pub const PATH: &str = "var/support/nvue_startup.yaml";
 
-const TMPL_FULL: &str = include_str!("../templates/nvue_startup.conf");
+const TMPL_ETV: &str = include_str!("../templates/nvue_startup_etv.conf");
+const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let mut l3_domains = Vec::with_capacity(conf.l3_domains.len());
@@ -40,13 +41,12 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             VlanID: network.vlan,
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
             IP: network.gateway_cidr.clone(),
-            SviIP: "".to_string(),  // FNN only
-            VrrMAC: "".to_string(), // FNN only
+            SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
+            VrrMAC: "".to_string(),                          // FNN only
         });
     }
 
     let params = TmplNvue {
-        IsFNN: false,
         LoopbackIP: conf.loopback_ip,
         ASN: conf.asn,
         DPUHostname: conf.dpu_hostname,
@@ -73,7 +73,11 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 .collect(),
         }],
     };
-    gtmpl::template(TMPL_FULL, params).map_err(|e| e.into())
+    if conf.is_fnn {
+        gtmpl::template(TMPL_FNN, params).map_err(|e| e.into())
+    } else {
+        gtmpl::template(TMPL_ETV, params).map_err(|e| e.into())
+    }
 }
 
 // Apply the config at `config_path`.
@@ -161,6 +165,7 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
 
 // What we need to configure NVUE
 pub struct NvueConfig {
+    pub is_fnn: bool,
     pub loopback_ip: String,
     pub asn: u32,
     pub dpu_hostname: String,
@@ -198,6 +203,7 @@ pub struct PortConfig {
     pub vlan: u16,
     pub vni: Option<u32>, // admin network doens't haven one
     pub gateway_cidr: String,
+    pub svi_ip: Option<String>,
 }
 
 //
@@ -207,7 +213,6 @@ pub struct PortConfig {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplNvue {
-    IsFNN: bool,
     LoopbackIP: String,
     ASN: u32,
     DPUHostname: String,  // The first part of the FQDN
