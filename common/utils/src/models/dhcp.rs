@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::Ipv4Addr, str::FromStr};
+use std::{collections::BTreeMap, net::Ipv4Addr, str::FromStr};
 
 use ipnetwork::Ipv4Network;
 use rpc::forge::ManagedHostNetworkConfigResponse;
@@ -69,7 +69,10 @@ type CircuitId = String;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
     pub host_interface_id: String,
-    pub host_ip_addresses: HashMap<CircuitId, InterfaceInfo>,
+    // BTreeMap is needed because we want ordered map. Due to unordered nature of HashMap, the
+    // serialized output was changing very frequently and it was causing dpu-agent to restart dhcp-server
+    // very frequently although no config was changed.
+    pub host_ip_addresses: BTreeMap<CircuitId, InterfaceInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,7 +87,7 @@ pub struct InterfaceInfo {
 impl TryFrom<ManagedHostNetworkConfigResponse> for HostConfig {
     type Error = DhcpDataError;
     fn try_from(value: ManagedHostNetworkConfigResponse) -> Result<Self, Self::Error> {
-        let mut host_ip_addresses = HashMap::new();
+        let mut host_ip_addresses = BTreeMap::new();
 
         let interface_configs = if value.use_admin_network {
             let Some(interface_config) = value.admin_interface else {
