@@ -31,12 +31,12 @@ tonic = { workspace = true }
 uname = "0.1"
 uuid = "1.0"
 
-# local crate dependencies
+# [local-dependencies]
 rpc = { path = "../rpc" }
-forge-host-support = { path = "../host-support" }
-forge-tls = { path = "../tls" }
-forge-version = { path = "../version" }
-utils = { path = "../utils" }
+forge-host-support = { path = "../common/host-support" }
+forge-tls = { path = "../common/tls" }
+forge-version = { path = "../common/version" }
+utils = { path = "../common/utils" }
 
 [build-dependencies]
-forge-version = { path = "../version" }
+forge-version = { path = "../common/version" }

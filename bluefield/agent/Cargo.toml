@@ -49,15 +49,15 @@ resolv-conf = "0.7.0"
 hickory-proto = "0.24.0"
 hickory-resolver = "0.24.0"
 
-# Local dependencies
-forge-host-support = { path = "../../host-support" }
-forge-http-connector = { path = "../../forge-http-connector/" }
-forge-version = { path = "../../version" }
+# [local-dependencies]
+forge-host-support = { path = "../../common/host-support" }
+forge-http-connector = { path = "../../common/http-connector/" }
+forge-version = { path = "../../common/version" }
 rpc = { path = "../../rpc" }
-utils = { path = "../../utils" }
+utils = { path = "../../common/utils" }
 
 [build-dependencies]
-forge-version = { path = "../../version" }
+forge-version = { path = "../../common/version" }
 
 [dev-dependencies]
 ctor = "0.1"

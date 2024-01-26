@@ -19,16 +19,16 @@ toml = "0.8.8"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 
-# local dependencies
+# [local-dependencies]
 agent = { path = "../bluefield/agent" }
 bmc-mock = { path = "../dev/bmc-mock" }
 carbide-api = { path = "../api" }
-forge-host-support = { path = "../host-support" }
-forge-version = { path = "../version" }
+forge-host-support = { path = "../common/host-support" }
+forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
 
 [dependencies]
 async-trait = "0.1.72"
 
 [build-dependencies]
-forge-version = { path = "../version" }
+forge-version = { path = "../common/version" }

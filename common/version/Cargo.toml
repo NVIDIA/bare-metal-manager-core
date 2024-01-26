@@ -6,4 +6,6 @@ license = "LicenseRef-NvidiaProprietary"
 authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 
 [dependencies]
-rpc = { path = "../rpc" }
+
+# [local-dependencies]
+rpc = { path = "../../rpc" }

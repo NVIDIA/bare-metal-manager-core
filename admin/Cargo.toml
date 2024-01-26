@@ -27,13 +27,13 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 uuid = "1.0"
 
-# local crate dependencies
-forge-tls = { path = "../tls" }
-forge-version = { path = "../version" }
+# [local-dependencies]
+forge-tls = { path = "../common/tls" }
+forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
-utils = { path = "../utils" }
+utils = { path = "../common/utils" }
 
 [build-dependencies]
-forge-version = { path = "../version" }
 clap = { workspace = true }
+forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }

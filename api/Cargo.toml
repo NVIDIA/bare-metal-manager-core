@@ -88,16 +88,16 @@ vaultrs = "0.7"
 version-compare = "0.1.1"
 x509-parser = { version = "0.15.1", features = ["verify"] }
 
-#only local dependencies here please
-forge-tls = { path = "../tls" }
-forge_secrets = { path = "../forge_secrets" }
-forge-version = { path = "../version" }
+# [local-dependencies]
+forge-tls = { path = "../common/tls" }
+forge_secrets = { path = "../common/secrets" }
+forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
-utils = { path = "../utils" }
+utils = { path = "../common/utils" }
 
 [build-dependencies]
 tonic-build = "0.10.2"
-forge-version = { path = "../version" }
+forge-version = { path = "../common/version" }
 
 [dev-dependencies]
 figment = { version = "0.10.10", features = ["env", "test", "toml"] }
