@@ -239,6 +239,19 @@ impl serde::Serialize for forge::MachineId {
     }
 }
 
+/// Custom Deserializer implementation which omits the notion of the wrapper in gRPC
+/// and just serializes the MachineId itself
+impl<'de> serde::Deserialize<'de> for forge::MachineId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let id = serde::Deserialize::deserialize(deserializer)?;
+
+        Ok(MachineId { id })
+    }
+}
+
 impl MachineInterface {
     pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, MacParseError> {
         Ok(Some(MacAddress::from_str(&self.mac_address)?))
