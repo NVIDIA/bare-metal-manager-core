@@ -119,6 +119,28 @@ pub async fn update_nvue(
     };
     let loopback_ip = l_ip_str.parse().wrap_err_with(|| l_ip_str.clone())?;
 
+    let access_vlans = if nc.use_admin_network {
+        let admin_interface = nc
+            .admin_interface
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
+        vec![nvue::VlanConfig {
+            vlan_id: admin_interface.vlan_id,
+            network: admin_interface.ip.clone() + "/32",
+            ip: admin_interface.ip.clone(),
+        }]
+    } else {
+        let mut access_vlans = Vec::with_capacity(nc.tenant_interfaces.len());
+        for net in &nc.tenant_interfaces {
+            access_vlans.push(nvue::VlanConfig {
+                vlan_id: net.vlan_id,
+                network: net.ip.clone() + "/32",
+                ip: net.ip.clone(),
+            });
+        }
+        access_vlans
+    };
+
     let physical_name = DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf";
     let networks = if nc.use_admin_network {
         let admin_interface = nc
@@ -169,6 +191,7 @@ pub async fn update_nvue(
         route_servers: nc.route_servers.clone(),
         ct_port_configs: networks,
         ct_name: UPLINKS[0].to_string(),
+        ct_access_vlans: access_vlans,
         use_local_dhcp: nc.enable_dhcp,
 
         // FNN only, not used yet
@@ -1249,6 +1272,11 @@ mod tests {
             ct_port_configs: networks,
             ct_name: super::UPLINKS[0].to_string(),
             use_local_dhcp: false,
+            ct_access_vlans: vec![nvue::VlanConfig {
+                vlan_id: 123,
+                network: "10.217.4.70/32".to_string(),
+                ip: "10.217.4.70".to_string(),
+            }],
 
             // FNN only, not used yet
             ct_l3_vni: "FNN".to_string(),

@@ -62,6 +62,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             VRFloopback: conf.ct_vrf_loopback,
             PortConfigs: port_configs,
             ExternalAccess: conf.ct_external_access,
+            AccessVLANs: conf
+                .ct_access_vlans
+                .into_iter()
+                .map(|vl| TmplConfigVLAN {
+                    ID: vl.vlan_id,
+                    HostIP: vl.ip,
+                    HostRoute: vl.network,
+                })
+                .collect(),
         }],
     };
     gtmpl::template(TMPL_FULL, params).map_err(|e| e.into())
@@ -168,6 +177,13 @@ pub struct NvueConfig {
     pub ct_vrf_loopback: String,
     pub ct_port_configs: Vec<PortConfig>,
     pub ct_external_access: Vec<String>,
+    pub ct_access_vlans: Vec<VlanConfig>,
+}
+
+pub struct VlanConfig {
+    pub vlan_id: u32,
+    pub network: String,
+    pub ip: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -228,6 +244,16 @@ struct TmplComputeTenant {
     /// will occur to the specific tenant VRFs.
     /// Format: Slice with strings equal to {{ .L3domain }}
     ExternalAccess: Vec<String>,
+
+    AccessVLANs: Vec<TmplConfigVLAN>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Debug, Gtmpl)]
+struct TmplConfigVLAN {
+    ID: u32,
+    HostIP: String,
+    HostRoute: String,
 }
 
 #[allow(non_snake_case)]

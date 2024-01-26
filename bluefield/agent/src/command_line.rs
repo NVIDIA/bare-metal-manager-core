@@ -112,6 +112,9 @@ pub struct NvueOptions {
     )]
     pub l3_domain: Vec<String>,
 
+    #[clap(long, help = "Format is 'id,host_route', e.g. --vlan 1,xyz. Repeats.")]
+    pub vlan: Vec<String>,
+
     #[clap(long, help = "Compute Tenant name")]
     pub ct_name: String,
 
