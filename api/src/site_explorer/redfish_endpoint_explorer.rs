@@ -124,8 +124,8 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
 
 async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishError> {
     let mut system = client.get_system().await?;
-    let fetch_oob = system.id.to_lowercase().contains("bluefield");
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, fetch_oob).await?;
+    let fetch_bluefield_oob = system.id.to_lowercase().contains("bluefield");
+    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, fetch_bluefield_oob).await?;
 
     // This part processes dpu case and do two things such as
     // 1. update system serial_number in case it is empty using chassis serial_number
@@ -157,7 +157,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
 async fn fetch_ethernet_interfaces(
     client: &dyn Redfish,
     fetch_system_interfaces: bool,
-    fetch_oob: bool,
+    fetch_bluefield_oob: bool,
 ) -> Result<Vec<EthernetInterface>, RedfishError> {
     let eth_if_ids: Vec<String> = match match fetch_system_interfaces {
         false => client.get_manager_ethernet_interfaces().await,
@@ -170,7 +170,15 @@ async fn fetch_ethernet_interfaces(
                     if status_code == http::StatusCode::NOT_FOUND =>
                 {
                     // API to enumerate Ethernet interfaces is not supported
-                    return Ok(Vec::new());
+                    // This is the case for Bluefield NICs with some BMCs
+                    // For this case we use a workaround to fetch the OOB interface
+                    // information
+                    if fetch_system_interfaces && fetch_bluefield_oob {
+                        let oob_iface = get_oob_interface(client).await?;
+                        return Ok(vec![oob_iface]);
+                    } else {
+                        return Ok(Vec::new());
+                    }
                 }
                 _ => return Err(e),
             }
@@ -194,8 +202,11 @@ async fn fetch_ethernet_interfaces(
         eth_ifs.push(iface);
     }
 
-    if fetch_oob {
+    if eth_ifs.is_empty() && fetch_bluefield_oob {
         // Temporary workaround untill get_system_ethernet_interface will return oob interface information
+        // Usually the workaround for not even being able to enumerate the interfaces
+        // would be used. But if a future Bluefield BMC revision returns interfaces
+        // but still misses the OOB interface, we would use this path.
         let oob_iface = get_oob_interface(client).await?;
         eth_ifs.push(oob_iface);
     }
