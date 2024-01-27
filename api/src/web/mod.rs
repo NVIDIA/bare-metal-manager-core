@@ -41,6 +41,7 @@ mod network_device;
 mod network_segment;
 mod network_status;
 mod resource_pool;
+mod vpc;
 
 const WEB_AUTH: &str = "admin:Welcome123";
 
@@ -89,6 +90,9 @@ pub fn routes<C1: CredentialProvider + 'static, C2: CertificateProvider + 'stati
             .route("/network-status.json", get(network_status::show_json))
             .route("/resource-pool", get(resource_pool::show_html))
             .route("/resource-pool.json", get(resource_pool::show_json))
+            .route("/vpc", get(vpc::show_html))
+            .route("/vpc.json", get(vpc::show_json))
+            .route("/vpc/:vpc_id", get(vpc::detail))
             .layer(axum::middleware::from_fn(auth_basic))
             .with_state(api),
     )

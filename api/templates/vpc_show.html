@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}VPCs{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>VPCs</h1>
+
+<table>
+	<thead>
+		<th>Id</th>
+		<th>Name</th>
+		<th>Tenant</th>
+		<th>Keyset ID</th>
+		<th>Network Virtualization</th>
+		<th>VNI</th>
+	</thead>
+	<tbody>
+		{% for vpc in vpcs %}
+		<tr>
+			<td>{{ vpc.id }}</td>
+			<td>{{ vpc.name }}</td>
+			<td>{{ vpc.tenant_organization_id }}</td>
+			<td>{{ vpc.tenant_keyset_id }}</td>
+			<td>{{ vpc.network_virtualization_type }}</td>
+			<td>{{ vpc.vni }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+{% endblock %}

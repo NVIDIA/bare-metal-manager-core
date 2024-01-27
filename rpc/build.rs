@@ -117,6 +117,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.DpuNetworkStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.ResourcePool", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.VpcList", "#[derive(serde::Serialize)]")
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")
