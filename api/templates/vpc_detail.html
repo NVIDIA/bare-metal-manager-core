@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}VPC Detail{% endblock %}
+
+{% block content %}
+
+<h1>VPC Detail</h1>
+
+<table>
+	<tr><th>Id</th><td>{{ id }}</td></tr>
+	<tr><th>Name</th><td>{{ name }}</td></tr>
+	<tr><th>Tenant</th><td>{{ tenant_organization_id }}</td></tr>
+	<tr><th>Keyset ID</th><td>{{ tenant_keyset_id }}</td></tr>
+	<tr><th>Network Virtualization</th><td>{{ network_virtualization_type }}</td></tr>
+	<tr><th>VNI</th><td>{{ vni }}</td></tr>
+	<tr><th>Version</th><td>{{ version }}</td></tr>
+</table>
+
+{% endblock %}

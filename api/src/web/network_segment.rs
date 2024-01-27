@@ -35,6 +35,7 @@ struct NetworkSegmentShow {
 struct NetworkSegmentRowDisplay {
     name: String,
     id: String,
+    vpc_id: String,
     created: String,
     state: String,
     sub_domain: String,
@@ -49,6 +50,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
         Self {
             id: segment.id.unwrap_or_default().to_string(),
             name: segment.name,
+            vpc_id: segment.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
             state: format!(
                 "{:?}",
@@ -186,6 +188,7 @@ async fn get_domain_name<C1: CredentialProvider + 'static, C2: CertificateProvid
 struct NetworkSegmentDetail {
     id: String,
     name: String,
+    vpc_id: String,
     created: String,
     updated: String,
     deleted: String,
@@ -240,6 +243,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
         Self {
             id: segment.id.unwrap_or_default().to_string(),
             name: segment.name,
+            vpc_id: segment.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
             updated: segment.updated.unwrap_or_default().to_string(),
             deleted: segment

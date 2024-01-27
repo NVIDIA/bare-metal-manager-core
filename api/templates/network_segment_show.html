@@ -71,6 +71,7 @@
 	<thead>
 		<th>Name</th>
 		<th>Id</th>
+		<th>VPC ID</th>
 		<th>Created</th>
 		<th>State</th>
 		<th>Sub Domain</th>
@@ -84,6 +85,7 @@
 		<tr>
 			<td><a href="/admin/network-segment/{{ ns.id }}">{{ ns.name }}</a></td>
 			<td>{{ ns.id }}</td>
+			<td><a href="/admin/vpc/{{ ns.vpc_id }}">{{ ns.vpc_id }}</a></td>
 			<td>{{ ns.created }}</td>
 			<td>{{ ns.state }}</td>
 			<td>{{ ns.sub_domain }}</td>
