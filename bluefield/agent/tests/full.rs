@@ -12,6 +12,7 @@
 
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
@@ -54,13 +55,13 @@ main-loop-idle-secs = 30
 version-check-secs = 1800
 "#;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct State {
     is_nvue: bool,
     has_discovered: bool,
     has_checked_for_upgrade: bool,
-    has_fetched_netconf: bool,
-    has_reported_health: bool,
+    num_netconf_fetches: AtomicUsize,
+    num_health_reports: AtomicUsize,
 }
 
 #[derive(Default, Debug)]
@@ -135,6 +136,7 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
 
     let td = tempfile::tempdir()?;
     let hbn_root = td.path();
+    tracing::info!("Using hbn_root: {:?}", hbn_root);
     fs::create_dir_all(hbn_root.join("etc/frr"))?;
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
@@ -196,10 +198,25 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
         }
     });
 
-    // Let it run twice. First time it noticed HBN is up. Second time it applies config.
-    // In config above period.main_loop_active_secs is 1 seconds, so make this 2 seconds, plus 1
-    // for slow CI.
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // Wait until we report health at least 2 times
+    // At that point in time the first configuration should have been applied
+    // and the check for updates should have occured
+    let start = std::time::Instant::now();
+    loop {
+        let statel = state.lock().await;
+        if statel.num_health_reports.load(Ordering::SeqCst) > 1 {
+            break;
+        }
+
+        if start.elapsed() > std::time::Duration::from_secs(30) {
+            return Err(eyre::eyre!(
+                "Health report was not sent 2 times in 30s. State: {:?}",
+                statel
+            ));
+        }
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 
     join_handle.abort();
 
@@ -207,9 +224,10 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
     let statel = state.lock().await;
     assert!(statel.has_discovered);
     assert!(statel.has_checked_for_upgrade);
-    assert!(statel.has_fetched_netconf);
-    assert!(statel.has_reported_health);
-
+    assert!(statel.num_health_reports.load(Ordering::SeqCst) > 1);
+    // Since Network config fetching runs in a separate task, it might not have
+    // happened 2 times but just a single time
+    assert!(statel.num_netconf_fetches.load(Ordering::SeqCst) > 0);
     Ok(TestOut {
         is_skip: false,
         hbn_root_dir: Some(td),
@@ -229,7 +247,13 @@ async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl
 }
 
 async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
-    state.lock().await.has_fetched_netconf = true;
+    {
+        state
+            .lock()
+            .await
+            .num_netconf_fetches
+            .fetch_add(1, Ordering::SeqCst);
+    }
     let is_nvue = state.lock().await.is_nvue;
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
     let admin_interface = rpc::forge::FlatInterfaceConfig {
@@ -279,7 +303,13 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
 async fn handle_record_netstat(
     AxumState(state): AxumState<Arc<Mutex<State>>>,
 ) -> impl IntoResponse {
-    state.lock().await.has_reported_health = true;
+    {
+        state
+            .lock()
+            .await
+            .num_health_reports
+            .fetch_add(1, Ordering::SeqCst);
+    }
     common::respond(())
 }
 

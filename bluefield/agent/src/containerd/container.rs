@@ -208,18 +208,24 @@ mod tests {
     use super::*;
 
     lazy_static! {
-        pub static ref RUN_COUNTER: AtomicU32 = AtomicU32::new(0);
+        pub static ref RUN_COUNTER_0: AtomicU32 = AtomicU32::new(0);
+        pub static ref RUN_COUNTER_1: AtomicU32 = AtomicU32::new(0);
     }
 
     #[derive(Debug, Eq, PartialEq, Hash, Clone)]
     struct TestCommand {
         pub output: String,
+        pub counter: usize,
     }
 
     // Implementation of command which increments a global counter and returns output
     impl Command for TestCommand {
         fn run(&mut self) -> eyre::Result<String> {
-            let _ = (*RUN_COUNTER).fetch_add(1, Ordering::SeqCst);
+            if self.counter == 0 {
+                let _ = (*RUN_COUNTER_0).fetch_add(1, Ordering::SeqCst);
+            } else {
+                let _ = (*RUN_COUNTER_1).fetch_add(1, Ordering::SeqCst);
+            }
             Ok(self.output.clone())
         }
     }
@@ -229,14 +235,15 @@ mod tests {
         let mut wrap = CommandWrapper::new(
             Box::new(TestCommand {
                 output: "test".to_string(),
+                counter: 0,
             }),
             Duration::from_secs(1), // cache CommandWrapper for 1 sec
         );
 
-        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER
-        let count1 = (*RUN_COUNTER).load(Ordering::SeqCst);
-        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER
-        let count2 = (*RUN_COUNTER).load(Ordering::SeqCst); // matches count1 because output is cached and run() does not execute(no incrementing RUN_COUNTER)
+        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_0
+        let count1 = (*RUN_COUNTER_0).load(Ordering::SeqCst);
+        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_0
+        let count2 = (*RUN_COUNTER_0).load(Ordering::SeqCst); // matches count1 because output is cached and run() does not execute(no incrementing RUN_COUNTER_0)
 
         assert_eq!(count1, count2);
     }
@@ -246,21 +253,22 @@ mod tests {
         let mut wrap = CommandWrapper::new(
             Box::new(TestCommand {
                 output: "test".to_string(),
+                counter: 1,
             }),
             Duration::from_secs(1), // cache for 1 second
         );
 
         let duration = Duration::from_secs(2);
 
-        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER
-        let count1 = (*RUN_COUNTER).load(Ordering::SeqCst); // load counter
+        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_1
+        let count1 = (*RUN_COUNTER_1).load(Ordering::SeqCst); // load counter
 
         std::thread::sleep(duration); // sleep for 1 sec to expire cache
 
         let _ = wrap.get().unwrap();
-        let count2 = (*RUN_COUNTER).load(Ordering::SeqCst); // get counter
+        let count2 = (*RUN_COUNTER_1).load(Ordering::SeqCst); // get counter
 
-        assert_ne!(count1, count2); // count1 and count2 should not match because cache1 holds the cached RUN_COUNTER and count2 holds new count from TestCommand::run()
+        assert_ne!(count1, count2); // count1 and count2 should not match because cache1 holds the cached RUN_COUNTER_1 and count2 holds new count from TestCommand::run()
     }
 
     #[test]
