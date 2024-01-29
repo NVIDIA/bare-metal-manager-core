@@ -397,7 +397,7 @@ message VpcCreationRequest {
 
 enum VpcVirtualizationType {
   ETHERNET_VIRTUALIZER = 0;
-  FORGE_NATIVE_NETWORKING = 1;
+  // 1 was previously FORGE_NATIVE_NETWORKING
   ETHERNET_VIRTUALIZER_WITH_NVUE = 2;
 }
 
