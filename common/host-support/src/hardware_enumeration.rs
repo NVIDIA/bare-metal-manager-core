@@ -204,10 +204,10 @@ pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::Infiniban
     let device_debug_log = |device: &Device| {
         tracing::debug!("SysPath - {:?}", device.syspath());
         for p in device.properties() {
-            tracing::debug!("Property - {:?} - {:?}", p.name(), p.value());
+            tracing::trace!("Property - {:?} - {:?}", p.name(), p.value());
         }
         for a in device.attributes() {
-            tracing::debug! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            tracing::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
         }
     };
 

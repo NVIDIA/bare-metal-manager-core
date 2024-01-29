@@ -1,5 +1,6 @@
-use super::PciDevicePropertiesExt;
 use ::utils::cmd::Cmd;
+
+use super::PciDevicePropertiesExt;
 
 const LINK_TYPE_P1: &str = "LINK_TYPE_P1";
 
@@ -43,7 +44,7 @@ fn check_link_type(device: &str, port: &str) -> bool {
             true
         }
         Err(e) => {
-            tracing::debug!("Device {} is not IB capable, result {} ", device, e,);
+            tracing::trace!("Device {} is not IB capable, result {} ", device, e,);
             false
         }
     }
