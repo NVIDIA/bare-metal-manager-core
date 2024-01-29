@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::ForgeClientConfig;
-use axum::routing::post;
+use axum::routing::{get, post};
 
 mod common;
 
@@ -38,7 +38,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
 
     let marker = tempfile::NamedTempFile::new()?;
 
-    let app = axum::Router::new().route(
+    let app = axum::Router::new().route("/up", get(handle_up)).route(
         "/forge.Forge/DpuAgentUpgradeCheck",
         post(dpu_agent_upgrade_check),
     );
@@ -77,4 +77,9 @@ async fn dpu_agent_upgrade_check() -> impl axum::response::IntoResponse {
         package_version: "2023.06-rc2-1-gc5c05de3".to_string(),
         server_version: "v2023.06-rc2-1-gc5c05de3".to_string(),
     })
+}
+
+/// Health check. When this responds we know the mock server is ready.
+async fn handle_up() -> &'static str {
+    "OK"
 }

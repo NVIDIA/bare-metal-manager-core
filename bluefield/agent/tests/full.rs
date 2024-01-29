@@ -20,7 +20,7 @@ use std::{env, fs};
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use eyre::WrapErr;
@@ -148,6 +148,7 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
 
     // Start carbide API
     let app = Router::new()
+        .route("/up", get(handle_up))
         .route("/forge.Forge/DiscoverMachine", post(handle_discover))
         .route(
             "/forge.Forge/GetManagedHostNetworkConfig",
@@ -232,6 +233,11 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
         is_skip: false,
         hbn_root_dir: Some(td),
     })
+}
+
+/// Health check. When this responds we know the mock server is ready.
+async fn handle_up() -> &'static str {
+    "OK"
 }
 
 async fn handle_discover(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {

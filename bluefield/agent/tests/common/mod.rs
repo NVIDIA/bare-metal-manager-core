@@ -11,7 +11,7 @@
  */
 
 use std::net::{SocketAddr, TcpListener};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::http::header;
 use axum::response::IntoResponse;
@@ -35,9 +35,35 @@ pub async fn run_grpc_server(
             .await
             .unwrap();
     });
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    wait_for_server_to_start(addr).await?;
 
     Ok((addr, join_handle))
+}
+
+async fn wait_for_server_to_start(addr: SocketAddr) -> eyre::Result<()> {
+    let url = format!("https://{addr}/up");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let client = reqwest::ClientBuilder::new()
+        .danger_accept_invalid_certs(true)
+        .build()?;
+    while Instant::now() < deadline {
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status() == reqwest::StatusCode::OK => {
+                break;
+            }
+            Ok(resp) => {
+                eyre::bail!(
+                    "Invalid status code from /up on mock grpc server: {}",
+                    resp.status(),
+                );
+            }
+            Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+        }
+    }
+    if Instant::now() >= deadline {
+        eyre::bail!("Timed out waiting for mock grpc server to start");
+    }
+    Ok(())
 }
 
 /// Takes an rpc object (built from rpc/proto/forge.proto) and turns into into a gRPC axum response
