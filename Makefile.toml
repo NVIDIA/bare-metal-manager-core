@@ -119,22 +119,6 @@ script = '''
 docker build ${REPO_ROOT}/dev/docker -f ${REPO_ROOT}/dev/docker/Dockerfile.build-artifacts-container-cross-aarch64 -t build-artifacts-container-cross-aarch64
 '''
 
-[tasks.build-rainbow]
-category = "Build"
-description = "Build rainbow locally using debian container. Ensures correct GCC version is used."
-workspace = false
-script = '''
-docker run \
-	--rm \
-	--user $(id -u):$(id -g) \
-	--volume $(pwd):/code \
-	--workdir /code \
-	--volume $HOME/.cargo:/cargo \
-	--env CARGO_HOME=/cargo \
-	-it urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
-	cargo build --release -p rainbow && strip target/release/rainbow
-'''
-
 [tasks.build-x86-build-container]
 category = "Kind"
 description = "Build the x86 build container"
