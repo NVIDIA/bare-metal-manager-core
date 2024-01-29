@@ -64,7 +64,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             managers: report.managers.into_iter().map(Into::into).collect(),
             systems: report.systems.into_iter().map(Into::into).collect(),
             chassis: report.chassis.into_iter().map(Into::into).collect(),
-            service: vec![],
+            service: report.service.into_iter().map(Into::into).collect(),
         }
     }
 }
