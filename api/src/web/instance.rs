@@ -40,6 +40,7 @@ struct InstanceDisplay {
     ip_addresses: String,
     num_eth_ifs: usize,
     num_ib_ifs: usize,
+    num_keysets: usize,
 }
 
 impl From<forgerpc::Instance> for InstanceDisplay {
@@ -89,6 +90,12 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             .and_then(|config| config.infiniband.as_ref())
             .map(|ib| ib.ib_interfaces.len())
             .unwrap_or_default();
+        let num_keysets = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.tenant.as_ref())
+            .map(|tenant: &rpc::TenantConfig| tenant.tenant_keyset_ids.len())
+            .unwrap_or_default();
 
         Self {
             id: instance.id.unwrap_or_default().to_string(),
@@ -102,6 +109,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
             ip_addresses: instance_addresses.join(","),
             num_eth_ifs,
             num_ib_ifs,
+            num_keysets,
         }
     }
 }
@@ -164,6 +172,7 @@ struct InstanceDetail {
     always_boot_custom_ipxe: bool,
     interfaces: Vec<InstanceInterface>,
     ib_interfaces: Vec<InstanceIbInterface>,
+    keysets: Vec<String>,
 }
 
 struct InstanceInterface {
@@ -267,6 +276,13 @@ impl From<forgerpc::Instance> for InstanceDetail {
             }
         }
 
+        let keysets = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.tenant.as_ref())
+            .map(|tenant| tenant.tenant_keyset_ids.clone())
+            .unwrap_or_default();
+
         Self {
             id: instance.id.clone().unwrap_or_default().value,
             machine_id: instance.machine_id.clone().unwrap_or_default().id,
@@ -323,6 +339,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .unwrap_or_default(),
             interfaces,
             ib_interfaces,
+            keysets,
         }
     }
 }
