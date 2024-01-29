@@ -18,7 +18,7 @@
 	<tbody>
 		{% for vpc in vpcs %}
 		<tr>
-			<td>{{ vpc.id }}</td>
+			<td><a href="/admin/vpc/{{ vpc.id }}">{{ vpc.id }}</a></td>
 			<td>{{ vpc.name }}</td>
 			<td>{{ vpc.tenant_organization_id }}</td>
 			<td>{{ vpc.tenant_keyset_id }}</td>
