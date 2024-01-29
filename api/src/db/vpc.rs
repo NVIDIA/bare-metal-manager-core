@@ -47,20 +47,18 @@ pub struct Vpc {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "network_virtualization_type_t")]
+#[allow(clippy::enum_variant_names)]
 pub enum VpcVirtualizationType {
     #[sqlx(rename = "etv")]
     EthernetVirtualizer = 0,
-    #[sqlx(rename = "fnn")]
-    ForgeNativeNetworking,
     #[sqlx(rename = "etv_nvue")]
-    EthernetVirtualizerWithNvue,
+    EthernetVirtualizerWithNvue = 2,
 }
 
 impl fmt::Display for VpcVirtualizationType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EthernetVirtualizer => write!(f, "etv"),
-            Self::ForgeNativeNetworking => write!(f, "fnn"),
             Self::EthernetVirtualizerWithNvue => write!(f, "etv_nvue"),
         }
     }
@@ -72,9 +70,6 @@ impl TryFrom<i32> for VpcVirtualizationType {
         Ok(match value {
             x if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => {
                 Self::EthernetVirtualizer
-            }
-            x if x == rpc::VpcVirtualizationType::ForgeNativeNetworking as i32 => {
-                Self::ForgeNativeNetworking
             }
             x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
                 Self::EthernetVirtualizerWithNvue
@@ -92,7 +87,6 @@ impl FromStr for VpcVirtualizationType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "etv" => Ok(Self::EthernetVirtualizer),
-            "fnn" => Ok(Self::ForgeNativeNetworking),
             "etv_nvue" => Ok(Self::EthernetVirtualizerWithNvue),
             x => Err(CarbideError::GenericError(format!(
                 "Unknown virt type {}",

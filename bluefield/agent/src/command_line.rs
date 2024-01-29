@@ -204,7 +204,6 @@ pub struct RunOptions {
 #[derive(ValueEnum, Debug, Clone, Copy)]
 pub enum NetworkVirtualizationType {
     Etv,
-    Fnn,
     EtvNvue, // clap default is kebab-case, so this is "etv-nvue"
 }
 
@@ -219,7 +218,6 @@ impl From<rpc::forge::VpcVirtualizationType> for NetworkVirtualizationType {
     fn from(v: rpc::forge::VpcVirtualizationType) -> Self {
         match v {
             rpc::forge::VpcVirtualizationType::EthernetVirtualizer => Self::Etv,
-            rpc::forge::VpcVirtualizationType::ForgeNativeNetworking => Self::Fnn,
             rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue => Self::EtvNvue,
         }
     }
@@ -230,9 +228,6 @@ impl From<NetworkVirtualizationType> for rpc::forge::VpcVirtualizationType {
         match nvt {
             NetworkVirtualizationType::Etv => {
                 rpc::forge::VpcVirtualizationType::EthernetVirtualizer
-            }
-            NetworkVirtualizationType::Fnn => {
-                rpc::forge::VpcVirtualizationType::ForgeNativeNetworking
             }
             NetworkVirtualizationType::EtvNvue => {
                 rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue
