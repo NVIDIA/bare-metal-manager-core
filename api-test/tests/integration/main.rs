@@ -19,7 +19,7 @@ use std::{
 };
 
 use grpcurl::grpcurl;
-use sqlx::migrate::MigrateDatabase;
+use sqlx::{migrate::MigrateDatabase, Postgres, Row};
 use tokio::time::sleep;
 
 mod api_server;
@@ -113,6 +113,10 @@ async fn test_integration() -> eyre::Result<()> {
 
     // And now.. Behold! The Test!
 
+    // Before the initial host bootstrap, the dns_records view
+    // should contain 0 entries.
+    assert_eq!(0i64, get_dns_record_count(&db_pool).await);
+
     let agent_config_file = tempfile::NamedTempFile::new()?;
     let upgrade_indicator_file = tempfile::NamedTempFile::new()?;
     let dpu_info = dpu::bootstrap(
@@ -123,6 +127,13 @@ async fn test_integration() -> eyre::Result<()> {
     )
     .await?;
     let host_machine_id = host_boostrap(carbide_api_addr).await?;
+
+    // After the host_bootstrap, the dns_records view
+    // should contain 6 entries:
+    // - 2x "human friendly" for Host + DPU.
+    // - 2x Machine ID (BMC) for Host + DPU.
+    // - 2x Machine ID (ADM) for HOst + DPU.
+    assert_eq!(6i64, get_dns_record_count(&db_pool).await);
 
     // Metrics are only updated after the machine state controller run one more
     // time since the emitted metrics are for states at the start of the iteration.
@@ -277,4 +288,18 @@ fn find_first_in(binary: &str, paths: &[path::PathBuf]) -> Option<path::PathBuf>
         }
     }
     None
+}
+
+// Get the current number of rows in the dns_records view,
+// which is expected to start at 0, and then progress, as
+// the test continues.
+//
+// TODO(chet): Find a common place for this and the same exact
+// function in api/tests/dns.rs to exist, instead of it being
+// in two places.
+pub async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
+    let mut txn = pool.begin().await.unwrap();
+    let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
+    let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();
+    rows.try_get("row_cnt").unwrap()
 }

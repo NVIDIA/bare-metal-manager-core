@@ -132,6 +132,11 @@ impl MachineTopology {
             },
         };
 
+        tracing::info!(
+            %machine_id,
+            "Discovery data for machine did not exist. Creating now.",
+        );
+
         let query = "INSERT INTO machine_topologies VALUES ($1, $2::json) RETURNING *";
         let res = sqlx::query_as(query)
             .bind(machine_id.to_string())
