@@ -113,6 +113,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
             managers: vec![manager],
             systems: vec![system],
             chassis,
+            service: vec![],
             vendor,
         })
     }
