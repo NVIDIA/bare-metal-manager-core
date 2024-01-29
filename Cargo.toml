@@ -13,7 +13,6 @@ members = [
   "common/utils",
   "common/version",
   "dev/bmc-mock",
-  "dev/rainbow",
   "dhcp",
   "dhcp-server",
   "dns",
