@@ -65,5 +65,5 @@ tempfile = "3"
 axum-server = { version = "0.4.4", features = ["tls-rustls"] }
 prost = "0.12"
 chrono = "0.4.26"
-reqwest = "*"
+reqwest = { version = "*", default-features = false, features = ["rustls-tls"] }
 serde_yaml = "*"
