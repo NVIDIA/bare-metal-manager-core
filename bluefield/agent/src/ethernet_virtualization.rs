@@ -152,6 +152,7 @@ pub async fn update_nvue(
             vlan: admin_interface.vlan_id as u16,
             vni: None,
             gateway_cidr: admin_interface.gateway.clone(),
+            svi_ip: None, // FNN only
         }]
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
@@ -175,6 +176,7 @@ pub async fn update_nvue(
                 vlan: net.vlan_id as u16,
                 vni: Some(net.vni), // TODO should this be nc.vni_device?
                 gateway_cidr: net.gateway.clone(),
+                svi_ip: None, // FNN only
             });
         }
         ifs
@@ -182,6 +184,7 @@ pub async fn update_nvue(
 
     let hostname = hostname().wrap_err("gethostname error")?;
     let conf = nvue::NvueConfig {
+        is_fnn: false,
         loopback_ip,
         asn: nc.asn,
         dpu_hostname: hostname.hostname,
@@ -1253,15 +1256,30 @@ mod tests {
     }
 
     #[test]
-    fn test_nvue_is_yaml() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_nvue_is_yaml_etv() -> Result<(), Box<dyn std::error::Error>> {
+        test_nvue_is_yaml_inner(false)
+    }
+
+    #[test]
+    fn test_nvue_is_yaml_fnnv() -> Result<(), Box<dyn std::error::Error>> {
+        test_nvue_is_yaml_inner(true)
+    }
+
+    fn test_nvue_is_yaml_inner(is_fnn: bool) -> Result<(), Box<dyn std::error::Error>> {
         let networks = vec![nvue::PortConfig {
             interface_name: super::DPU_PHYSICAL_NETWORK_INTERFACE.to_string() + "_sf",
             vlan: 123u16,
             vni: Some(5555),
             gateway_cidr: "10.217.4.65/26".to_string(),
+            svi_ip: if is_fnn {
+                Some("10.217.4.66".to_string())
+            } else {
+                None
+            },
         }];
         let hostname = super::hostname().wrap_err("gethostname error")?;
         let conf = nvue::NvueConfig {
+            is_fnn,
             loopback_ip: "10.217.5.39".to_string(),
             asn: 65535,
             dpu_hostname: hostname.hostname,

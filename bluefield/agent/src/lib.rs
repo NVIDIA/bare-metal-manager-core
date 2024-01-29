@@ -379,6 +379,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     })
                     .collect();
                 let conf = nvue::NvueConfig {
+                    is_fnn: opts.is_fnn,
                     loopback_ip: opts.loopback_ip.to_string(),
                     asn: opts.asn,
                     dpu_hostname: opts.dpu_hostname,
