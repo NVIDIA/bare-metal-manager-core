@@ -276,7 +276,6 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     };
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
-        is_production_mode: true,
         asn: 65535,
         dhcp_servers: vec!["127.0.0.1".to_string()],
         vni_device: "".to_string(),

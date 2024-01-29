@@ -1232,9 +1232,7 @@ message ManagedHostNetworkConfigRequest {
 }
 
 message ManagedHostNetworkConfigResponse {
-  // Should forge-dpu-agent write the real files.
-  // false means to append .TEST to filenames to run in parallel with VPC
-  bool is_production_mode = 1;
+  reserved 1; // previously is_production_mode
 
   // ASN and DHCP servers are not versioned, they are fixed on process start
 
@@ -1276,7 +1274,7 @@ message ManagedHostNetworkConfigResponse {
   // Enable forge DHCP on HBN
   bool enable_dhcp = 100;
 
-  // Host primary interface id 
+  // Host primary interface id
   optional string host_interface_id = 102;
 }
 
@@ -1305,9 +1303,9 @@ message FlatInterfaceConfig {
     // the prefix from the network segment this interface is attached to (which
     // could be independently derived from the `gateway` field).
     repeated string vpc_prefixes = 7;
-    // Prefix for ip 
+    // Prefix for ip
     string prefix = 8;
-    // FQDN 
+    // FQDN
     string fqdn = 9;
     // boot_url
     optional string booturl = 10;

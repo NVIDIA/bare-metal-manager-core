@@ -77,16 +77,6 @@ pub struct Daemon {
     #[clap(long)]
     pub rapid_iterations: bool,
 
-    /// DO NOT USE
-    /// Will be removed in next release. Kept for easier upgrade, we need to co-ordinate
-    /// other repos (forged and forge-deployment).
-    #[clap(
-        long,
-        default_value = "true",
-        help = "Do not use. Will be removed soon"
-    )]
-    pub manage_vpc: bool,
-
     /// ASN: Autonomous System Number
     /// Fixed per environment. Used by forge-dpu-agent to write frr.conf (routing).
     ///

@@ -148,12 +148,6 @@ const FORGE_SITE_WIDE_BMC_USERNAME: &str = "root";
 // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 
-// If you set this to true forge-dpu-agent will start writing the HBN files (frr.conf, etc)
-// If you leave it false forge-dpu-agent will write files with a .TEST extension.
-//
-// Only used if `--manage-vpc` on command line.
-const ETH_VIRT_PRODUCTION_MODE: bool = true;
-
 pub const MAX_IB_PARTITION_PER_TENANT: i64 = 3;
 
 pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
@@ -1155,7 +1149,6 @@ where
                 .instance
                 .as_ref()
                 .map(|instance| instance.instance_id.into()),
-            is_production_mode: ETH_VIRT_PRODUCTION_MODE,
             asn: self.eth_data.asn,
             dhcp_servers: self.eth_data.dhcp_servers.clone(),
             route_servers: self.eth_data.route_servers.clone(),

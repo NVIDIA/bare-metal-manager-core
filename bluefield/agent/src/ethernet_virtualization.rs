@@ -59,42 +59,17 @@ struct PostAction {
     path_tmp: PathBuf,
 }
 
-fn paths(hbn_root: &Path, is_prod_mode: bool) -> Paths {
-    let (mut dhcp_relay, mut interfaces, mut frr, mut daemons, mut acl_rules) = (
-        hbn_root.join(dhcp::RELAY_PATH),
-        hbn_root.join(interfaces::PATH),
-        hbn_root.join(frr::PATH),
-        hbn_root.join(daemons::PATH),
-        hbn_root.join(acl_rules::PATH),
-    );
-
-    let mut server = hbn_root.join(dhcp::SERVER_PATH);
-    let mut config = hbn_root.join(dhcp::SERVER_CONFIG_PATH);
-    let mut host_config = hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH);
-
-    if is_prod_mode {
-        tracing::trace!("Ethernet virtualization running in production mode");
-    } else {
-        tracing::trace!("Ethernet virtualization running in test mode");
-        dhcp_relay.set_extension("TEST");
-        interfaces.set_extension("TEST");
-        frr.set_extension("TEST");
-        daemons.set_extension("TEST");
-        acl_rules.as_mut_os_string().push(".TEST");
-        server.set_extension("TEST");
-        config.set_extension("TEST");
-        host_config.set_extension("TEST");
-    }
+fn paths(hbn_root: &Path) -> Paths {
     Paths {
-        dhcp_relay,
-        interfaces,
-        frr,
-        daemons,
-        acl_rules,
+        dhcp_relay: hbn_root.join(dhcp::RELAY_PATH),
+        interfaces: hbn_root.join(interfaces::PATH),
+        frr: hbn_root.join(frr::PATH),
+        daemons: hbn_root.join(daemons::PATH),
+        acl_rules: hbn_root.join(acl_rules::PATH),
         dhcp_server: DhcpServerPaths {
-            server,
-            config,
-            host_config,
+            server: hbn_root.join(dhcp::SERVER_PATH),
+            config: hbn_root.join(dhcp::SERVER_CONFIG_PATH),
+            host_config: hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH),
         },
     }
 }
@@ -229,7 +204,7 @@ pub async fn update_files(
     nameservers: Vec<IpAddr>,
     network_virtualization_type: NetworkVirtualizationType,
 ) -> eyre::Result<bool> {
-    let paths = paths(hbn_root, network_config.is_production_mode);
+    let paths = paths(hbn_root);
 
     let mut errs = vec![];
     let mut post_actions = vec![];
@@ -431,7 +406,7 @@ pub async fn reset(
     skip_post: bool,
 ) {
     tracing::debug!("Setting network config to blank");
-    let paths = paths(hbn_root, true);
+    let paths = paths(hbn_root);
     dhcp::blank();
 
     let mut errs = vec![];
@@ -1096,7 +1071,6 @@ mod tests {
             loopback_ip: "10.217.5.39".to_string(),
         };
         let network_config = rpc::ManagedHostNetworkConfigResponse {
-            is_production_mode: false,
             asn: 4259912557,
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
@@ -1448,7 +1422,6 @@ mod tests {
         };
 
         let mut network_config = rpc::ManagedHostNetworkConfigResponse {
-            is_production_mode: false,
             asn: 4259912557,
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],

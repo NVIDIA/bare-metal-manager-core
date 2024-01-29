@@ -159,7 +159,7 @@ pub async fn interface_to_snapshot(
             mac_address: iface.mac_address.to_string(),
             ip_address: address.address,
             vlan_id: segment.vlan_id.unwrap_or_default() as u32,
-            vni: segment.vni.map(|v| v as u32).unwrap_or_default(), // we only have this if `--manage-vpc`
+            vni: segment.vni.map(|v| v as u32).unwrap_or_default(), // not on underlay networks
             gateway_cidr: prefix.gateway_cidr().unwrap_or_default(),
         });
     }
