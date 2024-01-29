@@ -32,6 +32,7 @@ use crate::ethernet_virtualization::EthVirtData;
 mod domain;
 mod explored_endpoint;
 mod filters;
+mod ib_partition;
 mod instance;
 mod interface;
 mod ip_finder;
@@ -64,6 +65,9 @@ pub fn routes<C1: CredentialProvider + 'static, C2: CertificateProvider + 'stati
             )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
+            .route("/ib-partition", get(ib_partition::show_html))
+            .route("/ib-partition.json", get(ib_partition::show_json))
+            .route("/ib-partition/:partition_id", get(ib_partition::detail))
             .route("/instance", get(instance::show_html))
             .route("/instance.json", get(instance::show_json))
             .route("/instance/:instance_id", get(instance::detail))
