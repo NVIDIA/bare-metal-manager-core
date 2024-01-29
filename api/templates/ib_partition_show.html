@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}InfiniBand Partitions{% endblock %}
+
+{% block content %}
+<div id="json"><a id="json-link" href="">JSON</a></div>
+<h1>InfiniBand Partitions</h1>
+
+<table>
+	<thead>
+		<th>Id</th>
+		<th>Tenant</th>
+		<th>Name</th>
+		<th>State</th>
+		<th>Pkey</th>
+	</thead>
+	<tbody>
+		{% for p in partitions %}
+		<tr>
+			<td><a href="/admin/ib-partition/{{ p.id }}">{{ p.id }}</a></td>
+			<td>{{ p.tenant_organization_id }}</td>
+			<td>{{ p.name }}</td>
+			<td>{{ p.state }}</td>
+			<td>{{ p.pkey }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+
+{% endblock %}
