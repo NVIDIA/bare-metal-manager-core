@@ -4836,7 +4836,6 @@ where
             .build()
             .expect("Unable to build NetworkSegmentController");
 
-        // If IBFabric is disabled, did not start state handler for it.
         let _ib_partition_controller_handle =
             StateController::<IBPartitionStateControllerIO>::builder()
                 .database(database_connection.clone())
