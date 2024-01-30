@@ -19,7 +19,31 @@ use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
 use hyper::{Body, Client, Method, Uri};
 use hyper_rustls::HttpsConnector;
 use hyper_timeout::TimeoutConnector;
+use std::time::SystemTime;
 use thiserror::Error;
+use tokio_rustls::rustls;
+use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
+use tokio_rustls::rustls::{ClientConfig, ServerName};
+
+struct NoCertificateVerification;
+
+impl ServerCertVerifier for NoCertificateVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: SystemTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        #[cfg(not(test))]
+        tracing::warn!(
+            "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS."
+        );
+        Ok(ServerCertVerified::assertion())
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum RestError {
@@ -115,9 +139,14 @@ impl RestClient {
         http_connector.set_read_timeout(Some(REST_TIME_OUT));
         http_connector.set_write_timeout(Some(REST_TIME_OUT));
 
+        let config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_custom_certificate_verifier(std::sync::Arc::new(NoCertificateVerification))
+            .with_no_client_auth();
+
         let mut https_connector = TimeoutConnector::new(
             hyper_rustls::HttpsConnectorBuilder::new()
-                .with_native_roots()
+                .with_tls_config(config)
                 .https_only()
                 .enable_http1()
                 .build(),
