@@ -135,6 +135,10 @@ pub struct Machine {
     // Other machine ids associated with this machine
     associated_host_machine_id: Option<MachineId>,
     associated_dpu_machine_id: Option<MachineId>,
+
+    /// Last time when machine reboot was requested.
+    /// This field takes care of reboot requested from state machine only.
+    last_reboot_requested_time: Option<DateTime<Utc>>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -188,6 +192,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             maintenance_reference: row.try_get("maintenance_reference")?,
             maintenance_start_time: row.try_get("maintenance_start_time")?,
             last_reboot_time: row.try_get("last_reboot_time")?,
+            last_reboot_requested_time: row.try_get("last_reboot_requested_time")?,
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
             failure_details: failure_details.0,
@@ -890,6 +895,10 @@ SELECT m.id FROM
         self.last_reboot_time
     }
 
+    pub fn last_reboot_requested_time(&self) -> Option<DateTime<Utc>> {
+        self.last_reboot_requested_time
+    }
+
     pub fn last_cleanup_time(&self) -> Option<DateTime<Utc>> {
         self.last_cleanup_time
     }
@@ -909,6 +918,19 @@ SELECT m.id FROM
         let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
+    pub async fn update_reboot_requested_time(
+        machine_id: &MachineId,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET last_reboot_requested_time=NOW() WHERE id=$1 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(machine_id.to_string())
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

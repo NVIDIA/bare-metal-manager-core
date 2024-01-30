@@ -162,6 +162,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
+    let last_reboot_requested_time = dpu.last_reboot_requested_time();
+
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
@@ -179,6 +181,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
+
+    assert_ne!(dpu.last_reboot_requested_time(), last_reboot_requested_time);
 
     assert!(matches!(
         dpu.current_state(),

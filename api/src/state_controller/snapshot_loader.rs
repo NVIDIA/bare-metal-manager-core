@@ -112,6 +112,7 @@ pub async fn get_machine_snapshot(
         last_cleanup_time: machine.last_cleanup_time(),
         failure_details: machine.failure_details(),
         reprovision_requested: machine.reprovisioning_requested(),
+        last_reboot_requested_time: machine.last_reboot_requested_time(),
     };
 
     Ok(snapshot)

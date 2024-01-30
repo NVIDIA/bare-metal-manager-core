@@ -66,6 +66,8 @@ pub struct MachineSnapshot {
     pub last_discovery_time: Option<DateTime<Utc>>,
     /// Last reboot time. Calculated from forge_agent_control call.
     pub last_reboot_time: Option<DateTime<Utc>>,
+    /// Last reboot requested time.
+    pub last_reboot_requested_time: Option<DateTime<Utc>>,
     /// Last cleanup completed message received from scout.
     pub last_cleanup_time: Option<DateTime<Utc>>,
     /// Failure cause. Needed to move machine in failed state.
