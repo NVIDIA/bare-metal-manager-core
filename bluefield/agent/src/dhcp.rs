@@ -16,8 +16,6 @@ use ::rpc::forge as rpc;
 use gtmpl_derive::Gtmpl;
 use utils::models::dhcp::HostConfig;
 
-use crate::command_line::NetworkVirtualizationType;
-
 pub const RELAY_PATH: &str = "etc/supervisor/conf.d/default-isc-dhcp-relay.conf";
 
 pub const SERVER_PATH: &str = "etc/supervisor/conf.d/default-forge-dhcp-server.conf";
@@ -88,7 +86,6 @@ pub struct DhcpRelayConfig {
     pub vlan_ids: Vec<u32>,
     pub dhcp_servers: Vec<Ipv4Addr>,
     pub remote_id: String,
-    pub network_virtualization_type: NetworkVirtualizationType,
 }
 
 pub struct DhcpServerSupervisordConfig {
@@ -125,7 +122,6 @@ mod tests {
             vlan_ids: vec![177],
             dhcp_servers: vec![[10, 180, 248, 25].into()],
             remote_id: "test".to_string(),
-            network_virtualization_type: crate::command_line::NetworkVirtualizationType::Etv,
         };
         let output = build_relay_config(params)?;
         assert_eq!(

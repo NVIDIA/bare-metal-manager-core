@@ -14,8 +14,6 @@ use std::net::Ipv4Addr;
 
 use gtmpl_derive::Gtmpl;
 
-use crate::command_line::NetworkVirtualizationType;
-
 pub const PATH: &str = "etc/frr/frr.conf";
 const TMPL_FULL_ETV: &str = include_str!("../templates/frr_etv.conf");
 
@@ -77,7 +75,6 @@ pub struct FrrConfig {
     pub loopback_ip: Ipv4Addr,
     pub uplinks: Vec<String>,
     pub access_vlans: Vec<FrrVlanConfig>,
-    pub network_virtualization_type: NetworkVirtualizationType,
     pub vpc_vni: Option<u32>,
     pub route_servers: Vec<String>,
     pub use_admin_network: bool,
@@ -124,7 +121,6 @@ mod tests {
             uplinks: vec!["p0_sf".to_string(), "p1_sf".to_string()],
             loopback_ip: [192, 168, 0, 1].into(),
             access_vlans: vec![],
-            network_virtualization_type: crate::command_line::NetworkVirtualizationType::Etv,
             vpc_vni: None,
             route_servers: vec![],
             use_admin_network: true,

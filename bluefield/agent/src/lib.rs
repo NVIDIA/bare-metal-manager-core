@@ -211,7 +211,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 )
             };
 
-            let update_result = match params.override_network_virtualization_type {
+            let mut update_result = match params.override_network_virtualization_type {
                 Some(NetworkVirtualizationType::EtvNvue) => {
                     ethernet_virtualization::update_nvue(
                         &agent.hbn.root_dir,
@@ -225,14 +225,26 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                         &agent.hbn.root_dir,
                         &conf,
                         agent.hbn.skip_reload,
-                        pxe_ip,
-                        ntp_ip,
-                        nameservers,
-                        NetworkVirtualizationType::Etv,
                     )
                     .await
                 }
             };
+            if let Ok(has_changes) = update_result {
+                let dhcp_result = ethernet_virtualization::update_dhcp(
+                    &agent.hbn.root_dir,
+                    &conf,
+                    agent.hbn.skip_reload,
+                    pxe_ip,
+                    ntp_ip,
+                    nameservers.clone(),
+                )
+                .await;
+                update_result = match dhcp_result {
+                    Ok(dhcp_has_changes) => Ok(has_changes || dhcp_has_changes),
+                    Err(errs) => Err(errs),
+                };
+            }
+
             match update_result {
                 Ok(has_changed) => {
                     status_out.network_config_version =
@@ -297,7 +309,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     uplinks: UPLINKS.iter().map(|x| x.to_string()).collect(),
                     loopback_ip: opts.loopback_ip,
                     access_vlans,
-                    network_virtualization_type: opts.network_virtualization_type,
                     vpc_vni: Some(opts.vpc_vni),
                     route_servers: opts.route_servers.clone(),
                     use_admin_network: opts.admin,
@@ -325,7 +336,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     loopback_ip: opts.loopback_ip,
                     vni_device: opts.vni_device,
                     networks,
-                    network_virtualization_type: opts.network_virtualization_type,
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);
@@ -337,7 +347,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     vlan_ids: opts.vlan,
                     dhcp_servers: opts.dhcp,
                     remote_id: opts.remote_id,
-                    network_virtualization_type: opts.network_virtualization_type,
                 })?;
                 std::fs::write(&opts.path, contents)?;
                 println!("Wrote {}", opts.path);
