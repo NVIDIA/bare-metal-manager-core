@@ -32,7 +32,7 @@ impl<'a> RunCommandPredicate<'a> {
     /// and `DpulyfeHttpConnector`
     pub fn new(container_id: &'a str) -> Self {
         let ignore_mgmt_vrf = std::env::var("IGNORE_MGMT_VRF").is_ok();
-        tracing::trace!("IGNORE_MGMT_VRF is {}: ", ignore_mgmt_vrf);
+        tracing::trace!("RunCommandPredicate: IGNORE_MGMT_VRF is {ignore_mgmt_vrf}");
 
         match ignore_mgmt_vrf {
             true => Self {
@@ -102,17 +102,14 @@ pub async fn run_in_container(
     args.extend_from_slice(command);
 
     let cmd = crictl.args(args);
+    let pretty = super::pretty_cmd(cmd.as_std());
+    tracing::trace!("run_in_container: {pretty}");
     let out = cmd.output().await?;
     if need_success && !out.status.success() {
-        tracing::debug!(
-            "STDERR {}: {}",
-            super::pretty_cmd(cmd.as_std()),
-            String::from_utf8_lossy(&out.stderr)
-        );
+        tracing::debug!("STDERR {pretty}: {}", String::from_utf8_lossy(&out.stderr));
         return Err(eyre::eyre!(
-            "{} for cmd '{}'",
+            "{} for cmd '{pretty}'",
             out.status, // includes the string "exit status"
-            super::pretty_cmd(cmd.as_std())
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
