@@ -23,7 +23,6 @@ use eyre::WrapErr;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 
-use crate::command_line::NetworkVirtualizationType;
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
 
 // VPC writes these to various HBN config files
@@ -35,13 +34,11 @@ const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 /// None of the files we deal with should be bigger than this
 const MAX_EXPECTED_SIZE: u64 = 4096;
 
-struct Paths {
-    dhcp_relay: PathBuf,
+struct EthernetVirtualizerPaths {
     interfaces: PathBuf,
     frr: PathBuf,
     daemons: PathBuf,
     acl_rules: PathBuf,
-    dhcp_server: DhcpServerPaths,
 }
 
 struct DhcpServerPaths {
@@ -59,18 +56,12 @@ struct PostAction {
     path_tmp: PathBuf,
 }
 
-fn paths(hbn_root: &Path) -> Paths {
-    Paths {
-        dhcp_relay: hbn_root.join(dhcp::RELAY_PATH),
+fn paths(hbn_root: &Path) -> EthernetVirtualizerPaths {
+    EthernetVirtualizerPaths {
         interfaces: hbn_root.join(interfaces::PATH),
         frr: hbn_root.join(frr::PATH),
         daemons: hbn_root.join(daemons::PATH),
         acl_rules: hbn_root.join(acl_rules::PATH),
-        dhcp_server: DhcpServerPaths {
-            server: hbn_root.join(dhcp::SERVER_PATH),
-            config: hbn_root.join(dhcp::SERVER_CONFIG_PATH),
-            host_config: hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH),
-        },
     }
 }
 
@@ -199,66 +190,24 @@ pub async fn update_files(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
-    pxe_ip: Ipv4Addr,
-    ntp_ip: Option<Ipv4Addr>,
-    nameservers: Vec<IpAddr>,
-    network_virtualization_type: NetworkVirtualizationType,
 ) -> eyre::Result<bool> {
     let paths = paths(hbn_root);
 
     let mut errs = vec![];
     let mut post_actions = vec![];
-    match write_interfaces(
-        paths.interfaces,
-        network_config,
-        network_virtualization_type,
-    ) {
+    match write_interfaces(paths.interfaces, network_config) {
         Ok(Some(post_action)) => {
             post_actions.push(post_action);
         }
         Ok(None) => {}
         Err(err) => errs.push(format!("write_interfaces: {err:#}")),
     }
-    match write_frr(paths.frr, network_config, network_virtualization_type) {
+    match write_frr(paths.frr, network_config) {
         Ok(Some(post_action)) => {
             post_actions.push(post_action);
         }
         Ok(None) => {}
         Err(err) => errs.push(format!("write_frr: {err:#}")),
-    }
-
-    // Dhcp server listen on vlan interfaces, so interface must be up before running dhcp server.
-    if network_config.enable_dhcp {
-        // Start DHCP Server in hbn.
-        match write_dhcp_server_config(
-            paths.dhcp_relay,
-            &paths.dhcp_server,
-            network_config,
-            pxe_ip,
-            ntp_ip,
-            nameservers,
-        ) {
-            Ok(Some((post_action, err))) => {
-                post_actions.extend(post_action);
-                errs.extend(err);
-            }
-            Ok(None) => {}
-            Err(err) => errs.push(format!("write dhcp server config file: {err:#}")),
-        }
-    } else {
-        match write_dhcp_relay_config(
-            paths.dhcp_relay,
-            paths.dhcp_server.server,
-            network_config,
-            network_virtualization_type,
-        ) {
-            Ok(Some((post_action, err))) => {
-                post_actions.extend(post_action);
-                errs.extend(err);
-            }
-            Ok(None) => {}
-            Err(err) => errs.push(format!("write_dhcp_relay_config: {err:#}")),
-        }
     }
     match write_daemons(paths.daemons) {
         Ok(Some(post_action)) => {
@@ -275,6 +224,14 @@ pub async fn update_files(
         Err(err) => errs.push(format!("write_acl_rules: {err:#}")),
     }
 
+    do_post(skip_post, post_actions, errs).await
+}
+
+async fn do_post(
+    skip_post: bool,
+    post_actions: Vec<PostAction>,
+    mut errs: Vec<String>,
+) -> eyre::Result<bool> {
     let has_changes = !post_actions.is_empty();
     if !skip_post {
         for post in post_actions {
@@ -322,6 +279,52 @@ pub async fn update_files(
         eyre::bail!(err_message);
     }
     Ok(has_changes)
+}
+
+pub async fn update_dhcp(
+    hbn_root: &Path,
+    network_config: &rpc::ManagedHostNetworkConfigResponse,
+    // if true don't run the reload/restart commands after file update
+    skip_post: bool,
+    pxe_ip: Ipv4Addr,
+    ntp_ip: Option<Ipv4Addr>,
+    nameservers: Vec<IpAddr>,
+) -> eyre::Result<bool> {
+    let path_dhcp_relay = hbn_root.join(dhcp::RELAY_PATH);
+    let paths_dhcp_server = DhcpServerPaths {
+        server: hbn_root.join(dhcp::SERVER_PATH),
+        config: hbn_root.join(dhcp::SERVER_CONFIG_PATH),
+        host_config: hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH),
+    };
+
+    // Dhcp server listen on vlan interfaces, so interface must be up before running dhcp server.
+    let (post_actions, errs) = if network_config.enable_dhcp {
+        // Start DHCP Server in hbn.
+        match write_dhcp_server_config(
+            path_dhcp_relay,
+            &paths_dhcp_server,
+            network_config,
+            pxe_ip,
+            ntp_ip,
+            nameservers,
+        ) {
+            Ok(Some((post_action, err))) => (post_action, err),
+            Ok(None) => {
+                return Ok(false);
+            }
+            Err(err) => eyre::bail!("write dhcp server config file: {err:#}"),
+        }
+    } else {
+        match write_dhcp_relay_config(path_dhcp_relay, paths_dhcp_server.server, network_config) {
+            Ok(Some((post_action, err))) => (post_action, err),
+            Ok(None) => {
+                return Ok(false);
+            }
+            Err(err) => eyre::bail!("write_dhcp_relay_config: {err:#}"),
+        }
+    };
+
+    do_post(skip_post, post_actions, errs).await
 }
 
 /// Interfaces to report back to server
@@ -413,7 +416,7 @@ pub async fn reset(
     let mut post_actions = vec![];
     match write(
         dhcp::blank(),
-        paths.dhcp_relay,
+        hbn_root.join(dhcp::RELAY_PATH),
         "DHCP relay",
         Some(dhcp::RELOAD_CMD),
     ) {
@@ -423,7 +426,7 @@ pub async fn reset(
     }
     match write(
         dhcp::blank(),
-        paths.dhcp_server.server,
+        hbn_root.join(dhcp::SERVER_PATH),
         "DHCP server",
         Some(dhcp::RELOAD_CMD),
     ) {
@@ -497,7 +500,7 @@ fn write_dhcp_server_config<P: AsRef<Path>>(
 ) -> WriteResult {
     let mut errs = vec![];
     let mut post_actions = vec![];
-    match write(dhcp::blank(), dhcp_relay_path, "DHCP relay", None) {
+    match write(dhcp::blank(), dhcp_relay_path, "blank DHCP relay", None) {
         Ok(Some(post)) => post_actions.push(post),
         Ok(None) => {}
         Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
@@ -580,7 +583,6 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
     path: P,
     dhcp_server_path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    network_virtualization_type: NetworkVirtualizationType,
 ) -> WriteResult {
     let mut errs = vec![];
     let mut post_actions = vec![];
@@ -606,7 +608,6 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         vlan_ids,
         remote_id: nc.remote_id.clone(),
-        network_virtualization_type,
     })?;
 
     match write(next_contents, path, "DHCP relay", None) {
@@ -626,7 +627,6 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
 fn write_interfaces<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    network_virtualization_type: NetworkVirtualizationType,
 ) -> Result<Option<PostAction>, eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -688,7 +688,6 @@ fn write_interfaces<P: AsRef<Path>>(
         vni_device: nc.vni_device.clone(),
         loopback_ip,
         networks,
-        network_virtualization_type,
     })?;
     write(
         next_contents,
@@ -701,7 +700,6 @@ fn write_interfaces<P: AsRef<Path>>(
 fn write_frr<P: AsRef<Path>>(
     path: P,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-    network_virtualization_type: NetworkVirtualizationType,
 ) -> Result<Option<PostAction>, eyre::Report> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
@@ -743,7 +741,6 @@ fn write_frr<P: AsRef<Path>>(
         uplinks: UPLINKS.into_iter().map(String::from).collect(),
         loopback_ip,
         access_vlans,
-        network_virtualization_type,
         vpc_vni: nc.vpc_vni,
         route_servers: nc.route_servers.clone(),
         use_admin_network: nc.use_admin_network,
@@ -1110,12 +1107,7 @@ mod tests {
 
         // What we're testing
 
-        match super::write_dhcp_relay_config(
-            &f,
-            &g,
-            &network_config,
-            crate::DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
-        ) {
+        match super::write_dhcp_relay_config(&f, &g, &network_config) {
             Err(err) => {
                 panic!("write_dhcp_relay_config error: {err}");
             }
@@ -1129,11 +1121,7 @@ mod tests {
         let expected = include_str!("../templates/tests/tenant_dhcp-relay.conf");
         compare(&f, expected)?;
 
-        match super::write_interfaces(
-            &f,
-            &network_config,
-            crate::DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
-        ) {
+        match super::write_interfaces(&f, &network_config) {
             Err(err) => {
                 panic!("write_interfaces error: {err}");
             }
@@ -1147,11 +1135,7 @@ mod tests {
         let expected = include_str!("../templates/tests/tenant_interfaces");
         compare(&f, expected)?;
 
-        match super::write_frr(
-            &f,
-            &network_config,
-            crate::DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
-        ) {
+        match super::write_frr(&f, &network_config) {
             Err(err) => {
                 panic!("write_frr error: {err}");
             }
@@ -1190,18 +1174,21 @@ mod tests {
         fs::create_dir_all(hbn_root.join("etc/frr"))?;
         fs::create_dir_all(hbn_root.join("etc/network"))?;
         fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
+        fs::create_dir_all(hbn_root.join("var/support/forge-dhcp/conf"))?;
 
         // test
         super::reset(hbn_root, true).await;
 
         // check
         let frr_path = hbn_root.join("etc/frr/frr.conf");
-        let frr_contents = super::read_limited(frr_path)?;
+        let frr_contents =
+            super::read_limited(&frr_path).wrap_err(format!("Failed reading {frr_path:?}"))?;
         assert_eq!(frr_contents, crate::frr::TMPL_EMPTY);
 
         // check dhcp server
         let dhcp_path = hbn_root.join("etc/supervisor/conf.d/default-forge-dhcp-server.conf");
-        let dhcp_contents = super::read_limited(dhcp_path)?;
+        let dhcp_contents =
+            super::read_limited(&dhcp_path).wrap_err(format!("Failed reading {dhcp_path:?}"))?;
         assert_eq!(dhcp_contents, crate::dhcp::TMPL_EMPTY);
         Ok(())
     }

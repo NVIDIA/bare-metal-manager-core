@@ -174,7 +174,15 @@ pub async fn run(
                 let mut tenant_peers = vec![];
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {:?}", conf);
-                    let update_result = match nvt {
+                    let mut update_result = match nvt {
+                        NetworkVirtualizationType::Etv => {
+                            ethernet_virtualization::update_files(
+                                &agent.hbn.root_dir,
+                                conf,
+                                agent.hbn.skip_reload,
+                            )
+                            .await
+                        }
                         NetworkVirtualizationType::EtvNvue => {
                             ethernet_virtualization::update_nvue(
                                 &agent.hbn.root_dir,
@@ -183,19 +191,23 @@ pub async fn run(
                             )
                             .await
                         }
-                        _ => {
-                            ethernet_virtualization::update_files(
-                                &agent.hbn.root_dir,
-                                conf,
-                                agent.hbn.skip_reload,
-                                pxe_ip,
-                                ntp_ip,
-                                nameservers.clone(),
-                                nvt,
-                            )
-                            .await
-                        }
                     };
+                    // If that succeeded update DHCP
+                    if let Ok(has_changes) = update_result {
+                        let dhcp_result = ethernet_virtualization::update_dhcp(
+                            &agent.hbn.root_dir,
+                            conf,
+                            agent.hbn.skip_reload,
+                            pxe_ip,
+                            ntp_ip,
+                            nameservers.clone(),
+                        )
+                        .await;
+                        update_result = match dhcp_result {
+                            Ok(dhcp_has_changes) => Ok(has_changes || dhcp_has_changes),
+                            Err(errs) => Err(errs),
+                        };
+                    }
                     match update_result {
                         Ok(has_changed) => {
                             has_changed_configs = has_changed;
