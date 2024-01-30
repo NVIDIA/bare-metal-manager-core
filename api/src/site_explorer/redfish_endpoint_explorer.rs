@@ -174,11 +174,11 @@ async fn fetch_ethernet_interfaces(
                     // For this case we use a workaround to fetch the OOB interface
                     // information
                     if fetch_system_interfaces && fetch_bluefield_oob {
-                        let oob_iface = get_oob_interface(client).await?;
-                        return Ok(vec![oob_iface]);
-                    } else {
-                        return Ok(Vec::new());
+                        if let Some(oob_iface) = get_oob_interface(client).await? {
+                            return Ok(vec![oob_iface]);
+                        }
                     }
+                    return Ok(Vec::new());
                 }
                 _ => return Err(e),
             }
@@ -207,14 +207,17 @@ async fn fetch_ethernet_interfaces(
         // Usually the workaround for not even being able to enumerate the interfaces
         // would be used. But if a future Bluefield BMC revision returns interfaces
         // but still misses the OOB interface, we would use this path.
-        let oob_iface = get_oob_interface(client).await?;
-        eth_ifs.push(oob_iface);
+        if let Some(oob_iface) = get_oob_interface(client).await? {
+            eth_ifs.push(oob_iface);
+        }
     }
 
     Ok(eth_ifs)
 }
 
-async fn get_oob_interface(client: &dyn Redfish) -> Result<EthernetInterface, RedfishError> {
+async fn get_oob_interface(
+    client: &dyn Redfish,
+) -> Result<Option<EthernetInterface>, RedfishError> {
     // Temporary workaround until oob mac would be possible to get via Redfish
     let boot_options = client.get_boot_options().await?;
     let mac_pattern = Regex::new(r"MAC\((?<mac>[[:alnum:]]+)\,").unwrap();
@@ -226,7 +229,8 @@ async fn get_oob_interface(client: &dyn Redfish) -> Result<EthernetInterface, Re
         // display_name: "NET-OOB-IPV4"
         if boot_option.display_name.contains("OOB") {
             if boot_option.uefi_device_path.is_none() {
-                return Err(RedfishError::NoContent);
+                // Try whether there might be other matching options
+                continue;
             }
             // UefiDevicePath: "MAC(B83FD2909582,0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"
             if let Some(captures) =
@@ -243,16 +247,18 @@ async fn get_oob_interface(client: &dyn Redfish) -> Result<EthernetInterface, Re
                     }
                 }
 
-                return Ok(EthernetInterface {
+                return Ok(Some(EthernetInterface {
                     description: Some("1G DPU OOB network interface".to_string()),
                     id: Some("oob_net0".to_string()),
                     interface_enabled: None,
                     mac_address: Some(mac_addr),
-                });
+                }));
             }
         }
     }
-    Err(RedfishError::NoContent)
+
+    // OOB Interface was not found
+    Ok(None)
 }
 
 async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishError> {
