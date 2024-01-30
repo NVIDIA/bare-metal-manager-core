@@ -21,8 +21,9 @@ pub use self::iface::Filter;
 pub use self::iface::IBFabric;
 pub use self::iface::IBFabricManager;
 
+mod disable;
 mod iface;
-mod local;
+mod mock;
 mod rest;
 mod ufmclient;
 
@@ -30,57 +31,70 @@ pub mod types;
 
 pub const DEFAULT_IB_FABRIC_NAME: &str = "ib_default";
 
+pub enum IBFabricManagerType {
+    Disable,
+    Mock,
+    Rest,
+}
+
 pub struct IBFabricManagerImpl<C> {
-    rest_manager: bool,
+    manager_type: IBFabricManagerType,
     credential_provider: Arc<C>,
-    local_fabric: Arc<dyn IBFabric>,
+    mock_fabric: Arc<dyn IBFabric>,
+    disable_fabric: Arc<dyn IBFabric>,
 }
 
 pub fn create_ib_fabric_manager<C: CredentialProvider + 'static>(
     credential_provider: Arc<C>,
-    rest_manager: bool,
+    manager_type: IBFabricManagerType,
 ) -> IBFabricManagerImpl<C> {
-    let local_fabric = Arc::new(local::LocalIBFabric {
+    let mock_fabric = Arc::new(mock::MockIBFabric {
         ibsubnets: Arc::new(Mutex::new(HashMap::new())),
         ibports: Arc::new(Mutex::new(HashMap::new())),
     });
+
+    let disable_fabric = Arc::new(disable::DisableIBFabric {});
+
     IBFabricManagerImpl {
         credential_provider,
-        rest_manager,
-        local_fabric,
+        manager_type,
+        mock_fabric,
+        disable_fabric,
     }
 }
 
 #[async_trait]
 impl<C: CredentialProvider + 'static> IBFabricManager for IBFabricManagerImpl<C> {
     async fn connect(&self, fabric_name: String) -> Result<Arc<dyn IBFabric>, CarbideError> {
-        if !self.rest_manager {
-            Ok(self.local_fabric.clone())
-        } else {
-            let credentials = self
-                .credential_provider
-                .get_credentials(CredentialKey::UfmAuth {
-                    fabric: fabric_name.clone(),
-                })
-                .await
-                .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-                    Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
-                        CarbideError::GenericError(format!(
-                            "Vault key not found: ufm/{}/token",
-                            fabric_name.clone()
-                        ))
-                    }
-                    Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
-                    Err(err) => CarbideError::IBFabricError(format!(
-                        "Error getting credentials for Ufm: {:?}",
-                        err
-                    )),
-                })?;
-            let (address, token) = match credentials {
-                Credentials::UsernamePassword { username, password } => (username, password),
-            };
+        match self.manager_type {
+            IBFabricManagerType::Disable => Ok(self.disable_fabric.clone()),
+            IBFabricManagerType::Mock => Ok(self.mock_fabric.clone()),
+            IBFabricManagerType::Rest => {
+                let credentials = self
+                    .credential_provider
+                    .get_credentials(CredentialKey::UfmAuth {
+                        fabric: fabric_name.clone(),
+                    })
+                    .await
+                    .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
+                        Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
+                            CarbideError::GenericError(format!(
+                                "Vault key not found: ufm/{}/token",
+                                fabric_name.clone()
+                            ))
+                        }
+                        Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
+                        Err(err) => CarbideError::IBFabricError(format!(
+                            "Error getting credentials for Ufm: {:?}",
+                            err
+                        )),
+                    })?;
+                let (address, token) = match credentials {
+                    Credentials::UsernamePassword { username, password } => (username, password),
+                };
 
-            rest::connect(&address, &token).await
+                rest::connect(&address, &token).await
+            }
         }
     }
 }
