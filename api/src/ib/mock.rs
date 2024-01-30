@@ -20,13 +20,13 @@ use super::types::{IBNetwork, IBPort, IBPortState};
 use super::IBFabric;
 use crate::CarbideError;
 
-pub struct LocalIBFabric {
+pub struct MockIBFabric {
     pub ibsubnets: Arc<Mutex<HashMap<String, IBNetwork>>>,
     pub ibports: Arc<Mutex<HashMap<String, IBPort>>>,
 }
 
 #[async_trait]
-impl IBFabric for LocalIBFabric {
+impl IBFabric for MockIBFabric {
     /// Delete IBNetwork
     async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError> {
         let mut ibsubnets = self

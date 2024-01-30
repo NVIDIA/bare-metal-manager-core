@@ -26,7 +26,7 @@ use carbide::{
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
     ib,
-    ib::IBFabricManager,
+    ib::{IBFabricManager, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     model::{
         hardware_info::TpmEkCertificate,
@@ -382,7 +382,8 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let credential_provider = Arc::new(TestCredentialProvider::new());
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
-    let ib_fabric_manager_impl = ib::create_ib_fabric_manager(credential_provider.clone(), false);
+    let ib_fabric_manager_impl =
+        ib::create_ib_fabric_manager(credential_provider.clone(), IBFabricManagerType::Mock);
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 

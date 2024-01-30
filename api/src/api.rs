@@ -4689,10 +4689,13 @@ where
 
         let common_pools = CommonPools::create(database_connection.clone()).await?;
 
-        let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
-            credential_provider.clone(),
-            carbide_config.enable_ib_fabric.unwrap_or(false),
-        );
+        let fabric_manager_type = match carbide_config.enable_ib_fabric.unwrap_or(false) {
+            true => ib::IBFabricManagerType::Rest,
+            false => ib::IBFabricManagerType::Disable,
+        };
+
+        let ib_fabric_manager_impl =
+            ib::create_ib_fabric_manager(credential_provider.clone(), fabric_manager_type);
 
         let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
@@ -4840,6 +4843,7 @@ where
             .build()
             .expect("Unable to build NetworkSegmentController");
 
+        // If IBFabric is disabled, did not start state handler for it.
         let _ib_partition_controller_handle =
             StateController::<IBPartitionStateControllerIO>::builder()
                 .database(database_connection.clone())
