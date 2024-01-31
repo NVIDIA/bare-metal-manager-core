@@ -156,6 +156,10 @@ Host dev3
   Hostname 10.217.4.197
   ProxyJump renojump
 
+Host dev4
+  Hostname 10.180.248.29
+  ProxyJump renojump
+
 Host pdx01
   Hostname 10.217.6.197
   ProxyJump pdxjump
