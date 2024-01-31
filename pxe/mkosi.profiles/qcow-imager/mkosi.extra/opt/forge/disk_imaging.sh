@@ -127,6 +127,7 @@ function expand_root_fs() {
 		part_num=$(echo $root_dev | cut -d'p' -f2)
 		growpart "$image_disk" "$part_num" 2>&1 | tee $log_output
 		partprobe $image_disk 2>&1 | tee $log_output
+		udevadm trigger 2>&1 | tee $log_output
 		resize2fs -fF "$root_dev" 2>&1 | tee $log_output
 	fi
 	# not handling lvm resize currently
@@ -220,7 +221,7 @@ function modify_grub_template() {
 		if [[ "$tmp" =~ ^\ *# ]]; then
 			echo "$tmp" >> $new_grub_template
 		else
-			if [[ "$tmp" =~ GRUB_CMDLINE_LINUX ]]; then
+			if [[ "$tmp" =~ GRUB_CMDLINE_LINUX= ]]; then
 				first_console_set=
 				second_console_set=
 				if [ -z "$cmdline_found" ]; then
