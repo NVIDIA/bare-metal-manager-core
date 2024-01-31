@@ -47,7 +47,6 @@
         {% else %}
           Disabled
       {% endmatch %}</td></tr>
-  <tr><td>BMC Machine</td><td>{% if carbide_config.enable_bmc_machine %}Enabled{% else %}Disabled{% endif %}</td></tr>
   <tr><td>Rapid Iterations</td><td>{% if carbide_config.rapid_iterations %}Enabled{% else %}Disabled{% endif %}</td></tr>
   <tr><td>ASN</td><td>{{ carbide_config.asn }}</td></tr>
   <tr><td>DHCP Servers</td><td>{{ carbide_config.dhcp_servers.join(", ") }}</td></tr>

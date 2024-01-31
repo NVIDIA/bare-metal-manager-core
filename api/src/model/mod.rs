@@ -26,7 +26,6 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 pub mod bmc_info;
-pub mod bmc_machine;
 pub mod config_version;
 pub mod hardware_info;
 pub mod ib_partition;

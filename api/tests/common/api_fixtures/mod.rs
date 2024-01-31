@@ -38,7 +38,6 @@ use carbide::{
     redfish::RedfishSim,
     resource_pool::{self, common::CommonPools},
     state_controller::{
-        bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
         controller::ReachabilityParams,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         io::StateControllerIO,
@@ -103,7 +102,6 @@ pub struct TestEnv {
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
     pub ib_partition_state_controller_io: IBPartitionStateControllerIO,
-    pub bmc_machine_state_controller_io: BmcMachineStateControllerIO,
 }
 
 impl TestEnv {
@@ -264,45 +262,6 @@ impl TestEnv {
         .await
     }
 
-    /// Runs one iteration of the bmc machine state controller handler with the services
-    /// in this test environment
-    pub async fn run_bmc_machine_controller_iteration(
-        &self,
-        bmc_machine_id: uuid::Uuid,
-        handler: &BmcMachineStateHandler,
-    ) {
-        let services = Arc::new(self.state_handler_services());
-        let mut iteration_metrics = IterationMetrics::default();
-        run_state_controller_iteration(
-            &services,
-            &self.pool,
-            &self.bmc_machine_state_controller_io,
-            bmc_machine_id,
-            handler,
-            &mut iteration_metrics,
-        )
-        .await
-    }
-
-    // Returns all bmc machines using FindBmcMachines call.
-    pub async fn find_bmc_machines(
-        &self,
-        id: Option<rpc::forge::Uuid>,
-        include_dpus: bool,
-    ) -> rpc::forge::BmcMachineList {
-        self.api
-            .find_bmc_machines(tonic::Request::new(rpc::forge::BmcMachineSearchQuery {
-                id,
-                search_config: Some(rpc::forge::BmcMachineSearchConfig {
-                    include_dpus,
-                    ..Default::default()
-                }),
-            }))
-            .await
-            .unwrap()
-            .into_inner()
-    }
-
     // Returns all machines using FindMachines call.
     pub async fn find_machines(
         &self,
@@ -341,7 +300,6 @@ fn get_config() -> CarbideConfig {
         metrics_endpoint: None,
         otlp_endpoint: None,
         database_url: "pgsql:://localhost".to_string(),
-        enable_bmc_machine: true,
         enable_ib_fabric: None,
         rapid_iterations: true,
         asn: 0,
@@ -437,7 +395,6 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
             failure_retry_time: Duration::seconds(0),
         },
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
-        bmc_machine_state_controller_io: BmcMachineStateControllerIO::default(),
     }
 }
 

@@ -11,7 +11,6 @@
  */
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
-use std::net::Ipv4Addr;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
@@ -21,7 +20,6 @@ use serde_json::json;
 use sqlx::{Postgres, Transaction};
 
 use super::{machine::DbMachineId, DatabaseError};
-use crate::db::bmc_machine::BmcMachine;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::{CarbideError, CarbideResult};
@@ -248,24 +246,6 @@ impl BmcMetaDataUpdateRequest {
             .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        let bmc_machine: Option<BmcMachine> = match bmc_info.ip {
-            Some(ip) => match ip.parse::<Ipv4Addr>() {
-                Ok(ipv4) => BmcMachine::find_by_ip(txn, &ipv4).await?,
-                Err(_e) => None,
-            },
-            None => None,
-        };
-
-        if let Some(machine) = bmc_machine {
-            let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_machine_id}', $1, true) WHERE machine_id=$2 RETURNING machine_id";
-            let _: Option<(DbMachineId,)> = sqlx::query_as(query)
-                .bind(sqlx::types::Json(machine.id))
-                .bind(self.machine_id.to_string())
-                .fetch_optional(&mut **txn)
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        }
 
         Ok(())
     }

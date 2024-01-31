@@ -761,9 +761,6 @@ pub struct ResourcePoolDefinition {
 pub enum BmcMachine {
     #[clap(about = "Reset a BMC machine")]
     Reset(BMCConfigForReset),
-
-    #[clap(about = "Display BMC Machine information")]
-    Show(ShowBmcMachine),
 }
 
 #[derive(Parser, Debug)]

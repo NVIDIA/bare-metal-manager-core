@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod bmc_machine;
 pub mod controller;
 pub mod ib_partition;
 pub mod io;
