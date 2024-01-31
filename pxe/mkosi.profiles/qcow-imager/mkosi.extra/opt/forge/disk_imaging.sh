@@ -3,6 +3,8 @@ file=
 root_dev=
 rootfs_uuid=
 rootfs_label=
+efi_dev=
+efi_label=
 image_disk=
 image_url=
 image_sha=
@@ -19,7 +21,7 @@ function curl_url() {
 	url=$1
 	auth=$2
 	file=$(basename $url)
-	curl -k -L $auth $url --output $file | tee $log_output
+	curl -k -L $auth $url --output $file 2>&1 | tee $log_output
 }
 
 function verify_sha() {
@@ -38,7 +40,7 @@ function verify_sha() {
 		echo "Unknown sha digest length" | tee $log_output
 		exit 1;
 	fi
-	echo "$sha $file" | $shasum --check | tee $log_output
+	echo "$sha $file" | $shasum --check 2>&1 | tee $log_output
 }
 
 function find_bootdisk() {
@@ -77,6 +79,7 @@ function get_distro_image() {
 			exit 1;
 		fi
 		rootfs_label="cloudimg-rootfs"
+		efi_label="UEFI"
 		image_url=https://cloud-images.ubuntu.com/releases/$codename/release/ubuntu-$distro_version-server-cloudimg-$arch.img
 		shaurl=https://cloud-images.ubuntu.com/releases/$codename/release/SHA256SUMS
 	elif [ "$distro_name" == "debian" ]; then
@@ -104,7 +107,7 @@ function get_distro_image() {
 		echo "Distro $distro_name not supported" | tee $log_output
 		exit 1;
 	fi
-	curl -k -L $shaurl --output shafile | tee $log_output
+	curl -k -L $shaurl --output shafile 2>&1 | tee $log_output
 	file=$(basename $image_url)
 	image_sha=$(grep -m 1 $file shafile)
 }
@@ -112,7 +115,9 @@ function get_distro_image() {
 function add_cloud_init() {
 	echo "fetching from cloud-init url: $cloud_init_url" | tee $log_output
 	if [ -d /mnt/etc/cloud/cloud.cfg.d ]; then
-		curl -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/user-data.cfg | tee $log_output
+		curl -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/user-data.cfg 2>&1 | tee $log_output
+		echo "verifying cloud-init user data written to /etc/cloud/cloud.cfg.d/user-data.cfg" | tee $log_output
+		chroot /mnt /bin/sh -c 'cloud-init schema --config-file /etc/cloud/cloud.cfg.d/user-data.cfg' 2>&1 | tee $log_output
 	fi
 }
 
@@ -120,9 +125,9 @@ function expand_root_fs() {
 	is_nvme=$(echo $root_dev | grep nvme)
 	if [ ! -z "$is_nvme" ]; then
 		part_num=$(echo $root_dev | cut -d'p' -f2)
-		growpart "$image_disk" "$part_num" | tee $log_output
-		partprobe $image_disk | tee $log_output
-		resize2fs -fF "$root_dev" | tee $log_output
+		growpart "$image_disk" "$part_num" 2>&1 | tee $log_output
+		partprobe $image_disk 2>&1 | tee $log_output
+		resize2fs -fF "$root_dev" 2>&1 | tee $log_output
 	fi
 	# not handling lvm resize currently
 }
@@ -135,6 +140,9 @@ function get_root_dev() {
 	else
 		echo "rootfs_uuid not specified and rootfs_label not determined" | tee $log_output
 		echo "skipping root device changes" | tee $log_output
+	fi
+	if [ ! -z "$efi_label" ]; then
+		efi_dev=$(blkid -L $efi_label)
 	fi
 }
 
@@ -183,7 +191,14 @@ function modify_grub_cfg() {
 	mount -o bind /dev /mnt/dev
 	mount -o bind /proc /mnt/proc
 	mount -o bind /sys /mnt/sys
-	chroot /mnt /bin/sh -c update-grub | tee $log_output
+	echo "Updating grub configuration" | tee $log_output
+	if [ ! -z "$efi_dev" ]; then
+		mount $efi_dev /mnt/boot/efi 2>&1 | tee $log_output
+	else
+		chroot /mnt /bin/sh -c 'mount /boot/efi' 2>&1 | tee $log_output
+	fi
+	chroot /mnt /bin/sh -c update-grub 2>&1 | tee $log_output
+	umount /mnt/boot/efi 2>&1 | tee $log_output
 	umount /mnt/sys
 	umount /mnt/proc
 	umount /mnt/dev
@@ -225,7 +240,7 @@ function modify_grub_template() {
 								echo -n "$kernel_arg " >> $new_grub_template
 							fi
 						else
-							echo -n "$i " >> $new_grub_file
+							echo -n "$i " >> $new_grub_template
 						fi
 					done
 					# parsed grub cmdline for linux and didnt find any console specified, add it
@@ -355,7 +370,7 @@ function main() {
 	fi
 
 	echo "Imaging $file to $image_disk" | tee $log_output
-	qemu-img convert -p -O raw $file $image_disk | tee $log_output
+	qemu-img convert -p -O raw $file $image_disk 2>&1 | tee $log_output
 	ret=$?
 	if [ $ret -ne 0 ]; then
 		echo "Imaging failed $ret" | tee $log_output
@@ -363,18 +378,18 @@ function main() {
 	fi
 
 	echo Fix | parted ---pretend-input-tty $image_disk print
-	partprobe $image_disk | tee $log_output
+	partprobe $image_disk 2>&1 | tee $log_output
 	if [ ! -z "$rootfs_uuid" -o ! -z "$rootfs_label" ]; then
 		# find the root partition/volume
 		get_root_dev
 		if [ -b "$root_dev" ]; then
-			mount "$root_dev" /mnt | tee $log_output
+			mount "$root_dev" /mnt 2>&1 | tee $log_output
 			modify_grub_template
 			modify_grub_cfg
 			if [ ! -z "$cloud_init_url" ]; then
 				add_cloud_init
 			fi
-			umount /mnt | tee $log_output
+			umount /mnt 2>&1 | tee $log_output
 			expand_root_fs
 		fi
 	fi
