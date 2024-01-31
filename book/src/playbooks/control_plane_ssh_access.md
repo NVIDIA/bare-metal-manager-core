@@ -180,6 +180,10 @@ Host az20
   Hostname 10.45.10.3
   ProxyJump sdc-jb-admin01
 
+Host az21
+  Hostname 10.45.82.5
+  ProxyJump sdc-jb-admin01
+
 Host demo1
   Hostname 10.217.5.193
   ProxyJump renojump
