@@ -56,7 +56,6 @@ use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
-use crate::db::bmc_machine::BmcMachine;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionSearchConfig};
@@ -70,7 +69,6 @@ use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
 use crate::machine_update_manager::MachineUpdateManager;
-use crate::model::bmc_machine::BmcMachineType;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineIdParseError};
@@ -125,7 +123,6 @@ use crate::{
     },
     redfish::{RedfishClientPool, RedfishClientPoolImpl},
     state_controller::{
-        bmc_machine::{handler::BmcMachineStateHandler, io::BmcMachineStateControllerIO},
         controller::StateController,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         machine::handler::MachineStateHandler,
@@ -2157,12 +2154,7 @@ where
     ) -> Result<Response<rpc::DhcpRecord>, Status> {
         log_request_data(&request);
 
-        crate::dhcp::discover::discover_dhcp(
-            &self.database_connection,
-            self.runtime_config.enable_bmc_machine,
-            request,
-        )
-        .await
+        crate::dhcp::discover::discover_dhcp(&self.database_connection, request).await
     }
 
     async fn get_machine(
@@ -2188,54 +2180,6 @@ where
             .await?;
 
         Ok(Response::new(rpc::Machine::from(machine)))
-    }
-
-    async fn find_bmc_machines(
-        &self,
-        request: Request<rpc::BmcMachineSearchQuery>,
-    ) -> Result<Response<rpc::BmcMachineList>, Status> {
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin find_bmc_machines", e))?;
-
-        let rpc::BmcMachineSearchQuery {
-            id, search_config, ..
-        } = request.into_inner();
-
-        let include_dpus = search_config
-            .as_ref()
-            .map(|x| x.include_dpus)
-            .unwrap_or(false);
-
-        let include_hosts = search_config
-            .as_ref()
-            .map(|x| x.include_hosts)
-            .unwrap_or(false);
-
-        let bmc_machines = match id {
-            Some(id) => {
-                BmcMachine::find_by(&mut txn, ObjectFilter::One(id.to_string()), "bm.id").await
-            }
-            None => BmcMachine::find_by(&mut txn, ObjectFilter::All, "").await,
-        };
-
-        let result = bmc_machines
-            .map(|bmc_machines| rpc::BmcMachineList {
-                bmc_machines: bmc_machines
-                    .into_iter()
-                    .filter(|x| match x.bmc_type {
-                        BmcMachineType::Dpu => include_dpus,
-                        BmcMachineType::Host => include_hosts,
-                    })
-                    .map(rpc::BmcMachine::from)
-                    .collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(result)
     }
 
     async fn find_machine_ids(
@@ -4857,29 +4801,6 @@ where
                 .ipmi_tool(ipmi_tool.clone())
                 .build()
                 .expect("Unable to build IBPartitionStateController");
-
-        let _bmc_machine_controller_handle = match carbide_config.enable_bmc_machine {
-            true => Some(
-                StateController::<BmcMachineStateControllerIO>::builder()
-                    .database(database_connection.clone())
-                    .meter("forge_bmc_machines", meter.clone())
-                    .redfish_client_pool(shared_redfish_pool.clone())
-                    .ib_fabric_manager(ib_fabric_manager.clone())
-                    .reachability_params(ReachabilityParams {
-                        dpu_wait_time: service_config.dpu_wait_time,
-                        host_wait_time: service_config.host_wait_time,
-                        power_down_wait: service_config.power_down_wait,
-                        failure_retry_time: service_config.failure_retry_time,
-                    })
-                    .forge_api(api_service.clone())
-                    .iteration_time(service_config.network_segment_state_controller_iteration_time)
-                    .state_handler(Arc::new(BmcMachineStateHandler::default()))
-                    .ipmi_tool(ipmi_tool.clone())
-                    .build()
-                    .expect("Unable to build BmcMachineController"),
-            ),
-            false => None,
-        };
 
         let site_explorer = SiteExplorer::new(
             database_connection.clone(),

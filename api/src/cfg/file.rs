@@ -40,10 +40,6 @@ pub struct CarbideConfig {
     /// Enable IB fabric manager
     pub enable_ib_fabric: Option<bool>,
 
-    /// Enables the BMC machine creation
-    #[serde(default)]
-    pub enable_bmc_machine: bool,
-
     /// Set shorter timeouts and run background jobs more often. Appropriate
     /// for local development.
     /// See ServiceConfig type.
