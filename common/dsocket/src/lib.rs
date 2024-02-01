@@ -113,7 +113,7 @@ impl Dsocket {
     }
 
     /// Set `SO_BINDddODEVICE`, `O_NONBLOCKING` and `SO_REUSEADDR` on underlying socket2
-    /// This is intedned to be followed by a `into_inner()` to convert to a `socket2::Socket`
+    /// This is intended to be followed by a `into_inner()` to convert to a `socket2::Socket`
     ///
     /// # Errors
     ///
@@ -134,7 +134,7 @@ impl Dsocket {
     ///
     /// # Errors
     ///
-    /// Returns an `io::Error` if unable to cretate a new socket
+    /// Returns an `io::Error` if unable to create a new socket
     pub fn new_ipv6_tcp() -> Result<Dsocket, io::Error> {
         Socket::new(socket2::Domain::IPV6, socket2::Type::STREAM, None)
             .map(|socket| Dsocket { inner: socket })
@@ -144,7 +144,7 @@ impl Dsocket {
     ///
     /// # Errors
     ///
-    /// Returns an `io::Error` if unable to cretate a new socket
+    /// Returns an `io::Error` if unable to create a new socket
     pub fn new_ipv6_udp() -> Result<Dsocket, io::Error> {
         Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None)
             .map(|socket| Dsocket { inner: socket })
@@ -154,7 +154,7 @@ impl Dsocket {
     ///
     /// # Errors
     ///
-    /// Returns an `io::Error` if unable to cretate a new socket  
+    /// Returns an `io::Error` if unable to create a new socket  
     pub fn new_ipv4_tcp() -> Result<Dsocket, io::Error> {
         Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)
             .map(|socket| Dsocket { inner: socket })
@@ -164,7 +164,7 @@ impl Dsocket {
     ///
     /// # Errors
     ///
-    /// Returns an `io::Error` if unable to cretate a new socket  
+    /// Returns an `io::Error` if unable to create a new socket  
     pub fn new_ipv4_udp() -> Result<Dsocket, io::Error> {
         Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)
             .map(|socket| Dsocket { inner: socket })

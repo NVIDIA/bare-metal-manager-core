@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum ResourcePoolEntryState {
-    /// The resoure is not used
+    /// The resource is not used
     Free,
     /// The resource is allocated by a certain owner
     Allocated { owner: String, owner_type: String },

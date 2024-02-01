@@ -331,7 +331,7 @@ pub enum RedfishCommand {
     PcieDevices,
     /// List pending operations
     Pending,
-    /// Display power metrics (volates, power supplies, etc)
+    /// Display power metrics (voltages, power supplies, etc)
     PowerMetrics,
     /// Enable serial console
     SerialEnable,

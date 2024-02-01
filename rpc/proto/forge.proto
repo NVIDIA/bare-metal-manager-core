@@ -932,7 +932,7 @@ message InstanceIBInterfaceStatus {
   optional string pf_guid = 1;
 
   // The GUID which has been assigned to this interface
-  // In case the interface is a PF interface, the GUID will be equvalent to
+  // In case the interface is a PF interface, the GUID will be equivalent to
   // `pf_guid` - which is the GUID that is stored on the hardware device.
   // For a VF interface, this is a GUID that has been allocated by Forge in order
   // be used for the VF.

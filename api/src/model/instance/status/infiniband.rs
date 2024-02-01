@@ -54,8 +54,8 @@ pub struct InstanceInfinibandStatus {
     /// Note for the implementation: We need to monitor all these config versions
     /// on the feedback path from DPU to carbide in order to know whether the
     /// changes have indeed taken effect.
-    /// TODO: Do we also want to show all applied versios here, or just track them
-    /// internally? Probably not helpfor for tenants at all - but it could be helpful
+    /// TODO: Do we also want to show all applied versions here, or just track them
+    /// internally? Probably not helpful for tenants at all - but it could be helpful
     /// for the Forge operating team to debug settings that to do do not go in-sync
     /// without having to attach to the database.
     pub configs_synced: SyncState,
@@ -163,7 +163,7 @@ impl InstanceInfinibandStatus {
     }
 }
 
-/// The network status that was last reported by the infiniband subystem
+/// The network status that was last reported by the infiniband subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceInfinibandStatusObservation {
     /// The version of the config that is applied on the networking subsystem
@@ -189,13 +189,13 @@ impl InstanceInfinibandStatusObservation {
     }
 }
 
-/// The network status that was last reported by the infiniband subystem
+/// The network status that was last reported by the infiniband subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceIbInterfaceStatus {
     /// The GUID of the hardware device that this interface is attached to
     pub pf_guid: Option<String>,
     /// The GUID which has been assigned to this interface
-    /// In case the interface is a PF interface, the GUID will be equvalent to
+    /// In case the interface is a PF interface, the GUID will be equivalent to
     /// `pf_guid` - which is the GUID that is stored on the hardware device.
     /// For a VF interface, this is a GUID that has been allocated by Forge in order
     /// be used for the VF.
@@ -228,7 +228,7 @@ impl TryFrom<rpc::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
     }
 }
 
-/// The network status that was last reported by the infiniband subystem
+/// The network status that was last reported by the infiniband subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceIbInterfaceStatusObservation {
     guid: Option<String>,

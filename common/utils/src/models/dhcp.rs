@@ -4,7 +4,7 @@ use ipnetwork::Ipv4Network;
 use rpc::forge::ManagedHostNetworkConfigResponse;
 use serde::{Deserialize, Serialize};
 
-/// This structure is used in dhcp-server and dpu-agent. dpu-agent passes these informtion to
+/// This structure is used in dhcp-server and dpu-agent. dpu-agent passes these information to
 /// dhcp-server. dhcp-server uses it for handling packet.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DhcpConfig {

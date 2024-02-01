@@ -203,7 +203,7 @@ impl TpmEkCertificate {
         self.0.as_slice()
     }
 
-    /// Converts the certifcate into a byte array
+    /// Converts the certificate into a byte array
     pub fn into_bytes(self) -> Vec<u8> {
         self.0
     }

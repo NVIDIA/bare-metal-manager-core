@@ -153,7 +153,7 @@ pub struct InstanceIbInterfaceConfig {
     /// The GUID of the hardware device that this interface is attached to
     pub pf_guid: Option<String>,
     /// The GUID which has been assigned to this interface
-    /// In case the interface is a PF interface, the GUID will be equvalent to
+    /// In case the interface is a PF interface, the GUID will be equivalent to
     /// `pf_guid` - which is the GUID that is stored on the hardware device.
     /// For a VF interface, this is a GUID that has been allocated by Forge in order
     /// be used for the VF.

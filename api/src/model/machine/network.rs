@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{config_version::ConfigVersion, RpcDataConversionError};
 
-/// The network status that was last reported by the networking subystem
+/// The network status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineNetworkStatusObservation {

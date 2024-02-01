@@ -62,7 +62,7 @@ impl MachineUpdateManager {
         "SELECT pg_try_advisory_xact_lock((SELECT 'machine_update_lock'::regclass::oid)::integer);";
     const DEFAULT_MAX_CONCURRENT_MACHINE_UPDATES: i32 = 0;
 
-    /// create a MachineUpdateManager with provided modules, overridding the default.
+    /// create a MachineUpdateManager with provided modules, overriding the default.
     pub fn new_with_modules(
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
