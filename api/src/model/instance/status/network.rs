@@ -58,8 +58,8 @@ pub struct InstanceNetworkStatus {
     /// Note for the implementation: We need to monitor all these config versions
     /// on the feedback path from DPU to carbide in order to know whether the
     /// changes have indeed taken effect.
-    /// TODO: Do we also want to show all applied versios here, or just track them
-    /// internally? Probably not helpfor for tenants at all - but it could be helpful
+    /// TODO: Do we also want to show all applied versions here, or just track them
+    /// internally? Probably not helpful for tenants at all - but it could be helpful
     /// for the Forge operating team to debug settings that to do do not go in-sync
     /// without having to attach to the database.
     pub configs_synced: SyncState,
@@ -202,7 +202,7 @@ impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
     }
 }
 
-/// The network status that was last reported by the networking subystem
+/// The network status that was last reported by the networking subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceNetworkStatusObservation {
     /// The version of the config that is applied on the networking subsystem

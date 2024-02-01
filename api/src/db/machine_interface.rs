@@ -603,7 +603,7 @@ impl MachineInterface {
     /// Parsed Mac: Found in DPU's topology data
     /// Relay IP: Taken from fixed Admin network segment. Relay IP is used only to identify related
     /// segment.
-    /// Retunrs: Machine Interface, True if new interface is created.
+    /// Returns: Machine Interface, True if new interface is created.
     pub async fn create_host_machine_interface_proactively(
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         hardware_info: Option<&HardwareInfo>,

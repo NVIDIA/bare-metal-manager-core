@@ -79,7 +79,7 @@ impl Machine {
 ///
 /// # Safety
 ///
-/// This function deferences a pointer to a Machine object which is an opaque pointer
+/// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
 ///
 #[no_mangle]
@@ -127,7 +127,7 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
 /// Invoke the discovery process
 ///
 /// # Safety
-/// This function deferences a pointer to a Machine object which is an opaque pointer
+/// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
 ///
 #[no_mangle]
@@ -398,11 +398,11 @@ pub extern "C" fn machine_free_ntpserver(ntpserver: *mut libc::c_char) {
     };
 }
 
-/// Invoke the discovery processs
+/// Invoke the discovery process
 ///
 /// # Safety
 ///
-/// This function deferences a pointer to a Machine object which is an opaque pointer
+/// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
 ///
 #[no_mangle]
@@ -444,7 +444,7 @@ pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
 ///
 /// # Safety
 ///
-/// This function deferences a pointer to a Machine object which is an opaque pointer
+/// This function dereferences a pointer to a Machine object which is an opaque pointer
 /// consumed in C code.
 ///
 /// This does not forget the memory afterwards, so the opaque pointer in the C code is now

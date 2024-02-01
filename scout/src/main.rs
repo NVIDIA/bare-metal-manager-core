@@ -163,7 +163,7 @@ async fn query_api_with_retries(config: &Options, machine_id: &str) -> CarbideCl
     const RETRY_TIMER: u64 = 30;
 
     // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
-    // In case by the time, host coems up and IP is still not updated, let's wait.
+    // In case by the time, host comes up and IP is still not updated, let's wait.
     loop {
         let action = query_api(config, machine_id).await?;
         attempts += 1;

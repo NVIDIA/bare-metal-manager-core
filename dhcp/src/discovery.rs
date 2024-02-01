@@ -401,7 +401,7 @@ unsafe fn discovery_fetch_machine_at(
 ///
 /// # Safety
 ///
-/// This function deferences a pointer to a Discovery object which is an opaque pointer
+/// This function dereferences a pointer to a Discovery object which is an opaque pointer
 /// consumed in C code.
 ///
 /// This does not forget the memory afterwards, so the opaque pointer in the C code is now

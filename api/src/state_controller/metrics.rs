@@ -170,7 +170,7 @@ impl<IO: StateControllerIO> IterationMetrics<IO> {
 
 /// A trait that defines how custom metrics are handled for a particular object type
 ///
-/// The emitter itself holds the OpenTelemetry datastructures (Gauges) that are
+/// The emitter itself holds the OpenTelemetry data structures (Gauges) that are
 /// required to submit the collected metrics in periodic intervals.
 ///
 /// The metrics themselves are captured in a 2 step process:
@@ -263,7 +263,7 @@ impl MetricsEmitter for NoopMetricsEmitter {
     fn update_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
 }
 
-/// Holds the OpenTelemetry datastructures that are used to submit
+/// Holds the OpenTelemetry data structures that are used to submit
 /// state handling related metrics that are used within all state controllers.
 #[derive(Debug)]
 pub struct CommonMetricsEmitter<IO> {
@@ -408,7 +408,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
 }
 
 impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
-    /// Emites the latency metrics that are captured during a single state handler
+    /// Emits the latency metrics that are captured during a single state handler
     /// iteration. Those are emitted immediately as histograms, whereas the
     /// amount of objects in states is emitted as gauges.
     pub fn emit_latency_metrics(&self, iteration_metrics: &IterationMetrics<IO>) {
@@ -520,7 +520,7 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
     }
 }
 
-/// Holds the OpenTelemetry datastructures that are used to submit
+/// Holds the OpenTelemetry data structures that are used to submit
 /// state handling related metrics
 pub struct StateControllerMetricEmitter<IO: StateControllerIO> {
     _meter: Meter,

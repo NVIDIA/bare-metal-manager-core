@@ -83,14 +83,14 @@ impl MachineStateHandler {
     }
 }
 
-/// Conveninence function for the tests
+/// Convenience function for the tests
 impl Default for MachineStateHandler {
     fn default() -> Self {
         Self::new(chrono::Duration::minutes(5), false, false)
     }
 }
 
-/// This function checks if reprovisoning is requested of a given DPU or not.
+/// This function checks if reprovisioning is requested of a given DPU or not.
 /// It also returns if firmware upgrade is needed.
 fn dpu_reprovisioning_needed(dpu_snapshot: &MachineSnapshot) -> Option<ReprovisionRequest> {
     dpu_snapshot.reprovision_requested.clone()

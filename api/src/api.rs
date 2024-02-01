@@ -3892,7 +3892,7 @@ where
         Ok(Response::new(rpc::AdminBmcResetResponse {}))
     }
 
-    /// Should this DPU upgade it's forge-dpu-agent?
+    /// Should this DPU upgrade it's forge-dpu-agent?
     /// Once the upgrade is complete record_dpu_network_status will receive the updated
     /// version and write the DB to say our upgrade is complete.
     async fn dpu_agent_upgrade_check(
@@ -5183,7 +5183,7 @@ struct ServiceConfig {
     machine_state_controller_iteration_time: std::time::Duration,
     /// Iteration time for the network segment state controller
     network_segment_state_controller_iteration_time: std::time::Duration,
-    /// Maximum datebase connections
+    /// Maximum database connections
     max_db_connections: u32,
     /// How long to wait for DPU to restart after BMC lockdown. Not a timeout, it's a forced wait.
     /// This will be replaced with querying lockdown state.

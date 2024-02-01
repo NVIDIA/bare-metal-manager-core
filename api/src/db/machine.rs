@@ -100,7 +100,7 @@ pub struct Machine {
     /// A list of [MachineInterface][interface]s that this machine owns
     interfaces: Vec<MachineInterface>,
 
-    /// The Hardware information that was discoverd for this machine
+    /// The Hardware information that was discovered for this machine
     hardware_info: Option<HardwareInfo>,
 
     /// The BMC info for this machine
@@ -622,7 +622,7 @@ SELECT m.id FROM
     /// Find machines given a set of criteria, right now just returns all machines because there's
     /// no way to filter the machines.
     ///
-    /// TODO(ajf): write a query langauge???
+    /// TODO(ajf): write a query language???
     ///
     /// Arguments:
     ///

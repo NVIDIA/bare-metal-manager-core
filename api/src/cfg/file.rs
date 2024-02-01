@@ -101,7 +101,7 @@ pub struct CarbideConfig {
     pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 
     /// The version of DPU NIC firmware that is expected on the DPU.  If the actual DPU NIC firmware
-    /// does not match, the DPU will be updated during reprovisioning.  It is the operators responsibilty
+    /// does not match, the DPU will be updated during reprovisioning.  It is the operators responsibility
     /// to make sure this value matches the version shipped with carbide.  If "None" updates
     /// during reprovisioning will be disabled
     pub dpu_nic_firmware_update_version: Option<HashMap<String, String>>,
@@ -145,7 +145,7 @@ pub struct SiteExplorerConfig {
     pub concurrent_explorations: u64,
     /// How many nodes should be explored in a single run.
     /// Default is 10.
-    /// This number deviced by `concurrent_explorations` will determine how many
+    /// This number divded by `concurrent_explorations` will determine how many
     /// exploration batches are needed inside a run.
     /// If the value is set too high the site exploration will take a lot of time
     /// and the exploration report will be updated less frequent. Therefore it
@@ -185,7 +185,7 @@ pub struct TlsConfig {
     pub admin_root_cafile_path: String,
 }
 
-/// Autentication related configuration
+/// Authentication related configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AuthConfig {
     /// Enable permissive mode in the authorization enforcer (for development).

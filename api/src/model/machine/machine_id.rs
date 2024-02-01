@@ -18,7 +18,7 @@ use data_encoding::BASE32_DNSSEC;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// The `MachineId` uniquely identies a machine that is managed by the Forge system
+/// The `MachineId` uniquely identifies a machine that is managed by the Forge system
 ///
 /// `MachineId`s are derived from a hardware fingerprint, and are thereby
 /// globally unique.
@@ -389,7 +389,7 @@ impl<'de> Deserialize<'de> for MachineId {
     }
 }
 
-/// Convertes a RPC MachineId into the internal data format
+/// Converts a RPC MachineId into the internal data format
 pub fn try_parse_machine_id(
     id: &rpc::forge::MachineId,
 ) -> Result<MachineId, RpcDataConversionError> {
