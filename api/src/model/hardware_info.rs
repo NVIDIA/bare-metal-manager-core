@@ -97,7 +97,7 @@ pub struct NvmeDevice {
     pub firmware_rev: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DmiData {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub board_name: String,
@@ -119,7 +119,7 @@ pub struct DmiData {
     pub sys_vendor: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DpuData {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub part_number: String,
@@ -658,7 +658,7 @@ impl HardwareInfo {
         }
 
         dmi_data.as_ref().map_or(false, |dmi| {
-            ["BlueField SoC", "BlueField-3 SmartNIC Main Card"].contains(&dmi.board_name.as_str())
+            dmi.board_name.to_lowercase().contains("bluefield")
         })
     }
 

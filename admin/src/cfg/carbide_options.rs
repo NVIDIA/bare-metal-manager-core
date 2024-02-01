@@ -763,29 +763,6 @@ pub enum BmcMachine {
     Reset(BMCConfigForReset),
 }
 
-#[derive(Parser, Debug)]
-#[clap(group(
-    ArgGroup::new("show_bmc_machine")
-    .required(true)
-    .args(&["all", "dpus", "hosts", "bmc_machine"])),
-    disable_help_flag = true,
-)]
-pub struct ShowBmcMachine {
-    #[clap(long, action = clap::ArgAction::HelpLong)]
-    help: Option<bool>,
-
-    #[clap(short, long, action, help = "Show all BMC machines")]
-    pub all: bool,
-
-    #[clap(short, long, action, help = "Show only DPUs BMC machines")]
-    pub dpus: bool,
-
-    #[clap(short, long, action, help = "Show only hosts BMC machines")]
-    pub hosts: bool,
-
-    pub bmc_machine: Option<String>,
-}
-
 #[derive(ValueEnum, Parser, Debug, Clone)]
 pub enum BMCCredentialType {
     Host,

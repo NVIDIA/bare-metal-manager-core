@@ -103,6 +103,10 @@ pub struct CurrentMachineState {
 /// Only DPU machine field in DB will contain state. Host will be empty. DPU state field will be
 /// used to derive state for DPU and Host both.
 pub enum ManagedHostState {
+    /// Dpu was discovered by a site-explorer and is being configuring via redfish.
+    DpuDiscoveringState {
+        discovering_state: DpuDiscoveringState,
+    },
     /// DPU is not yet ready.
     DPUNotReady { machine_state: MachineState },
     /// DPU is ready, Host is not yet Ready.
@@ -177,6 +181,15 @@ pub struct FailureDetails {
     pub cause: FailureCause,
     pub failed_at: DateTime<Utc>,
     pub source: FailureSource,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "dpudiscoverystate", rename_all = "lowercase")]
+pub enum DpuDiscoveringState {
+    /// Dpu discovery via redfish states
+    Initializing,
+    Configuring,
+    Rebooting,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -282,6 +295,12 @@ impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateStatus {
     }
 }
 
+impl Display for DpuDiscoveringState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
 impl Display for MachineState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
@@ -338,6 +357,9 @@ impl Display for ReprovisionState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ManagedHostState::DpuDiscoveringState { discovering_state } => {
+                write!(f, "DPUDiscovering/{}", discovering_state)
+            }
             ManagedHostState::DPUNotReady { machine_state } => write!(f, "DPU/{}", machine_state),
             ManagedHostState::HostNotReady { machine_state } => write!(f, "Host/{}", machine_state),
             ManagedHostState::Ready => write!(f, "Ready"),

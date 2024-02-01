@@ -55,12 +55,14 @@ pub trait CredentialProvider: Send + Sync {
 }
 
 #[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialType {
     HardwareDefault,
     SiteDefault,
-    BmcMachine { bmc_machine_id: String },
+    Machine { machine_id: String },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialKey {
     Bmc {
         user_role: String,
@@ -105,8 +107,8 @@ impl CredentialKey {
                 CredentialType::SiteDefault => {
                     "machines/all_dpus/site_default/bmc-metadata-items/root".to_string()
                 }
-                CredentialType::BmcMachine { bmc_machine_id } => {
-                    format!("machines/bmc_machines/{bmc_machine_id}/redfish-admin")
+                CredentialType::Machine { machine_id } => {
+                    format!("machines/{machine_id}/dpu-redfish-admin")
                 }
             },
             CredentialKey::HostRedfish { credential_type } => match credential_type {
@@ -116,8 +118,8 @@ impl CredentialKey {
                 CredentialType::SiteDefault => {
                     "machines/all_hosts/site_default/bmc-metadata-items/root".to_string()
                 }
-                CredentialType::BmcMachine { .. } => {
-                    panic!("BmcMachine is only used for DPUs");
+                CredentialType::Machine { machine_id } => {
+                    format!("machines/{machine_id}/host-redfish-admin")
                 }
             },
             CredentialKey::UfmAuth { fabric } => {

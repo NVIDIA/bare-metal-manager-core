@@ -16,10 +16,12 @@ use std::{collections::HashMap, task::Poll};
 
 use chrono::{DateTime, Duration, Utc};
 use eyre::eyre;
+use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::SystemPowerControl;
 
 use crate::{
     db::{
+        bmc_metadata::UserRoles,
         ib_partition,
         instance::{
             status::infiniband::update_instance_infiniband_status_observation, DeleteInstance,
@@ -39,15 +41,14 @@ use crate::{
         machine::{
             machine_id::MachineId,
             network::HealthStatus,
-            CleanupState, FailureCause, FailureDetails, InstanceNextStateResolver, InstanceState,
-            LockdownInfo,
+            CleanupState, DpuDiscoveringState, FailureCause, FailureDetails, FailureSource,
+            InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineNextStateResolver, MachineSnapshot, MachineState,
             ManagedHostState, ManagedHostStateSnapshot, NextReprovisionState, ReprovisionRequest,
             ReprovisionState, RetryInfo,
         },
     },
-    redfish::RedfishCredentialType,
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
@@ -220,6 +221,11 @@ impl StateHandler for MachineStateHandler {
         }
 
         match &managed_state {
+            ManagedHostState::DpuDiscoveringState { .. } => {
+                self.dpu_handler
+                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
+                    .await?;
+            }
             ManagedHostState::DPUNotReady { .. } => {
                 self.dpu_handler
                     .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
@@ -538,6 +544,21 @@ impl DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
         }
     }
+
+    fn get_discovery_failure(&self, msg: String, machine_id: &MachineId) -> ManagedHostState {
+        tracing::error!(msg);
+        let failure_details = FailureDetails {
+            cause: FailureCause::Discovery { err: msg },
+            failed_at: chrono::Utc::now(),
+            source: FailureSource::StateMachine,
+        };
+
+        ManagedHostState::Failed {
+            details: failure_details,
+            machine_id: machine_id.clone(),
+            retry_count: 0,
+        }
+    }
 }
 #[async_trait::async_trait]
 impl StateHandler for DpuMachineStateHandler {
@@ -555,6 +576,153 @@ impl StateHandler for DpuMachineStateHandler {
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         match &state.managed_state {
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state: DpuDiscoveringState::Initializing,
+            } => {
+                let mut client;
+                let client_result = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client(
+                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
+                        None,
+                        CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                    )
+                    .await;
+
+                match client_result {
+                    Ok(redfish_client) => client = redfish_client,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to instantiate redfish client");
+                        return Ok(());
+                    }
+                }
+
+                if let Err(e) = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_forge_admin_user(client, host_machine_id.to_string())
+                    .await
+                {
+                    let msg = format!("Failed to create forge_admin user: {}", e);
+                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                    return Ok(());
+                }
+
+                let client_result = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client(
+                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
+                        None,
+                        CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::Machine {
+                                machine_id: host_machine_id.to_string(),
+                            },
+                        },
+                    )
+                    .await;
+
+                client = match client_result {
+                    Ok(redfish_client) => redfish_client,
+                    Err(e) => {
+                        let msg = format!(
+                            "Failed to instantiate redfish client (forge-admin user): {}",
+                            e
+                        );
+                        *controller_state.modify() =
+                            self.get_discovery_failure(msg, host_machine_id);
+                        return Ok(());
+                    }
+                };
+
+                let bmc_inventory = match client.get_firmware("BMC_Firmware").await {
+                    Ok(inventory) => inventory,
+                    Err(e) => {
+                        let msg = format!("Failed to get BMC version: {}", e);
+                        *controller_state.modify() =
+                            self.get_discovery_failure(msg, host_machine_id);
+                        return Ok(());
+                    }
+                };
+
+                match bmc_inventory.version {
+                    Some(version_str) => {
+                        // example of returned result: "BF-23.07-3"
+                        let version = version_str.replace("BF-", "");
+                        let minimal_supported_version = "23.04";
+                        if let Ok(version_compare::Cmp::Lt) =
+                            version_compare::compare(version.as_str(), minimal_supported_version)
+                        {
+                            let msg = format!(
+                                "Current BMC FW version: {}, minimal supported version: {}",
+                                version.as_str(),
+                                minimal_supported_version
+                            );
+                            *controller_state.modify() =
+                                self.get_discovery_failure(msg, host_machine_id);
+                            return Ok(());
+                        }
+
+                        // TODO: Update FW version here
+                    }
+                    None => {
+                        let msg = "Unknown BMC FW version".to_string();
+                        *controller_state.modify() =
+                            self.get_discovery_failure(msg, host_machine_id);
+                        return Ok(());
+                    }
+                }
+
+                *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
+                    discovering_state: DpuDiscoveringState::Configuring,
+                }
+            }
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state: DpuDiscoveringState::Configuring,
+            } => {
+                let client;
+                let client_result = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client(
+                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
+                        None,
+                        CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                    )
+                    .await;
+
+                match client_result {
+                    Ok(redfish_client) => client = redfish_client,
+                    Err(e) => {
+                        let msg = format!("Failed to instantiate redfish client: {}", e);
+                        *controller_state.modify() =
+                            self.get_discovery_failure(msg, host_machine_id);
+                        return Ok(());
+                    }
+                }
+
+                if let Err(e) = client.forge_setup().await {
+                    let msg = format!("Failed to run forge_setup call: {}", e);
+                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                    return Ok(());
+                }
+
+                if let Err(e) = client.power(SystemPowerControl::GracefulRestart).await {
+                    let msg = format!("Failed to reboot a DPU: {}", e);
+                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                    return Ok(());
+                } else {
+                    *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
+                        discovering_state: DpuDiscoveringState::Rebooting,
+                    };
+                    return Ok(());
+                }
+            }
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::Init,
             } => {
@@ -1312,8 +1480,9 @@ async fn host_power_control(
         .create_client(
             bmc_ip,
             None,
-            RedfishCredentialType::Machine {
+            CredentialKey::Bmc {
                 machine_id: machine_snapshot.machine_id.to_string(),
+                user_role: UserRoles::Administrator.to_string(),
             },
         )
         .await?;
@@ -1396,8 +1565,9 @@ async fn lockdown_host(
         .create_client(
             bmc_ip,
             None,
-            RedfishCredentialType::Machine {
+            CredentialKey::Bmc {
                 machine_id: machine_snapshot.machine_id.to_string(),
+                user_role: UserRoles::Administrator.to_string(),
             },
         )
         .await?;

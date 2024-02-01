@@ -36,7 +36,8 @@ use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    FailureDetails, MachineState, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    DpuDiscoveringState, FailureDetails, MachineState, ManagedHostState, ReprovisionRequest,
+    UpgradeDecision,
 };
 use crate::{CarbideError, CarbideResult};
 
@@ -414,80 +415,97 @@ impl Machine {
         stable_machine_id: &MachineId,
         interface: &MachineInterface,
     ) -> CarbideResult<(Self, bool)> {
-        let stable_machine_id_string = stable_machine_id.to_string();
-
-        match &interface.machine_id {
-            // GET
-            Some(machine_id) => {
-                if machine_id != stable_machine_id {
-                    return Err(CarbideError::GenericError(format!(
-                        "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
-                        machine_id, interface.id(),
-                        stable_machine_id)));
-                }
-
-                match Machine::find_one(&mut *txn, machine_id, MachineSearchConfig::default())
-                    .await?
-                {
-                    Some(machine) => Ok((machine, false)),
-                    None => {
-                        tracing::warn!(
-                            %machine_id,
-                            interface_id = %interface.id(),
-                            "Interface ID refers to missing machine",
-                        );
-                        Err(CarbideError::NotFoundError {
-                            kind: "machine",
-                            id: machine_id.to_string(),
-                        })
-                    }
-                }
+        let existing_machine = Machine::find_one(
+            &mut *txn,
+            stable_machine_id,
+            MachineSearchConfig {
+                include_associated_machine_id: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+        if interface.machine_id.is_some() {
+            let machine_id = interface.machine_id.as_ref().unwrap();
+            if machine_id != stable_machine_id {
+                return Err(CarbideError::GenericError(format!(
+                    "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
+                    machine_id, interface.id(),
+                    stable_machine_id)));
             }
-            // CREATE
-            None => {
-                // Host and DPU machines are created in same `discover_machine` call. Update same
-                // state in both machines.
-                let state = ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::Init,
+
+            if existing_machine.is_none() {
+                tracing::warn!(
+                    %machine_id,
+                    interface_id = %interface.id(),
+                    "Interface ID refers to missing machine",
+                );
+                return Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: machine_id.to_string(),
+                });
+            }
+        }
+
+        // Get or create
+        if existing_machine.is_some() {
+            // New site-explorer redfish discovery path.
+
+            let machine = existing_machine.unwrap();
+            // Machine that is discovered via redfish, still considered as new for api to configure network.
+            let is_discovered_by_site_explorer = machine.state.value
+                == ManagedHostState::DpuDiscoveringState {
+                    discovering_state: DpuDiscoveringState::Rebooting,
                 };
-                let state_version = ConfigVersion::initial();
-
-                let network_config_version = ConfigVersion::initial();
-                let network_config = ManagedHostNetworkConfig::default();
-
-                let query = "INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config) VALUES($1, $2, $3, $4, $5) RETURNING id";
-                let row: (DbMachineId,) = sqlx::query_as(query)
-                    .bind(&stable_machine_id_string)
-                    .bind(state_version.version_string())
-                    .bind(sqlx::types::Json(&state))
-                    .bind(network_config_version.version_string())
-                    .bind(sqlx::types::Json(&network_config))
-                    .fetch_one(&mut **txn)
-                    .await
-                    .map_err(|e| {
-                        CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
-                    })?;
-                let machine_id = row.0.into_inner();
-                if machine_id != *stable_machine_id {
-                    return Err(CarbideError::DatabaseInconsistencyOnMachineCreate(
-                        stable_machine_id.clone(),
-                    ));
-                }
-
-                let machine =
-                    Machine::find_one(txn, stable_machine_id, MachineSearchConfig::default())
-                        .await?
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "machine",
-                            id: stable_machine_id.to_string(),
-                        })?;
-                machine.advance(txn, state, None).await?;
-
-                interface
-                    .associate_interface_with_machine(txn, &machine.id)
+            tracing::info!(
+                "is_discovered_by_site_explorer: {}",
+                is_discovered_by_site_explorer
+            );
+            if is_discovered_by_site_explorer {
+                machine
+                    .advance(
+                        txn,
+                        ManagedHostState::DPUNotReady {
+                            machine_state: MachineState::Init,
+                        },
+                        Some(machine.state.version.increment()),
+                    )
                     .await?;
-                Ok((machine, true))
+                let associated_host = machine.associated_host_machine_id.as_ref().ok_or(
+                    CarbideError::NotFoundError {
+                        kind: "associated_host",
+                        id: stable_machine_id.to_string(),
+                    },
+                )?;
+                let host_machine =
+                    Machine::find_one(&mut *txn, associated_host, MachineSearchConfig::default())
+                        .await?
+                        .ok_or(CarbideError::NotFoundError {
+                            kind: "associated_host",
+                            id: associated_host.to_string(),
+                        })?;
+                host_machine
+                    .advance(
+                        txn,
+                        ManagedHostState::DPUNotReady {
+                            machine_state: MachineState::Init,
+                        },
+                        Some(machine.state.version.increment()),
+                    )
+                    .await?;
             }
+            Ok((machine, is_discovered_by_site_explorer))
+        } else {
+            // Old manual discovery path.
+            // Host and DPU machines are created in same `discover_machine` call. Update same
+            // state in both machines.
+            let state = ManagedHostState::DPUNotReady {
+                machine_state: MachineState::Init,
+            };
+            let machine = Self::create(txn, stable_machine_id, state).await?;
+            interface
+                .associate_interface_with_machine(txn, &machine.id)
+                .await?;
+            Ok((machine, true))
         }
     }
 
@@ -1246,6 +1264,47 @@ SELECT m.id FROM
             }
         }
         Ok(())
+    }
+
+    pub async fn create(
+        txn: &mut Transaction<'_, Postgres>,
+        stable_machine_id: &MachineId,
+        state: ManagedHostState,
+    ) -> CarbideResult<Self> {
+        let stable_machine_id_string = stable_machine_id.to_string();
+        // Host and DPU machines are created in same `discover_machine` call. Update same
+        // state in both machines.
+        let state_version = ConfigVersion::initial();
+
+        let network_config_version = ConfigVersion::initial();
+        let network_config = ManagedHostNetworkConfig::default();
+
+        let query = "INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config) VALUES($1, $2, $3, $4, $5) RETURNING id";
+        let row: (DbMachineId,) = sqlx::query_as(query)
+            .bind(&stable_machine_id_string)
+            .bind(state_version.version_string())
+            .bind(sqlx::types::Json(&state))
+            .bind(network_config_version.version_string())
+            .bind(sqlx::types::Json(&network_config))
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+
+        let machine_id = row.0.into_inner();
+        if machine_id != *stable_machine_id {
+            return Err(CarbideError::DatabaseInconsistencyOnMachineCreate(
+                stable_machine_id.clone(),
+            ));
+        }
+
+        let machine = Machine::find_one(txn, stable_machine_id, MachineSearchConfig::default())
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine",
+                id: stable_machine_id.to_string(),
+            })?;
+        machine.advance(txn, state, None).await?;
+        Ok(machine)
     }
 
     // Trigger DPU reprovisioning. For machine assigned to user, needs user approval to start

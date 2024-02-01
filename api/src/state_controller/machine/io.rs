@@ -17,8 +17,8 @@ use crate::{
     model::{
         config_version::{ConfigVersion, Versioned},
         machine::{
-            machine_id::MachineId, InstanceState, MachineState, ManagedHostState,
-            ManagedHostStateSnapshot,
+            machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState,
+            ManagedHostState, ManagedHostStateSnapshot,
         },
     },
     state_controller::{
@@ -105,6 +105,14 @@ impl StateControllerIO for MachineStateControllerIO {
             }
         }
 
+        fn discovering_state_name(discovering_state: &DpuDiscoveringState) -> &'static str {
+            match discovering_state {
+                DpuDiscoveringState::Initializing => "dpuinitializing",
+                DpuDiscoveringState::Configuring => "dpuconfiguring",
+                DpuDiscoveringState::Rebooting => "dpurebooting",
+            }
+        }
+
         fn instance_state_name(instance_state: &InstanceState) -> &'static str {
             match instance_state {
                 InstanceState::Init => "init",
@@ -125,6 +133,9 @@ impl StateControllerIO for MachineStateControllerIO {
         }
 
         match state {
+            ManagedHostState::DpuDiscoveringState { discovering_state } => {
+                ("dpudiscovering", discovering_state_name(discovering_state))
+            }
             ManagedHostState::DPUNotReady { machine_state } => {
                 ("dpunotready", machine_state_name(machine_state))
             }
@@ -152,6 +163,14 @@ impl StateControllerIO for MachineStateControllerIO {
             .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
         match &state.value {
+            ManagedHostState::DpuDiscoveringState { discovering_state } => {
+                match discovering_state {
+                    DpuDiscoveringState::Initializing | DpuDiscoveringState::Configuring => {
+                        time_in_state > std::time::Duration::from_secs(30 * 60)
+                    }
+                    DpuDiscoveringState::Rebooting => false,
+                }
+            }
             ManagedHostState::DPUNotReady { machine_state } => {
                 // Init has no SLA since starting discovery requires a manual action
                 match machine_state {

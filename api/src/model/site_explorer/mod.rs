@@ -14,12 +14,25 @@ use std::net::IpAddr;
 
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
+use sqlx::{Postgres, Transaction};
 
-use crate::model::{
-    config_version::ConfigVersion,
-    hardware_info::{DmiData, HardwareInfo},
-    machine::machine_id::MachineId,
+use crate::{
+    db::{
+        bmc_metadata::BmcMetaDataUpdateRequest,
+        machine::{Machine, MachineSearchConfig},
+        machine_interface::MachineInterface,
+        machine_topology::MachineTopology,
+    },
+    model::{
+        bmc_info::BmcInfo,
+        config_version::ConfigVersion,
+        hardware_info::{DmiData, HardwareInfo},
+        machine::{machine_id::MachineId, DpuDiscoveringState, ManagedHostState},
+    },
+    CarbideError,
 };
+
+use super::hardware_info::DpuData;
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -175,6 +188,25 @@ impl EndpointExplorationReport {
             .unwrap_or(false)
     }
 
+    fn get_dmi_data(&self, serial_number: &str) -> DmiData {
+        // For DPUs the discovered data contains enough information to
+        // calculate a MachineId
+        // The "Unspecified" strings are delivered as serial numbers when doing
+        // inband discovery via libudev. For compatibility we have to use
+        // the same values here.
+        DmiData {
+            product_serial: serial_number.trim().to_string(),
+            chassis_serial: "Unspecified Chassis Board Serial Number".to_string(),
+            board_serial: "Unspecified Base Board Serial Number".to_string(),
+            bios_version: "".to_string(),
+            sys_vendor: "".to_string(),
+            board_name: "BlueField SoC".to_string(),
+            bios_date: "".to_string(),
+            board_version: "".to_string(),
+            product_name: "".to_string(),
+        }
+    }
+
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
     pub fn generate_machine_id(&mut self) {
@@ -184,22 +216,7 @@ impl EndpointExplorationReport {
                 .get(0)
                 .and_then(|system| system.serial_number.as_ref()),
         ) {
-            // For DPUs the discovered data contains enough information to
-            // calculate a MachineId
-            // The "Unspecified" strings are delivered as serial numbers when doing
-            // inband discovery via libudev. For compatibility we have to use
-            // the same values here.
-            let dmi_data = DmiData {
-                product_serial: serial_number.trim().to_string(),
-                chassis_serial: "Unspecified Chassis Board Serial Number".to_string(),
-                board_serial: "Unspecified Base Board Serial Number".to_string(),
-                bios_version: "".to_string(),
-                sys_vendor: "".to_string(),
-                board_name: "BlueField SoC".to_string(),
-                bios_date: "".to_string(),
-                board_version: "".to_string(),
-                product_name: "".to_string(),
-            };
+            let dmi_data = self.get_dmi_data(serial_number.as_str());
 
             let hardware_info = HardwareInfo {
                 dmi_data: Some(dmi_data),
@@ -216,6 +233,142 @@ impl EndpointExplorationReport {
                 }
             }
         }
+    }
+
+    /// Creates managed host objects with initial states
+    pub async fn create_managed_host(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        explored_host: ExploredManagedHost,
+    ) -> Result<(Machine, Machine), CarbideError> {
+        if self.machine_id.is_none() {
+            return Err(CarbideError::MissingArgument("Missing Machine ID"));
+        }
+
+        if self.systems.is_empty() {
+            return Err(CarbideError::MissingArgument("Missing Systems Info"));
+        }
+
+        let stable_machine_id = self.machine_id.as_ref().unwrap();
+
+        let dpu_machine = match Machine::find_one(
+            txn,
+            stable_machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        {
+            // Do nothing if machine exists. It'll be reprovisioned via redfish
+            Some(m) => m,
+            None => match Machine::create(
+                txn,
+                stable_machine_id,
+                ManagedHostState::DpuDiscoveringState {
+                    discovering_state: DpuDiscoveringState::Initializing,
+                },
+            )
+            .await
+            {
+                Ok(m) => {
+                    tracing::info!("Created machine id: {}", stable_machine_id);
+                    m
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Can't create Machine");
+                    return Err(e);
+                }
+            },
+        };
+
+        let serial_number = self
+            .systems
+            .get(0)
+            .and_then(|system| system.serial_number.as_ref())
+            .unwrap();
+        let dmi_data = self.get_dmi_data(serial_number.as_str());
+
+        let dpu_data = DpuData {
+            factory_mac_address: explored_host
+                .host_pf_mac_address
+                .ok_or(CarbideError::MissingArgument("Missing base mac"))?
+                .to_string(),
+            ..Default::default()
+        };
+
+        let hardware_info = HardwareInfo {
+            dmi_data: Some(dmi_data),
+            dpu_info: Some(dpu_data),
+            machine_type: "aarch64".to_string(),
+            ..Default::default()
+        };
+
+        let _topology =
+            MachineTopology::create_or_update(txn, stable_machine_id, &hardware_info).await?;
+
+        // Forge scout will update this topology with a full information.
+        MachineTopology::set_topology_update_needed(txn, stable_machine_id, true).await?;
+
+        let bmc_info = BmcInfo {
+            ip: Some(explored_host.dpu_bmc_ip.to_string()),
+            mac: self.managers.first().and_then(|m| {
+                m.ethernet_interfaces
+                    .first()
+                    .and_then(|e| e.mac_address.clone())
+            }),
+            ..Default::default()
+        };
+
+        let bmc_metadata = BmcMetaDataUpdateRequest {
+            machine_id: stable_machine_id.clone(),
+            bmc_info,
+            data: Vec::new(),
+        };
+
+        bmc_metadata.update_bmc_network_into_topologies(txn).await?;
+
+        // Create Host proactively.
+        // In case host interface is created, this method will return existing one, instead
+        // creating new everytime.
+        let machine_interface = MachineInterface::create_host_machine_interface_proactively(
+            txn,
+            Some(&hardware_info),
+            dpu_machine.id(),
+        )
+        .await?;
+
+        // Create host machine with temporary ID if no machine is attached.
+        if machine_interface.machine_id.is_some() {
+            return Err(CarbideError::GenericError(
+                format!(
+                    "Machine id: {} attached to network interface",
+                    machine_interface.machine_id.unwrap()
+                )
+                .to_string(),
+            ));
+        }
+
+        let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&hardware_info)
+            .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
+        let mi_id = machine_interface.id;
+        let host_machine = Machine::create(
+            txn,
+            &predicted_machine_id,
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state: DpuDiscoveringState::Initializing,
+            },
+        )
+        .await?;
+        tracing::info!(
+            ?mi_id,
+            machine_id = %host_machine.id(),
+            "Created host machine proactively",
+        );
+
+        machine_interface
+            .associate_interface_with_machine(txn, host_machine.id())
+            .await?;
+
+        Ok((dpu_machine, host_machine))
     }
 }
 

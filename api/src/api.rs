@@ -84,7 +84,6 @@ use crate::model::tenant::{
     UpdateTenantKeyset,
 };
 use crate::model::RpcDataConversionError;
-use crate::redfish::RedfishCredentialType;
 use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::{RedfishEndpointExplorer, SiteExplorer};
@@ -1543,8 +1542,9 @@ where
             .create_client(
                 &bmc_ip,
                 None,
-                RedfishCredentialType::Machine {
+                CredentialKey::Bmc {
                     machine_id: machine_id.to_string(),
+                    user_role: UserRoles::Administrator.to_string(),
                 },
             )
             .await
@@ -3261,8 +3261,9 @@ where
                     .create_client(
                         ip,
                         None,
-                        RedfishCredentialType::Machine {
+                        CredentialKey::Bmc {
                             machine_id: machine.id().to_string(),
+                            user_role: UserRoles::Administrator.to_string(),
                         },
                     )
                     .await
