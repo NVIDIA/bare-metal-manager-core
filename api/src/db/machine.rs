@@ -36,7 +36,8 @@ use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    DpuDiscoveringState, FailureDetails, MachineState, ManagedHostState, ReprovisionRequest,
+    DpuDiscoveringState, FailureDetails, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineState, ManagedHostState, ReprovisionRequest,
     UpgradeDecision,
 };
 use crate::{CarbideError, CarbideResult};
@@ -136,9 +137,14 @@ pub struct Machine {
     // Other machine ids associated with this machine
     associated_host_machine_id: Option<MachineId>,
     associated_dpu_machine_id: Option<MachineId>,
+
     // Inventory related to a machine.
     // Software and versions installed on the machine.
     inventory: Option<MachineInventory>,
+
+    /// Last time when machine reboot was requested.
+    /// This field takes care of reboot requested from state machine only.
+    last_reboot_requested: Option<MachineLastRebootRequested>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -172,6 +178,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
 
         let dpu_agent_upgrade_requested: Option<sqlx::types::Json<UpgradeDecision>> =
             row.try_get("dpu_agent_upgrade_requested")?;
+        let last_reboot_requested: Option<sqlx::types::Json<MachineLastRebootRequested>> =
+            row.try_get("last_reboot_requested")?;
 
         let machine_inventory: Option<sqlx::types::Json<MachineInventory>> =
             row.try_get("agent_reported_inventory")?;
@@ -196,6 +204,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             maintenance_reference: row.try_get("maintenance_reference")?,
             maintenance_start_time: row.try_get("maintenance_start_time")?,
             last_reboot_time: row.try_get("last_reboot_time")?,
+            last_reboot_requested: last_reboot_requested.map(|x| x.0),
             last_cleanup_time: row.try_get("last_cleanup_time")?,
             last_discovery_time: row.try_get("last_discovery_time")?,
             failure_details: failure_details.0,
@@ -921,6 +930,10 @@ SELECT m.id FROM
         self.last_reboot_time
     }
 
+    pub fn last_reboot_requested(&self) -> Option<MachineLastRebootRequested> {
+        self.last_reboot_requested.clone()
+    }
+
     pub fn last_cleanup_time(&self) -> Option<DateTime<Utc>> {
         self.last_cleanup_time
     }
@@ -940,6 +953,26 @@ SELECT m.id FROM
         let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
+    pub async fn update_reboot_requested_time(
+        machine_id: &MachineId,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        mode: MachineLastRebootRequestedMode,
+    ) -> Result<(), DatabaseError> {
+        let data = MachineLastRebootRequested {
+            time: chrono::Utc::now(),
+            mode,
+        };
+
+        let query = "UPDATE machines SET last_reboot_requested=$1 WHERE id=$2 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(sqlx::types::Json(&data))
+            .bind(machine_id.to_string())
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

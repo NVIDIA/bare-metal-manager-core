@@ -16,6 +16,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
+use libredfish::SystemPowerControl;
 use serde::{Deserialize, Serialize};
 
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -42,6 +43,33 @@ pub struct ManagedHostStateSnapshot {
     pub managed_state: ManagedHostState,
 }
 
+/// Represents the last_reboot_requested data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MachineLastRebootRequestedMode {
+    Reboot,
+    PowerOff,
+    PowerOn,
+    GracefulShutdown,
+}
+
+impl From<SystemPowerControl> for MachineLastRebootRequestedMode {
+    fn from(value: SystemPowerControl) -> Self {
+        match value {
+            SystemPowerControl::On => Self::PowerOn,
+            SystemPowerControl::GracefulShutdown => Self::PowerOff,
+            SystemPowerControl::ForceOff => Self::PowerOff,
+            SystemPowerControl::GracefulRestart => Self::Reboot,
+            SystemPowerControl::ForceRestart => Self::Reboot,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineLastRebootRequested {
+    pub time: DateTime<Utc>,
+    pub mode: MachineLastRebootRequestedMode,
+}
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
 pub struct MachineSnapshot {
@@ -66,6 +94,8 @@ pub struct MachineSnapshot {
     pub last_discovery_time: Option<DateTime<Utc>>,
     /// Last reboot time. Calculated from forge_agent_control call.
     pub last_reboot_time: Option<DateTime<Utc>>,
+    /// Last reboot requested time.
+    pub last_reboot_requested: Option<MachineLastRebootRequested>,
     /// Last cleanup completed message received from scout.
     pub last_cleanup_time: Option<DateTime<Utc>>,
     /// Failure cause. Needed to move machine in failed state.
@@ -540,5 +570,20 @@ mod tests {
                 }
             }
         );
+    }
+
+    #[test]
+    fn test_json_deserialize_machine_last_reboot_requested() {
+        let serialized = r#"{"time":"2023-07-31T11:26:18.261228950+00:00","mode":"Reboot"}"#;
+        let deserialized: MachineLastRebootRequested = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            chrono::DateTime::parse_from_rfc3339("2023-07-31T11:26:18.261228950+00:00").unwrap(),
+            deserialized.time,
+        );
+        assert!(matches!(
+            deserialized.mode,
+            MachineLastRebootRequestedMode::Reboot,
+        ));
     }
 }

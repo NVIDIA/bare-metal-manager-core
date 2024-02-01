@@ -261,6 +261,9 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
+    assert!(host.last_reboot_requested().is_some());
+    let last_reboot_requested_time = host.last_reboot_requested().unwrap().time;
+
     assert!(matches!(
         host.current_state(),
         ManagedHostState::HostNotReady {
@@ -285,6 +288,17 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         &mut iteration_metrics,
     )
     .await;
+    txn.commit().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_ne!(
+        last_reboot_requested_time,
+        host.last_reboot_requested().unwrap().time
+    );
     txn.commit().await.unwrap();
 
     let response = forge_agent_control(&env, host_rpc_machine_id.clone()).await;

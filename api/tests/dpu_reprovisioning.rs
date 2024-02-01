@@ -1,3 +1,4 @@
+use std::str::FromStr;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -13,9 +14,14 @@ use std::sync::Arc;
 
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::db::machine_interface::MachineInterface;
-use carbide::model::machine::{InstanceState, MachineState, ManagedHostState, ReprovisionState};
+use carbide::model::config_version::ConfigVersion;
+use carbide::model::machine::{
+    InstanceState, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineState,
+    ManagedHostState, ReprovisionState,
+};
 use carbide::state_controller::machine::handler::MachineStateHandler;
 use carbide::state_controller::metrics::IterationMetrics;
+use chrono::Duration;
 use common::api_fixtures::create_test_env;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
@@ -162,6 +168,8 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
+    let last_reboot_requested_time = dpu.last_reboot_requested();
+
     let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
@@ -179,6 +187,11 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
+
+    assert_ne!(
+        dpu.last_reboot_requested().unwrap().time,
+        last_reboot_requested_time.unwrap().time
+    );
 
     assert!(matches!(
         dpu.current_state(),
@@ -1379,4 +1392,264 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
         .unwrap();
 
     assert!(dpu.reprovisioning_requested().is_some(),);
+}
+
+async fn update_time_params(pool: &sqlx::PgPool, machine: &Machine, _retry_count: i64) {
+    let mut txn = pool.begin().await.unwrap();
+    let data = MachineLastRebootRequested {
+        time: machine.last_reboot_requested().unwrap().time - Duration::minutes(1),
+        mode: machine.last_reboot_requested().unwrap().mode,
+    };
+
+    let last_reboot_time = machine.last_reboot_time().unwrap() - Duration::minutes(2i64);
+
+    let ts = machine.last_reboot_requested().unwrap().time - Duration::minutes(_retry_count);
+
+    let version = format!(
+        "V{}-T{}",
+        machine.current_version().version_nr(),
+        ts.timestamp_micros()
+    );
+
+    println!(
+        "Version: {}, Data: {:?}",
+        ConfigVersion::from_str(&version).unwrap().timestamp(),
+        data
+    );
+
+    let query = "UPDATE machines SET last_reboot_time=$4, last_reboot_requested=$1, controller_state_version=$3 WHERE id=$2 RETURNING *";
+    sqlx::query(query)
+        .bind(sqlx::types::Json(&data))
+        .bind(machine.id().to_string())
+        .bind(version)
+        .bind(last_reboot_time)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_reboot_retry(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(dpu.reprovisioning_requested().is_none(),);
+
+    env.api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 0,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .unwrap();
+
+    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.reprovisioning_requested().unwrap().initiator,
+        "AdminCli"
+    );
+
+    let last_reboot_requested_time = dpu.last_reboot_requested();
+
+    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let services = Arc::new(env.state_handler_services());
+    let mut iteration_metrics = IterationMetrics::default();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_ne!(
+        dpu.last_reboot_requested().unwrap().time,
+        last_reboot_requested_time.unwrap().time
+    );
+
+    assert!(matches!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            reprovision_state: ReprovisionState::FirmwareUpgrade,
+            ..
+        }
+    ));
+
+    txn.commit().await.unwrap();
+
+    // Retry 1
+    update_time_params(&env.pool, &dpu, 1).await;
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.last_reboot_requested().unwrap().mode,
+        MachineLastRebootRequestedMode::Reboot
+    ));
+
+    txn.commit().await.unwrap();
+
+    // Retry 2
+    update_time_params(&env.pool, &dpu, 2).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_ = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.last_reboot_requested().unwrap().mode,
+        MachineLastRebootRequestedMode::Reboot
+    ));
+    txn.commit().await.unwrap();
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_ne!(
+        dpu_.last_reboot_requested().unwrap().time,
+        dpu.last_reboot_requested().unwrap().time
+    );
+    assert!(matches!(
+        dpu.last_reboot_requested().unwrap().mode,
+        MachineLastRebootRequestedMode::Reboot
+    ));
+    txn.commit().await.unwrap();
+
+    // Retry 3
+    update_time_params(&env.pool, &dpu, 3).await;
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.last_reboot_requested().unwrap().mode,
+        MachineLastRebootRequestedMode::Reboot
+    ));
+    txn.commit().await.unwrap();
+
+    // Retry 4
+    update_time_params(&env.pool, &dpu, 4).await;
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.last_reboot_requested().unwrap().mode,
+        MachineLastRebootRequestedMode::PowerOff
+    ));
+    txn.commit().await.unwrap();
+
+    // Retry 5
+    update_time_params(&env.pool, &dpu, 5).await;
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.last_reboot_requested().unwrap().mode,
+        MachineLastRebootRequestedMode::PowerOn
+    ));
+    txn.commit().await.unwrap();
+
+    // Retry 6
+    update_time_params(&env.pool, &dpu, 5).await;
+    run_state_controller_iteration(
+        &services,
+        &env.pool,
+        &env.machine_state_controller_io,
+        host_machine_id.clone(),
+        &handler,
+        &mut iteration_metrics,
+    )
+    .await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        dpu.last_reboot_requested().unwrap().mode,
+        MachineLastRebootRequestedMode::Reboot
+    ));
+    txn.commit().await.unwrap();
 }

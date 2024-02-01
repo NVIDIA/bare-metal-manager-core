@@ -5210,7 +5210,7 @@ impl Default for ServiceConfig {
             host_wait_time: Duration::minutes(30),
             power_down_wait: Duration::seconds(15),
             dpu_up_threshold: Duration::minutes(5),
-            failure_retry_time: Duration::minutes(20),
+            failure_retry_time: Duration::minutes(30),
         }
     }
 }
