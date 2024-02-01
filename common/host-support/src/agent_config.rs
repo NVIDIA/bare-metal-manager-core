@@ -144,6 +144,9 @@ pub struct IterationTime {
 
     /// How often to check if we have latest forge-dpu-agent version
     pub version_check_secs: u64,
+
+    /// How often to update inventory
+    pub inventory_update_secs: u64,
 }
 
 impl Default for IterationTime {
@@ -152,7 +155,8 @@ impl Default for IterationTime {
             main_loop_idle_secs: 30,
             main_loop_active_secs: 10,
             network_config_fetch_secs: 30,
-            version_check_secs: 1800, // 30 minutes
+            version_check_secs: 1800,    // 30 minutes
+            inventory_update_secs: 3600, // 1 hour
         }
     }
 }
@@ -210,6 +214,7 @@ main-loop-active-secs = 10
 main-loop-idle-secs = 30
 network-config-fetch-secs = 20
 version-check-secs = 1800
+inventory-update-secs = 1800
 "#;
 
         let config: AgentConfig = toml::from_str(config).unwrap();

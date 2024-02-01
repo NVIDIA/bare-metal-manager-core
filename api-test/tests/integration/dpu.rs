@@ -45,6 +45,7 @@ main-loop-active-secs = 1
 main-loop-idle-secs = 2
 network-config-fetch-secs = 1
 version-check-secs = 1
+inventory-update-secs = 1
 "#;
 
 const BMC_METADATA: &str = r#"{

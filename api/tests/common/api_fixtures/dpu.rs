@@ -14,6 +14,8 @@
 
 use std::net::IpAddr;
 
+use tonic::Request;
+
 use carbide::{
     db::{
         machine::{Machine, MachineSearchConfig},
@@ -36,7 +38,6 @@ use rpc::{
     },
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
-use tonic::Request;
 
 use crate::common::api_fixtures::{
     discovery_completed, managed_host::ManagedHostConfig, network_configured, update_bmc_metadata,
@@ -132,6 +133,8 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
 
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
+    create_machine_inventory(env, &dpu_machine_id).await;
+
     // Simulate the ForgeAgentControl request of the DPU
     let agent_control_response = env
         .api
@@ -188,6 +191,32 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     txn.commit().await.unwrap();
 
     (dpu_machine_id, host_machine_id)
+}
+
+pub async fn create_machine_inventory(env: &TestEnv, machine_id: &MachineId) {
+    env.api
+        .update_agent_reported_inventory(Request::new(rpc::forge::DpuAgentInventoryReport {
+            machine_id: Some(rpc::MachineId {
+                id: machine_id.to_string(),
+            }),
+            inventory: Some(rpc::forge::MachineInventory {
+                components: vec![
+                    rpc::forge::MachineInventorySoftwareComponent {
+                        name: "doca-hbn".to_string(),
+                        version: "1.5.0-doca2.2.0".to_string(),
+                        url: "nvcr.io/nvidia/doca/".to_string(),
+                    },
+                    rpc::forge::MachineInventorySoftwareComponent {
+                        name: "doca-telemetry".to_string(),
+                        version: "1.14.2-doca2.2.0".to_string(),
+                        url: "nvcr.io/nvidia/doca/".to_string(),
+                    },
+                ],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
 }
 
 /// Uses the `discover_dhcp` API to discover a DPU BMC with a certain MAC address

@@ -17,19 +17,20 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge::VpcVirtualizationType;
-use ::rpc::forge_tls_client;
 use axum::Router;
-pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
-use forge_host_support::agent_config::AgentConfig;
-use forge_host_support::registration;
 use opentelemetry_sdk as sdk;
 use opentelemetry_sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
+
+use ::rpc::forge as rpc;
+use ::rpc::forge::VpcVirtualizationType;
+use ::rpc::forge_tls_client;
+pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
+use forge_host_support::agent_config::AgentConfig;
+use forge_host_support::registration;
 pub use upgrade::upgrade_check;
 
 use crate::command_line;
@@ -39,6 +40,7 @@ use crate::health;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
 use crate::instance_metadata_fetcher;
 use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
+use crate::machine_inventory_updater::{MachineInventoryUpdater, MachineInventoryUpdaterConfig};
 use crate::mtu;
 use crate::network_config_fetcher;
 use crate::upgrade;
@@ -53,6 +55,10 @@ pub async fn run(
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
     let mut term_signal = signal(SignalKind::terminate())?;
+
+    if let Err(e) = start_inventory_updater(machine_id, forge_client_config.clone(), &agent).await {
+        return Err(eyre::eyre!("Failed to start inventory updater: {:#}", e));
+    }
 
     if options.enable_metadata_service {
         if let (Some(metadata_service_config), Some(telemetry_config)) =
@@ -241,7 +247,8 @@ pub async fn run(
                     health::health_check(&agent.hbn.root_dir, &tenant_peers, started_at).await;
                 let is_missing_ipmi_user = health_report.is_missing_ipmi_user();
                 is_healthy = health_report.is_healthy();
-                is_hbn_up = health_report.is_up(); // subset of is_healthy
+                is_hbn_up = health_report.is_up();
+                // subset of is_healthy
                 tracing::trace!("{} HBN health is: {}", machine_id, health_report);
                 // If we just applied a new network config report network as unhealthy.
                 // This gives HBN / BGP time to act on the config.
@@ -411,6 +418,25 @@ async fn renew_certificates(
     }
 }
 
+async fn start_inventory_updater(
+    machine_id: &str,
+    forge_client_config: forge_tls_client::ForgeClientConfig,
+    agent: &AgentConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let forge_api = &agent.forge_system.api_server;
+
+    Arc::new(MachineInventoryUpdater::new(
+        MachineInventoryUpdaterConfig {
+            update_inventory_interval: Duration::from_secs(agent.period.inventory_update_secs),
+            machine_id: machine_id.to_string(),
+            forge_api: forge_api.to_string(),
+            forge_client_config,
+        },
+    ));
+
+    Ok(())
+}
+
 async fn run_metadata_service(
     machine_id: &str,
     forge_client_config: forge_tls_client::ForgeClientConfig,
@@ -525,7 +551,7 @@ async fn create_forge_admin_user(
     let mut client = forge_tls_client::ForgeTlsClient::new(forge_client_config).connect(forge_api).await
         .map_err(|err|
             eyre::eyre!("create_forge_admin_user: Could not connect to Forge API server at {forge_api}. {err}")
-            )?;
+        )?;
     forge_host_support::ipmi::send_bmc_metadata_update(&mut client, machine_id, vec![ipmi_user])
         .await?;
     Ok(())

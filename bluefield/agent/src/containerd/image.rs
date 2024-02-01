@@ -1,6 +1,8 @@
 use regex::Regex;
 use serde;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use tracing::log::trace;
 
 /// Represents the individual components of a container image name.
@@ -39,9 +41,11 @@ impl ImageNameComponent {
     pub fn version(&self) -> String {
         self.version.to_string()
     }
+}
 
-    pub fn url(&self) -> String {
-        format!("{}/{}/{}", self.repository, self.name, self.version)
+impl Display for ImageNameComponent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}:{}", self.repository, self.name, self.version)
     }
 }
 

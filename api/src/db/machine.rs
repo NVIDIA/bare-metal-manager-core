@@ -30,7 +30,7 @@ use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::config_version::{ConfigVersion, Versioned};
-use crate::model::hardware_info::{BMCVendor, HardwareInfo};
+use crate::model::hardware_info::{BMCVendor, HardwareInfo, MachineInventory};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -135,6 +135,9 @@ pub struct Machine {
     // Other machine ids associated with this machine
     associated_host_machine_id: Option<MachineId>,
     associated_dpu_machine_id: Option<MachineId>,
+    // Inventory related to a machine.
+    // Software and versions installed on the machine.
+    inventory: Option<MachineInventory>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -165,8 +168,12 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let failure_details: sqlx::types::Json<FailureDetails> = row.try_get("failure_details")?;
         let reprovision_req: Option<sqlx::types::Json<ReprovisionRequest>> =
             row.try_get("reprovisioning_requested")?;
+
         let dpu_agent_upgrade_requested: Option<sqlx::types::Json<UpgradeDecision>> =
             row.try_get("dpu_agent_upgrade_requested")?;
+
+        let machine_inventory: Option<sqlx::types::Json<MachineInventory>> =
+            row.try_get("agent_reported_inventory")?;
 
         Ok(Machine {
             id,
@@ -195,6 +202,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
             associated_host_machine_id: None,
             associated_dpu_machine_id: None,
+            inventory: machine_inventory.map(|x| x.0),
         })
     }
 }
@@ -304,6 +312,7 @@ impl From<Machine> for rpc::Machine {
             associated_dpu_machine_id: machine
                 .associated_dpu_machine_id
                 .map(|id| id.to_string().into()),
+            inventory: machine.inventory.map(|i| i.into()),
         }
     }
 }
@@ -325,6 +334,10 @@ impl Machine {
             Some(hw) => hw.bmc_vendor(),
             None => BMCVendor::Unknown,
         }
+    }
+
+    pub fn inventory(&self) -> Option<&MachineInventory> {
+        self.inventory.as_ref()
     }
 
     /// Hardware information
@@ -1030,6 +1043,23 @@ SELECT m.id FROM
 
         Ok(())
     }
+    pub async fn update_agent_reported_inventory(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        inventory: &MachineInventory,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE machines SET agent_reported_inventory = $1::json WHERE id = $2 RETURNING id";
+        tracing::debug!(machine_id = %machine_id, "Updating machine inventory");
+        let _id: (DbMachineId,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(&inventory))
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
 
     pub async fn get_all_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
@@ -1123,12 +1153,10 @@ SELECT m.id FROM
         stable_machine_id: &MachineId,
     ) -> Result<Self, CarbideError> {
         let Some(current_machine_id) = current_machine_id else {
-            return Err(
-                CarbideError::NotFoundError {
-                    kind: "machine_id",
-                    id: stable_machine_id.to_string()
-                }
-            );
+            return Err(CarbideError::NotFoundError {
+                kind: "machine_id",
+                id: stable_machine_id.to_string(),
+            });
         };
 
         // This is repeated call. Machine is already updated with stable ID.

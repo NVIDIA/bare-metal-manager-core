@@ -197,6 +197,9 @@ service Forge {
   rpc AddRouteServers(RouteServers) returns (google.protobuf.Empty);
   rpc RemoveRouteServers(RouteServers) returns (google.protobuf.Empty);
   rpc ReplaceRouteServers(RouteServers) returns (google.protobuf.Empty);
+
+  // MachineInventory
+  rpc UpdateAgentReportedInventory(DpuAgentInventoryReport) returns (google.protobuf.Empty);
 }
 
 enum CredentialType {
@@ -1034,6 +1037,23 @@ message Machine {
   // Other machine ids associated with this machine
   optional MachineId associated_host_machine_id = 19;
   optional MachineId associated_dpu_machine_id = 20;
+
+  optional MachineInventory inventory = 21;
+}
+
+message DpuAgentInventoryReport {
+  MachineId machine_id = 1;
+  MachineInventory inventory = 2;
+}
+
+message MachineInventory {
+  repeated MachineInventorySoftwareComponent components = 1;
+}
+
+message MachineInventorySoftwareComponent {
+  string name = 1;
+  string version = 2;
+  string url = 3;
 }
 
 // The most recent tenant related status

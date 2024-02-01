@@ -20,20 +20,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::protos::forge::{
-    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
-    IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
-    IbPartitionList, IbPartitionQuery, InstanceList, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
-    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
-    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
-};
 use chrono::Duration;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
@@ -54,7 +41,20 @@ use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
 use uuid::Uuid;
 
-use self::rpc::forge_server::Forge;
+pub use ::rpc::forge as rpc;
+use ::rpc::protos::forge::{
+    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
+    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
+    IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
+    IbPartitionList, IbPartitionQuery, InstanceList, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
+    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
+    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+};
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
+
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -71,7 +71,7 @@ use crate::ipxe::PxeInstructions;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
-use crate::model::machine::machine_id::{try_parse_machine_id, MachineIdParseError};
+use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
@@ -79,7 +79,6 @@ use crate::model::machine::{
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkTopologyData};
 use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
-use crate::model::site_explorer::SiteExplorationReport;
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
     UpdateTenantKeyset,
@@ -117,7 +116,7 @@ use crate::{
         service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
     },
     model::{
-        hardware_info::HardwareInfo,
+        hardware_info::{HardwareInfo, MachineInventory},
         instance::status::network::InstanceNetworkStatusObservation,
         machine::{machine_id::MachineId, MachineState},
     },
@@ -134,6 +133,8 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
+
+use self::rpc::forge_server::Forge;
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -269,7 +270,7 @@ where
             _ => {
                 return Err(Status::internal(
                     "Found more than one domain with the specified UUID",
-                ))
+                ));
             }
         };
 
@@ -328,7 +329,7 @@ where
             _ => {
                 return Err(Status::internal(
                     "Found more than one domain with the specified UUID",
-                ))
+                ));
             }
         };
 
@@ -1198,6 +1199,49 @@ where
         Ok(Response::new(resp))
     }
 
+    async fn update_agent_reported_inventory(
+        &self,
+        request: Request<rpc::DpuAgentInventoryReport>,
+    ) -> Result<Response<()>, tonic::Status> {
+        log_request_data(&request);
+
+        let request = request.into_inner();
+        let dpu_machine_id = match &request.machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::not_found("Missing machine id"));
+            }
+        };
+
+        log_machine_id(&dpu_machine_id);
+
+        if let Some(inventory) = request.inventory.as_ref() {
+            let mut txn = self.database_connection.begin().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "begin create_machine_inventory", e)
+            })?;
+
+            let inventory =
+                MachineInventory::try_from(inventory.clone()).map_err(CarbideError::from)?;
+            Machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory)
+                .await
+                .map_err(CarbideError::from)?;
+
+            txn.commit().await.map_err(|e| {
+                CarbideError::from(DatabaseError::new(file!(), line!(), "commit inventory", e))
+            })?;
+        } else {
+            return Err(Status::invalid_argument("inventory missing from request"));
+        }
+
+        tracing::trace!(
+            machine_id = %dpu_machine_id,
+            software_inventory = ?request.inventory,
+            "update machine inventory",
+        );
+
+        Ok(Response::new(()))
+    }
+
     async fn record_dpu_network_status(
         &self,
         request: Request<rpc::DpuNetworkStatus>,
@@ -1271,7 +1315,10 @@ where
         // update_network_status_observation above. Now do the instance parts.
         if let Some(version_string) = request.instance_config_version {
             let Ok(version) = version_string.as_str().parse() else {
-                return Err(CarbideError::InvalidArgument("applied_config.instance_config_version".to_string()).into());
+                return Err(CarbideError::InvalidArgument(
+                    "applied_config.instance_config_version".to_string(),
+                )
+                .into());
             };
             let mut interfaces: Vec<InstanceInterfaceStatusObservation> = vec![];
             for iface in request.interfaces {
@@ -1796,7 +1843,7 @@ where
         })?;
 
         let Some(keyset_identifier) = keyset_identifier else {
-            return Err(Status::invalid_argument("Keyset identifier is missing."))
+            return Err(Status::invalid_argument("Keyset identifier is missing."));
         };
 
         let keyset_identifier: TenantKeysetIdentifier =
@@ -2341,7 +2388,7 @@ where
                             return Err(CarbideError::GenericError(format!(
                                 "No machine interface with IP {ip} was found"
                             ))
-                            .into())
+                            .into());
                         }
                     }
                 }
@@ -3464,7 +3511,9 @@ where
         let mode = match req.operation() {
             rpc::MaintenanceOperation::Enable => {
                 let Some(reference) = req.reference else {
-                    return Err(Status::invalid_argument("Missing reference url".to_string()));
+                    return Err(Status::invalid_argument(
+                        "Missing reference url".to_string(),
+                    ));
                 };
                 MaintenanceMode::On { reference }
             }
@@ -3562,7 +3611,11 @@ where
                 .map_err(CarbideError::from)?;
         } else {
             let Some(reprov_requested) = machine.reprovisioning_requested() else {
-                return Err(CarbideError::NotFoundError { kind: "Reprovision Request", id: dpu_id.to_string() }.into());
+                return Err(CarbideError::NotFoundError {
+                    kind: "Reprovision Request",
+                    id: dpu_id.to_string(),
+                }
+                .into());
             };
             Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_id, true)
                 .await
@@ -3924,8 +3977,9 @@ where
 
         let Some(active_policy) = DpuAgentUpgradePolicy::get(&mut txn)
             .await
-            .map_err(CarbideError::from)? else {
-                return Err(tonic::Status::not_found("No agent upgrade policy"));
+            .map_err(CarbideError::from)?
+        else {
+            return Err(tonic::Status::not_found("No agent upgrade policy"));
         };
         txn.commit().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "commit apply_agent_upgrade_policy_all", e)
@@ -5107,7 +5161,7 @@ where
                 source: sqlx::Error::Database(e),
                 ..
             }) if e.constraint() == Some("network_prefixes_prefix_excl") => {
-                return Err(CarbideError::NetworkSegmentPrefixOverlap)
+                return Err(CarbideError::NetworkSegmentPrefixOverlap);
             }
             Err(err) => {
                 return Err(err.into());
