@@ -29,6 +29,7 @@ pub async fn create_ib_partition(
     let ib_partition = env
         .api
         .create_ib_partition(Request::new(IbPartitionCreationRequest {
+            id: None,
             config: Some(IbPartitionConfig {
                 name,
                 tenant_organization_id: tenant,

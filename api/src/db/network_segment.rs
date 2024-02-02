@@ -110,6 +110,7 @@ pub struct NewNetworkSegment {
     pub vlan_id: Option<i16>,
     pub vni: Option<i32>,
     pub segment_type: NetworkSegmentType,
+    pub id: uuid::Uuid,
 }
 
 impl TryFrom<i32> for NetworkSegmentType {
@@ -219,8 +220,14 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             ));
         }
 
+        let id = match value.id {
+            Some(v) => uuid::Uuid::try_from(v)?,
+            None => uuid::Uuid::new_v4(),
+        };
+
         let segment_type: NetworkSegmentType = value.segment_type.try_into()?;
         Ok(NewNetworkSegment {
+            id,
             name: value.name,
             subdomain_id: match value.subdomain_id {
                 Some(v) => Some(uuid::Uuid::try_from(v)?),
@@ -310,6 +317,7 @@ impl NewNetworkSegment {
             num_reserved: value.reserve_first,
         };
         Ok(NewNetworkSegment {
+            id: uuid::Uuid::new_v4(),
             name: name.to_string(), // Set by the caller later
             subdomain_id: Some(domain_id),
             vpc_id: None,
@@ -333,6 +341,7 @@ impl NewNetworkSegment {
         let version_string = version.version_string();
 
         let query = "INSERT INTO network_segments (
+                id,
                 name,
                 subdomain_id,
                 vpc_id,
@@ -343,9 +352,10 @@ impl NewNetworkSegment {
                 vlan_id,
                 vni_id,
                 network_segment_type)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *";
         let mut segment: NetworkSegment = sqlx::query_as(query)
+            .bind(self.id)
             .bind(&self.name)
             .bind(self.subdomain_id)
             .bind(self.vpc_id)

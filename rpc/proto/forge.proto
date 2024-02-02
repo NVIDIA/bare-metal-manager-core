@@ -395,6 +395,11 @@ message VpcCreationRequest {
   // this keyset will enable any key contained within it to access any instance associated with this VPC.
   optional string tenantKeysetId = 4;
   optional VpcVirtualizationType network_virtualization_type = 5;
+
+  // Desired ID for this VPC. If the ID is not provided, Forge will generate
+  // a random ID.
+  // The VPC ID must be unique within the Forge site.
+  optional UUID id = 6;
 }
 
 enum VpcVirtualizationType {
@@ -505,6 +510,10 @@ message IBPartitionList {
 
 message IBPartitionCreationRequest {
   IBPartitionConfig config = 1;
+  // Desired ID for this Partition. If the ID is not provided, Forge will generate
+  // a random ID.
+  // The Partition ID must be unique within the Forge site.
+  optional UUID id = 2;
 }
 
 message IBPartitionDeletionRequest {
@@ -570,6 +579,11 @@ message NetworkSegmentCreationRequest {
   repeated NetworkPrefix prefixes = 6;
 
   NetworkSegmentType segment_type = 7;
+
+  // Desired ID for this Network Segment. If the ID is not provided, Forge will generate
+  // a random ID.
+  // The Network Segment ID must be unique within the Forge site.
+  optional UUID id = 8;
 }
 
 message NetworkSegmentDeletionRequest {

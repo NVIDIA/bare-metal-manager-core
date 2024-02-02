@@ -13,6 +13,7 @@
 use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkSegmentSearchConfig;
+use rpc::Uuid;
 use tonic::Request;
 
 use super::api_fixtures::TestApi;
@@ -26,8 +27,10 @@ pub async fn create_network_segment_with_api(
     api: &TestApi,
     use_subdomain: bool,
     use_vpc: bool,
+    id: Option<Uuid>,
 ) -> rpc::forge::NetworkSegment {
     let mut request = rpc::forge::NetworkSegmentCreationRequest {
+        id,
         mtu: Some(1500),
         name: "TEST_SEGMENT".to_string(),
         prefixes: vec![rpc::forge::NetworkPrefix {

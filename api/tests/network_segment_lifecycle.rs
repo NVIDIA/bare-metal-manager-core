@@ -37,7 +37,7 @@ async fn test_network_segment_lifecycle_impl(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
 
-    let segment = create_network_segment_with_api(&env.api, use_subdomain, use_vpc).await;
+    let segment = create_network_segment_with_api(&env.api, use_subdomain, use_vpc, None).await;
     assert!(segment.created.is_some());
     assert!(segment.deleted.is_none());
     assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);

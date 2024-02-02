@@ -58,7 +58,7 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialTy
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
-use crate::db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionSearchConfig};
+use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig, NewIBPartition};
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
@@ -575,11 +575,9 @@ where
                 CarbideError::DatabaseError(file!(), "begin create_ib_partition", e)
             })?;
 
-        let mut resp = IBPartitionConfig::try_from(req.into_inner())?;
-        resp.pkey = self.allocate_pkey(&mut txn, &resp.name).await?;
-        let resp = IBPartition::create(&mut txn, &resp)
-            .await
-            .map_err(CarbideError::from)?;
+        let mut resp = NewIBPartition::try_from(req.into_inner())?;
+        resp.config.pkey = self.allocate_pkey(&mut txn, &resp.config.name).await?;
+        let resp = resp.create(&mut txn).await.map_err(CarbideError::from)?;
         let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
 
         txn.commit()

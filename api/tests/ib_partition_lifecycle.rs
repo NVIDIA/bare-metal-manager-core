@@ -29,6 +29,7 @@ async fn create_ib_partition_with_api(
     name: String,
 ) -> Result<tonic::Response<rpc::IbPartition>, tonic::Status> {
     let request = rpc::forge::IbPartitionCreationRequest {
+        id: None,
         config: Some(IbPartitionConfig {
             name,
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
@@ -180,5 +181,32 @@ async fn test_create_ib_partition_over_max_limit(
         error
     );
 
+    Ok(())
+}
+
+#[sqlx::test]
+async fn create_ib_partition_with_api_with_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let id = uuid::Uuid::new_v4();
+    let request = rpc::forge::IbPartitionCreationRequest {
+        id: Some(::rpc::Uuid {
+            value: id.to_string(),
+        }),
+        config: Some(IbPartitionConfig {
+            name: "partition1".to_string(),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        }),
+    };
+
+    let partition = env
+        .api
+        .create_ib_partition(Request::new(request))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(partition.id.unwrap().value, id.to_string());
     Ok(())
 }

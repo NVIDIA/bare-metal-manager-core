@@ -64,6 +64,7 @@ async fn create_network_segment(
     segment_type: rpc::forge::NetworkSegmentType,
 ) -> uuid::Uuid {
     let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
         mtu: Some(1500),
         name: name.to_string(),
         prefixes: vec![rpc::forge::NetworkPrefix {
