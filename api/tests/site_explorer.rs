@@ -600,6 +600,44 @@ async fn test_site_explorer_creates_managed_host(
             discovering_state: DpuDiscoveringState::Initializing,
         }
     );
+    assert_eq!(
+        dpu_machine.hardware_info().unwrap().machine_type,
+        "aarch64".to_string()
+    );
+    assert_eq!(
+        dpu_machine.bmc_info().ip.clone().unwrap(),
+        "192.168.1.2".to_string()
+    );
+    assert_eq!(
+        dpu_machine
+            .hardware_info()
+            .unwrap()
+            .dmi_data
+            .clone()
+            .unwrap()
+            .product_serial,
+        "MT2328XZ185R".to_string()
+    );
+    assert_eq!(
+        dpu_machine
+            .hardware_info()
+            .unwrap()
+            .dpu_info
+            .clone()
+            .unwrap()
+            .part_number,
+        "900-9D3B6-00CV-AA0".to_string()
+    );
+    assert_eq!(
+        dpu_machine
+            .hardware_info()
+            .unwrap()
+            .dpu_info
+            .clone()
+            .unwrap()
+            .part_description,
+        "Bluefield 3 SmartNIC Main Card".to_string()
+    );
 
     let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())
         .await?
@@ -610,6 +648,8 @@ async fn test_site_explorer_creates_managed_host(
             discovering_state: DpuDiscoveringState::Initializing,
         }
     );
+    assert_eq!(host_machine.bmc_info().ip, None);
+    assert_eq!(host_machine.hardware_info(), None);
 
     // Run ManagedHost state iteration
     let handler = MachineStateHandler::new(chrono::Duration::minutes(1), true, true);
