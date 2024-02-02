@@ -63,6 +63,8 @@ impl InstanceStatus {
     /// Tries to convert Machine state to tenant state.
     fn tenant_state(
         machine_state: ManagedHostState,
+        phone_home_enrolled: bool,
+        phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<tenant::TenantState, RpcDataConversionError> {
         // At this point, we are sure that instance is created.
         // If machine state is still ready, means state mahcine has not processed this instance
@@ -74,7 +76,21 @@ impl InstanceStatus {
                 InstanceState::Init | InstanceState::WaitingForNetworkConfig => {
                     tenant::TenantState::Provisioning
                 }
-                InstanceState::Ready => tenant::TenantState::Ready,
+
+                InstanceState::Ready => {
+                    match (phone_home_enrolled, phone_home_last_contact) {
+                        // If tenant is not enrolled in phone_home
+                        // return Ready (this was the default before phone_home)
+                        (false, _) => tenant::TenantState::Ready,
+                        // If a tenant is enrolled in phone home and last_contact is None,
+                        // return Provisioning for TenantState
+                        (true, None) => tenant::TenantState::Provisioning,
+                        // If a tenant is enrolled and last_contact is Some() the instance
+                        // has phoned home. Return ready
+                        // TODO phone_home_last_contact window? e.g. must have been received in last 10 minutes
+                        (true, Some(..)) => tenant::TenantState::Ready,
+                    }
+                }
                 InstanceState::SwitchToAdminNetwork
                 | InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
@@ -105,6 +121,7 @@ impl InstanceStatus {
         observations: &InstanceStatusObservations,
         machine_state: ManagedHostState,
         delete_requested: bool,
+        phone_home_enabled: bool,
     ) -> Result<Self, RpcDataConversionError> {
         let network = network::InstanceNetworkStatus::from_config_and_observation(
             network_config,
@@ -115,6 +132,8 @@ impl InstanceStatus {
             observations.infiniband.as_ref(),
         );
 
+        let phone_home_last_contact = observations.phone_home_last_contact;
+
         // If additional configs are added, they need to be incorporated here
         let configs_synced = match (network.configs_synced, infiniband.configs_synced) {
             (SyncState::Synced, SyncState::Synced) => SyncState::Synced,
@@ -123,7 +142,11 @@ impl InstanceStatus {
 
         let tenant = tenant::InstanceTenantStatus {
             state: match (delete_requested, configs_synced) {
-                (false, SyncState::Synced) => InstanceStatus::tenant_state(machine_state)?,
+                (false, SyncState::Synced) => InstanceStatus::tenant_state(
+                    machine_state,
+                    phone_home_enabled,
+                    phone_home_last_contact,
+                )?,
                 (false, SyncState::Pending) => tenant::TenantState::Provisioning,
                 (true, _) => {
                     // If instance deletion was requested, we always confirm the
@@ -177,4 +200,7 @@ pub struct InstanceStatusObservations {
 
     /// Observed status of the infiniband subsystem
     pub infiniband: Option<infiniband::InstanceInfinibandStatusObservation>,
+
+    /// Has the instance phoned home?
+    pub phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
 }

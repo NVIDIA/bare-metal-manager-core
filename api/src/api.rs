@@ -22,7 +22,8 @@ use ::rpc::protos::forge::{
     CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
     EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
     IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
-    IbPartitionList, IbPartitionQuery, InstanceList, MachineCredentialsUpdateRequest,
+    IbPartitionList, IbPartitionQuery, InstanceList, InstancePhoneHomeLastContactRequest,
+    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
     MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
     UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
@@ -1066,6 +1067,53 @@ where
         Ok(Response::new(
             rpc::ObservedInstanceNetworkStatusRecordResult {},
         ))
+    }
+
+    async fn update_instance_phone_home_last_contact(
+        &self,
+        request: Request<InstancePhoneHomeLastContactRequest>,
+    ) -> Result<Response<InstancePhoneHomeLastContactResponse>, Status> {
+        let request = request.into_inner();
+        let instance_id = match request.instance_id {
+            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("instance_id is required"));
+            }
+        };
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin update_instance_phone_home_last_contact",
+                e,
+            ))
+        })?;
+
+        let instance = Instance::find(&mut txn, UuidKeyedObjectFilter::One(instance_id))
+            .await
+            .map_err(CarbideError::from)?
+            .pop()
+            .ok_or(Status::not_found("instance not found"))?;
+
+        log_machine_id(&instance.machine_id);
+
+        let res = Instance::update_phone_home_last_contact(&mut txn, *instance.id())
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit update_instance_phone_home_last_contact",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(InstancePhoneHomeLastContactResponse {
+            timestamp: Some(res.into()),
+        }))
     }
 
     async fn get_managed_host_network_config(

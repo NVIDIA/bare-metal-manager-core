@@ -172,7 +172,8 @@ async fn test_integration() -> eyre::Result<()> {
     let vpc_id = vpc::create(carbide_api_addr)?;
     let segment_id = subnet::create(carbide_api_addr, &vpc_id)?;
 
-    let instance_id = instance::create(carbide_api_addr, &host_machine_id, &segment_id)?;
+    // Create instance with phone_home enabled
+    let instance_id = instance::create(carbide_api_addr, &host_machine_id, &segment_id, true)?;
     let metrics = metrics::wait_for_metric_line(
         carbide_metrics_addr,
         r#"forge_machines_per_state{fresh="true",state="assigned",substate="ready"} 1"#,
@@ -189,6 +190,7 @@ async fn test_integration() -> eyre::Result<()> {
     );
 
     instance::release(carbide_api_addr, &host_machine_id, &instance_id)?;
+
     let metrics = metrics::wait_for_metric_line(carbide_metrics_addr, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
     metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
     metrics::assert_not_metric_line(

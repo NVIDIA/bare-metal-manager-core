@@ -18,7 +18,12 @@ use super::{
     machine::wait_for_state,
 };
 
-pub fn create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyre::Result<String> {
+pub fn create(
+    addr: SocketAddr,
+    host_machine_id: &str,
+    segment_id: &str,
+    phone_home_enable: bool,
+) -> eyre::Result<String> {
     tracing::info!(
         "Creating instance with machine: {host_machine_id}, with network segment: {segment_id}"
     );
@@ -29,7 +34,9 @@ pub fn create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyre
             "tenant": {
                 "tenant_organization_id": "MyOrg",
                 "user_data": "hello",
-                "custom_ipxe": "chain --autofree https://boot.netboot.xyz"
+                "custom_ipxe": "chain --autofree https://boot.netboot.xyz",
+                "phone_home_enabled": phone_home_enable,
+
             },
             "network": {
                 "interfaces": [{
@@ -43,6 +50,17 @@ pub fn create(addr: SocketAddr, host_machine_id: &str, segment_id: &str) -> eyre
     tracing::info!("Instance created with ID {instance_id}");
 
     wait_for_state(addr, host_machine_id, "Assigned/WaitingForNetworkConfig")?;
+
+    if phone_home_enable {
+        wait_for_instance_state(addr, &instance_id, "PROVISIONING")?;
+        let before_phone = get_instance_state(addr, &instance_id)?;
+        assert_eq!(before_phone, "PROVISIONING");
+        // Phone home to transition to the ready state
+        phone_home(addr, &instance_id)?;
+        wait_for_instance_state(addr, &instance_id, "READY")?;
+        let after_phone = get_instance_state(addr, &instance_id)?;
+        assert_eq!(after_phone, "READY");
+    }
 
     // These 2 states should be equivalent
     wait_for_instance_state(addr, &instance_id, "READY")?;
@@ -96,6 +114,34 @@ pub fn release(addr: SocketAddr, host_machine_id: &str, instance_id: &str) -> ey
     Ok(())
 }
 
+pub fn phone_home(addr: SocketAddr, instance_id: &str) -> eyre::Result<()> {
+    let data = serde_json::json!({
+        "instance_id": {"value": instance_id},
+    });
+
+    tracing::info!("Phoning home with data: {data}");
+
+    grpcurl(addr, "UpdateInstancePhoneHomeLastContact", Some(&data))?;
+
+    Ok(())
+}
+
+pub fn get_instance_state(addr: SocketAddr, instance_id: &str) -> eyre::Result<String> {
+    let data = serde_json::json!({
+        "id": {"value": instance_id}
+    });
+
+    let response = grpcurl(addr, "FindInstances", Some(&data))?;
+    let resp: serde_json::Value = serde_json::from_str(&response)?;
+    let state = resp["instances"][0]["status"]["tenant"]["state"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    tracing::info!("\tCurrent instance state: {state}");
+
+    Ok(state)
+}
+
 /// Waits for an instance to reach a certain state
 pub fn wait_for_instance_state(
     addr: SocketAddr,
@@ -105,19 +151,12 @@ pub fn wait_for_instance_state(
     const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
     let start = std::time::Instant::now();
 
-    let data = serde_json::json!({
-        "id": {"value": instance_id}
-    });
     let mut latest_state = String::new();
 
     tracing::info!("Waiting for Instance {instance_id} state {target_state}");
     while start.elapsed() < MAX_WAIT {
-        let response = grpcurl(addr, "FindInstances", Some(&data))?;
-        let resp: serde_json::Value = serde_json::from_str(&response)?;
-        latest_state = resp["instances"][0]["status"]["tenant"]["state"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        latest_state = get_instance_state(addr, instance_id)?;
+
         if latest_state.contains(target_state) {
             return Ok(());
         }

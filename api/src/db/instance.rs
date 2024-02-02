@@ -54,6 +54,7 @@ pub struct Instance {
     pub network_status_observation: Option<InstanceNetworkStatusObservation>,
     pub ib_config: Versioned<InstanceInfinibandConfig>,
     pub ib_status_observation: Option<InstanceInfinibandStatusObservation>,
+    pub phone_home_last_contact: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +96,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             user_data,
             always_boot_with_custom_ipxe: row.try_get("always_boot_with_custom_ipxe")?,
             tenant_keyset_ids: row.try_get("keyset_ids")?,
+            phone_home_enabled: row.try_get("phone_home_enabled")?,
         };
 
         let network_config_version_str: &str = row.try_get("network_config_version")?;
@@ -128,6 +130,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             network_status_observation: network_status_observation.0 .0,
             ib_config: Versioned::new(ib_config.0, ib_config_version),
             ib_status_observation: ib_status_observation.0 .0,
+            phone_home_last_contact: row.try_get("phone_home_last_contact")?,
         })
     }
 }
@@ -282,6 +285,25 @@ WHERE s.network_config->>'loopback_ip'=$1";
         }
     }
 
+    pub async fn update_phone_home_last_contact(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+    ) -> Result<DateTime<Utc>, DatabaseError> {
+        let query = "UPDATE instances SET phone_home_last_contact=now() WHERE id=$1 RETURNING phone_home_last_contact";
+
+        let query_result: (DateTime<Utc>,) = sqlx::query_as::<_, (DateTime<Utc>,)>(query) // Specify return type
+            .bind(instance_id)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        tracing::info!(
+            "Phone home last contact updated for instance {}",
+            query_result.0
+        );
+        Ok(query_result.0)
+    }
+
     /// Updates the desired infiniband configuration for an instance
     pub async fn update_ib_config(
         txn: &mut Transaction<'_, Postgres>,
@@ -408,9 +430,10 @@ impl<'a> NewInstance<'a> {
                         ib_config,
                         ib_config_version,
                         ib_status_observation,
-                        keyset_ids
+                        keyset_ids,
+                        phone_home_enabled  
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7::text[], true, $8::json, $9, $10::json, $11::json, $12, $13::json, $14)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7::text[], true, $8::json, $9, $10::json, $11::json, $12, $13::json, $14, $15)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.instance_id)
@@ -427,6 +450,7 @@ impl<'a> NewInstance<'a> {
             .bind(&ib_config_version)
             .bind(sqlx::types::Json(ib_status_observation))
             .bind(&self.tenant_config.tenant_keyset_ids)
+            .bind(self.tenant_config.phone_home_enabled)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

@@ -15,6 +15,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crate::common::api_fixtures::instance::create_instance_with_config;
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
     db::{
@@ -1046,6 +1047,51 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
         panic!("Expected grpc code UNAVAILABLE, got {}", err.code());
     }
     Ok(())
+}
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_phone_home(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut tenant_config = default_tenant_config();
+    tenant_config.phone_home_enabled = true;
+    let instance_config = rpc::InstanceConfig {
+        tenant: Some(tenant_config),
+        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        infiniband: None,
+    };
+
+    let (instance_id, _instance) =
+        create_instance_with_config(&env, &dpu_machine_id, &host_machine_id, instance_config).await;
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+
+    // Should be in a provisioning state
+    // 0 = PROVISIONING
+    assert_eq!(instance.status.unwrap().tenant.unwrap().state, 0);
+
+    // Phone home to transition to the ready state
+    env.api
+        .update_instance_phone_home_last_contact(tonic::Request::new(
+            rpc::forge::InstancePhoneHomeLastContactRequest {
+                instance_id: Some(instance_id.into()),
+            },
+        ))
+        .await
+        .unwrap();
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+
+    // Should be in a ready state 1 = READY
+    assert_eq!(instance.status.unwrap().tenant.unwrap().state, 1);
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]

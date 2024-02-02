@@ -43,6 +43,9 @@ pub struct TenantConfig {
     pub always_boot_with_custom_ipxe: bool,
 
     pub tenant_keyset_ids: Vec<String>,
+
+    #[serde(default)]
+    pub phone_home_enabled: bool,
 }
 
 impl TryFrom<rpc::TenantConfig> for TenantConfig {
@@ -58,6 +61,7 @@ impl TryFrom<rpc::TenantConfig> for TenantConfig {
             user_data: config.user_data,
             always_boot_with_custom_ipxe: config.always_boot_with_custom_ipxe,
             tenant_keyset_ids: config.tenant_keyset_ids,
+            phone_home_enabled: config.phone_home_enabled,
         })
     }
 }
@@ -72,6 +76,7 @@ impl TryFrom<TenantConfig> for rpc::TenantConfig {
             user_data: config.user_data,
             tenant_keyset_ids: config.tenant_keyset_ids,
             always_boot_with_custom_ipxe: config.always_boot_with_custom_ipxe,
+            phone_home_enabled: config.phone_home_enabled,
         })
     }
 }
@@ -101,12 +106,13 @@ mod tests {
             user_data: Some("data".to_string()),
             always_boot_with_custom_ipxe: false,
             tenant_keyset_ids: vec![],
+            phone_home_enabled: false,
         };
 
         let serialized = serde_json::to_string(&config).unwrap();
         assert_eq!(
             serialized,
-            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"user_data\":\"data\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[]}"
+            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"user_data\":\"data\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[],\"phone_home_enabled\":false}"
         );
         assert_eq!(
             serde_json::from_str::<TenantConfig>(&serialized).unwrap(),
@@ -117,7 +123,7 @@ mod tests {
         let serialized = serde_json::to_string(&config).unwrap();
         assert_eq!(
             serialized,
-            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[]}"
+            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[],\"phone_home_enabled\":false}"
         );
         assert_eq!(
             serde_json::from_str::<TenantConfig>(&serialized).unwrap(),
@@ -128,7 +134,7 @@ mod tests {
         let serialized = serde_json::to_string(&config).unwrap();
         assert_eq!(
             serialized,
-            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"user_data\":\"\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[]}"
+            "{\"tenant_organization_id\":\"TenantA\",\"custom_ipxe\":\"PXE\",\"user_data\":\"\",\"always_boot_with_custom_ipxe\":false,\"tenant_keyset_ids\":[],\"phone_home_enabled\":false}"
         );
         assert_eq!(
             serde_json::from_str::<TenantConfig>(&serialized).unwrap(),

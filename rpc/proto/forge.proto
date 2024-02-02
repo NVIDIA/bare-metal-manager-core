@@ -183,6 +183,9 @@ service Forge {
 
   // MachineInventory
   rpc UpdateAgentReportedInventory(DpuAgentInventoryReport) returns (google.protobuf.Empty);
+
+  // Phone Home
+  rpc UpdateInstancePhoneHomeLastContact(InstancePhoneHomeLastContactRequest) returns (InstancePhoneHomeLastContactResponse);
 }
 
 enum CredentialType {
@@ -687,6 +690,10 @@ message TenantConfig {
   // `true`.
   bool always_boot_with_custom_ipxe = 13;
 
+  // If this flag is set to true` the instance will not transition to a Ready state until
+  // InstancePhoneHomeLastContact is updated
+  bool phone_home_enabled = 14;
+
   //TODO: make an API that allows these to be updated.  For now, they're set only at instance allocation.
   repeated string tenantKeysetIds = 8; // this may be empty
 }
@@ -945,6 +952,14 @@ message InstanceIBInterfaceStatus {
   // The list will be empty if interface configuration hasn't been completed or IPoIB disabled
   // TODO: This is for future use - once once Forge supports IP over IB
   // repeated string addresses = 21;
+}
+
+message InstancePhoneHomeLastContactRequest {
+  UUID instance_id = 1;
+}
+
+message InstancePhoneHomeLastContactResponse {
+  google.protobuf.Timestamp timestamp = 1;
 }
 
 message InstanceReleaseRequest {

@@ -82,6 +82,10 @@ impl InstanceSnapshot {
             &self.observations,
             self.machine_state.clone(),
             self.delete_requested,
+            self.config
+                .tenant
+                .as_ref()
+                .map_or(false, |tenant| tenant.phone_home_enabled),
         )
     }
 }
