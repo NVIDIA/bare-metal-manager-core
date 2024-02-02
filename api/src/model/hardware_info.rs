@@ -133,6 +133,10 @@ pub struct DpuData {
     pub firmware_version: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub firmware_date: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub uefi_version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cec_version: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub switches: Vec<LldpSwitchData>,
 }
@@ -395,6 +399,8 @@ impl TryFrom<rpc::machine_discovery::DpuData> for DpuData {
             factory_mac_address: data.factory_mac_address,
             firmware_version: data.firmware_version,
             firmware_date: data.firmware_date,
+            uefi_version: data.uefi_version,
+            cec_version: data.cec_version,
             switches: try_convert_vec(data.switches)?,
         })
     }
@@ -411,6 +417,8 @@ impl TryFrom<DpuData> for rpc::machine_discovery::DpuData {
             factory_mac_address: data.factory_mac_address,
             firmware_version: data.firmware_version,
             firmware_date: data.firmware_date,
+            uefi_version: data.uefi_version,
+            cec_version: data.cec_version,
             switches: try_convert_vec(data.switches)?,
         })
     }
