@@ -206,6 +206,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // CreateVpc rpc call
     let vpc_req = rpc::forge::VpcCreationRequest {
+        id: None,
         name: "test_vpc_assign_after_delete_1".to_string(),
         tenant_organization_id: "test".to_string(),
         tenant_keyset_id: None,
@@ -246,6 +247,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // CreateVpc
     let vpc_req = rpc::forge::VpcCreationRequest {
+        id: None,
         name: "test_vpc_assign_after_delete_2".to_string(),
         tenant_organization_id: "test".to_string(),
         tenant_keyset_id: None,

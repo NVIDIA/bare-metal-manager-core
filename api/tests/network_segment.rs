@@ -53,7 +53,9 @@ async fn test_advance_network_prefix_state(
     .pop()
     .unwrap();
 
+    let id = uuid::Uuid::new_v4();
     let segment: NetworkSegment = NewNetworkSegment {
+        id,
         name: "integration_test".to_string(),
         subdomain_id: None,
         mtu: 1500i32,
@@ -81,6 +83,11 @@ async fn test_advance_network_prefix_state(
 
     txn.commit().await?;
     let mut txn = pool.begin().await?;
+    let ns = NetworkSegment::find_by_name(&mut txn, "integration_test")
+        .await
+        .unwrap();
+
+    assert_eq!(ns.id, id);
 
     assert!(NetworkPrefix::find(&mut txn, segment.prefixes[0].id)
         .await
@@ -95,7 +102,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let api = create_test_env(pool.clone()).await.api;
-    let segment = create_network_segment_with_api(&api, false, false).await;
+    let segment = create_network_segment_with_api(&api, false, false, None).await;
 
     let mut txn = pool.begin().await?;
     let db_segment = NetworkSegment::find(
@@ -140,10 +147,11 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let env = create_test_env(pool.clone()).await;
 
     // This uses prefix "192.0.2.0/24"
-    let _segment = create_network_segment_with_api(&env.api, false, false).await;
+    let _segment = create_network_segment_with_api(&env.api, false, false, None).await;
 
     // Now try to create another one with a prefix that is contained within the exising prefix
     let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
         mtu: Some(1500),
         name: "TEST_SEGMENT_2".to_string(),
         prefixes: vec![rpc::forge::NetworkPrefix {
@@ -177,7 +185,7 @@ async fn test_network_segment_max_history_length(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
 
-    let segment = create_network_segment_with_api(&env.api, true, true).await;
+    let segment = create_network_segment_with_api(&env.api, true, true, None).await;
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
 
     let state_handler = NetworkSegmentStateHandler::new(
@@ -301,7 +309,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     txn.commit().await?;
 
     // Create a network segment rpc call
-    let segment = create_network_segment_with_api(&env.api, false, true).await;
+    let segment = create_network_segment_with_api(&env.api, false, true, None).await;
     let segment_id = segment.id.clone().unwrap().try_into()?;
 
     // Value is allocated
@@ -342,7 +350,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     txn.commit().await?;
 
     // Create a new segment, re-using the VLAN
-    create_network_segment_with_api(&env.api, false, true).await;
+    create_network_segment_with_api(&env.api, false, true, None).await;
 
     // Value allocated again
     let mut txn = db_pool.begin().await?;
@@ -419,7 +427,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
 async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(pool.clone()).await;
 
-    let segment = create_network_segment_with_api(&env.api, false, false).await;
+    let segment = create_network_segment_with_api(&env.api, false, false, None).await;
     let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
 
     let mut txn = pool.begin().await?;
@@ -438,6 +446,27 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let segments =
         NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Tenant)).await?;
     assert_eq!(segments.len(), 0);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool.clone()).await;
+
+    let id = uuid::Uuid::new_v4();
+    let segment = create_network_segment_with_api(
+        &env.api,
+        false,
+        false,
+        Some(::rpc::Uuid {
+            value: id.to_string(),
+        }),
+    )
+    .await;
+    let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
+
+    assert_eq!(segment_id, id);
 
     Ok(())
 }

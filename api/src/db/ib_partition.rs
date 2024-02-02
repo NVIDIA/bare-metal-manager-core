@@ -64,6 +64,37 @@ pub struct IBPartitionSearchConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct NewIBPartition {
+    pub id: Uuid,
+
+    pub config: IBPartitionConfig,
+}
+
+impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
+    type Error = CarbideError;
+    fn try_from(value: rpc::IbPartitionCreationRequest) -> Result<Self, Self::Error> {
+        let conf = match value.config {
+            Some(c) => c,
+            None => {
+                return Err(CarbideError::InvalidArgument(
+                    "IBPartition configuration is empty".to_string(),
+                ))
+            }
+        };
+
+        let id = match value.id {
+            Some(v) => uuid::Uuid::try_from(v)?,
+            None => uuid::Uuid::new_v4(),
+        };
+
+        Ok(NewIBPartition {
+            id,
+            config: IBPartitionConfig::try_from(conf)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct IBPartitionConfig {
     pub name: String,
     pub pkey: Option<i16>,
@@ -147,19 +178,10 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
 /// Use try_from in order to return a Result where Result is an error if the conversion
 /// from String -> UUID fails
 ///
-impl TryFrom<rpc::IbPartitionCreationRequest> for IBPartitionConfig {
+impl TryFrom<rpc::IbPartitionConfig> for IBPartitionConfig {
     type Error = CarbideError;
 
-    fn try_from(value: rpc::IbPartitionCreationRequest) -> Result<Self, Self::Error> {
-        let conf = match value.config {
-            Some(c) => c,
-            None => {
-                return Err(CarbideError::InvalidArgument(
-                    "IBPartition configuration is empty".to_string(),
-                ))
-            }
-        };
-
+    fn try_from(conf: rpc::IbPartitionConfig) -> Result<Self, Self::Error> {
         if conf.tenant_organization_id.is_empty() {
             return Err(CarbideError::InvalidArgument(
                 "IBPartition organization_id is empty".to_string(),
@@ -241,20 +263,18 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
     }
 }
 
-impl IBPartition {
-    pub fn id(&self) -> &uuid::Uuid {
-        &self.id
-    }
-
+impl NewIBPartition {
     pub async fn create(
+        &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        conf: &IBPartitionConfig,
     ) -> Result<IBPartition, DatabaseError> {
         let version = ConfigVersion::initial();
         let version_string = version.version_string();
         let state = IBPartitionControllerState::Provisioning;
+        let conf = &self.config;
 
         let query = "INSERT INTO ib_partitions (
+                id,
                 name,
                 pkey,
                 organization_id,
@@ -264,10 +284,11 @@ impl IBPartition {
                 config_version,
                 controller_state_version,
                 controller_state)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
-            WHERE (SELECT COUNT(*) FROM ib_partitions WHERE organization_id = $3) < $10
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+            WHERE (SELECT COUNT(*) FROM ib_partitions WHERE organization_id = $4) < $11
             RETURNING *";
         let segment: IBPartition = sqlx::query_as(query)
+            .bind(self.id)
             .bind(&conf.name)
             .bind(conf.pkey)
             .bind(&conf.tenant_organization_id.to_string())
@@ -283,6 +304,12 @@ impl IBPartition {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(segment)
+    }
+}
+
+impl IBPartition {
+    pub fn id(&self) -> &uuid::Uuid {
+        &self.id
     }
 
     /// Retrieves the IDs of all IB partition

@@ -34,6 +34,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let forge_vpc = env
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
             name: "Forge".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
@@ -53,6 +54,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let no_org_vpc = env
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
             name: "Forge no Org".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
@@ -163,6 +165,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let forge_vpc_1 = env
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
             name: "prevent_duplicate_vni".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
@@ -175,6 +178,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let forge_vpc_2 = env
         .api
         .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: None,
             name: "prevent_duplicate_vni".to_string(),
             tenant_organization_id: String::new(),
             tenant_keyset_id: None,
@@ -231,5 +235,30 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
     assert!(matches!(first, Some(x) if x.id == FIXTURE_CREATED_VPC_ID));
 
+    Ok(())
+}
+
+#[sqlx::test]
+async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let id = uuid::Uuid::new_v4();
+
+    // No network_virtualization_type, should default
+    let forge_vpc = env
+        .api
+        .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+            id: Some(::rpc::Uuid {
+                value: id.to_string(),
+            }),
+            name: "Forge".to_string(),
+            tenant_organization_id: String::new(),
+            tenant_keyset_id: None,
+            network_virtualization_type: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(forge_vpc.id.unwrap().value, id.to_string());
     Ok(())
 }

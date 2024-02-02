@@ -98,6 +98,7 @@ impl FromStr for VpcVirtualizationType {
 
 #[derive(Clone, Debug)]
 pub struct NewVpc {
+    pub id: uuid::Uuid,
     pub name: String,
     pub tenant_organization_id: String,
     pub network_virtualization_type: VpcVirtualizationType,
@@ -153,8 +154,9 @@ impl NewVpc {
         let version_string = version.version_string();
 
         let query =
-            "INSERT INTO vpcs (name, organization_id, version, network_virtualization_type) VALUES ($1, $2, $3, $4) RETURNING *";
+            "INSERT INTO vpcs (id, name, organization_id, version, network_virtualization_type) VALUES ($1, $2, $3, $4, $5) RETURNING *";
         sqlx::query_as(query)
+            .bind(self.id)
             .bind(&self.name)
             .bind(&self.tenant_organization_id)
             .bind(&version_string)
@@ -267,7 +269,12 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
             None => DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
             Some(v) => v.try_into()?,
         };
+        let id = match value.id {
+            Some(v) => uuid::Uuid::try_from(v)?,
+            None => uuid::Uuid::new_v4(),
+        };
         Ok(NewVpc {
+            id,
             name: value.name,
             tenant_organization_id: value.tenant_organization_id,
             network_virtualization_type: virt_type,
