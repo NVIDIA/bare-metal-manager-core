@@ -70,6 +70,7 @@ pub struct ManagedHostOutput {
     pub maintenance_reference: Option<String>,
     pub maintenance_start_time: Option<String>,
     pub host_last_reboot_time: Option<String>,
+    pub host_last_reboot_requested_time_and_mode: Option<String>,
     pub is_network_healthy: bool,
     pub network_err_message: Option<String>,
 
@@ -166,6 +167,12 @@ pub fn get_managed_host_output(
             to_time(machine.maintenance_start_time.clone(), machine_id);
         managed_host_output.host_last_reboot_time =
             to_time(machine.last_reboot_time.clone(), machine_id);
+        managed_host_output.host_last_reboot_requested_time_and_mode = Some(format!(
+            "{}/{}",
+            to_time(machine.last_reboot_requested_time.clone(), machine_id)
+                .unwrap_or("Unknown".to_string()),
+            machine.last_reboot_requested_mode()
+        ));
 
         if let Some(dpu_machine_id) = primary_interface.attached_dpu_machine_id.as_ref() {
             if dpu_machine_id != machine_id {

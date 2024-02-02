@@ -62,6 +62,8 @@ use common::api_fixtures::{
 use mac_address::MacAddress;
 use rpc::InstanceReleaseRequest;
 
+use crate::common::api_fixtures::update_time_params;
+
 pub mod common;
 
 #[ctor::ctor]
@@ -1096,6 +1098,15 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
     );
     tokio::time::sleep(Duration::from_secs(2)).await;
 
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    txn.commit().await.unwrap();
+
+    update_time_params(&env.pool, &host, 1).await;
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,

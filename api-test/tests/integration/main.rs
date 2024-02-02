@@ -186,7 +186,7 @@ async fn test_integration() -> eyre::Result<()> {
     );
     // Explicitly test that the histogram for `forge_reboot_attempts_in_booting_with_discovery_image_bucket`
     // uses the custom buckets we defined for retries/attempts
-    for &(bucket, count) in &[(0, 0), (1, 0), (2, 1), (3, 1), (5, 1), (10, 1)] {
+    for &(bucket, count) in &[(0, 0), (1, 1), (2, 1), (3, 1), (5, 1), (10, 1)] {
         metrics::assert_metric_line(
             &metrics,
             &format!(
@@ -208,7 +208,7 @@ async fn test_integration() -> eyre::Result<()> {
     );
     metrics::assert_metric_line(
         &metrics,
-        "forge_reboot_attempts_in_booting_with_discovery_image_sum 2",
+        "forge_reboot_attempts_in_booting_with_discovery_image_sum 1",
     );
     metrics::assert_metric_line(
         &metrics,

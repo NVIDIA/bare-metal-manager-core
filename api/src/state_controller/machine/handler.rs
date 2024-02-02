@@ -835,9 +835,9 @@ async fn trigger_reboot_if_needed(
     host: &MachineSnapshot,
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), StateHandlerError> {
+) -> Result<bool, StateHandlerError> {
     let Some(last_reboot_requested) = &target.last_reboot_requested else {
-        return Ok(());
+        return Ok(false);
     };
     if let MachineLastRebootRequestedMode::PowerOff = last_reboot_requested.mode {
         // PowerOn the host.
@@ -849,7 +849,7 @@ async fn trigger_reboot_if_needed(
         let action = SystemPowerControl::On;
         host_power_control(host, services, action, txn).await?;
         Machine::update_reboot_requested_time(&target.machine_id, txn, action.into()).await?;
-        return Ok(());
+        return Ok(false);
     }
 
     let wait_period = services
@@ -896,6 +896,7 @@ async fn trigger_reboot_if_needed(
                 );
                 restart_machine(target, services, txn).await?;
             }
+            return Ok(true);
         }
     } else {
         tracing::warn!(
@@ -904,7 +905,7 @@ async fn trigger_reboot_if_needed(
             (current_time - entered_state_at).num_hours()
         );
     }
-    Ok(())
+    Ok(false)
 }
 
 /// This function waits until target machine is up or not. It relies on scout to identify if
@@ -1224,12 +1225,14 @@ impl StateHandler for InstanceStateHandler {
                 }
                 InstanceState::BootingWithDiscoveryImage { retry } => {
                     if !rebooted(&state.host_snapshot).await? {
-                        let state_timestamp = state.host_snapshot.current.version.timestamp();
-                        let expected_timestamp =
-                            state_timestamp + ctx.services.reachability_params.host_wait_time;
-                        // Wait till reachability time is over.
-                        if chrono::Utc::now() > expected_timestamp {
-                            restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                        if trigger_reboot_if_needed(
+                            &state.host_snapshot,
+                            &state.host_snapshot,
+                            ctx.services,
+                            txn,
+                        )
+                        .await?
+                        {
                             *controller_state.modify() = ManagedHostState::Assigned {
                                 instance_state: InstanceState::BootingWithDiscoveryImage {
                                     retry: RetryInfo {
@@ -1238,9 +1241,13 @@ impl StateHandler for InstanceStateHandler {
                                 },
                             };
                         }
+
                         return Ok(());
                     }
 
+                    // Now retry_count won't exceed a limit. Function trigger_reboot_if_needed does
+                    // not reboot a machine after 6 hrs, so this counter won't increase at all
+                    // after 6 hours.
                     ctx.metrics
                         .machine_reboot_attempts_in_booting_with_discovery_image =
                         Some(retry.count + 1);

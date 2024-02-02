@@ -1,4 +1,3 @@
-use std::str::FromStr;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -14,14 +13,11 @@ use std::sync::Arc;
 
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::db::machine_interface::MachineInterface;
-use carbide::model::config_version::ConfigVersion;
 use carbide::model::machine::{
-    InstanceState, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineState,
-    ManagedHostState, ReprovisionState,
+    InstanceState, MachineLastRebootRequestedMode, MachineState, ManagedHostState, ReprovisionState,
 };
 use carbide::state_controller::machine::handler::MachineStateHandler;
 use carbide::state_controller::metrics::IterationMetrics;
-use chrono::Duration;
 use common::api_fixtures::create_test_env;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
@@ -34,7 +30,7 @@ use crate::common::api_fixtures::instance::{create_instance, single_interface_ne
 use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 use crate::common::api_fixtures::{
     create_managed_host, discovery_completed, forge_agent_control, network_configured,
-    run_state_controller_iteration, TestEnv,
+    run_state_controller_iteration, update_time_params, TestEnv,
 };
 
 #[ctor::ctor]
@@ -1392,41 +1388,6 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
         .unwrap();
 
     assert!(dpu.reprovisioning_requested().is_some(),);
-}
-
-async fn update_time_params(pool: &sqlx::PgPool, machine: &Machine, _retry_count: i64) {
-    let mut txn = pool.begin().await.unwrap();
-    let data = MachineLastRebootRequested {
-        time: machine.last_reboot_requested().unwrap().time - Duration::minutes(1),
-        mode: machine.last_reboot_requested().unwrap().mode,
-    };
-
-    let last_reboot_time = machine.last_reboot_time().unwrap() - Duration::minutes(2i64);
-
-    let ts = machine.last_reboot_requested().unwrap().time - Duration::minutes(_retry_count);
-
-    let version = format!(
-        "V{}-T{}",
-        machine.current_version().version_nr(),
-        ts.timestamp_micros()
-    );
-
-    println!(
-        "Version: {}, Data: {:?}",
-        ConfigVersion::from_str(&version).unwrap().timestamp(),
-        data
-    );
-
-    let query = "UPDATE machines SET last_reboot_time=$4, last_reboot_requested=$1, controller_state_version=$3 WHERE id=$2 RETURNING *";
-    sqlx::query(query)
-        .bind(sqlx::types::Json(&data))
-        .bind(machine.id().to_string())
-        .bind(version)
-        .bind(last_reboot_time)
-        .execute(&mut *txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]

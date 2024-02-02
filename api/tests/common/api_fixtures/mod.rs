@@ -15,6 +15,7 @@
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
     sync::Arc,
     time::SystemTime,
 };
@@ -29,10 +30,11 @@ use carbide::{
     ib::{IBFabricManager, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     model::{
+        config_version::ConfigVersion,
         hardware_info::TpmEkCertificate,
         machine::{
             machine_id::{try_parse_machine_id, MachineId},
-            ManagedHostState,
+            MachineLastRebootRequested, ManagedHostState,
         },
     },
     redfish::RedfishSim,
@@ -661,4 +663,39 @@ pub async fn create_managed_host(env: &TestEnv) -> (MachineId, MachineId) {
         try_parse_machine_id(&host_machine_id).unwrap(),
         dpu_machine_id,
     )
+}
+
+pub async fn update_time_params(pool: &sqlx::PgPool, machine: &Machine, retry_count: i64) {
+    let mut txn = pool.begin().await.unwrap();
+    let data = MachineLastRebootRequested {
+        time: machine.last_reboot_requested().unwrap().time - Duration::minutes(1),
+        mode: machine.last_reboot_requested().unwrap().mode,
+    };
+
+    let last_reboot_time = machine.last_reboot_time().unwrap() - Duration::minutes(2i64);
+
+    let ts = machine.last_reboot_requested().unwrap().time - Duration::minutes(retry_count);
+
+    let version = format!(
+        "V{}-T{}",
+        machine.current_version().version_nr(),
+        ts.timestamp_micros()
+    );
+
+    println!(
+        "Version: {}, Data: {:?}",
+        ConfigVersion::from_str(&version).unwrap().timestamp(),
+        data
+    );
+
+    let query = "UPDATE machines SET last_reboot_time=$4, last_reboot_requested=$1, controller_state_version=$3 WHERE id=$2 RETURNING *";
+    sqlx::query(query)
+        .bind(sqlx::types::Json(&data))
+        .bind(machine.id().to_string())
+        .bind(version)
+        .bind(last_reboot_time)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
 }

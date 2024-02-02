@@ -213,7 +213,11 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
 
     let mut data = vec![
         ("  ID", m.machine_id.clone()),
-        ("  Last reboot", m.host_last_reboot_time),
+        ("  Last reboot completed", m.host_last_reboot_time),
+        (
+            "  Last reboot requested/mode",
+            m.host_last_reboot_requested_time_and_mode,
+        ),
         ("  Serial Number", m.host_serial_number.clone()),
         ("  BIOS Version", m.host_bios_version.clone()),
         ("  GPU Count", Some(m.host_gpu_count.to_string())),
