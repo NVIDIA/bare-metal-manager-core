@@ -323,6 +323,11 @@ impl From<Machine> for rpc::Machine {
                 .associated_dpu_machine_id
                 .map(|id| id.to_string().into()),
             inventory: machine.inventory.map(|i| i.into()),
+            last_reboot_requested_time: machine
+                .last_reboot_requested
+                .clone()
+                .map(|x| x.time.into()),
+            last_reboot_requested_mode: machine.last_reboot_requested.map(|x| x.mode.to_string()),
         }
     }
 }

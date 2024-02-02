@@ -78,13 +78,6 @@ pub fn release(addr: SocketAddr, host_machine_id: &str, instance_id: &str) -> ey
     wait_for_state(addr, host_machine_id, "Assigned/BootingWithDiscoveryImage")?;
 
     tracing::info!("Instance with ID {instance_id} is terminating");
-    // We don't acknowledge a successful reboot immediatly, so the reboot is retried
-    wait_for_state(
-        addr,
-        host_machine_id,
-        "Assigned/BootingWithDiscoveryImage { retry: RetryInfo { count: 1 } }",
-    )?;
-
     discover_machine(addr, &host_machine_interface_id)?;
 
     wait_for_state(addr, host_machine_id, "WaitingForCleanup/HostCleanup")?;

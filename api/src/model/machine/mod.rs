@@ -64,6 +64,12 @@ impl From<SystemPowerControl> for MachineLastRebootRequestedMode {
     }
 }
 
+impl Display for MachineLastRebootRequestedMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineLastRebootRequested {
     pub time: DateTime<Utc>,
