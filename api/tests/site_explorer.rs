@@ -469,7 +469,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                     Inventory {
                         id: "Slot_3.1".to_string(),
                         description: Some("The information of Firmware firmware.".to_string()),
-                        version: Some("32.37.1306".to_string()),
+                        version: Some("32.38.1002".to_string()),
                         release_date: None,
                     },
                     Inventory {
@@ -634,6 +634,12 @@ async fn test_site_explorer_creates_managed_host(
                     id: "DPU_OS".to_string(),
                     description: Some("Host image".to_string()),
                     version: Some("DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-43-geb17a52".to_string()),
                     release_date: None,
                 },
             ],

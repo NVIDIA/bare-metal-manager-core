@@ -290,6 +290,14 @@ impl SiteExplorer {
             return Err(CarbideError::MissingArgument("Missing Systems Info"));
         }
 
+        if dpu_report.chassis.is_empty() {
+            return Err(CarbideError::MissingArgument("Missing Chassis Info"));
+        }
+
+        if dpu_report.service.is_empty() {
+            return Err(CarbideError::MissingArgument("Missing Service Info"));
+        }
+
         let stable_machine_id = dpu_report.machine_id.as_ref().unwrap();
 
         let (dpu_machine, is_new) =
@@ -335,6 +343,21 @@ impl SiteExplorer {
             .map(|x| (x.id.clone(), x))
             .collect::<HashMap<_, _>>();
 
+        let service_map = dpu_report
+            .service
+            .clone()
+            .into_iter()
+            .map(|x| (x.id.clone(), x))
+            .collect::<HashMap<_, _>>();
+
+        let inventory_map = service_map
+            .get(&"FirmwareInventory".to_string())
+            .map(|value| value.inventories.clone())
+            .unwrap()
+            .into_iter()
+            .map(|x| (x.id.clone(), x))
+            .collect::<HashMap<_, _>>();
+
         let dpu_data = DpuData {
             factory_mac_address: explored_host
                 .host_pf_mac_address
@@ -348,6 +371,26 @@ impl SiteExplorer {
             part_description: chassis_map
                 .get("Card1")
                 .and_then(|value| value.model.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            firmware_version: inventory_map
+                .get("DPU_NIC")
+                .and_then(|value| value.version.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            firmware_date: inventory_map
+                .get("DPU_NIC")
+                .and_then(|value| value.release_date.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            uefi_version: inventory_map
+                .get("DPU_UEFI")
+                .and_then(|value| value.version.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            cec_version: inventory_map
+                .get("Bluefield_FW_ERoT")
+                .and_then(|value| value.version.as_ref())
                 .unwrap_or(&"".to_string())
                 .to_string(),
             ..Default::default()
