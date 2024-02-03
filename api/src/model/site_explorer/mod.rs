@@ -490,6 +490,10 @@ impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
 #[serde(rename_all = "PascalCase")]
 pub struct Chassis {
     pub id: String,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+    pub part_number: Option<String>,
+    pub serial_number: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub network_adapters: Vec<NetworkAdapter>,
 }
@@ -498,6 +502,10 @@ impl From<Chassis> for rpc::site_explorer::Chassis {
     fn from(chassis: Chassis) -> Self {
         rpc::site_explorer::Chassis {
             id: chassis.id,
+            manufacturer: chassis.manufacturer,
+            model: chassis.model,
+            part_number: chassis.part_number,
+            serial_number: chassis.serial_number,
             network_adapters: chassis
                 .network_adapters
                 .into_iter()
@@ -624,6 +632,10 @@ mod tests {
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
+                manufacturer: None,
+                model: None,
+                serial_number: Some("MT2242XZ00NX".to_string()),
+                part_number: None,
                 network_adapters: vec![],
             }],
             machine_id: None,
