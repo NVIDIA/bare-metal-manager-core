@@ -1,8 +1,12 @@
 use std::io::ErrorKind;
 use std::str::FromStr;
+use std::time::Duration;
 use std::time::SystemTime;
 
 use eyre::Result;
+use forge_http_connector::connector::ForgeHttpConnector;
+use forge_http_connector::resolver::ForgeResolver;
+use forge_http_connector::resolver::ForgeResolverOpts;
 use hickory_resolver::config::ResolverConfig;
 use hyper::http::uri::Scheme;
 use hyper::Uri;
@@ -12,10 +16,6 @@ use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
 use tokio_rustls::rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore, ServerName};
 use tonic::body::BoxBody;
 use x509_parser::prelude::{FromDer, X509Certificate};
-
-use forge_http_connector::connector::ForgeHttpConnector;
-use forge_http_connector::resolver::ForgeResolver;
-use forge_http_connector::resolver::ForgeResolverOpts;
 
 use crate::forge_resolver;
 use crate::protos::forge::forge_client::ForgeClient;
@@ -79,7 +79,7 @@ impl ForgeClientConfig {
         }
     }
 
-    /// This is required when using `ForgeTlsConfig` on a DPU to communicate with site-controller.  
+    /// This is required when using `ForgeTlsConfig` on a DPU to communicate with site-controller.
     /// The mgmt interface exists in the mgmt VRF. `use_mgmt_vrf` sets the
     /// `SO_BINDTODEVICE` socket option on the client socket used when performing DNS queries
     /// and establishing a TCP connection with site-controller.
@@ -336,6 +336,13 @@ impl ForgeTlsClient {
 
         let hyper_client = hyper::client::Client::builder()
             .http2_only(true)
+            // Send a PING frame every 10s
+            .http2_keep_alive_interval(Some(Duration::from_secs(10)))
+            // The server will have 20s to respond with a PONG
+            .http2_keep_alive_timeout(Duration::from_secs(20))
+            // Send PING even when no active http2 streams
+            // Probably not relevant because our clients are short lived
+            .http2_keep_alive_while_idle(true)
             .build(connector);
 
         let mut forge_client = ForgeClient::with_origin(hyper_client, uri);
