@@ -4,7 +4,11 @@ set -e
 . /usr/share/debconf/confmodule
 
 if [ "$1" = "configure" ]; then
-  systemctl daemon-reload
+	# Ensure the core file directory exists
+	# Must match /proc/sys/kernel/core_pattern
+	mkdir -p /var/support/core
+
+	systemctl daemon-reload
 	systemctl enable local_bmc_dev.service
 	systemctl enable forge-dpu-agent.service
 	systemctl start forge-dpu-agent
