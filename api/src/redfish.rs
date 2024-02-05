@@ -205,9 +205,9 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
     }
 
     async fn uefi_setup(&self, client: &dyn Redfish) -> Result<(), RedfishClientCreationError> {
-        // Replace DPU UEFI default password with random password
+        // Replace DPU UEFI default password with site default
         // default password is taken from DpuUefi:factory_default key
-        // random password is stored into DpuUefi:site_default key
+        // site password is taken from DpuUefi:site_default key
         //
         let credentials = self
             .credential_provider
@@ -226,30 +226,17 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             .get_credentials(CredentialKey::DpuUefi {
                 credential_type: CredentialType::SiteDefault,
             })
-            .await;
+            .await
+            .map_err(RedfishClientCreationError::MissingCredentials)?;
 
         let (_, new_password) = match credentials {
-            Ok(Credentials::UsernamePassword { username, password }) => (username, password),
-            _ => ("".to_string(), Credentials::generate_password()),
+            Credentials::UsernamePassword { username, password } => (username, password),
         };
 
         client
             .change_uefi_password(current_password.as_str(), new_password.as_str())
             .await
             .map_err(RedfishClientCreationError::RedfishError)?;
-
-        self.credential_provider
-            .set_credentials(
-                CredentialKey::DpuUefi {
-                    credential_type: CredentialType::SiteDefault,
-                },
-                Credentials::UsernamePassword {
-                    username: "".to_string(),
-                    password: new_password,
-                },
-            )
-            .await
-            .map_err(RedfishClientCreationError::MissingCredentials)?;
 
         Ok(())
     }
