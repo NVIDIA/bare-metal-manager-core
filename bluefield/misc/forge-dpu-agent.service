@@ -1,14 +1,31 @@
 [Unit]
 Description=Forge DPU agent service
+Documentation=https://nvmetal.gitlab-master-pages.nvidia.com/carbide/
+#
+# containerd@mgmt.service is what starts HBN
 After=networking.service network-online.target time-sync.target containerd@mgmt.service
 
 [Service]
 Type=simple
 Environment="RUST_BACKTRACE=full"
 Environment="RUST_LIB_BACKTRACE=0"
+#
+# Use this line for more agent logging
+#Environment="RUST_LOG=debug,agent=trace"
 Environment="RUST_LOG=debug"
-ExecStart=+/usr/bin/forge-dpu-agent run --enable-metadata-service
+#
+# Enable core dumps (SIGABRT) limited to 100MiB. Currently an agent core dump is ~30MiB.
+LimitCORE=104857600
+#
+# Delete everything except the most recent file from core dump directory, to prevent it growing.
+# The `-` means keep going if the script fails or is missing.
+ExecStartPre=-/usr/bin/clean_core_files.sh
+#
+ExecStart=/usr/bin/forge-dpu-agent run --enable-metadata-service
+#
+# Capabilities for setting socket options and executing commands in a specific VRF
 AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_NET_RAW
+#
 # We always want to restart the dpu agent in case of crashes
 # However we don't want to immediatly restart it to avoid flooding the API server
 # with bad requests which could limit the availablity of other clients.
