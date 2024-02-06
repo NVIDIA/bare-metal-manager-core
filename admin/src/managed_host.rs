@@ -66,10 +66,16 @@ impl From<ManagedHostOutputWrapper> for Row {
             value.dpu_oob_mac.unwrap_or(UNKNOWN.to_owned())
         );
 
+        let state = value
+            .state
+            .split_once(' ')
+            .map(|(x, y)| format!("{x}\n{y}"))
+            .unwrap_or(value.state);
+
         let mut row_data = vec![
             value.hostname.unwrap_or(UNKNOWN.to_owned()),
             machine_ids,
-            value.state,
+            state,
         ];
 
         if src.has_maintenance {
