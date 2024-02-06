@@ -25,6 +25,7 @@ use hyper::server::conn::Http;
 use itertools::Itertools;
 use opentelemetry::metrics::Meter;
 use opentelemetry::KeyValue;
+use sqlx::postgres::any::AnyConnectionBackend;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Pool, Postgres, Transaction};
 use tokio::net::TcpListener;
@@ -2003,17 +2004,6 @@ where
         MachineTopology::create_or_update(&mut txn, &stable_machine_id, &hardware_info).await?;
 
         if hardware_info.is_dpu() {
-            // Create DPU and LLDP Association.
-            if let Some(dpu_info) = hardware_info.dpu_info.as_ref() {
-                DpuToNetworkDeviceMap::create_dpu_network_device_association(
-                    &mut txn,
-                    &dpu_info.switches,
-                    &stable_machine_id,
-                )
-                .await
-                .map_err(CarbideError::from)?;
-            }
-
             // Create Host proactively.
             // In case host interface is created, this method will return existing one, instead
             // creating new everytime.
@@ -2060,6 +2050,31 @@ where
         txn.commit()
             .await
             .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_machine", e))?;
+
+        if hardware_info.is_dpu() {
+            // WARNING: DONOT REUSE OLD TXN HERE. IT WILL CREATE DEADLOCK.
+            //
+            // Create a new transaction here for network devices. Inner transaction is not so
+            // helpful in postgres and using same transaction creates deadlock with
+            // machine_interface table.
+            let mut txn =
+                self.database_connection.begin().await.map_err(|e| {
+                    CarbideError::DatabaseError(file!(), "begin discover_machine", e)
+                })?;
+            // Create DPU and LLDP Association.
+            if let Some(dpu_info) = hardware_info.dpu_info.as_ref() {
+                DpuToNetworkDeviceMap::create_dpu_network_device_association(
+                    &mut txn,
+                    &dpu_info.switches,
+                    &stable_machine_id,
+                )
+                .await
+                .map_err(CarbideError::from)?;
+            }
+            txn.commit().await.map_err(|e| {
+                CarbideError::DatabaseError(file!(), "commit new txn discover_machine", e)
+            })?;
+        }
 
         response
     }
