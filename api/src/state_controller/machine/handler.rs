@@ -24,17 +24,18 @@ use crate::{
         bmc_metadata::UserRoles,
         ib_partition,
         instance::{DeleteInstance, Instance},
-        machine::Machine,
+        machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
     },
-    ib,
-    ib::{types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
+    ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::{
         config_version::ConfigVersion,
-        instance::config::infiniband::InstanceIbInterfaceConfig,
-        instance::snapshot::InstanceSnapshot,
-        instance::status::infiniband::{
-            InstanceIbInterfaceStatusObservation, InstanceInfinibandStatusObservation,
+        instance::{
+            config::infiniband::InstanceIbInterfaceConfig,
+            snapshot::InstanceSnapshot,
+            status::infiniband::{
+                InstanceIbInterfaceStatusObservation, InstanceInfinibandStatusObservation,
+            },
         },
         machine::{
             machine_id::MachineId,
@@ -731,9 +732,35 @@ impl StateHandler for DpuMachineStateHandler {
                     *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
                     return Ok(());
                 } else {
-                    *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
-                        discovering_state: DpuDiscoveringState::Rebooting,
+                    *controller_state.modify() = ManagedHostState::DPUNotReady {
+                        machine_state: MachineState::Init,
                     };
+                    let host_machine_result = Machine::find_one(
+                        &mut *txn,
+                        &state.host_snapshot.machine_id,
+                        MachineSearchConfig::default(),
+                    )
+                    .await;
+
+                    if let Ok(Some(host_machine)) = host_machine_result {
+                        host_machine
+                            .advance(
+                                txn,
+                                ManagedHostState::DPUNotReady {
+                                    machine_state: MachineState::Init,
+                                },
+                                Some(host_machine.current_version().increment()),
+                            )
+                            .await?;
+                    } else {
+                        let msg = format!(
+                            "Failed to find associated host: {}",
+                            state.host_snapshot.machine_id
+                        );
+                        *controller_state.modify() =
+                            self.get_discovery_failure(msg, host_machine_id);
+                    }
+
                     return Ok(());
                 }
             }

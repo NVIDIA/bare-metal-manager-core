@@ -22,7 +22,6 @@ use crate::{
     db::{
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
-        machine::Machine,
         machine_interface::MachineInterface,
         network_segment::{NetworkSegment, NetworkSegmentType},
         DatabaseError,
@@ -224,12 +223,12 @@ impl SiteExplorer {
         &self,
         dpu_report: &EndpointExplorationReport,
         explored_host: ExploredManagedHost,
-    ) -> CarbideResult<(Machine, Machine)> {
+    ) -> CarbideResult<()> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(file!(), line!(), "begin load create_managed_host data", e)
         })?;
 
-        let managed_host = dpu_report
+        dpu_report
             .create_managed_host(&mut txn, explored_host)
             .await?;
 
@@ -237,7 +236,7 @@ impl SiteExplorer {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "end create_managed_host data", e))?;
 
-        Ok(managed_host)
+        Ok(())
     }
 
     async fn update_explored_managed_hosts(
@@ -292,7 +291,13 @@ impl SiteExplorer {
                     if net_adapter.serial_number.is_some() {
                         let sn = net_adapter.serial_number.as_ref().unwrap();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
-                            let host_pf_mac_address = find_host_pf_mac_address(&ep, dpu_ep);
+                            let host_pf_mac_address = match find_host_pf_mac_address(&ep, dpu_ep) {
+                                Ok(m) => m,
+                                Err(error) => {
+                                    tracing::error!(%error, "Failed to find base mac address");
+                                    None
+                                }
+                            };
                             let explored_host = ExploredManagedHost {
                                 host_bmc_ip: ep.address,
                                 dpu_bmc_ip: dpu_ep.address,
@@ -303,22 +308,11 @@ impl SiteExplorer {
                             if self.config.create_machines {
                                 if host_pf_mac_address.is_none() {
                                     tracing::warn!("Can't create managed host, since no factory MAC address for host: {:#?}", ep);
-                                } else {
-                                    match self
-                                        .create_managed_host(&dpu_ep.report, explored_host)
-                                        .await
-                                    {
-                                        Ok((dpu_machine, host_machine)) => {
-                                            tracing::info!(
-                                                "Created managed host: DPU({})<->PredictedHost({})",
-                                                dpu_machine.id(),
-                                                host_machine.id()
-                                            );
-                                        }
-                                        Err(error) => {
-                                            tracing::error!(%error, "Failed to create managed host");
-                                        }
-                                    }
+                                } else if let Err(error) = self
+                                    .create_managed_host(&dpu_ep.report, explored_host)
+                                    .await
+                                {
+                                    tracing::error!(%error, "Failed to create managed host");
                                 }
                             }
                             metrics.exploration_identified_managed_hosts += 1;
@@ -624,7 +618,7 @@ impl SiteExplorer {
 fn find_host_pf_mac_address(
     host_ep: &ExploredEndpoint,
     dpu_ep: &ExploredEndpoint,
-) -> Option<MacAddress> {
+) -> CarbideResult<Option<MacAddress>> {
     let dpu_bmc_mac = match dpu_ep
         .report
         .managers
@@ -633,11 +627,17 @@ fn find_host_pf_mac_address(
         .and_then(|iface| iface.mac_address.clone())
     {
         Some(mac) => mac,
-        _ => return None,
+        None => {
+            return Err(CarbideError::GenericError(
+                "No DPU BMC MAC address".to_string(),
+            ))
+        }
     };
-    // Bmc  mac: a0:88:c2:08:80:97
-    // Base mac: a0:88:c2:08:80:72
-    let bmc_prefix: String = dpu_bmc_mac.chars().take(12).collect();
+    // Bmc  mac: b8:3f:d2:99:07:36
+    // Base mac: b8:3f:d2:90:97:34
+    let bmc_prefix: String = dpu_bmc_mac.chars().take(8).collect();
+
+    let mut base_mac: Option<MacAddress> = None;
 
     for host_interface in host_ep
         .report
@@ -652,11 +652,23 @@ fn find_host_pf_mac_address(
 
         if host_mac.starts_with(bmc_prefix.as_str()) {
             match host_mac.parse::<MacAddress>() {
-                Ok(mac) => return Some(mac),
+                Ok(mac) => {
+                    if base_mac.is_none() {
+                        base_mac = Some(mac);
+                    } else {
+                        let msg = format!(
+                            "2 MAC addresses ({}, {}) overlaps with DPU BMC address: {}.",
+                            mac,
+                            base_mac.unwrap(),
+                            bmc_prefix
+                        );
+                        return Err(CarbideError::GenericError(msg));
+                    }
+                }
                 Err(_) => continue,
             };
         }
     }
 
-    None
+    Ok(base_mac)
 }

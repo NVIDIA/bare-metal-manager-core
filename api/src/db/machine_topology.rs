@@ -17,7 +17,6 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
-use uuid::Uuid;
 
 use super::DatabaseError;
 use crate::db::machine::DbMachineId;
@@ -77,8 +76,6 @@ pub struct TopologyData {
     /// `crate::crate::db::ipmi::BmcMetaDataUpdateRequest::update_bmc_meta_data`
     /// Therefore no `write` function can be found here.
     pub bmc_info: BmcInfo,
-    /// Link to the new BmcMachine object.
-    pub bmc_machine_id: Option<Uuid>,
 }
 
 impl MachineTopology {
@@ -132,7 +129,6 @@ impl MachineTopology {
                 version: None,
                 firmware_version: None,
             },
-            bmc_machine_id: None,
         };
 
         let query = "INSERT INTO machine_topologies VALUES ($1, $2::json) RETURNING *";
@@ -193,11 +189,8 @@ impl MachineTopology {
         txn: &mut Transaction<'_, Postgres>,
         address: &str,
     ) -> Result<Option<MachineId>, DatabaseError> {
-        let query = "SELECT mt.machine_id FROM machine_topologies mt
-             LEFT JOIN bmc_machine ON bmc_machine.id=(mt.topology->>'bmc_machine_id')::uuid
-             LEFT JOIN machine_interfaces mi ON bmc_machine.machine_interface_id = mi.id
-             LEFT JOIN machine_interface_addresses mia on mia.interface_id=mi.id
-             WHERE mt.topology->'bmc_info'->>'ip' = $1 OR mia.address = $1::inet";
+        let query =
+            "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";
         Ok(sqlx::query_as::<_, DbMachineId>(query)
             .bind(address)
             .fetch_optional(&mut **txn)

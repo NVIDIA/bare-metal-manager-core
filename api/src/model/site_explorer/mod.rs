@@ -29,7 +29,7 @@ use crate::{
         hardware_info::{DmiData, HardwareInfo},
         machine::{machine_id::MachineId, DpuDiscoveringState, ManagedHostState},
     },
-    CarbideError,
+    CarbideError, CarbideResult,
 };
 
 use super::hardware_info::DpuData;
@@ -188,7 +188,7 @@ impl EndpointExplorationReport {
             .unwrap_or(false)
     }
 
-    fn get_dmi_data(&self, serial_number: &str) -> DmiData {
+    fn create_temporary_dmi_data(&self, serial_number: &str) -> DmiData {
         // For DPUs the discovered data contains enough information to
         // calculate a MachineId
         // The "Unspecified" strings are delivered as serial numbers when doing
@@ -216,7 +216,7 @@ impl EndpointExplorationReport {
                 .get(0)
                 .and_then(|system| system.serial_number.as_ref()),
         ) {
-            let dmi_data = self.get_dmi_data(serial_number.as_str());
+            let dmi_data = self.create_temporary_dmi_data(serial_number.as_str());
 
             let hardware_info = HardwareInfo {
                 dmi_data: Some(dmi_data),
@@ -240,7 +240,7 @@ impl EndpointExplorationReport {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         explored_host: ExploredManagedHost,
-    ) -> Result<(Machine, Machine), CarbideError> {
+    ) -> CarbideResult<()> {
         if self.machine_id.is_none() {
             return Err(CarbideError::MissingArgument("Missing Machine ID"));
         }
@@ -251,7 +251,7 @@ impl EndpointExplorationReport {
 
         let stable_machine_id = self.machine_id.as_ref().unwrap();
 
-        let dpu_machine = match Machine::find_one(
+        let (dpu_machine, is_new) = match Machine::find_one(
             txn,
             stable_machine_id,
             MachineSearchConfig::default(),
@@ -259,7 +259,7 @@ impl EndpointExplorationReport {
         .await?
         {
             // Do nothing if machine exists. It'll be reprovisioned via redfish
-            Some(m) => m,
+            Some(m) => (m, false),
             None => match Machine::create(
                 txn,
                 stable_machine_id,
@@ -271,7 +271,7 @@ impl EndpointExplorationReport {
             {
                 Ok(m) => {
                     tracing::info!("Created machine id: {}", stable_machine_id);
-                    m
+                    (m, true)
                 }
                 Err(e) => {
                     tracing::error!(error = %e, "Can't create Machine");
@@ -279,13 +279,16 @@ impl EndpointExplorationReport {
                 }
             },
         };
+        if !is_new {
+            return Ok(());
+        }
 
         let serial_number = self
             .systems
             .get(0)
             .and_then(|system| system.serial_number.as_ref())
             .unwrap();
-        let dmi_data = self.get_dmi_data(serial_number.as_str());
+        let dmi_data = self.create_temporary_dmi_data(serial_number.as_str());
 
         let dpu_data = DpuData {
             factory_mac_address: explored_host
@@ -361,14 +364,14 @@ impl EndpointExplorationReport {
         tracing::info!(
             ?mi_id,
             machine_id = %host_machine.id(),
-            "Created host machine proactively",
+            "Created host machine proactively in site-explorer",
         );
 
         machine_interface
             .associate_interface_with_machine(txn, host_machine.id())
             .await?;
 
-        Ok((dpu_machine, host_machine))
+        Ok(())
     }
 }
 
