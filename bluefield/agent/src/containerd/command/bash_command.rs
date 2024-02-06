@@ -1,4 +1,11 @@
+use std::time::Duration;
+
+use eyre::WrapErr;
+
 use crate::containerd::command::Command;
+use crate::pretty_cmd;
+
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct BashCommand {
@@ -36,11 +43,19 @@ impl BashCommand {
     }
 }
 
+#[async_trait::async_trait]
 impl Command for BashCommand {
-    fn run(&mut self) -> eyre::Result<String> {
-        let output = std::process::Command::new(&self.command)
-            .args(&self.args)
-            .output()?;
+    async fn run(&mut self) -> eyre::Result<String> {
+        let mut cmd = tokio::process::Command::new(&self.command);
+        let fullcmd = cmd.args(&self.args);
+        fullcmd.kill_on_drop(true);
+
+        let cmd_str = pretty_cmd(fullcmd.as_std());
+
+        let output = tokio::time::timeout(COMMAND_TIMEOUT, fullcmd.output())
+            .await
+            .wrap_err_with(|| format!("Timeout while running command: {:?}", cmd_str))??;
+
         let fout = String::from_utf8_lossy(&output.stdout).to_string();
         Ok(fout)
     }

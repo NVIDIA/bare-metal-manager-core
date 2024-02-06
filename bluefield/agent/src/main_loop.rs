@@ -30,19 +30,19 @@ use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
 pub use upgrade::upgrade_check;
 
-use crate::command_line;
 use crate::command_line::NetworkVirtualizationType;
 use crate::ethernet_virtualization;
 use crate::health;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
 use crate::instance_metadata_fetcher;
 use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
-use crate::machine_inventory_updater::{MachineInventoryUpdater, MachineInventoryUpdaterConfig};
+use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::mtu;
 use crate::network_config_fetcher;
 use crate::systemd;
 use crate::upgrade;
 use crate::util::UrlResolver;
+use crate::{command_line, machine_inventory_updater};
 
 // Main loop when running in daemon mode
 pub async fn run(
@@ -56,8 +56,12 @@ pub async fn run(
 
     let mut term_signal = signal(SignalKind::terminate())?;
 
+    tracing::info!("Starting machine inventory updater");
     if let Err(e) = start_inventory_updater(machine_id, forge_client_config.clone(), &agent).await {
-        return Err(eyre::eyre!("Failed to start inventory updater: {:#}", e));
+        return Err(eyre::eyre!(
+            "Failed to start machine inventory updater: {:#}",
+            e
+        ));
     }
 
     if options.enable_metadata_service {
@@ -464,17 +468,18 @@ async fn start_inventory_updater(
     machine_id: &str,
     forge_client_config: forge_tls_client::ForgeClientConfig,
     agent: &AgentConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> eyre::Result<()> {
     let forge_api = &agent.forge_system.api_server;
 
-    Arc::new(MachineInventoryUpdater::new(
-        MachineInventoryUpdaterConfig {
-            update_inventory_interval: Duration::from_secs(agent.period.inventory_update_secs),
-            machine_id: machine_id.to_string(),
-            forge_api: forge_api.to_string(),
-            forge_client_config,
-        },
-    ));
+    let config = MachineInventoryUpdaterConfig {
+        update_inventory_interval: Duration::from_secs(agent.period.inventory_update_secs),
+        machine_id: machine_id.to_string(),
+        forge_api: forge_api.to_string(),
+        forge_client_config,
+    };
+
+    tokio::task::spawn(machine_inventory_updater::run(config));
+
     Ok(())
 }
 

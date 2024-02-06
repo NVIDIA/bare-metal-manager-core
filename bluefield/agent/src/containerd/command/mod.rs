@@ -6,8 +6,9 @@ pub mod bash_command;
 pub mod cache;
 pub mod wrapper;
 
+#[async_trait::async_trait]
 pub trait Command: AsAny + DynHash + DynEq + std::fmt::Debug + Send + Sync + CommandClone {
-    fn run(&mut self) -> eyre::Result<String>;
+    async fn run(&mut self) -> eyre::Result<String>;
 }
 
 // implementation of Hash for Command
@@ -26,7 +27,7 @@ impl PartialEq for dyn Command {
 impl Eq for dyn Command {}
 // end implementation of Hash for Command
 
-pub trait CommandClone {
+pub trait CommandClone: Send + Sync {
     fn clone_box(&self) -> Box<dyn Command>;
 }
 

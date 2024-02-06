@@ -1,14 +1,16 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use lazy_static::lazy_static;
 use serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use tokio::sync::Mutex;
 use tracing::log::error;
 
 use crate::containerd::command::cache::CommandCache;
-use crate::containerd::image::Image;
+use crate::containerd::image::{Image, ImageNameComponent};
 use crate::containerd::BashCommand;
 
 lazy_static! {
@@ -35,8 +37,8 @@ pub enum ContainerState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContainerImage {
     #[serde(rename = "image")]
-    id: String,
-    annotations: HashMap<String, String>,
+    pub id: String,
+    pub annotations: HashMap<String, String>,
 }
 
 /// A container deserialized with additional information for convenience
@@ -49,8 +51,9 @@ pub struct ContainerSummary {
     pub metadata: ContainerMetadata,
     pub image: ContainerImage,
     #[serde(rename = "imageRef")]
-    #[serde(deserialize_with = "container_image_ref")]
-    pub image_ref: Image,
+    #[serde(default, skip_deserializing)]
+    pub image_ref: Vec<ImageNameComponent>,
+    // We skip this during deserialize because we will populate it later
     pub state: ContainerState,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -62,19 +65,6 @@ pub struct ContainerSummary {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Images {
     pub images: Vec<Image>,
-}
-
-/// When deserializing the list of containers use the image name instead of the image sha256 in the
-/// image_ref field struct. This does require an additional lookup to get the image name
-pub fn container_image_ref<'de, D>(deserializer: D) -> Result<Image, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let str: String = String::deserialize(deserializer)?;
-    let images = Images::list().map_err(serde::de::Error::custom)?;
-    images
-        .find_by_id(str.as_str())
-        .map_err(serde::de::Error::custom)
 }
 
 /// A list of running or terminated containers on a system
@@ -92,8 +82,8 @@ impl FromIterator<Image> for Images {
 }
 
 impl Images {
-    pub fn list() -> eyre::Result<Images> {
-        let data = get_container_images()?;
+    pub async fn list() -> eyre::Result<Images> {
+        let data = get_container_images().await?;
         serde_json::from_str::<Images>(&data).map_err(|err| eyre::eyre!(err))
     }
 
@@ -101,9 +91,7 @@ impl Images {
     where
         T: AsRef<str>,
     {
-        let container_images = Images::list()?;
-
-        let filtered = container_images
+        let filtered = self
             .images
             .into_iter()
             .filter(|x| x.names.iter().any(|y| y.name.contains(name.as_ref())))
@@ -139,13 +127,14 @@ impl Images {
 }
 
 impl Containers {
-    pub fn list() -> eyre::Result<Self> {
-        let data = get_containers()?;
-        Ok(Containers {
-            containers: serde_json::from_str::<Containers>(&data)
-                .map_err(|e| eyre::eyre!(e))?
-                .containers,
-        })
+    pub async fn list() -> eyre::Result<Self> {
+        let data = get_containers().await?;
+
+        let containers = serde_json::from_str::<Containers>(&data)
+            .map_err(|e| eyre::eyre!(e))?
+            .containers;
+
+        Ok(Containers { containers })
     }
 
     pub fn find_by_name<T>(self, name: T) -> eyre::Result<ContainerSummary>
@@ -161,26 +150,34 @@ impl Containers {
 }
 
 /// Return a list of all container images in JSON format.
-fn get_container_images() -> eyre::Result<String> {
+async fn get_container_images() -> eyre::Result<String> {
     if cfg!(test) || std::env::var("NO_DPU_CONTAINERS").is_ok() {
-        std::fs::read_to_string("../../dev/docker-env/container_images.json").map_err(|e| {
-            error!("Could not read container_images.json: {}", e);
-            eyre::eyre!("Could not read container_images.json: {}", e)
-        })
+        let repo_root = PathBuf::from(std::env::var("REPO_ROOT").unwrap_or(".".to_string()));
+
+        std::fs::read_to_string(repo_root.join("dev/docker-env/container_images.json")).map_err(
+            |e| {
+                error!("Could not read container_images.json: {}", e);
+                eyre::eyre!("Could not read container_images.json: {}", e)
+            },
+        )
     } else {
         let command =
             Box::new(BashCommand::new("bash").args(vec!["-c", "critcl", "images", "-o", "json"]));
         (*COMMAND_CACHE)
             .lock()
-            .map_err(|_err| eyre::eyre!("Poisoned Lock"))?
+            .await
             .get_or_insert(command)
+            .await
+            .map_err(|e| eyre::eyre!("Poisoned lock: {}", e))
     }
 }
 
 /// Returns a list of all containers on a host in JSON format.
-fn get_containers() -> eyre::Result<String> {
+async fn get_containers() -> eyre::Result<String> {
     if cfg!(test) || std::env::var("NO_DPU_CONTAINERS").is_ok() {
-        std::fs::read_to_string("../../dev/docker-env/containers.json").map_err(|e| {
+        let repo_root = PathBuf::from(std::env::var("REPO_ROOT").unwrap_or(".".to_string()));
+
+        std::fs::read_to_string(repo_root.join("dev/docker-env/containers.json")).map_err(|e| {
             error!("Could not read containers.json: {}", e);
             eyre::eyre!("Could not read containers.json: {}", e)
         })
@@ -189,8 +186,10 @@ fn get_containers() -> eyre::Result<String> {
             Box::new(BashCommand::new("bash").args(vec!["-c", "critcl", "ps", "-a", "-o", "json"]));
         (*COMMAND_CACHE)
             .lock()
-            .map_err(|_err| eyre::eyre!("Poisoned Lock"))?
+            .await
             .get_or_insert(command)
+            .await
+            .map_err(|e| eyre::eyre!("Poisoned lock: {}", e))
     }
 }
 
@@ -200,12 +199,13 @@ mod tests {
     use std::time::Duration;
 
     use lazy_static::lazy_static;
-    use serde_json;
 
     use crate::containerd::image::ImageNameComponent;
     use crate::containerd::{Command, CommandWrapper};
 
     use super::*;
+
+    //use serde_json;
 
     lazy_static! {
         pub static ref RUN_COUNTER_0: AtomicU32 = AtomicU32::new(0);
@@ -219,8 +219,9 @@ mod tests {
     }
 
     // Implementation of command which increments a global counter and returns output
+    #[async_trait::async_trait]
     impl Command for TestCommand {
-        fn run(&mut self) -> eyre::Result<String> {
+        async fn run(&mut self) -> eyre::Result<String> {
             if self.counter == 0 {
                 let _ = (*RUN_COUNTER_0).fetch_add(1, Ordering::SeqCst);
             } else {
@@ -230,8 +231,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_cached_output() {
+    #[tokio::test]
+    async fn test_cached_output() {
         let mut wrap = CommandWrapper::new(
             Box::new(TestCommand {
                 output: "test".to_string(),
@@ -240,16 +241,16 @@ mod tests {
             Duration::from_secs(1), // cache CommandWrapper for 1 sec
         );
 
-        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_0
+        let _ = wrap.get().await.unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_0
         let count1 = (*RUN_COUNTER_0).load(Ordering::SeqCst);
-        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_0
+        let _ = wrap.get().await.unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_0
         let count2 = (*RUN_COUNTER_0).load(Ordering::SeqCst); // matches count1 because output is cached and run() does not execute(no incrementing RUN_COUNTER_0)
 
         assert_eq!(count1, count2);
     }
 
-    #[test]
-    fn test_cached_output_expire() {
+    #[tokio::test]
+    async fn test_cached_output_expire() {
         let mut wrap = CommandWrapper::new(
             Box::new(TestCommand {
                 output: "test".to_string(),
@@ -260,40 +261,40 @@ mod tests {
 
         let duration = Duration::from_secs(2);
 
-        let _ = wrap.get().unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_1
+        let _ = wrap.get().await.unwrap(); // get() calls TestCommand::run() which increments RUN_COUNTER_1
         let count1 = (*RUN_COUNTER_1).load(Ordering::SeqCst); // load counter
 
         std::thread::sleep(duration); // sleep for 1 sec to expire cache
 
-        let _ = wrap.get().unwrap();
+        let _ = wrap.get().await.unwrap();
         let count2 = (*RUN_COUNTER_1).load(Ordering::SeqCst); // get counter
 
         assert_ne!(count1, count2); // count1 and count2 should not match because cache1 holds the cached RUN_COUNTER_1 and count2 holds new count from TestCommand::run()
     }
 
-    #[test]
-    fn test_container_images() {
-        let container_images = get_container_images().unwrap();
+    #[tokio::test]
+    async fn test_container_images() {
+        let container_images = get_container_images().await.unwrap();
         let json = serde_json::from_str::<Images>(&container_images).unwrap();
         assert_eq!(json.images.len(), 3);
     }
 
-    #[test]
-    fn test_all_containers() {
-        let containers = get_containers().unwrap();
+    #[tokio::test]
+    async fn test_all_containers() {
+        let containers = get_containers().await.unwrap();
         let json = serde_json::from_str::<Containers>(&containers).unwrap();
         assert_eq!(json.containers.len(), 5);
     }
 
-    #[test]
-    fn test_container_image_list() {
-        let container_images = Images::list().unwrap();
+    #[tokio::test]
+    async fn test_container_image_list() {
+        let container_images = Images::list().await.unwrap();
         assert_eq!(container_images.images.len(), 3);
     }
 
-    #[test]
-    fn test_filter_container_images_by_name() {
-        let container_images = Images::list().unwrap();
+    #[tokio::test]
+    async fn test_filter_container_images_by_name() {
+        let container_images = Images::list().await.unwrap();
         let filtered = container_images.filter_by_name("doca_").unwrap();
         assert_eq!(filtered.images.len(), 2);
         assert_eq!(
@@ -314,27 +315,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_find_container_by_name() {
-        let containers = Containers::list().expect("Could not get containers");
+    #[tokio::test]
+    async fn test_find_container_by_name() {
+        let containers = Containers::list().await.expect("Could not get containers");
         tracing::info!("Container: {:?}", containers);
         let container = containers.find_by_name("doca-hbn").unwrap();
         tracing::info!("Container: {:?}", container);
         assert_eq!(container.metadata.name, "doca-hbn");
         assert_eq!(container.state, ContainerState::Running);
-        assert_eq!(
-            container.image_ref.names[0],
-            ImageNameComponent {
-                repository: "nvcr.io/nvidia/doca".to_string(),
-                name: "doca_hbn".to_string(),
-                version: "1.5.0-doca2.2.0".to_string(),
-            }
-        );
     }
 
-    #[test]
-    fn test_filter_and_image_version() {
-        let container_images = Images::list().unwrap();
+    #[tokio::test]
+    async fn test_filter_and_image_version() {
+        let container_images = Images::list().await.unwrap();
         let filtered = container_images.filter_by_name("doca_hbn").unwrap();
         assert_eq!(filtered.images.len(), 1);
         assert_eq!(
@@ -343,9 +336,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_find_and_image_version() {
-        let container_images = Images::list().unwrap();
+    #[tokio::test]
+    async fn test_find_and_image_version() {
+        let container_images = Images::list().await.unwrap();
         let filtered = container_images.find_by_name("doca_hbn").unwrap();
         assert_eq!(filtered.names[0].version(), "1.5.0-doca2.2.0".to_string());
     }

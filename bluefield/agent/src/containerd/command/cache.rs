@@ -23,7 +23,7 @@ impl CommandCache {
         }
     }
 
-    pub fn get_or_insert(&mut self, command: Box<dyn Command>) -> eyre::Result<String> {
+    pub async fn get_or_insert(&mut self, command: Box<dyn Command>) -> eyre::Result<String> {
         let new_cmd_wrapper = CommandWrapper::new(command.clone(), Duration::from_secs(300));
         if !self.commands.contains(&new_cmd_wrapper) {
             self.commands.insert(new_cmd_wrapper);
@@ -34,9 +34,9 @@ impl CommandCache {
         let mut command_wrapper = self
             .commands
             .take(&new_cmd_wrapper)
-            .expect("Command not found Unpossible");
+            .expect("Command not found in cache, this should be impossible");
 
-        let res = command_wrapper.get();
+        let res = command_wrapper.get().await;
         self.commands.insert(command_wrapper);
         res
     }

@@ -38,8 +38,8 @@ impl CommandWrapper {
         }
     }
 
-    fn refresh(&mut self) -> eyre::Result<()> {
-        self.output = Some(self.command.run()?);
+    async fn refresh(&mut self) -> eyre::Result<()> {
+        self.output = Some(self.command.run().await?);
         self.last_refresh = Instant::now();
         Ok(())
     }
@@ -48,9 +48,9 @@ impl CommandWrapper {
         self.last_refresh.elapsed() >= self.duration
     }
 
-    pub fn get(&mut self) -> eyre::Result<String> {
+    pub async fn get(&mut self) -> eyre::Result<String> {
         if self.needs_refresh() || self.output.is_none() {
-            self.refresh()?;
+            self.refresh().await?;
         }
         self.output.clone().ok_or(eyre::eyre!(
             "Unable to produce output, or output does not exist"

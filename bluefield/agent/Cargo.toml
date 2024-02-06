@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 arc-swap = "1.6"
 axum = "0.6.18"
+async-trait = "0.1.77"
 blake3 = "1.4"
 clap = { workspace = true }
 data-encoding = "2.3.3"

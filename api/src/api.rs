@@ -1263,7 +1263,7 @@ where
             return Err(Status::invalid_argument("inventory missing from request"));
         }
 
-        tracing::trace!(
+        tracing::info!(
             machine_id = %dpu_machine_id,
             software_inventory = ?request.inventory,
             "update machine inventory",

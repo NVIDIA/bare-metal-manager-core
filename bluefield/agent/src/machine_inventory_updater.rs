@@ -1,22 +1,14 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use std::time::Duration;
 
-use crate::containerd::container;
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 use tracing::{error, info, trace};
 
-struct MachineInventoryUpdaterState {
-    config: MachineInventoryUpdaterConfig,
-    is_cancelled: AtomicBool,
-}
+use ::rpc::forge as rpc;
+use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 
-pub struct MachineInventoryUpdater {
-    state: Arc<MachineInventoryUpdaterState>,
-    join_handle: Option<tokio::task::JoinHandle<()>>,
-}
+use crate::containerd::container;
+use crate::containerd::container::ContainerSummary;
 
+#[derive(Debug, Clone)]
 pub struct MachineInventoryUpdaterConfig {
     /// How often to update the inventory
     pub update_inventory_interval: Duration,
@@ -25,70 +17,37 @@ pub struct MachineInventoryUpdaterConfig {
     pub forge_client_config: ForgeClientConfig,
 }
 
-impl Drop for MachineInventoryUpdater {
-    fn drop(&mut self) {
-        // Signal the background task and wait for it to shut down
-        // TODO: Might be nicer if it would be interrupted during waiting for 30s
-        self.state
-            .is_cancelled
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        if let Some(jh) = self.join_handle.take() {
-            tokio::spawn(async move {
-                jh.await.unwrap();
-            });
-        }
-    }
-}
-
-impl MachineInventoryUpdater {
-    pub fn new(config: MachineInventoryUpdaterConfig) -> Self {
-        let forge_client_config = config.forge_client_config.clone();
-        let state = Arc::new(MachineInventoryUpdaterState {
-            config,
-            is_cancelled: AtomicBool::new(false),
-        });
-
-        let task_state = state.clone();
-        let join_handle = tokio::spawn(async move {
-            run_machine_inventory_updater(forge_client_config, task_state).await
-        });
-
-        Self {
-            state,
-            join_handle: Some(join_handle),
-        }
-    }
-}
-
-async fn run_machine_inventory_updater(
-    forge_client_config: ForgeClientConfig,
-    state: Arc<MachineInventoryUpdaterState>,
-) {
+pub async fn run(config: MachineInventoryUpdaterConfig) -> eyre::Result<()> {
+    info!("Entering loop for machine updater");
     loop {
-        if state
-            .is_cancelled
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            trace!("MachineInventoryUpdater was dropped, exiting loop");
-            break;
-        }
         trace!(
             "Updating machine inventory for machine: {}",
-            state.config.machine_id
+            config.machine_id
         );
 
-        let containers = container::Containers::list().unwrap();
+        let containers = container::Containers::list().await?;
+
+        let images = container::Images::list().await?;
+
         trace!("Containers: {:?}", containers);
 
-        let machine_id = state.config.machine_id.clone();
+        let machine_id = config.machine_id.clone();
 
-        let inventory: Vec<rpc::MachineInventorySoftwareComponent> = containers
-            .containers
+        let mut result: Vec<ContainerSummary> = Vec::new();
+
+        // Map container images to container names
+        for mut c in containers.containers {
+            let images_clone = images.clone();
+            let images_names = images_clone.find_by_id(&c.image.id)?;
+            c.image_ref = images_names.names;
+            result.push(c);
+        }
+
+        let inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
             .into_iter()
             .flat_map(|c| {
                 c.image_ref
-                    .names
-                    .iter()
+                    .into_iter()
                     .map(|n| rpc::MachineInventorySoftwareComponent {
                         name: n.name.clone(),
                         version: n.version.clone(),
@@ -109,8 +68,8 @@ async fn run_machine_inventory_updater(
 
         if let Err(e) = update_agent_reported_inventory(
             agent_report,
-            forge_client_config.clone(),
-            &state.config.forge_api,
+            config.forge_client_config.clone(),
+            &config.forge_api,
         )
         .await
         {
@@ -119,7 +78,7 @@ async fn run_machine_inventory_updater(
                 e
             );
         }
-        tokio::time::sleep(state.config.update_inventory_interval).await;
+        tokio::time::sleep(config.update_inventory_interval).await;
     }
 }
 
@@ -141,7 +100,7 @@ async fn update_agent_reported_inventory(
         }
     };
 
-    info!("update_machine_inventory: {:?}", inventory_report);
+    trace!("update_machine_inventory: {:?}", inventory_report);
 
     let request = tonic::Request::new(inventory_report);
     match client.update_agent_reported_inventory(request).await {
