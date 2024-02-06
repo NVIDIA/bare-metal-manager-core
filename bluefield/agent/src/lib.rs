@@ -49,6 +49,7 @@ mod main_loop;
 mod mtu;
 mod network_config_fetcher;
 pub mod nvue; // pub so that integration tests can read nvue::PATH
+mod systemd;
 mod upgrade;
 mod util;
 

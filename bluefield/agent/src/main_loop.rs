@@ -17,20 +17,19 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use ::rpc::forge as rpc;
+use ::rpc::forge::VpcVirtualizationType;
+use ::rpc::forge_tls_client;
 use axum::Router;
+pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
+use forge_host_support::agent_config::AgentConfig;
+use forge_host_support::registration;
 use opentelemetry_sdk as sdk;
 use opentelemetry_sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
-
-use ::rpc::forge as rpc;
-use ::rpc::forge::VpcVirtualizationType;
-use ::rpc::forge_tls_client;
-pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
-use forge_host_support::agent_config::AgentConfig;
-use forge_host_support::registration;
 pub use upgrade::upgrade_check;
 
 use crate::command_line;
@@ -43,6 +42,7 @@ use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLaye
 use crate::machine_inventory_updater::{MachineInventoryUpdater, MachineInventoryUpdaterConfig};
 use crate::mtu;
 use crate::network_config_fetcher;
+use crate::systemd;
 use crate::upgrade;
 use crate::util::UrlResolver;
 
@@ -54,6 +54,8 @@ pub async fn run(
     agent: AgentConfig,
     options: command_line::RunOptions,
 ) -> eyre::Result<()> {
+    systemd::notify_start().await?;
+
     let mut term_signal = signal(SignalKind::terminate())?;
 
     if let Err(e) = start_inventory_updater(machine_id, forge_client_config.clone(), &agent).await {
@@ -148,6 +150,8 @@ pub async fn run(
     };
 
     loop {
+        systemd::notify_watchdog().await?;
+
         let mut is_healthy = false;
         let mut has_changed_configs = false;
 
@@ -323,6 +327,7 @@ pub async fn run(
                 }
                 Ok(true) => {
                     // upgraded, need to exit and restart
+                    systemd::notify_stop().await?;
                     return Ok(());
                 }
                 Err(e) => {
@@ -347,6 +352,7 @@ pub async fn run(
         tokio::select! {
             biased;
             _ = term_signal.recv() => {
+                systemd::notify_stop().await?;
                 tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
                 return Ok(());
             }

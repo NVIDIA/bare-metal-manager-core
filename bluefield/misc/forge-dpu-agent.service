@@ -6,7 +6,7 @@ Documentation=https://nvmetal.gitlab-master-pages.nvidia.com/carbide/
 After=networking.service network-online.target time-sync.target containerd@mgmt.service
 
 [Service]
-Type=simple
+Type=notify
 Environment="RUST_BACKTRACE=full"
 Environment="RUST_LIB_BACKTRACE=0"
 #
@@ -16,6 +16,10 @@ Environment="RUST_LOG=debug"
 #
 # Enable core dumps (SIGABRT) limited to 100MiB. Currently an agent core dump is ~30MiB.
 LimitCORE=104857600
+#
+# systemd to restart us if we hang for >10 minutes.
+# Should be greater than api.rs ServiceConfig::dpu_up_threshold (currently 5 mins)
+WatchdogSec=600
 #
 # Delete everything except the most recent file from core dump directory, to prevent it growing.
 # The `-` means keep going if the script fails or is missing.
