@@ -64,6 +64,8 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         client: Box<dyn Redfish>,
         machine_id: String,
     ) -> Result<(), RedfishClientCreationError>;
+
+    async fn uefi_setup(&self, client: &dyn Redfish) -> Result<(), RedfishClientCreationError>;
 }
 
 #[derive(Debug)]
@@ -199,6 +201,43 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
                 return Err(RedfishClientCreationError::RedfishError(e));
             }
         }
+        Ok(())
+    }
+
+    async fn uefi_setup(&self, client: &dyn Redfish) -> Result<(), RedfishClientCreationError> {
+        // Replace DPU UEFI default password with site default
+        // default password is taken from DpuUefi:factory_default key
+        // site password is taken from DpuUefi:site_default key
+        //
+        let credentials = self
+            .credential_provider
+            .get_credentials(CredentialKey::DpuUefi {
+                credential_type: CredentialType::HardwareDefault,
+            })
+            .await
+            .map_err(RedfishClientCreationError::MissingCredentials)?;
+
+        let (_, current_password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        let credentials = self
+            .credential_provider
+            .get_credentials(CredentialKey::DpuUefi {
+                credential_type: CredentialType::SiteDefault,
+            })
+            .await
+            .map_err(RedfishClientCreationError::MissingCredentials)?;
+
+        let (_, new_password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        client
+            .change_uefi_password(current_password.as_str(), new_password.as_str())
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
         Ok(())
     }
 }
@@ -455,7 +494,7 @@ impl Redfish for RedfishSimClient {
         _current_uefi_password: &str,
         _new_uefi_password: &str,
     ) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
 
     async fn change_boot_order(&self, _boot_array: Vec<String>) -> Result<(), RedfishError> {
@@ -592,6 +631,10 @@ impl RedfishClientPool for RedfishSim {
                 return Err(RedfishClientCreationError::RedfishError(e));
             }
         }
+        Ok(())
+    }
+
+    async fn uefi_setup(&self, _client: &dyn Redfish) -> Result<(), RedfishClientCreationError> {
         Ok(())
     }
 }

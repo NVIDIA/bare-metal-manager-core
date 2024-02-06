@@ -206,16 +206,17 @@ enum CredentialType {
   HostBMC = 0;
   DPUBMC = 1;
   UFM = 2;
+  DpuUefi = 3;
 }
 
 message CredentialCreationRequest {
   // Credential type
   CredentialType credential_type = 1;
   // The username of credential.
-  // No need specify it for HostBMC and DPUBMC.
+  // No need specify it for HostBMC, DPUBMC, DpuUefi.
   // For UFM, the username is the URL of UFM.
   optional string username = 2;
-  // The password of credential for HostBMC and DPUBMC.
+  // The password of credential for HostBMC, DPUBMC, DpuUefi.
   // For UFM, the password is the token of UFM.
   string password = 3;
 }

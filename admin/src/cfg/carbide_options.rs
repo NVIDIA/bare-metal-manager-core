@@ -789,6 +789,10 @@ pub enum CredentialAction {
         about = "Add site-wide Host/DPU BMC default credential (NOTE: this parameter can be set only once)"
     )]
     AddBMC(AddBMCredential),
+    #[clap(
+        about = "Add site-wide DPU UEFI default credential (NOTE: this parameter can be set only once)"
+    )]
+    AddUefi(AddUefiCredential),
 }
 
 #[derive(Parser, Debug)]
@@ -812,6 +816,29 @@ pub struct AddBMCredential {
     pub kind: BMCCredentialType,
 
     #[clap(long, required(true), help = "The password of BMC")]
+    pub password: String,
+}
+
+#[derive(ValueEnum, Parser, Debug, Clone)]
+pub enum UefiCredentialType {
+    Dpu,
+}
+
+impl From<UefiCredentialType> for rpc::forge::CredentialType {
+    fn from(c_type: UefiCredentialType) -> Self {
+        use rpc::forge::CredentialType::*;
+        match c_type {
+            UefiCredentialType::Dpu => DpuUefi,
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct AddUefiCredential {
+    #[clap(long, require_equals(true), required(true), help = "The UEFI kind")]
+    pub kind: UefiCredentialType,
+
+    #[clap(long, require_equals(true), required(true), help = "The UEFI password")]
     pub password: String,
 }
 
