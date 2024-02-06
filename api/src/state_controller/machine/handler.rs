@@ -351,7 +351,8 @@ impl StateHandler for MachineStateHandler {
                                 Some(*retry_count as u64);
                             // Anytime host discovery is successful, move to next state.
                             Machine::clear_failure_details(machine_id, txn).await?;
-                            let new_state = handle_host_waitingfordiscovery(ctx, state).await?;
+                            let new_state =
+                                handle_host_waitingfordiscovery(txn, ctx, state).await?;
                             *controller_state.modify() = new_state;
                             return Ok(());
                         }
@@ -968,11 +969,12 @@ fn is_network_ready(dpu_snapshot: &MachineSnapshot) -> bool {
 }
 
 async fn handle_host_waitingfordiscovery(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     state: &mut ManagedHostStateSnapshot,
 ) -> Result<ManagedHostState, StateHandlerError> {
     // Enable Bios/BMC lockdown now.
-    lockdown_host(&state.host_snapshot, ctx.services, true).await?;
+    lockdown_host(txn, &state.host_snapshot, ctx.services, true).await?;
 
     Ok(ManagedHostState::HostNotReady {
         machine_state: MachineState::WaitingForLockdown {
@@ -1023,7 +1025,7 @@ impl StateHandler for HostMachineStateHandler {
                         return Ok(());
                     }
 
-                    let new_state = handle_host_waitingfordiscovery(ctx, state).await?;
+                    let new_state = handle_host_waitingfordiscovery(txn, ctx, state).await?;
                     *controller_state.modify() = new_state;
                 }
 
@@ -1678,6 +1680,7 @@ async fn restart_dpu(
 
 /// Issues a lockdown and reboot request command to a host.
 async fn lockdown_host(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine_snapshot: &MachineSnapshot,
     services: &StateHandlerServices,
     enable: bool,
@@ -1718,13 +1721,13 @@ async fn lockdown_host(
                 error: e,
             })?;
     }
-    client
-        .power(libredfish::SystemPowerControl::ForceRestart)
-        .await
-        .map_err(|e| StateHandlerError::RedfishError {
-            operation: "lockdown",
-            error: e,
-        })?;
+    host_power_control(
+        machine_snapshot,
+        services,
+        SystemPowerControl::ForceRestart,
+        txn,
+    )
+    .await?;
 
     Ok(())
 }
