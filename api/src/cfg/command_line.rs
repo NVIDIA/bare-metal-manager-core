@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use clap::{ArgAction, Parser};
-use forge_tls::default as tls_default;
 
 #[derive(Parser)]
 #[clap(name = "carbide-api")]
@@ -36,16 +35,6 @@ pub enum Command {
 
 #[derive(Parser)]
 pub struct Daemon {
-    /// The socket address that is used for the gRPC API server
-    #[clap(
-        short,
-        long,
-        num_args(0..),
-        require_equals(true),
-        default_value = "[::]:1079"
-    )]
-    pub listen: Vec<std::net::SocketAddr>,
-
     /// Path to the configuration file
     /// The contents of this configuration file can be patched by providing
     /// site specific configuration overrides via an additional config file at
@@ -61,70 +50,6 @@ pub struct Daemon {
     /// Path to the configuration file which contains per-site overwrites
     #[clap(long)]
     pub site_config_path: Option<String>,
-
-    /// The socket address that is used for the HTTP server which serves
-    /// prometheus metrics under /metrics
-    #[clap(long, env = "CARBIDE_METRICS_ENDPOINT")]
-    pub metrics_endpoint: Option<std::net::SocketAddr>,
-
-    /// A connection string for the utilized postgres database
-    #[clap(long, require_equals(true), env = "DATABASE_URL")]
-    pub datastore: Option<String>,
-
-    /// Set shorter timeouts and run background jobs more often. Appropriate
-    /// for local development.
-    /// See ServiceConfig type.
-    #[clap(long)]
-    pub rapid_iterations: bool,
-
-    /// ASN: Autonomous System Number
-    /// Fixed per environment. Used by forge-dpu-agent to write frr.conf (routing).
-    ///
-    // Move this to per-site toml configuration file once that exists.
-    //
-    #[clap(long)]
-    pub asn: Option<u32>,
-
-    /// List of DHCP servers that should be announced
-    /// TODO: The env variable approach at the moment will just accept a single
-    /// server name. We need custom logic to either split a comma separated
-    /// env variable, or have a different env variable which supports multiple servers.
-    #[clap(long, num_args(0..), env = "CARBIDE_DHCP_SERVER")]
-    pub dhcp_server: Vec<String>,
-
-    /// Comma-separated list of route server IP addresses. Optional, only for L2VPN (Eth Virt).
-    #[clap(long, use_value_delimiter = true)]
-    pub route_servers: Vec<String>,
-
-    #[clap(
-        long,
-        env = "IDENTITY_PEMFILE_PATH",
-        default_value = "/opt/forge/server_identity.pem"
-    )]
-    pub identity_pemfile_path: String,
-
-    #[clap(
-        long,
-        env = "IDENTITY_KEYFILE_PATH",
-        default_value = "/opt/forge/server_identity.key"
-    )]
-    pub identity_keyfile_path: String,
-
-    #[clap(
-        long,
-        env = "ROOT_CA_FILE_PATH",
-        default_value = tls_default::ROOT_CA,
-    )]
-    pub root_cafile_path: String,
-
-    // TODO: cfg this out for release builds?
-    /// Enable permissive mode in the authorization enforcer (for development).
-    #[clap(long, default_value("true"), env = "AUTH_PERMISSIVE_MODE")]
-    pub auth_permissive_mode: bool,
-
-    /// The Casbin policy file (in CSV format).
-    #[clap(long, require_equals(true), env = "CASBIN_POLICY_FILE")]
-    pub casbin_policy_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Parser)]
