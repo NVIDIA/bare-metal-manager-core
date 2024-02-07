@@ -23,9 +23,7 @@ use crate::{
     db::{
         bmc_metadata::UserRoles,
         ib_partition,
-        instance::{
-            status::infiniband::update_instance_infiniband_status_observation, DeleteInstance,
-        },
+        instance::{DeleteInstance, Instance},
         machine::Machine,
         machine_topology::MachineTopology,
     },
@@ -1391,7 +1389,7 @@ async fn record_infiniband_status_observation(
             ib_interfaces: vec![],
             observed_at: Utc::now(),
         };
-        update_instance_infiniband_status_observation(txn, instance.instance_id, &status).await?;
+        Instance::update_infiniband_status_observation(txn, instance.instance_id, &status).await?;
 
         return Ok(());
     }
@@ -1453,7 +1451,7 @@ async fn record_infiniband_status_observation(
         ib_interfaces: ib_interfaces_status,
         observed_at: Utc::now(),
     };
-    update_instance_infiniband_status_observation(txn, instance.instance_id, &status).await?;
+    Instance::update_infiniband_status_observation(txn, instance.instance_id, &status).await?;
 
     Ok(())
 }
