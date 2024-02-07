@@ -101,11 +101,6 @@ pub enum CarbideError {
     #[error("Argument is invalid: {0}")]
     InvalidArgument(String),
 
-    // OLD, use DBError instead
-    #[error("Database Error: {2}. context={0}, query={1}.")]
-    DatabaseError(&'static str, &'static str, #[source] sqlx::Error),
-
-    // NEW
     #[error("{0}")]
     DBError(#[from] db::DatabaseError),
 
@@ -144,12 +139,6 @@ pub enum CarbideError {
 
     #[error("A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier")]
     IdentifierSpecifiedForNewObject(String),
-
-    #[error("A unique identifier was not specified for an existing object.  Please specify an identifier")]
-    IdentifierNotSpecifiedForObject,
-
-    #[error("The Domain name {0} contains illegal characters")]
-    InvalidDomainName(String),
 
     #[error("Only one interface per machine can be marked as primary")]
     OnePrimaryInterface,

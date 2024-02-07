@@ -53,7 +53,7 @@ async fn create_invalid_domain_case(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(domain, Err(CarbideError::InvalidDomainName(_))));
+    assert!(matches!(domain, Err(CarbideError::InvalidArgument(_))));
 }
 
 #[sqlx::test]
@@ -71,7 +71,7 @@ async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(domain, Err(CarbideError::InvalidDomainName(_))));
+    assert!(matches!(domain, Err(CarbideError::InvalidArgument(_))));
 }
 
 #[sqlx::test]

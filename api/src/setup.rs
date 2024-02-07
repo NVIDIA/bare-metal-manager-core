@@ -33,6 +33,7 @@ use crate::{
     api::Api,
     auth,
     cfg::CarbideConfig,
+    db::DatabaseError,
     db_init, ethernet_virtualization,
     ib::{self, IBFabricManager},
     ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl},
@@ -224,11 +225,11 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     let mut txn = db_pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin define resource pools", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin define resource pools", e))?;
     resource_pool::define_all_from(&mut txn, carbide_config.pools.as_ref().unwrap()).await?;
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit define resource pools", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit define resource pools", e))?;
 
     let common_pools = CommonPools::create(db_pool.clone()).await?;
 

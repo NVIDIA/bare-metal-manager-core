@@ -13,7 +13,7 @@
 use carbide::{
     db::{
         machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
-        network_segment::NetworkSegment,
+        network_segment::NetworkSegment, DatabaseError,
     },
     model::machine::machine_id::MachineId,
     state_controller::snapshot_loader::{
@@ -38,7 +38,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
     let mut txn = pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
 
     // Workaround to make the fixtures work from a different directory
     for fixture in &["create_domain", "create_vpc", "create_network_segment"] {
@@ -81,7 +81,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
     let mut txn = pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
     let (machine, _is_new) = Machine::get_or_create(&mut txn, &stable_machine_id, &iface)
         .await
         .unwrap();
@@ -104,22 +104,22 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
 
     let mut txn = pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
 
     MachineTopology::create_or_update(&mut txn, machine.id(), &hardware_info).await?;
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
 
     let mut txn = pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
 
     let snapshot_loader = DbSnapshotLoader {};
     let snapshot = snapshot_loader

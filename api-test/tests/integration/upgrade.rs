@@ -16,9 +16,11 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use carbide::db::machine::{Machine, MachineSearchConfig};
+use carbide::db::{
+    machine::{Machine, MachineSearchConfig},
+    DatabaseError,
+};
 use carbide::model::machine::machine_id::MachineId;
-use carbide::CarbideError;
 use sqlx::{Pool, Postgres};
 
 use crate::grpcurl::grpcurl;
@@ -60,7 +62,7 @@ pub async fn confirm_upgraded(db_pool: Pool<Postgres>, dpu_machine_id: &str) -> 
     let mut txn = db_pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin check needs_agent_upgrade", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin check needs_agent_upgrade", e))?;
     let machine = Machine::find_one(
         &mut txn,
         &MachineId::from_str(dpu_machine_id)?,
@@ -76,7 +78,7 @@ pub async fn confirm_upgraded(db_pool: Pool<Postgres>, dpu_machine_id: &str) -> 
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit check needs_agent_upgrade", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit check needs_agent_upgrade", e))?;
 
     Ok(())
 }
@@ -134,7 +136,7 @@ async fn mark_agent_for_upgrade(
     let mut txn = db_pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin check needs_agent_upgrade", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin check needs_agent_upgrade", e))?;
     Machine::set_dpu_agent_upgrade_requested(
         &mut txn,
         &MachineId::from_str(dpu_machine_id).unwrap(),
@@ -144,7 +146,7 @@ async fn mark_agent_for_upgrade(
     .await?;
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit check needs_agent_upgrade", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit check needs_agent_upgrade", e))?;
     Ok(())
 }
 

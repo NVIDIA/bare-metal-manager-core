@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 pub use ::rpc::forge as rpc;
 use mac_address::MacAddress;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response};
 
 use crate::{
     db::{
@@ -23,6 +23,7 @@ use crate::{
         instance::Instance,
         machine::Machine,
         machine_interface::MachineInterface,
+        DatabaseError,
     },
     dhcp::allocation::DhcpError,
     model::machine::machine_id::MachineId,
@@ -114,11 +115,11 @@ async fn handle_dhcp_for_instance(
 pub async fn discover_dhcp(
     database_connection: &sqlx::PgPool,
     request: Request<rpc::DhcpDiscovery>,
-) -> Result<Response<rpc::DhcpRecord>, Status> {
+) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
     let mut txn = database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_dhcp", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin discover_dhcp", e))?;
 
     let rpc::DhcpDiscovery {
         mac_address,
@@ -152,7 +153,7 @@ pub async fn discover_dhcp(
     {
         txn.commit()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_dhcp", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "commit discover_dhcp", e))?;
         return Ok(response);
     }
 
@@ -182,12 +183,12 @@ pub async fn discover_dhcp(
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_dhcp", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit discover_dhcp", e))?;
 
     let mut txn = database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin discover_dhcp 2", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin discover_dhcp 2", e))?;
 
     let record: rpc::DhcpRecord =
         DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id())
@@ -197,6 +198,6 @@ pub async fn discover_dhcp(
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit discover_dhcp 2", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit discover_dhcp 2", e))?;
     Ok(Response::new(record))
 }

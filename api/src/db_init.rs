@@ -22,7 +22,7 @@ use crate::{
         dpu_agent_upgrade_policy::DpuAgentUpgradePolicy,
         network_segment::{NetworkSegment, NewNetworkSegment},
         route_servers::RouteServer,
-        UuidKeyedObjectFilter,
+        DatabaseError, UuidKeyedObjectFilter,
     },
     model::{machine::upgrade_policy::AgentUpgradePolicy, network_segment::NetworkDefinition},
     CarbideError,
@@ -37,14 +37,14 @@ pub async fn create_initial_domain(
     let mut txn = db_pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_initial_domain", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin create_initial_domain", e))?;
     let domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
     if domains.is_empty() {
         let domain = NewDomain::new(domain_name);
         domain.persist_first(&mut txn).await?;
         txn.commit()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_initial_domain", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "commit create_initial_domain", e))?;
         Ok(true)
     } else {
         let names: Vec<String> = domains.into_iter().map(|d| d.name).collect();
@@ -70,7 +70,7 @@ pub async fn create_initial_networks<
     let mut txn = db_pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_initial_networks", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin create_initial_networks", e))?;
     let all_domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
     if all_domains.len() != 1 {
         // We only create initial networks if we only have a single domain - usually created
@@ -93,7 +93,7 @@ pub async fn create_initial_networks<
     }
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit create_initial_networks", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit create_initial_networks", e))?;
     Ok(())
 }
 
@@ -102,7 +102,7 @@ pub async fn create_initial_route_servers(
     carbide_config: &Arc<CarbideConfig>,
 ) -> Result<Vec<String>, CarbideError> {
     let mut txn = db_pool.begin().await.map_err(|e| {
-        CarbideError::DatabaseError(file!(), "begin create_initial_route_servers", e)
+        DatabaseError::new(file!(), line!(), "begin create_initial_route_servers", e)
     })?;
     let result = if carbide_config.enable_route_servers {
         let route_servers: Vec<IpAddr> = carbide_config
@@ -119,7 +119,7 @@ pub async fn create_initial_route_servers(
     };
 
     txn.commit().await.map_err(|e| {
-        CarbideError::DatabaseError(file!(), "commit create_initial_route_servers", e)
+        DatabaseError::new(file!(), line!(), "commit create_initial_route_servers", e)
     })?;
 
     Ok(result.into_iter().map(|rs| rs.to_string()).collect())
@@ -132,7 +132,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
     let mut txn = db_pool
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin agent upgrade policy", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin agent upgrade policy", e))?;
     let initial_policy: AgentUpgradePolicy = initial_dpu_agent_upgrade_policy
         .unwrap_or(super::cfg::AgentUpgradePolicyChoice::UpOnly)
         .into();
@@ -147,7 +147,7 @@ pub async fn store_initial_dpu_agent_upgrade_policy(
     }
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit agent upgrade policy", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit agent upgrade policy", e))?;
 
     Ok(())
 }

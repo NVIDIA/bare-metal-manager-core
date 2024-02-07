@@ -294,7 +294,7 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
         Ok(UpdateVpc {
             id: value
                 .id
-                .ok_or(CarbideError::IdentifierNotSpecifiedForObject)?
+                .ok_or(CarbideError::MissingArgument("id"))?
                 .try_into()?,
             if_version_match,
             name: value.name,
@@ -310,7 +310,7 @@ impl TryFrom<rpc::VpcDeletionRequest> for DeleteVpc {
         Ok(DeleteVpc {
             id: value
                 .id
-                .ok_or(CarbideError::IdentifierNotSpecifiedForObject)?
+                .ok_or(CarbideError::MissingArgument("id"))?
                 .try_into()?,
         })
     }
