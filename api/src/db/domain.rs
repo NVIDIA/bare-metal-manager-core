@@ -129,12 +129,12 @@ impl NewDomain {
                 sqlx::Error::Database(e)
                     if e.constraint() == Some(SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE) =>
                 {
-                    CarbideError::InvalidDomainName(String::from(&self.name))
+                    CarbideError::InvalidArgument("name".to_string())
                 }
                 sqlx::Error::Database(e)
                     if e.constraint() == Some(SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX) =>
                 {
-                    CarbideError::InvalidDomainName(String::from(&self.name))
+                    CarbideError::InvalidArgument("name".to_string())
                 }
                 e => CarbideError::from(DatabaseError::new(file!(), line!(), query, e)),
             })

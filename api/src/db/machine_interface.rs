@@ -391,12 +391,12 @@ impl MachineInterface {
         let mut inner_txn = txn
             .begin()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
         let query = "LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE";
         sqlx::query(query)
             .execute(&mut *inner_txn)
             .await
-            .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         let dhcp_handler = UsedAdminNetworkIpResolver {
             segment_id: segment.id,
@@ -427,7 +427,7 @@ impl MachineInterface {
                 {
                     CarbideError::OnePrimaryInterface
                 }
-                _ => CarbideError::from(DatabaseError::new(file!(), line!(), query, err)),
+                _ => DatabaseError::new(file!(), line!(), query, err).into(),
             })?;
 
         let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
@@ -437,13 +437,13 @@ impl MachineInterface {
                 .bind(address?)
                 .fetch_all(&mut *inner_txn)
                 .await
-                .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
+                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         }
 
         inner_txn
             .commit()
             .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
 
         Ok(
             MachineInterface::find_by(txn, ObjectFilter::One(interface_id.0.to_string()), "id")

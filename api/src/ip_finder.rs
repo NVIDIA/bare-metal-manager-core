@@ -102,7 +102,7 @@ where
         .database_connection
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin IP search", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin IP search", e))?;
 
     use Finder::*;
     let match_result = match finder {
@@ -251,9 +251,9 @@ where
     };
 
     // not strictly necessary, we could drop the txn and it would rollback
-    txn.commit().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(file!(), line!(), "commit IP search", e))
-    })?;
+    txn.commit()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit IP search", e))?;
 
     Ok(match_result)
 }

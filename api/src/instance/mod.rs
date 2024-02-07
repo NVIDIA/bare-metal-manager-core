@@ -15,13 +15,12 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     db::{
-        ib_partition,
-        ib_partition::{IBPartition, IBPartitionSearchConfig},
+        ib_partition::{self, IBPartition, IBPartitionSearchConfig},
         instance::{Instance, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
         network_segment::NetworkSegment,
-        UuidKeyedObjectFilter,
+        DatabaseError, UuidKeyedObjectFilter,
     },
     dhcp::allocation::DhcpError,
     model::{
@@ -34,8 +33,10 @@ use crate::{
             },
             snapshot::InstanceSnapshot,
         },
-        machine::machine_id::{try_parse_machine_id, MachineId},
-        machine::ManagedHostState,
+        machine::{
+            machine_id::{try_parse_machine_id, MachineId},
+            ManagedHostState,
+        },
         tenant::TenantOrganizationId,
         ConfigValidationError, RpcDataConversionError,
     },
@@ -109,7 +110,7 @@ pub async fn allocate_instance(
     let mut txn = database
         .begin()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "begin allocate_instance", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
 
     let tenant_config = request
         .config
@@ -242,7 +243,7 @@ pub async fn allocate_instance(
 
     txn.commit()
         .await
-        .map_err(|e| CarbideError::DatabaseError(file!(), "commit allocate_instance", e))?;
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit allocate_instance", e))?;
 
     Ok(snapshot)
 }

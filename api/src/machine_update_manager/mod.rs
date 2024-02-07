@@ -162,7 +162,12 @@ impl MachineUpdateManager {
         let mut current_updating_count = 0;
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::GenericError(format!("Failed to create transaction: {e}"))
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "begin MachineUpdateManager::run_single_iteration",
+                e,
+            )
         })?;
 
         if sqlx::query_scalar(MachineUpdateManager::DB_LOCK_QUERY)
@@ -220,7 +225,12 @@ impl MachineUpdateManager {
             }
 
             txn.commit().await.map_err(|e| {
-                CarbideError::GenericError(format!("Failed to create transaction: {e}"))
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "commit MachineUpdateManager::run_single_iteration",
+                    e,
+                )
             })?;
         }
         if let Some(metrics) = self.metrics.as_ref() {
