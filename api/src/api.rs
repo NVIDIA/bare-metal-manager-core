@@ -72,9 +72,7 @@ use crate::{
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         domain::Domain,
         domain::NewDomain,
-        instance::{
-            status::network::update_instance_network_status_observation, DeleteInstance, Instance,
-        },
+        instance::{DeleteInstance, Instance},
         machine::Machine,
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
@@ -982,7 +980,7 @@ where
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::DatabaseError(file!(), "begin record_observed_instance_network_status", e)
         })?;
-        update_instance_network_status_observation(&mut txn, instance_id, &observation)
+        Instance::update_network_status_observation(&mut txn, instance_id, &observation)
             .await
             .map_err(CarbideError::from)?;
         txn.commit().await.map_err(|e| {
@@ -1279,7 +1277,7 @@ where
                 return Err(CarbideError::MissingArgument("applied_config.instance_id").into());
             };
             let instance_id = Uuid::try_from(instance_id_rpc).map_err(CarbideError::from)?;
-            update_instance_network_status_observation(&mut txn, instance_id, &instance_obs)
+            Instance::update_network_status_observation(&mut txn, instance_id, &instance_obs)
                 .await
                 .map_err(CarbideError::from)?;
         }

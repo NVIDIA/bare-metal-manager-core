@@ -39,8 +39,6 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
-pub mod status;
-
 #[derive(Debug, Clone)]
 pub struct Instance {
     pub id: uuid::Uuid,
@@ -317,6 +315,70 @@ WHERE s.network_config->>'loopback_ip'=$1";
             Ok((_instance_id,)) => Ok(()),
             Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
         }
+    }
+
+    /// Updates the latest network status observation for an instance
+    pub async fn update_network_status_observation(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+        status: &InstanceNetworkStatusObservation,
+    ) -> Result<(), DatabaseError> {
+        // TODO: This might rather belong into the API layer
+        // We will move move it there once that code is in place
+        status.validate().map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "ioerror",
+                sqlx::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+        let query =
+            "UPDATE instances SET network_status_observation=$1::json where id = $2::uuid returning id";
+        let (_,): (uuid::Uuid,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(status))
+            .bind(instance_id)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    /// Updates the latest infiniband status observation for an instance
+    pub async fn update_infiniband_status_observation(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+        status: &InstanceInfinibandStatusObservation,
+    ) -> Result<(), DatabaseError> {
+        // TODO: This might rather belong into the API layer
+        // We will move move it there once that code is in place
+        status.validate().map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "ioerror",
+                sqlx::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+        let query =
+            "UPDATE instances SET ib_status_observation=$1::json where id = $2::uuid returning id";
+        let (_,): (uuid::Uuid,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(status))
+            .bind(instance_id)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 }
 

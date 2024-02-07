@@ -19,7 +19,7 @@ use ::rpc::forge::forge_server::Forge;
 use carbide::{
     db::{
         dhcp_record::InstanceDhcpRecord,
-        instance::{status::network::update_instance_network_status_observation, Instance},
+        instance::Instance,
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
         ObjectFilter,
@@ -592,7 +592,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
         observed_at: Utc::now(),
     };
 
-    update_instance_network_status_observation(&mut txn, instance_id, &updated_network_status)
+    Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
         .await
         .unwrap();
 
@@ -627,7 +627,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
 
     updated_network_status.interfaces[0].mac_address =
         Some(MacAddress::new([11, 12, 13, 14, 15, 16]).into());
-    update_instance_network_status_observation(&mut txn, instance_id, &updated_network_status)
+    Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
         .await
         .unwrap();
     let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -707,7 +707,7 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
             addresses: vec!["127.1.2.3".parse().unwrap()],
         });
 
-    update_instance_network_status_observation(&mut txn, instance_id, &updated_network_status)
+    Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
         .await
         .unwrap();
     let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
