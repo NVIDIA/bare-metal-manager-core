@@ -579,15 +579,31 @@ async fn test_site_explorer_creates_managed_host(
         host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
     };
 
-    let (dpu_machine, host_machine) = explorer
+    explorer
         .create_managed_host(&report, exploration_report)
         .await?;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_machine = Machine::find_one(
+        &mut txn,
+        report.machine_id.as_ref().unwrap(),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
             discovering_state: DpuDiscoveringState::Initializing,
         }
     );
+
+    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())
+        .await?
+        .unwrap();
     assert_eq!(
         host_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
@@ -609,7 +625,6 @@ async fn test_site_explorer_creates_managed_host(
     )
     .await;
 
-    let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
         .await
         .unwrap()
@@ -639,9 +654,9 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::Rebooting,
-        }
+        ManagedHostState::DPUNotReady {
+            machine_state: MachineState::Init,
+        },
     );
 
     let machine_interfaces = MachineInterface::find_by_mac_address(&mut txn, oob_mac).await?;
@@ -679,12 +694,7 @@ async fn test_site_explorer_creates_managed_host(
         .unwrap()
         .unwrap();
 
-    assert_eq!(
-        dpu_machine.current_state(),
-        ManagedHostState::DPUNotReady {
-            machine_state: MachineState::Init
-        }
-    );
+    assert!(dpu_machine.loopback_ip().is_some());
 
     let host_machine =
         Machine::find_one(&mut txn, host_machine.id(), MachineSearchConfig::default())
@@ -697,6 +707,18 @@ async fn test_site_explorer_creates_managed_host(
         ManagedHostState::DPUNotReady {
             machine_state: MachineState::Init
         }
+    );
+
+    let topologies =
+        MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine.id().clone()]).await?;
+    let topology = &topologies[dpu_machine.id()][0];
+    assert!(!topology.topology_update_needed());
+
+    let hardware_info = &topology.topology().discovery_data.info;
+    assert!(!hardware_info.block_devices.is_empty());
+    assert_eq!(
+        hardware_info.block_devices[0].model,
+        "Fake block device".to_string()
     );
 
     Ok(())

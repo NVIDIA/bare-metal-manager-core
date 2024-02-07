@@ -225,7 +225,6 @@ pub enum DpuDiscoveringState {
     /// Dpu discovery via redfish states
     Initializing,
     Configuring,
-    Rebooting,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

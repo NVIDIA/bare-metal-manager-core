@@ -36,9 +36,8 @@ use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    DpuDiscoveringState, FailureDetails, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineState, ManagedHostState, ReprovisionRequest,
-    UpgradeDecision,
+    FailureDetails, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineState,
+    ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::{CarbideError, CarbideResult};
 
@@ -463,51 +462,11 @@ impl Machine {
         // Get or create
         if existing_machine.is_some() {
             // New site-explorer redfish discovery path.
-
             let machine = existing_machine.unwrap();
             // Machine that is discovered via redfish, still considered as new for api to configure network.
-            let is_discovered_by_site_explorer = machine.state.value
-                == ManagedHostState::DpuDiscoveringState {
-                    discovering_state: DpuDiscoveringState::Rebooting,
-                };
-            tracing::info!(
-                "is_discovered_by_site_explorer: {}",
-                is_discovered_by_site_explorer
-            );
-            if is_discovered_by_site_explorer {
-                machine
-                    .advance(
-                        txn,
-                        ManagedHostState::DPUNotReady {
-                            machine_state: MachineState::Init,
-                        },
-                        Some(machine.state.version.increment()),
-                    )
-                    .await?;
-                let associated_host = machine.associated_host_machine_id.as_ref().ok_or(
-                    CarbideError::NotFoundError {
-                        kind: "associated_host",
-                        id: stable_machine_id.to_string(),
-                    },
-                )?;
-                let host_machine =
-                    Machine::find_one(&mut *txn, associated_host, MachineSearchConfig::default())
-                        .await?
-                        .ok_or(CarbideError::NotFoundError {
-                            kind: "associated_host",
-                            id: associated_host.to_string(),
-                        })?;
-                host_machine
-                    .advance(
-                        txn,
-                        ManagedHostState::DPUNotReady {
-                            machine_state: MachineState::Init,
-                        },
-                        Some(machine.state.version.increment()),
-                    )
-                    .await?;
-            }
-            Ok((machine, is_discovered_by_site_explorer))
+            let is_new = machine.network_config().loopback_ip.is_none();
+
+            Ok((machine, is_new))
         } else {
             // Old manual discovery path.
             // Host and DPU machines are created in same `discover_machine` call. Update same

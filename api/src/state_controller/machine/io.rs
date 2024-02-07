@@ -109,7 +109,6 @@ impl StateControllerIO for MachineStateControllerIO {
             match discovering_state {
                 DpuDiscoveringState::Initializing => "dpuinitializing",
                 DpuDiscoveringState::Configuring => "dpuconfiguring",
-                DpuDiscoveringState::Rebooting => "dpurebooting",
             }
         }
 
@@ -168,7 +167,6 @@ impl StateControllerIO for MachineStateControllerIO {
                     DpuDiscoveringState::Initializing | DpuDiscoveringState::Configuring => {
                         time_in_state > std::time::Duration::from_secs(30 * 60)
                     }
-                    DpuDiscoveringState::Rebooting => false,
                 }
             }
             ManagedHostState::DPUNotReady { machine_state } => {
