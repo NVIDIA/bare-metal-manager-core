@@ -109,7 +109,7 @@ impl TestEnv {
     /// Creates an instance of StateHandlerServices that are suitable for this
     /// test environment
     pub fn state_handler_services(&self) -> StateHandlerServices {
-        let config = get_config();
+        let config = Arc::new(get_config());
 
         let forge_api = Arc::new(Api::new(
             config,
@@ -364,7 +364,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         .await
         .expect("Creating pools should work");
 
-    let config = get_config();
+    let config = Arc::new(get_config());
 
     let api = Api::new(
         config,

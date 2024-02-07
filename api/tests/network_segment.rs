@@ -390,7 +390,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     ]);
 
     // Create them the first time, they should exist
-    env.api.create_initial_networks(&networks).await?;
+    carbide::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
 
     let mut txn = db_pool.begin().await?;
     let admin = NetworkSegment::find_by_name(&mut txn, "admin").await?;
@@ -410,7 +410,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
         .await?
         .len();
     txn.commit().await?;
-    env.api.create_initial_networks(&networks).await?;
+    carbide::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
     let mut txn = db_pool.begin().await?;
     let num_after = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::All, search_cfg)
         .await?
