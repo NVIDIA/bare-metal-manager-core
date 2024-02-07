@@ -8,12 +8,24 @@ The instructions below show how to configure kubectl for remote access through a
 3. the jump host has a socks proxy running on port 8080
 
 ## Context Setup
+
+### Use SRE Config
+Pull the latest config from vault:
+```
+vault kv get -field=kubeconf secrets/sre/configs/ | base64 -d > kube-prod.config
+```
+copy the config to, or merge it with, `~/.kube/config`
+
+#### minikube use
+If you use minikube locally, it is not included in the config provided in vault, but minikube will add it automatically when started.  don't replace the config will minikube is running unless you're going to manually merge them
+
+### Manual Config Merge
 1. Get the config from the site control node.
 	1. ssh to the control node
 	2. copy the config from /etc/kubernetes/admin.conf to your local working directory (I just copy and paste)
 2. edit temp file.  in the `- cluster` section
 	1. change "server" from localhost to actual control node ip.
-	2. add `proxy-url: socks5://localhost:8080`  (same level as `server`)
+	2. add `proxy-url: socks5://localhost:8888`  (same level as `server`)
 	3. change name from kubernetes (which may conflict with other configs)
 	4. change `cluster` in `- context` to match the cluster name (from previous step)
 	5. change the user to something unique:  
@@ -26,9 +38,9 @@ The instructions below show how to configure kubectl for remote access through a
 	1. `KUBECONFIG=./dev3.conf:./local.conf kubectl config view --merge --flatten > all-kube.config`
 2. Verify that the output config is has all the clusters with unique names.
 3. Copy the new config back to ~/.kube/config
-4. Port forward 8080 to the jumphost
-	1. `ssh -ND 8080 renojump`
-	2. this is the same local port as used in the socks proxy config.  any port can be used as long as they match
+4. Port forward 8888 to the jumphost
+	1. `ssh -ND 8888 renojump`
+	2. this is the same local port as used in the kube config.  any port can be used as long as they match
 
 ## Example Usage
 ```
