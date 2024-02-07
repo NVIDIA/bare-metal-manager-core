@@ -14,7 +14,7 @@ FROM debian:bookworm-slim as carbide
 RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
   mkdir -p /opt/carbide/static && \
-  mkdir -p /forge-boot-artifacts/blobs
+  mkdir -p /forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/
 
 # This is required for kea pid file
 RUN mkdir -p /var/run/kea

@@ -17,6 +17,7 @@ use std::net::IpAddr;
 use tonic::Request;
 
 use carbide::{
+    cfg::DpuFwUpdateConfig,
     db::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
@@ -60,7 +61,12 @@ pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
 ///
 /// Returns the ID of the created machine
 pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) -> rpc::MachineId {
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
 
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(env, host_config).await;
@@ -129,7 +135,12 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     let machine_interface_id =
         dpu_discover_dhcp(env, &host_config.dpu_oob_mac_address.to_string()).await;
     let dpu_rpc_machine_id = dpu_discover_machine(env, host_config, machine_interface_id).await;
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
 
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
@@ -386,7 +397,12 @@ pub async fn create_dpu_machine_with_discovery_error(
     let machine_interface_id =
         dpu_discover_dhcp(env, &host_config.dpu_oob_mac_address.to_string()).await;
     let dpu_machine_id = dpu_discover_machine(env, host_config, machine_interface_id).await;
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
 
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();

@@ -18,6 +18,7 @@ use std::{
 use crate::common::api_fixtures::instance::create_instance_with_config;
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
+    cfg::DpuFwUpdateConfig,
     db::{
         dhcp_record::InstanceDhcpRecord,
         instance::Instance,
@@ -42,8 +43,7 @@ use carbide::{
                 SyncState,
             },
         },
-        machine::machine_id::try_parse_machine_id,
-        machine::{InstanceState, ManagedHostState},
+        machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
     },
     state_controller::{
         machine::handler::MachineStateHandler,
@@ -1116,7 +1116,12 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
         .await
         .expect("Delete instance failed.");
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     let mut iteration_metrics = IterationMetrics::default();

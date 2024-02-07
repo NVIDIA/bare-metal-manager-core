@@ -109,6 +109,7 @@ impl StateControllerIO for MachineStateControllerIO {
             match discovering_state {
                 DpuDiscoveringState::Initializing => "dpuinitializing",
                 DpuDiscoveringState::Configuring => "dpuconfiguring",
+                DpuDiscoveringState::BmcFirmwareUpdate { .. } => "dpubmcfirmwareupdate",
             }
         }
 
@@ -165,6 +166,9 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::DpuDiscoveringState { discovering_state } => {
                 match discovering_state {
                     DpuDiscoveringState::Initializing | DpuDiscoveringState::Configuring => {
+                        time_in_state > std::time::Duration::from_secs(30 * 60)
+                    }
+                    DpuDiscoveringState::BmcFirmwareUpdate { .. } => {
                         time_in_state > std::time::Duration::from_secs(30 * 60)
                     }
                 }

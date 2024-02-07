@@ -220,10 +220,32 @@ pub struct FailureDetails {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "bmcfirmwaretype", rename_all = "lowercase")]
+pub enum FirmwareType {
+    Bmc,
+    Cec,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "bmcfirmwareupdatesubstate", rename_all = "lowercase")]
+pub enum BmcFirmwareUpdateSubstate {
+    WaitForUpdateCompletion {
+        firmware_type: FirmwareType,
+        task_id: String,
+    },
+    Reboot {
+        count: u32,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "dpudiscoverystate", rename_all = "lowercase")]
 pub enum DpuDiscoveringState {
     /// Dpu discovery via redfish states
     Initializing,
+    BmcFirmwareUpdate {
+        substate: BmcFirmwareUpdateSubstate,
+    },
     Configuring,
 }
 
@@ -326,6 +348,21 @@ impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateStatus {
             trigger_received_at: Some(value.requested_at.into()),
             update_triggered_at: value.started_at.map(|x| x.into()),
             user_approval_received: value.user_approval_received,
+        }
+    }
+}
+
+impl Display for FirmwareType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl FirmwareType {
+    pub fn get_inventory_name(&self) -> &str {
+        match self {
+            FirmwareType::Bmc => "BMC_Firmware",
+            FirmwareType::Cec => "Bluefield_FW_ERoT",
         }
     }
 }

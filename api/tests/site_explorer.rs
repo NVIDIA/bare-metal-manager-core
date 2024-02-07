@@ -18,7 +18,7 @@ use std::{
 };
 
 use carbide::{
-    cfg::SiteExplorerConfig,
+    cfg::{DpuFwUpdateConfig, SiteExplorerConfig},
     db::{
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
@@ -34,10 +34,7 @@ use carbide::{
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
-    state_controller::{
-        machine::handler::MachineStateHandler, metrics::IterationMetrics,
-        network_segment::handler::NetworkSegmentStateHandler,
-    },
+    state_controller::{machine::handler::MachineStateHandler, metrics::IterationMetrics},
 };
 use mac_address::MacAddress;
 use rpc::{
@@ -47,83 +44,17 @@ use rpc::{
 };
 
 mod common;
-use common::{api_fixtures::TestEnv, network_segment::FIXTURE_CREATED_DOMAIN_UUID};
+use common::api_fixtures::TestEnv;
 use tonic::Request;
 
-use crate::common::api_fixtures::run_state_controller_iteration;
+use crate::common::api_fixtures::{
+    network_segment::{create_admin_network_segment, create_underlay_network_segment},
+    run_state_controller_iteration,
+};
 
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
-}
-
-async fn create_network_segment(
-    env: &TestEnv,
-    name: &str,
-    prefix: &str,
-    gateway: &str,
-    segment_type: rpc::forge::NetworkSegmentType,
-) -> uuid::Uuid {
-    let request = rpc::forge::NetworkSegmentCreationRequest {
-        id: None,
-        mtu: Some(1500),
-        name: name.to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
-            id: None,
-            prefix: prefix.to_string(),
-            gateway: Some(gateway.to_string()),
-            reserve_first: 1,
-            state: None,
-            events: vec![],
-            circuit_id: None,
-        }],
-        subdomain_id: Some(FIXTURE_CREATED_DOMAIN_UUID.into()),
-        vpc_id: None,
-        segment_type: segment_type as _,
-    };
-
-    let response = env
-        .api
-        .create_network_segment(tonic::Request::new(request))
-        .await
-        .expect("Unable to create network segment")
-        .into_inner();
-    let segment_id: uuid::Uuid = response.id.unwrap().try_into().unwrap();
-
-    // Get the segment into ready state
-    let handler = NetworkSegmentStateHandler::new(
-        chrono::Duration::milliseconds(500),
-        env.common_pools.ethernet.pool_vlan_id.clone(),
-        env.common_pools.ethernet.pool_vni.clone(),
-    );
-    env.run_network_segment_controller_iteration(segment_id, &handler)
-        .await;
-    env.run_network_segment_controller_iteration(segment_id, &handler)
-        .await;
-
-    segment_id
-}
-
-async fn create_underlay_network_segment(env: &TestEnv) -> uuid::Uuid {
-    create_network_segment(
-        env,
-        "UNDERLAY",
-        "192.0.1.0/24",
-        "192.0.1.1",
-        rpc::forge::NetworkSegmentType::Underlay,
-    )
-    .await
-}
-
-async fn create_admin_network_segment(env: &TestEnv) -> uuid::Uuid {
-    create_network_segment(
-        env,
-        "ADMIN",
-        "192.0.2.0/24",
-        "192.0.2.1",
-        rpc::forge::NetworkSegmentType::Admin,
-    )
-    .await
 }
 
 struct FakeMachine {
@@ -736,14 +667,18 @@ async fn test_site_explorer_creates_managed_host(
             discovering_state: DpuDiscoveringState::Initializing,
         }
     );
-    assert_eq!(host_machine.bmc_info().ip, None);
-    assert_eq!(host_machine.hardware_info(), None);
+    assert!(host_machine.bmc_info().ip.is_some());
 
     // 2nd creation does nothing
     assert!(!SiteExplorer::create_machine_pair(&dpu_report, &exploration_report, &env.pool).await?);
 
     // Run ManagedHost state iteration
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(1), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(1),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(

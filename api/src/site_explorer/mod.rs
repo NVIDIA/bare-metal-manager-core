@@ -465,6 +465,28 @@ impl SiteExplorer {
         machine_interface
             .associate_interface_with_machine(&mut txn, host_machine.id())
             .await?;
+        let host_hardware_info = HardwareInfo::default();
+        let _topology =
+            MachineTopology::create_or_update(&mut txn, &predicted_machine_id, &host_hardware_info)
+                .await?;
+
+        // Forge scout will update this topology with a full information.
+        MachineTopology::set_topology_update_needed(&mut txn, &predicted_machine_id, true).await?;
+
+        let host_bmc_info = BmcInfo {
+            ip: Some(explored_host.host_bmc_ip.to_string()),
+            ..Default::default()
+        };
+
+        let host_bmc_metadata = BmcMetaDataUpdateRequest {
+            machine_id: predicted_machine_id.clone(),
+            bmc_info: host_bmc_info,
+            data: Vec::new(),
+        };
+
+        host_bmc_metadata
+            .update_bmc_network_into_topologies(&mut txn)
+            .await?;
 
         txn.commit()
             .await

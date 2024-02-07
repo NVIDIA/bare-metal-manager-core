@@ -13,6 +13,7 @@
 //! Contains host related fixtures
 
 use carbide::{
+    cfg::DpuFwUpdateConfig,
     db::machine_interface::MachineInterface,
     model::{
         hardware_info::HardwareInfo,
@@ -153,7 +154,12 @@ pub async fn create_host_machine(
 
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();

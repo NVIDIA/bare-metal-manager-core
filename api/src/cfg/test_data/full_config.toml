@@ -92,3 +92,8 @@ max_concurrency = 888
 iteration_time = "7m"
 max_object_handling_time = "77s"
 max_concurrency = 777
+
+[dpu_fw_update_config]
+dpu_bf3_bmc_firmware_update_version = { "BMC_Firmware" = "23.10-5", "Bluefield_FW_ERoT" = "02.0152.0000" }
+dpu_bf2_bmc_firmware_update_version = { "BMC_Firmware" = "23.10-5", "Bluefield_FW_ERoT" = "02.0152.0000" }
+firmware_location = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/"

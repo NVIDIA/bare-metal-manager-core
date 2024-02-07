@@ -19,8 +19,8 @@ use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use http::StatusCode;
 use libredfish::{
-    model::task::Task, standard::RedfishStandard, Endpoint, PowerState, Redfish, RedfishError,
-    RoleId,
+    model::task::Task, standard::RedfishStandard, Chassis, Endpoint, PowerState, Redfish,
+    RedfishError, RoleId,
 };
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
@@ -491,22 +491,43 @@ impl Redfish for RedfishSimClient {
         &self,
         _firmware: tokio::fs::File,
     ) -> Result<libredfish::model::task::Task, RedfishError> {
-        todo!()
+        Ok(serde_json::from_str(
+            "{
+            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+            \"@odata.type\": \"#Task.v1_4_3.Task\",
+            \"Id\": \"0\"
+            }",
+        )
+        .unwrap())
     }
 
     async fn get_task(&self, _id: &str) -> Result<libredfish::model::task::Task, RedfishError> {
-        todo!()
+        Ok(serde_json::from_str(
+            "{
+            \"@odata.id\": \"/redfish/v1/TaskService/Tasks/0\",
+            \"@odata.type\": \"#Task.v1_4_3.Task\",
+            \"Id\": \"0\",
+            \"PercentComplete\": 100,
+            \"StartTime\": \"2024-01-30T09:00:52+00:00\",
+            \"TaskMonitor\": \"/redfish/v1/TaskService/Tasks/0/Monitor\",
+            \"TaskState\": \"Completed\",
+            \"TaskStatus\": \"OK\"
+            }",
+        )
+        .unwrap())
     }
 
     async fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
         todo!()
     }
 
-    async fn get_chassis(
-        &self,
-        _id: &str,
-    ) -> Result<libredfish::model::chassis::Chassis, RedfishError> {
-        todo!()
+    async fn get_chassis(&self, _id: &str) -> Result<Chassis, RedfishError> {
+        Ok(Chassis {
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            name: Some("Card1".to_string()),
+            ..Default::default()
+        })
     }
 
     async fn get_chassis_network_adapters(
