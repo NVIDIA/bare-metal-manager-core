@@ -181,9 +181,7 @@ service Forge {
   // Get Network topology
   rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
 
-  // BMC Machine actions
-
-  // Reset a BMC machine
+  // Reset a BMC
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
 
   // Create Credential in Vault
