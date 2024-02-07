@@ -93,6 +93,9 @@ impl SpiffeId {
         if id.is_empty() {
             return Err(SpiffeIdError::Empty);
         }
+        if id.len() < SCHEME_PREFIX.len() {
+            return Err(SpiffeIdError::WrongScheme);
+        }
 
         if &id[..SCHEME_PREFIX.len()] != SCHEME_PREFIX {
             return Err(SpiffeIdError::WrongScheme);
@@ -472,6 +475,7 @@ mod spiffe_id_tests {
 
     spiffe_id_error_tests! {
         from_empty_str: ("", SpiffeIdError::Empty),
+        from_short_invalid_str: ("spif", SpiffeIdError::WrongScheme),
         from_str_invalid_uri_str_contains_ip_address: (
             "192.168.2.2:6688",
             SpiffeIdError::WrongScheme,
