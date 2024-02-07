@@ -77,9 +77,13 @@
   <tr>
     <td>IB Fabric</td>
     <td>
-      {% match carbide_config.enable_ib_fabric %}
-        {% when Some with (true) %}
-          Enabled
+      {% match carbide_config.ib_config %}
+        {% when Some with (config) %}
+          {% if config.enabled %}
+            Enabled
+          {% else %}
+            Disabled
+          {% endif %}
         {% else %}
           Disabled
       {% endmatch %}</td></tr>

@@ -16,9 +16,11 @@ use std::{collections::HashMap, fmt::Display};
 
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
+
+const MAX_IB_PARTITION_PER_TENANT: i32 = 3;
 
 /// carbide-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -37,8 +39,8 @@ pub struct CarbideConfig {
     /// A connection string for the utilized postgres database
     pub database_url: String,
 
-    /// Enable IB fabric manager
-    pub enable_ib_fabric: Option<bool>,
+    /// IB fabric related configuration
+    pub ib_config: Option<IBFabricConfig>,
 
     /// Set shorter timeouts and run background jobs more often. Appropriate
     /// for local development.
@@ -127,6 +129,43 @@ pub struct CarbideConfig {
     /// Enable DHCP server on DPU to serve host.
     #[serde(default)]
     pub dpu_dhcp_server_enabled: bool,
+}
+
+/// IBFabricManager related configuration
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct IBFabricConfig {
+    #[serde(
+        default = "IBFabricConfig::default_max_partition_per_tenant",
+        deserialize_with = "IBFabricConfig::deserialize_max_partition"
+    )]
+    pub max_partition_per_tenant: i32,
+
+    // If ib_fabrics is configured in 'site.toml', it's enabled by default.
+    #[serde(default = "IBFabricConfig::enable_ib_fabric")]
+    /// Enable IB fabric
+    pub enabled: bool,
+}
+
+impl IBFabricConfig {
+    pub fn enable_ib_fabric() -> bool {
+        true
+    }
+
+    pub fn default_max_partition_per_tenant() -> i32 {
+        MAX_IB_PARTITION_PER_TENANT
+    }
+
+    pub fn deserialize_max_partition<'de, D>(deserializer: D) -> Result<i32, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let max_pkey = i32::deserialize(deserializer)?;
+
+        match max_pkey {
+            1..=31 => Ok(max_pkey),
+            _ => Err(serde::de::Error::custom("invalid max partition per tenant")),
+        }
+    }
 }
 
 /// SiteExplorer related configuration
@@ -231,7 +270,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .map(|x| x.to_string())
                 .unwrap_or("NA".to_string()),
             database_url: value.database_url,
-            enable_ip_fabric: value.enable_ib_fabric.unwrap_or_default(),
+            enable_ip_fabric: value.ib_config.unwrap_or_default().enabled,
             rapid_iterations: value.rapid_iterations,
             asn: value.asn,
             dhcp_servers: value.dhcp_servers,

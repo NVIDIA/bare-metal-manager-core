@@ -25,8 +25,7 @@ use carbide::{
     cfg::CarbideConfig,
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
-    ib,
-    ib::{IBFabricManager, IBFabricManagerType},
+    ib::{self, IBFabricManager, IBFabricManagerConfig, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     model::{
         config_version::ConfigVersion,
@@ -300,7 +299,6 @@ fn get_config() -> CarbideConfig {
         metrics_endpoint: None,
         otlp_endpoint: None,
         database_url: "pgsql:://localhost".to_string(),
-        enable_ib_fabric: None,
         rapid_iterations: true,
         asn: 0,
         dhcp_servers: vec![],
@@ -328,6 +326,7 @@ fn get_config() -> CarbideConfig {
         machine_update_run_interval: None,
         site_explorer: None,
         dpu_dhcp_server_enabled: false,
+        ib_config: None,
     }
 }
 
@@ -340,8 +339,13 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let credential_provider = Arc::new(TestCredentialProvider::new());
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
-    let ib_fabric_manager_impl =
-        ib::create_ib_fabric_manager(credential_provider.clone(), IBFabricManagerType::Mock);
+    let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
+        credential_provider.clone(),
+        IBFabricManagerConfig {
+            manager_type: IBFabricManagerType::Mock,
+            ..IBFabricManagerConfig::default()
+        },
+    );
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
