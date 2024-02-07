@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::cfg;
 use crate::CarbideError;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 
@@ -31,22 +32,39 @@ pub mod types;
 
 pub const DEFAULT_IB_FABRIC_NAME: &str = "ib_default";
 
+#[derive(Clone, Default)]
 pub enum IBFabricManagerType {
+    #[default]
     Disable,
     Mock,
     Rest,
 }
 
 pub struct IBFabricManagerImpl<C> {
-    manager_type: IBFabricManagerType,
+    config: IBFabricManagerConfig,
     credential_provider: Arc<C>,
     mock_fabric: Arc<dyn IBFabric>,
     disable_fabric: Arc<dyn IBFabric>,
 }
 
+#[derive(Clone)]
+pub struct IBFabricManagerConfig {
+    pub manager_type: IBFabricManagerType,
+    pub max_partition_per_tenant: i32,
+}
+
+impl Default for IBFabricManagerConfig {
+    fn default() -> Self {
+        IBFabricManagerConfig {
+            manager_type: IBFabricManagerType::default(),
+            max_partition_per_tenant: cfg::IBFabricConfig::default_max_partition_per_tenant(),
+        }
+    }
+}
+
 pub fn create_ib_fabric_manager<C: CredentialProvider + 'static>(
     credential_provider: Arc<C>,
-    manager_type: IBFabricManagerType,
+    config: IBFabricManagerConfig,
 ) -> IBFabricManagerImpl<C> {
     let mock_fabric = Arc::new(mock::MockIBFabric {
         ibsubnets: Arc::new(Mutex::new(HashMap::new())),
@@ -57,7 +75,7 @@ pub fn create_ib_fabric_manager<C: CredentialProvider + 'static>(
 
     IBFabricManagerImpl {
         credential_provider,
-        manager_type,
+        config,
         mock_fabric,
         disable_fabric,
     }
@@ -65,8 +83,12 @@ pub fn create_ib_fabric_manager<C: CredentialProvider + 'static>(
 
 #[async_trait]
 impl<C: CredentialProvider + 'static> IBFabricManager for IBFabricManagerImpl<C> {
+    fn get_config(&self) -> IBFabricManagerConfig {
+        self.config.clone()
+    }
+
     async fn connect(&self, fabric_name: String) -> Result<Arc<dyn IBFabric>, CarbideError> {
-        match self.manager_type {
+        match self.config.manager_type {
             IBFabricManagerType::Disable => Ok(self.disable_fabric.clone()),
             IBFabricManagerType::Mock => Ok(self.mock_fabric.clone()),
             IBFabricManagerType::Rest => {

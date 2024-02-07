@@ -233,13 +233,19 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
 
     let common_pools = CommonPools::create(db_pool.clone()).await?;
 
-    let fabric_manager_type = match carbide_config.enable_ib_fabric.unwrap_or(false) {
+    let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
+    let fabric_manager_type = match ib_config.enabled {
         true => ib::IBFabricManagerType::Rest,
         false => ib::IBFabricManagerType::Disable,
     };
 
-    let ib_fabric_manager_impl =
-        ib::create_ib_fabric_manager(credential_provider.clone(), fabric_manager_type);
+    let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
+        credential_provider.clone(),
+        ib::IBFabricManagerConfig {
+            manager_type: fabric_manager_type,
+            max_partition_per_tenant: ib_config.max_partition_per_tenant,
+        },
+    );
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 

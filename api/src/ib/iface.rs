@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::ib::types::{IBNetwork, IBPort};
+use crate::ib::IBFabricManagerConfig;
 use crate::CarbideError;
 
 #[derive(Default)]
@@ -25,6 +26,7 @@ pub struct Filter {
 #[async_trait]
 pub trait IBFabricManager: Send + Sync {
     async fn connect(&self, fabric_name: String) -> Result<Arc<dyn IBFabric>, CarbideError>;
+    fn get_config(&self) -> IBFabricManagerConfig;
 }
 
 #[async_trait]

@@ -106,8 +106,6 @@ const FORGE_SITE_WIDE_BMC_USERNAME: &str = "root";
 // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 
-pub const MAX_IB_PARTITION_PER_TENANT: i64 = 3;
-
 pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) database_connection: sqlx::PgPool,
     credential_provider: Arc<C1>,
@@ -544,7 +542,10 @@ where
 
         let mut resp = NewIBPartition::try_from(req.into_inner())?;
         resp.config.pkey = self.allocate_pkey(&mut txn, &resp.config.name).await?;
-        let resp = resp.create(&mut txn).await.map_err(CarbideError::from)?;
+        let resp = resp
+            .create(&mut txn, &self.ib_fabric_manager.get_config())
+            .await
+            .map_err(CarbideError::from)?;
         let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
 
         txn.commit().await.map_err(|e| {

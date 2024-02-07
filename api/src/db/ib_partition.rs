@@ -23,12 +23,12 @@ use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ib::IBFabricManagerConfig;
 use crate::model::hardware_info::InfinibandInterface;
 use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
 use crate::{
-    api::MAX_IB_PARTITION_PER_TENANT,
     db::{DatabaseError, UuidKeyedObjectFilter},
     model::config_version::{ConfigVersion, Versioned},
     model::ib_partition::{
@@ -267,6 +267,7 @@ impl NewIBPartition {
     pub async fn create(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
+        ib_fabric_config: &IBFabricManagerConfig,
     ) -> Result<IBPartition, DatabaseError> {
         let version = ConfigVersion::initial();
         let version_string = version.version_string();
@@ -298,7 +299,7 @@ impl NewIBPartition {
             .bind(&version_string)
             .bind(&version_string)
             .bind(sqlx::types::Json(state))
-            .bind(MAX_IB_PARTITION_PER_TENANT)
+            .bind(ib_fabric_config.max_partition_per_tenant)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

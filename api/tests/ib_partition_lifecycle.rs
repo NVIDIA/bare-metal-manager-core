@@ -11,8 +11,7 @@
  */
 
 use carbide::{
-    api::rpc::IbPartitionConfig, api::rpc::IbPartitionSearchConfig,
-    api::MAX_IB_PARTITION_PER_TENANT,
+    api::rpc::IbPartitionConfig, api::rpc::IbPartitionSearchConfig, cfg::IBFabricConfig,
     state_controller::ib_partition::handler::IBPartitionStateHandler,
 };
 
@@ -162,7 +161,7 @@ async fn test_create_ib_partition_over_max_limit(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
     // create max number of ib partitions for the tenant
-    for _i in 1..=MAX_IB_PARTITION_PER_TENANT {
+    for _i in 1..=IBFabricConfig::default_max_partition_per_tenant() {
         let _ =
             create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
                 .await?;
