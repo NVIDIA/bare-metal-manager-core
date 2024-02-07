@@ -39,6 +39,7 @@ pub mod auth;
 pub mod cfg;
 pub mod credentials;
 pub mod db;
+pub mod db_init;
 mod dhcp;
 pub mod ethernet_virtualization;
 mod human_hash;
@@ -348,7 +349,7 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    api::Api::start(
+    setup::start_api(
         carbide_config,
         forge_vault_client.clone(),
         forge_vault_client,

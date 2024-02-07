@@ -178,10 +178,10 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
         version: forge_version::v!(build_version),
         eth_data: state.eth_data.clone(),
         dpu_nic_firmware_initial_update_enabled: state
-            .machine_update_config
+            .runtime_config
             .dpu_nic_firmware_initial_update_enabled,
         dpu_nic_firmware_reprovision_update_enabled: state
-            .machine_update_config
+            .runtime_config
             .dpu_nic_firmware_reprovision_update_enabled,
 
         agent_upgrade_policy,

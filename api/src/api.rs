@@ -16,10 +16,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use chrono::Duration;
 use itertools::Itertools;
-use sqlx::postgres::PgSslMode;
-use sqlx::{ConnectOptions, Pool, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -46,12 +44,9 @@ use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
-use crate::ib::{self, IBFabricManager, DEFAULT_IB_FABRIC_NAME};
+use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
-use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
-use crate::listener;
-use crate::machine_update_manager::MachineUpdateManager;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
@@ -61,7 +56,7 @@ use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, InstanceState, ManagedHostState, ReprovisionState,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkTopologyData};
-use crate::model::network_segment::{NetworkDefinition, NetworkSegmentControllerState};
+use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
     UpdateTenantKeyset,
@@ -69,8 +64,6 @@ use crate::model::tenant::{
 use crate::model::RpcDataConversionError;
 use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
-use crate::site_explorer::{RedfishEndpointExplorer, SiteExplorer};
-use crate::state_controller::controller::ReachabilityParams;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
 use crate::{
     auth,
@@ -93,23 +86,13 @@ use crate::{
     },
     ethernet_virtualization,
     instance::{allocate_instance, InstanceAllocationRequest},
-    logging::service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
     model::{
         hardware_info::{HardwareInfo, MachineInventory},
         instance::status::network::InstanceNetworkStatusObservation,
         machine::{machine_id::MachineId, MachineState},
     },
-    redfish::{RedfishClientPool, RedfishClientPoolImpl},
-    state_controller::{
-        controller::StateController,
-        ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
-        machine::handler::MachineStateHandler,
-        machine::io::MachineStateControllerIO,
-        network_segment::{
-            handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
-        },
-        snapshot_loader::DbSnapshotLoader,
-    },
+    redfish::RedfishClientPool,
+    state_controller::snapshot_loader::DbSnapshotLoader,
     CarbideError, CarbideResult,
 };
 
@@ -134,14 +117,8 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     redfish_pool: Arc<dyn RedfishClientPool>,
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
-    pub(crate) machine_update_config: MachineUpdateConfig,
     ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub(crate) runtime_config: Arc<CarbideConfig>,
-}
-
-pub struct MachineUpdateConfig {
-    pub dpu_nic_firmware_initial_update_enabled: bool,
-    pub dpu_nic_firmware_reprovision_update_enabled: bool,
 }
 
 #[tonic::async_trait]
@@ -2842,10 +2819,7 @@ where
 
                 // we update DPU firmware on first boot every time (determined by a missing machine id) or during reprovisioning.
                 let update_firmware = match &machine_interface.machine_id {
-                    None => {
-                        self.machine_update_config
-                            .dpu_nic_firmware_initial_update_enabled
-                    }
+                    None => self.runtime_config.dpu_nic_firmware_initial_update_enabled,
                     Some(machine_id) => {
                         let machine =
                             Machine::find_one(&mut txn, machine_id, MachineSearchConfig::default())
@@ -4314,7 +4288,7 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        config: CarbideConfig,
+        config: Arc<CarbideConfig>,
         credential_provider: Arc<C1>,
         certificate_provider: Arc<C2>,
         database_connection: sqlx::PgPool,
@@ -4330,359 +4304,9 @@ where
             redfish_pool,
             eth_data,
             common_pools,
-            machine_update_config: MachineUpdateConfig {
-                dpu_nic_firmware_initial_update_enabled: config
-                    .dpu_nic_firmware_initial_update_enabled,
-                dpu_nic_firmware_reprovision_update_enabled: config
-                    .dpu_nic_firmware_reprovision_update_enabled,
-            },
             ib_fabric_manager,
-            runtime_config: Arc::new(config),
+            runtime_config: config,
         }
-    }
-
-    #[tracing::instrument(skip_all)]
-    pub async fn start(
-        carbide_config: Arc<CarbideConfig>,
-        credential_provider: Arc<C1>,
-        certificate_provider: Arc<C2>,
-        meter: opentelemetry::metrics::Meter,
-        ipmi_tool: Arc<dyn IPMITool>,
-    ) -> eyre::Result<()> {
-        let service_config = if carbide_config.rapid_iterations {
-            tracing::info!("Running with rapid iterations for local development");
-            ServiceConfig::for_local_development()
-        } else {
-            ServiceConfig::default()
-        };
-
-        let rf_pool = libredfish::RedfishClientPool::builder()
-            .build()
-            .map_err(CarbideError::from)?;
-        let redfish_pool = RedfishClientPoolImpl::new(credential_provider.clone(), rf_pool);
-        let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
-
-        // Configure the postgres connection pool
-        // We need logs to be enabled at least at `INFO` level. Otherwise
-        // our global logging filter would reject the logs before they get injected
-        // into the `SqlxQueryTracing` layer.
-        let mut database_connect_options = carbide_config
-            .database_url
-            .parse::<sqlx::postgres::PgConnectOptions>()?
-            .log_statements("INFO".parse().unwrap());
-        if let Some(ref tls_config) = carbide_config.tls {
-            let tls_disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok(); // the integration test doesn't like this
-            if !tls_disabled {
-                tracing::info!("using TLS for postgres connection.");
-                database_connect_options = database_connect_options
-                    .ssl_mode(PgSslMode::Require) //TODO: move this to VerifyFull once it actually works
-                    .ssl_root_cert(&tls_config.root_cafile_path);
-            }
-        }
-        let database_connection = sqlx::pool::PoolOptions::new()
-            .max_connections(service_config.max_db_connections)
-            .connect_with(database_connect_options)
-            .await?;
-
-        if let Some(domain_name) = &carbide_config.initial_domain_name {
-            if Self::create_initial_domain(database_connection.clone(), domain_name).await? {
-                tracing::info!("Created initial domain {domain_name}");
-            }
-        }
-
-        let mut txn = database_connection
-            .begin()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin define resource pools", e))?;
-        resource_pool::define_all_from(&mut txn, carbide_config.pools.as_ref().unwrap()).await?;
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit define resource pools", e))?;
-
-        let common_pools = CommonPools::create(database_connection.clone()).await?;
-
-        let fabric_manager_type = match carbide_config.enable_ib_fabric.unwrap_or(false) {
-            true => ib::IBFabricManagerType::Rest,
-            false => ib::IBFabricManagerType::Disable,
-        };
-
-        let ib_fabric_manager_impl =
-            ib::create_ib_fabric_manager(credential_provider.clone(), fabric_manager_type);
-
-        let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
-
-        let authorizer = auth::Authorizer::build_casbin(
-            &carbide_config
-                .auth
-                .as_ref()
-                .expect("Missing auth config")
-                .casbin_policy_file,
-            carbide_config
-                .auth
-                .as_ref()
-                .expect("Missing auth config")
-                .permissive_mode,
-        )
-        .await?;
-
-        let route_servers =
-            Self::create_initial_route_servers(&database_connection, &carbide_config).await?;
-
-        let eth_data = ethernet_virtualization::EthVirtData {
-            asn: carbide_config.asn,
-            dhcp_servers: carbide_config.dhcp_servers.clone(),
-            route_servers,
-            route_servers_enabled: carbide_config.enable_route_servers,
-            // Include the site fabric prefixes in the deny prefixes list, since
-            // we treat them the same way from here.
-            deny_prefixes: [
-                carbide_config.site_fabric_prefixes.as_slice(),
-                carbide_config.deny_prefixes.as_slice(),
-            ]
-            .concat(),
-        };
-
-        let health_pool = database_connection.clone();
-        start_export_service_health_metrics(ServiceHealthContext {
-            meter: meter.clone(),
-            database_pool: health_pool,
-            resource_pool_stats: Some(common_pools.pool_stats.clone()),
-        });
-
-        let tls_ref = carbide_config.tls.as_ref().expect("Missing tls config");
-
-        let tls_config = listener::ApiTlsConfig {
-            identity_pemfile_path: tls_ref.identity_pemfile_path.clone(),
-            identity_keyfile_path: tls_ref.identity_keyfile_path.clone(),
-            root_cafile_path: tls_ref.root_cafile_path.clone(),
-            admin_root_cafile_path: tls_ref.admin_root_cafile_path.clone(),
-        };
-
-        let machine_update_config = MachineUpdateConfig {
-            dpu_nic_firmware_initial_update_enabled: carbide_config
-                .dpu_nic_firmware_initial_update_enabled,
-            dpu_nic_firmware_reprovision_update_enabled: carbide_config
-                .dpu_nic_firmware_reprovision_update_enabled,
-        };
-
-        let api_service = Arc::new(Api {
-            credential_provider: credential_provider.clone(),
-            certificate_provider: certificate_provider.clone(),
-            database_connection: database_connection.clone(),
-            redfish_pool: shared_redfish_pool.clone(),
-            eth_data,
-            common_pools: common_pools.clone(),
-            machine_update_config,
-            ib_fabric_manager: ib_fabric_manager.clone(),
-            runtime_config: carbide_config.clone(),
-        });
-
-        if let Some(networks) = carbide_config.networks.as_ref() {
-            api_service.create_initial_networks(networks).await?;
-        }
-
-        let mut txn = database_connection
-            .begin()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin agent upgrade policy", e))?;
-        let initial_policy: AgentUpgradePolicy = carbide_config
-            .initial_dpu_agent_upgrade_policy
-            .unwrap_or(super::cfg::AgentUpgradePolicyChoice::UpOnly)
-            .into();
-        let current_policy = DpuAgentUpgradePolicy::get(&mut txn).await?;
-        // Only set if the very first time, it's the initial policy
-        if current_policy.is_none() {
-            DpuAgentUpgradePolicy::set(&mut txn, initial_policy).await?;
-            tracing::debug!(
-                %initial_policy,
-                "Initialized DPU agent upgrade policy"
-            );
-        }
-        txn.commit()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "commit agent upgrade policy", e))?;
-
-        // handles need to be stored in a variable
-        // If they are assigned to _ then the destructor will be immediately called
-        let _machine_state_controller_handle =
-            StateController::<MachineStateControllerIO>::builder()
-                .database(database_connection.clone())
-                .meter("forge_machines", meter.clone())
-                .redfish_client_pool(shared_redfish_pool.clone())
-                .ib_fabric_manager(ib_fabric_manager.clone())
-                .forge_api(api_service.clone())
-                .iteration_time(service_config.machine_state_controller_iteration_time)
-                .state_handler(Arc::new(MachineStateHandler::new(
-                    service_config.dpu_up_threshold,
-                    carbide_config.dpu_nic_firmware_initial_update_enabled,
-                    carbide_config.dpu_nic_firmware_reprovision_update_enabled,
-                )))
-                .reachability_params(ReachabilityParams {
-                    dpu_wait_time: service_config.dpu_wait_time,
-                    host_wait_time: service_config.host_wait_time,
-                    power_down_wait: service_config.power_down_wait,
-                    failure_retry_time: service_config.failure_retry_time,
-                })
-                .ipmi_tool(ipmi_tool.clone())
-                .build()
-                .expect("Unable to build MachineStateController");
-
-        let sc_pool_vlan_id = common_pools.ethernet.pool_vlan_id.clone();
-        let sc_pool_vni = common_pools.ethernet.pool_vni.clone();
-
-        let ns_builder = StateController::<NetworkSegmentStateControllerIO>::builder()
-            .database(database_connection.clone())
-            .meter("forge_network_segments", meter.clone())
-            .redfish_client_pool(shared_redfish_pool.clone())
-            .ib_fabric_manager(ib_fabric_manager.clone())
-            .forge_api(api_service.clone());
-        let _network_segment_controller_handle = ns_builder
-            .iteration_time(service_config.network_segment_state_controller_iteration_time)
-            .state_handler(Arc::new(NetworkSegmentStateHandler::new(
-                service_config.network_segment_drain_time,
-                sc_pool_vlan_id,
-                sc_pool_vni,
-            )))
-            .reachability_params(ReachabilityParams {
-                dpu_wait_time: service_config.dpu_wait_time,
-                host_wait_time: service_config.host_wait_time,
-                power_down_wait: service_config.power_down_wait,
-                failure_retry_time: service_config.failure_retry_time,
-            })
-            .ipmi_tool(ipmi_tool.clone())
-            .build()
-            .expect("Unable to build NetworkSegmentController");
-
-        let _ib_partition_controller_handle =
-            StateController::<IBPartitionStateControllerIO>::builder()
-                .database(database_connection.clone())
-                .meter("forge_ib_partitions", meter.clone())
-                .redfish_client_pool(shared_redfish_pool.clone())
-                .ib_fabric_manager(ib_fabric_manager.clone())
-                .pool_pkey(common_pools.infiniband.pool_pkey.clone())
-                .reachability_params(ReachabilityParams {
-                    dpu_wait_time: service_config.dpu_wait_time,
-                    host_wait_time: service_config.host_wait_time,
-                    power_down_wait: service_config.power_down_wait,
-                    failure_retry_time: service_config.failure_retry_time,
-                })
-                .forge_api(api_service.clone())
-                .iteration_time(service_config.network_segment_state_controller_iteration_time)
-                .state_handler(Arc::new(IBPartitionStateHandler::new(
-                    service_config.network_segment_drain_time,
-                )))
-                .ipmi_tool(ipmi_tool.clone())
-                .build()
-                .expect("Unable to build IBPartitionStateController");
-
-        let site_explorer = SiteExplorer::new(
-            database_connection.clone(),
-            carbide_config.site_explorer.as_ref(),
-            meter.clone(),
-            Arc::new(RedfishEndpointExplorer::new(shared_redfish_pool.clone())),
-        );
-        let _site_explorer_stop_handle = site_explorer.start()?;
-
-        let machine_update_manager = MachineUpdateManager::new(
-            database_connection.clone(),
-            carbide_config.clone(),
-            meter.clone(),
-        );
-        let _machine_update_manager_stop_handle = machine_update_manager.start()?;
-
-        let listen_addr = carbide_config.listen;
-        listener::listen_and_serve(api_service, tls_config, listen_addr, authorizer, meter).await
-    }
-
-    /// Create a Domain if we don't already have one.
-    /// Returns true if we created an entry in the db (we had no domains yet), false otherwise.
-    async fn create_initial_domain(
-        db_pool: sqlx::pool::Pool<Postgres>,
-        domain_name: &str,
-    ) -> Result<bool, CarbideError> {
-        let mut txn = db_pool
-            .begin()
-            .await
-            .map_err(|e| CarbideError::DatabaseError(file!(), "begin create_initial_domain", e))?;
-        let domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
-        if domains.is_empty() {
-            let domain = NewDomain::new(domain_name);
-            domain.persist_first(&mut txn).await?;
-            txn.commit().await.map_err(|e| {
-                CarbideError::DatabaseError(file!(), "commit create_initial_domain", e)
-            })?;
-            Ok(true)
-        } else {
-            let names: Vec<String> = domains.into_iter().map(|d| d.name).collect();
-            if !names.iter().any(|n| n == domain_name) {
-                tracing::warn!(
-                    "Initial domain name '{domain_name}' in config file does not match existing database domains: {:?}",
-                    names
-                );
-            }
-            Ok(false)
-        }
-    }
-
-    // pub so we can test it from integration test
-    pub async fn create_initial_networks(
-        &self,
-        networks: &HashMap<String, NetworkDefinition>,
-    ) -> Result<(), CarbideError> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "begin create_initial_networks", e)
-        })?;
-        let all_domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
-        if all_domains.len() != 1 {
-            // We only create initial networks if we only have a single domain - usually created
-            // as initial_domain_name in config file.
-            // Having multiple domains is fine, it means we probably created the network much
-            // earlier.
-            tracing::info!("Multiple domains, skipping initial network creation");
-            return Ok(());
-        }
-        let domain_id = all_domains[0].id;
-        for (name, def) in networks {
-            if NetworkSegment::find_by_name(&mut txn, name).await.is_ok() {
-                // Network segments are only created the first time we start carbide-api
-                tracing::debug!("Network segment {name} exists");
-                continue;
-            }
-            let ns = NewNetworkSegment::build_from(name, domain_id, def)?;
-            self.save_network_segment(&mut txn, ns, true).await?;
-            tracing::info!("Created network segment {name}");
-        }
-        txn.commit().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "commit create_initial_networks", e)
-        })?;
-        Ok(())
-    }
-
-    pub async fn create_initial_route_servers(
-        database_connection: &Pool<Postgres>,
-        carbide_config: &Arc<CarbideConfig>,
-    ) -> Result<Vec<String>, CarbideError> {
-        let mut txn = database_connection.begin().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "begin create_initial_route_servers", e)
-        })?;
-        let result = if carbide_config.enable_route_servers {
-            let route_servers: Vec<IpAddr> = carbide_config
-                .route_servers
-                .iter()
-                .map(|rs| IpAddr::from_str(rs))
-                .collect::<Result<Vec<IpAddr>, _>>()
-                .map_err(CarbideError::AddressParseError)?;
-
-            RouteServer::get_or_create(&mut txn, &route_servers).await?
-        } else {
-            RouteServer::replace(&mut txn, &vec![]).await?;
-            vec![]
-        };
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::DatabaseError(file!(), "commit create_initial_route_servers", e)
-        })?;
-        Ok(result.into_iter().map(|rs| rs.to_string()).collect())
     }
 
     async fn load_machine(
@@ -4859,7 +4483,7 @@ where
         }
     }
 
-    async fn save_network_segment(
+    pub(crate) async fn save_network_segment(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         mut ns: NewNetworkSegment,
@@ -4887,70 +4511,6 @@ where
             }
         };
         Ok(network_segment)
-    }
-}
-
-/// Configurations that are not yet exposed via the CLI
-///
-/// We might want to integrate those into a toml file instead of hardcoding,
-/// but for now this will do it
-struct ServiceConfig {
-    /// The time for which network segments must have 0 allocated IPs, before they
-    /// are actually released
-    network_segment_drain_time: chrono::Duration,
-    /// Iteration time for the machine state controller
-    machine_state_controller_iteration_time: std::time::Duration,
-    /// Iteration time for the network segment state controller
-    network_segment_state_controller_iteration_time: std::time::Duration,
-    /// Maximum database connections
-    max_db_connections: u32,
-    /// How long to wait for DPU to restart after BMC lockdown. Not a timeout, it's a forced wait.
-    /// This will be replaced with querying lockdown state.
-    dpu_wait_time: chrono::Duration,
-    /// How long to wait for Host to restart if it does not respond after reboot.
-    host_wait_time: chrono::Duration,
-    /// How long to wait for after power down before power on the machine.
-    power_down_wait: chrono::Duration,
-    /// How long to wait for a health report from the DPU before we assume it's down
-    dpu_up_threshold: chrono::Duration,
-    /// How long to wait for after machine moved to failed state
-    failure_retry_time: chrono::Duration,
-}
-
-impl Default for ServiceConfig {
-    fn default() -> Self {
-        Self {
-            network_segment_drain_time: chrono::Duration::minutes(5),
-            machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
-            network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
-            max_db_connections: 1000,
-            dpu_wait_time: Duration::minutes(5),
-            host_wait_time: Duration::minutes(30),
-            power_down_wait: Duration::seconds(15),
-            dpu_up_threshold: Duration::minutes(5),
-            failure_retry_time: Duration::minutes(30),
-        }
-    }
-}
-
-impl ServiceConfig {
-    /// Configuration for local development
-    ///
-    /// Components are running faster, so we can observe state changes without waiting too long.
-    /// Machine state controller is kept normal for now, since it's output is noisy.
-    pub fn for_local_development() -> Self {
-        Self {
-            network_segment_drain_time: chrono::Duration::seconds(60),
-            machine_state_controller_iteration_time: std::time::Duration::from_secs(10),
-            network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
-            max_db_connections: 1000,
-            dpu_wait_time: Duration::seconds(1),
-            host_wait_time: Duration::seconds(1),
-            power_down_wait: Duration::seconds(1),
-            // In local dev forge-dpu-agent probably isn't running, so no heartbeat
-            dpu_up_threshold: Duration::weeks(52),
-            failure_retry_time: Duration::seconds(1),
-        }
     }
 }
 
