@@ -14,4 +14,5 @@
 //! which have a need for any sort of common TLS integrated
 //! across the system.
 
+pub mod client_config;
 pub mod default;
