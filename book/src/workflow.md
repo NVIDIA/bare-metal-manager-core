@@ -1,5 +1,7 @@
 # Forge Site Controller WorkFlow
 
+**This diagram is out of data and requires an update. Since the last update (12 month ago) major parts of Forge host provisioning workflow changed.**.
+
 ## DPU Provisioning
 
 ![DPU provision](static/dpu_provision.png)

@@ -1,5 +1,7 @@
 # Architecture
 
+**This diagram is out of data and requires an update. Since the last update 2 (years ago) major parts of Forge site architecture changed.**.
+
 Carbide is a gRPC service with multiple components that drive actions based on
 the API calls performed by the consumer, or by events triggered by machines
 (i.e. DHCP boot or PXE request).
