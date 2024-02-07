@@ -22,7 +22,6 @@ use std::{
 
 use carbide::{
     api::Api,
-    auth::{Authorizer, NoopEngine},
     cfg::CarbideConfig,
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
@@ -117,7 +116,6 @@ impl TestEnv {
             self.credential_provider.clone(),
             self.certificate_provider.clone(),
             self.pool.clone(),
-            Authorizer::new(Arc::new(NoopEngine {})),
             self.redfish_sim.clone(),
             self.eth_virt_data.clone(),
             self.common_pools.clone(),
@@ -373,7 +371,6 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         credential_provider.clone(),
         certificate_provider.clone(),
         db_pool.clone(),
-        Authorizer::new(Arc::new(NoopEngine {})),
         redfish_sim.clone(),
         eth_virt_data.clone(),
         common_pools.clone(),

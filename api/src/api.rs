@@ -10,36 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_imports)]
-
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::Duration;
-use hyper::server::conn::Http;
 use itertools::Itertools;
-use opentelemetry::metrics::Meter;
-use opentelemetry::KeyValue;
-use sqlx::postgres::any::AnyConnectionBackend;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, Pool, Postgres, Transaction};
-use tokio::net::TcpListener;
-use tokio::time::Instant;
-use tokio_rustls::rustls::server::AllowAnyAnonymousOrAuthenticatedClient;
-use tokio_rustls::rustls::RootCertStore;
-use tokio_rustls::{
-    rustls::{Certificate, PrivateKey, ServerConfig},
-    TlsAcceptor,
-};
 use tonic::{Request, Response, Status};
-use tonic_reflection::server::Builder;
-use tower_http::add_extension::AddExtensionLayer;
-use tower_http::auth::AsyncRequireAuthorizationLayer;
 use uuid::Uuid;
 
 pub use ::rpc::forge as rpc;
@@ -69,6 +50,7 @@ use crate::ib::{self, IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
+use crate::listener;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
@@ -111,10 +93,7 @@ use crate::{
     },
     ethernet_virtualization,
     instance::{allocate_instance, InstanceAllocationRequest},
-    logging::{
-        api_logs::LogLayer,
-        service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
-    },
+    logging::service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
     model::{
         hardware_info::{HardwareInfo, MachineInventory},
         instance::status::network::InstanceNetworkStatusObservation,
@@ -152,21 +131,12 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) database_connection: sqlx::PgPool,
     credential_provider: Arc<C1>,
     certificate_provider: Arc<C2>,
-    authorizer: auth::Authorizer,
     redfish_pool: Arc<dyn RedfishClientPool>,
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     common_pools: Arc<CommonPools>,
-    tls_config: ApiTlsConfig,
     pub(crate) machine_update_config: MachineUpdateConfig,
     ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub(crate) runtime_config: Arc<CarbideConfig>,
-}
-
-pub struct ApiTlsConfig {
-    pub identity_pemfile_path: String,
-    pub identity_keyfile_path: String,
-    pub root_cafile_path: String,
-    pub admin_root_cafile_path: String,
 }
 
 pub struct MachineUpdateConfig {
@@ -3624,7 +3594,7 @@ where
                 .await
                 .map_err(CarbideError::from)?;
         } else {
-            let Some(reprov_requested) = machine.reprovisioning_requested() else {
+            let Some(_reprov_requested) = machine.reprovisioning_requested() else {
                 return Err(CarbideError::NotFoundError {
                     kind: "Reprovision Request",
                     id: dpu_id.to_string(),
@@ -4314,295 +4284,6 @@ where
     }
 }
 
-/// this function blocks, don't use it in a raw async context
-fn get_tls_acceptor<S: AsRef<str>>(
-    identity_pemfile_path: S,
-    identity_keyfile_path: S,
-    root_cafile_path: S,
-    admin_root_cafile_path: S,
-) -> Option<TlsAcceptor> {
-    let certs = {
-        let fd = match std::fs::File::open(identity_pemfile_path.as_ref()) {
-            Ok(fd) => fd,
-            Err(_) => return None,
-        };
-        let mut buf = std::io::BufReader::new(&fd);
-        match rustls_pemfile::certs(&mut buf) {
-            Ok(certs) => certs.into_iter().map(Certificate).collect(),
-            Err(error) => {
-                tracing::error!(?error, "Rustls error reading certs");
-                return None;
-            }
-        }
-    };
-
-    let key = {
-        let fd = match std::fs::File::open(identity_keyfile_path.as_ref()) {
-            Ok(fd) => fd,
-            Err(_) => return None,
-        };
-        let mut buf = std::io::BufReader::new(&fd);
-
-        match rustls_pemfile::ec_private_keys(&mut buf) {
-            Ok(keys) => keys.into_iter().map(PrivateKey).next(),
-            error => {
-                tracing::error!(?error, "Rustls error reading key");
-                None
-            }
-        }
-    };
-
-    let key = match key {
-        Some(key) => key,
-        None => {
-            tracing::error!("Rustls error: no keys?");
-            return None;
-        }
-    };
-
-    let mut roots = RootCertStore::empty();
-    match std::fs::read(root_cafile_path.as_ref()) {
-        Ok(pem_file) => {
-            let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
-            let certs_to_add = match rustls_pemfile::certs(&mut cert_cursor) {
-                Ok(certs) => certs,
-                Err(error) => {
-                    tracing::error!(?error, "error parsing root ca cert file");
-                    return None;
-                }
-            };
-            let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add.as_slice());
-        }
-        Err(error) => {
-            tracing::error!(?error, "error reading root ca cert file");
-            return None;
-        }
-    }
-
-    if let Ok(pem_file) = std::fs::read(admin_root_cafile_path.as_ref()) {
-        let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
-        let certs_to_add = match rustls_pemfile::certs(&mut cert_cursor) {
-            Ok(certs) => certs,
-            Err(error) => {
-                tracing::error!(?error, "error parsing admin ca cert file");
-                return None;
-            }
-        };
-        let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add.as_slice());
-    }
-
-    match ServerConfig::builder()
-        .with_safe_defaults()
-        .with_client_cert_verifier(AllowAnyAnonymousOrAuthenticatedClient::new(roots).boxed())
-        .with_single_cert(certs, key)
-    {
-        Ok(mut tls) => {
-            tls.alpn_protocols = vec![b"h2".to_vec()];
-            Some(TlsAcceptor::from(Arc::new(tls)))
-        }
-        Err(error) => {
-            tracing::error!(?error, "Rustls error building server config");
-            None
-        }
-    }
-}
-
-// This is used as an extension to requests for anything that is an attribute of
-// the connection the request came in on, as opposed to the HTTP request itself.
-// Note that if you're trying to retrieve it, it's probably inside an Arc in the
-// extensions typemap, so .get::<Arc<ConnectionAttributes>>() is what you want.
-pub struct ConnectionAttributes {
-    peer_address: SocketAddr,
-    peer_certificates: Vec<Certificate>,
-}
-
-impl ConnectionAttributes {
-    pub fn peer_address(&self) -> &SocketAddr {
-        &self.peer_address
-    }
-
-    pub fn peer_certificates(&self) -> &[Certificate] {
-        self.peer_certificates.as_slice()
-    }
-}
-
-#[tracing::instrument(skip_all)]
-async fn api_handler<C1, C2>(
-    api_service: Arc<Api<C1, C2>>,
-    listen_port: SocketAddr,
-    meter: Meter,
-) -> eyre::Result<()>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
-    let api_reflection_service = Builder::configure()
-        .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
-        .build()?;
-
-    let identity_pemfile_path = api_service.tls_config.identity_pemfile_path.clone();
-    let identity_keyfile_path = api_service.tls_config.identity_keyfile_path.clone();
-    let root_cafile_path = api_service.tls_config.root_cafile_path.clone();
-    let admin_root_cafile_path = api_service.tls_config.admin_root_cafile_path.clone();
-
-    let identity_pemfile_path_clone = identity_pemfile_path.clone();
-    let identity_keyfile_path_clone = identity_keyfile_path.clone();
-    let root_cafile_path_clone = root_cafile_path.clone();
-    let admin_root_cafile_path_clone = admin_root_cafile_path.clone();
-
-    let mut tls_acceptor = tokio::task::Builder::new()
-        .name("get_tls_acceptor init")
-        .spawn_blocking(move || {
-            get_tls_acceptor(
-                identity_pemfile_path_clone,
-                identity_keyfile_path_clone,
-                root_cafile_path_clone,
-                admin_root_cafile_path_clone,
-            )
-        })?
-        .await?;
-
-    let listener = TcpListener::bind(listen_port).await?;
-    let mut http = Http::new();
-    http.http2_only(true);
-
-    let authn_layer = auth::middleware::AuthenticationMiddleware::default();
-    let authz_layer = {
-        // TODO: move the initialization of the Authorizer here instead
-        let authorizer = Arc::new(api_service.authorizer.clone());
-        let authz_handler = auth::middleware::AuthzHandler::new(authorizer);
-        AsyncRequireAuthorizationLayer::new(authz_handler)
-    };
-
-    let router = axum::Router::new()
-        .route_service(
-            "/forge.Forge/*rpc",
-            rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
-        )
-        .route_service(
-            "/grpc.reflection.v1alpha.ServerReflection/*r",
-            api_reflection_service,
-        )
-        .nest_service("/admin", crate::web::routes(api_service.clone()));
-
-    let app = tower::ServiceBuilder::new()
-        .layer(LogLayer::new(meter.clone()))
-        .layer(authn_layer)
-        .layer(authz_layer)
-        .service(router.clone());
-
-    let connection_total_counter = meter
-        .u64_counter("carbide-api.tls.connection_attempted")
-        .with_description("The amount of tls connections that were attempted")
-        .init();
-    let connection_succeeded_counter = meter
-        .u64_counter("carbide-api.tls.connection_success")
-        .with_description("The amount of tls connections that were successful")
-        .init();
-    let connection_failed_counter = meter
-        .u64_counter("carbide-api.tls.connection_fail")
-        .with_description("The amount of tcp connections that were failures")
-        .init();
-
-    let mut tls_acceptor_created = Instant::now();
-    let mut initialize_tls_acceptor = true;
-    loop {
-        let incoming_connection = listener.accept().await;
-        connection_total_counter.add(1, &[]);
-        let (conn, addr) = match incoming_connection {
-            Ok(incoming) => incoming,
-            Err(e) => {
-                tracing::error!(error = %e, "Error accepting connection");
-                connection_failed_counter
-                    .add(1, &[KeyValue::new("reason", "tcp_connection_failure")]);
-                continue;
-            }
-        };
-
-        // TODO: RT: change the subroutine to return the certificate's parsed expiration from
-        // the file on disk and only refresh if it's actually necessary to do so,
-        // and emit a metric for the remaining duration on the cert
-
-        // hard refresh our certs every five minutes
-        // they may have been rewritten on disk by cert-manager and we want to honor the new cert.
-        if initialize_tls_acceptor
-            || tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60)
-        {
-            tracing::info!("Refreshing certs");
-            initialize_tls_acceptor = false;
-            tls_acceptor_created = Instant::now();
-
-            let identity_pemfile_path_clone = identity_pemfile_path.clone();
-            let identity_keyfile_path_clone = identity_keyfile_path.clone();
-            let root_cafile_path_clone = root_cafile_path.clone();
-            let admin_root_cafile_path_clone = admin_root_cafile_path.clone();
-            let fut_tls_acceptor_new_certs = tokio::task::Builder::new()
-                .name("get_tls_acceptor refresh")
-                .spawn_blocking(move || {
-                    get_tls_acceptor(
-                        identity_pemfile_path_clone,
-                        identity_keyfile_path_clone,
-                        root_cafile_path_clone,
-                        admin_root_cafile_path_clone,
-                    )
-                });
-            match fut_tls_acceptor_new_certs {
-                Ok(next) => tls_acceptor = next.await?,
-                Err(err) => {
-                    tracing::error!("Failed spawning blocking task get_tls_acceptor refresh")
-                }
-            }
-        }
-
-        let tls_acceptor = tls_acceptor.clone();
-        let http = http.clone();
-        let app = app.clone();
-        let connection_succeeded_counter = connection_succeeded_counter.clone();
-        let connection_failed_counter = connection_failed_counter.clone();
-        tokio::task::Builder::new().name("http listener").spawn(async move {
-            if let Some(tls_acceptor) = tls_acceptor {
-                match tls_acceptor.accept(conn).await {
-                    Ok(conn) => {
-                        connection_succeeded_counter.add(1, &[]);
-
-                        let (_, session) = conn.get_ref();
-                        let connection_attributes = {
-                            let peer_address = addr;
-                            let peer_certificates =
-                                session.peer_certificates().unwrap_or_default().to_vec();
-                            Arc::new(ConnectionAttributes {
-                                peer_address,
-                                peer_certificates,
-                            })
-                        };
-                        let conn_attrs_extension_layer =
-                            AddExtensionLayer::new(connection_attributes);
-
-                        let app_with_ext = tower::ServiceBuilder::new()
-                            .layer(conn_attrs_extension_layer)
-                            .service(app);
-
-                        // TODO: Why does this returns an error Io / UnexpectedEof on every single request?
-                        // `h2` already logs the error at DEBUG level
-                        let _ = http.serve_connection(conn, app_with_ext).await;
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, address = %addr, "error accepting tls connection");
-                        connection_failed_counter
-                            .add(1, &[KeyValue::new("reason", "tls_connection_failure")]);
-                    }
-                }
-            } else {
-                //servicing without tls -- HTTP only
-                connection_succeeded_counter.add(1, &[]);
-                if let Err(error) = http.serve_connection(conn, app).await {
-                    tracing::debug!(%error, "error servicing plain http connection");
-                }
-            }
-        })?;
-    }
-}
-
 fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
     tracing::Span::current().record(
         "request",
@@ -4637,7 +4318,6 @@ where
         credential_provider: Arc<C1>,
         certificate_provider: Arc<C2>,
         database_connection: sqlx::PgPool,
-        authorizer: auth::Authorizer,
         redfish_pool: Arc<dyn RedfishClientPool>,
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
@@ -4647,16 +4327,9 @@ where
             database_connection,
             credential_provider,
             certificate_provider,
-            authorizer,
             redfish_pool,
             eth_data,
             common_pools,
-            tls_config: ApiTlsConfig {
-                root_cafile_path: config.tls.clone().unwrap().root_cafile_path,
-                identity_pemfile_path: config.tls.clone().unwrap().identity_pemfile_path,
-                identity_keyfile_path: config.tls.clone().unwrap().identity_keyfile_path,
-                admin_root_cafile_path: config.tls.clone().unwrap().admin_root_cafile_path,
-            },
             machine_update_config: MachineUpdateConfig {
                 dpu_nic_firmware_initial_update_enabled: config
                     .dpu_nic_firmware_initial_update_enabled,
@@ -4778,7 +4451,7 @@ where
 
         let tls_ref = carbide_config.tls.as_ref().expect("Missing tls config");
 
-        let tls_config = ApiTlsConfig {
+        let tls_config = listener::ApiTlsConfig {
             identity_pemfile_path: tls_ref.identity_pemfile_path.clone(),
             identity_keyfile_path: tls_ref.identity_keyfile_path.clone(),
             root_cafile_path: tls_ref.root_cafile_path.clone(),
@@ -4796,11 +4469,9 @@ where
             credential_provider: credential_provider.clone(),
             certificate_provider: certificate_provider.clone(),
             database_connection: database_connection.clone(),
-            authorizer,
             redfish_pool: shared_redfish_pool.clone(),
             eth_data,
             common_pools: common_pools.clone(),
-            tls_config,
             machine_update_config,
             ib_fabric_manager: ib_fabric_manager.clone(),
             runtime_config: carbide_config.clone(),
@@ -4920,7 +4591,7 @@ where
         let _machine_update_manager_stop_handle = machine_update_manager.start()?;
 
         let listen_addr = carbide_config.listen;
-        api_handler(api_service, listen_addr, meter).await
+        listener::listen_and_serve(api_service, tls_config, listen_addr, authorizer, meter).await
     }
 
     /// Create a Domain if we don't already have one.

@@ -47,6 +47,7 @@ pub mod instance;
 mod ip_finder;
 pub mod ipmitool;
 mod ipxe;
+mod listener;
 pub mod logging;
 pub mod machine_update_manager;
 pub mod model;
