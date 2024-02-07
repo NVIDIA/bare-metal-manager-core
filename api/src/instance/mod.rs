@@ -58,8 +58,6 @@ pub struct InstanceAllocationRequest {
     pub ssh_keys: Vec<String>,
 }
 
-// TODO: This part will be replaced when the new API which supports multiple
-// instances comes in
 impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
     type Error = CarbideError;
 

@@ -166,8 +166,6 @@ pub enum StateHandlerError {
     LoadSnapshotError(#[from] SnapshotLoaderError),
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
-    #[error("Machine not found: {0}")]
-    MachineNotFoundError(MachineId),
     // TODO: This should be replaced - but requires downstream errors to migrate
     // off from CarbideError
     #[error("Unable to load snapshot: {0}")]
@@ -210,7 +208,6 @@ impl StateHandlerError {
         match self {
             StateHandlerError::LoadSnapshotError(_) => "load_snapshot_error",
             StateHandlerError::TransactionError(_) => "transaction_error",
-            StateHandlerError::MachineNotFoundError(_) => "machine_not_found_error",
             StateHandlerError::GenericError(_) => "generic_error",
             StateHandlerError::MissingData { .. } => "missing_data",
             StateHandlerError::DBError(_) => "db_error",
