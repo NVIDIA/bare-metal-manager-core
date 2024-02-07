@@ -116,7 +116,7 @@ where
             let mut client_certs = 0;
             if let Some(conn_attrs) = request
                 .extensions()
-                .get::<Arc<crate::api::ConnectionAttributes>>()
+                .get::<Arc<crate::listener::ConnectionAttributes>>()
             {
                 client_address = *conn_attrs.peer_address();
                 client_certs = conn_attrs.peer_certificates().len();

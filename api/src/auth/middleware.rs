@@ -71,7 +71,7 @@ where
         }
         let extensions = request.extensions_mut();
         let mut auth_context = AuthContext::default();
-        if let Some(conn_attrs) = extensions.get::<Arc<crate::api::ConnectionAttributes>>() {
+        if let Some(conn_attrs) = extensions.get::<Arc<crate::listener::ConnectionAttributes>>() {
             let peer_certs = conn_attrs.peer_certificates();
             let peer_cert_principals = peer_certs.iter().filter_map(|cert| {
                 Principal::try_from_client_certificate(cert, &self.spiffe_context).ok()
