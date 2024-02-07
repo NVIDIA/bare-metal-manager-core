@@ -4,7 +4,6 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
 import "machine_discovery.proto";
-import "security_group.proto";
 import "site_explorer.proto";
 
 package forge;
@@ -98,20 +97,6 @@ service Forge {
 
   // User Credential handling.
   rpc UpdateMachineCredentials(MachineCredentialsUpdateRequest) returns (MachineCredentialsUpdateResponse);
-
-  // SecurityGroup
-  // Create or update a security group in its entirety.
-  rpc UpdateSecurityGroupPolicy(SecurityGroupPolicy) returns(SecurityGroupPolicy);
-  // Delete a security group.
-  rpc DeleteSecurityGroupPolicy(SecurityGroupPolicyDeletion) returns(google.protobuf.Empty);
-  // Associate a security group with some entities.
-  rpc BindSecurityGroup(SecurityGroupBind) returns(google.protobuf.Empty);
-  // Disassociate a security group with some entities.
-  rpc UnbindSecurityGroup(SecurityGroupBind) returns(google.protobuf.Empty);
-  // List all or one security group policy.
-  rpc ListSecurityGroupPolicies(SecurityGroupPolicyQuery) returns(SecurityGroupPolicyList);
-  // List all or one security group binds.
-  rpc ListSecurityGroupBinds(SecurityGroupBindQuery) returns(SecurityGroupBindList);
 
   rpc GetPxeInstructions(PxeInstructionRequest) returns (PxeInstructions);
   rpc GetCloudInitInstructions(CloudInitInstructionsRequest) returns (CloudInitInstructions);

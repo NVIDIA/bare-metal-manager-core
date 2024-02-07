@@ -130,7 +130,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &[
                 "proto/forge.proto",
                 "proto/machine_discovery.proto",
-                "proto/security_group.proto",
                 "proto/site_explorer.proto",
             ],
             &["proto"],
