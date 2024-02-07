@@ -194,6 +194,9 @@ pub enum StateHandlerError {
     #[error("Failed to create redfish client: {0}")]
     RedfishClientCreationError(#[from] RedfishClientCreationError),
 
+    #[error("The state handler for object {object_id} in state \"{state}\" timed out")]
+    Timeout { object_id: String, state: String },
+
     #[error("Failed redfish operation: {operation}. Details: {error}")]
     RedfishError {
         operation: &'static str,
@@ -214,6 +217,7 @@ impl StateHandlerError {
             StateHandlerError::GenericError(_) => "generic_error",
             StateHandlerError::MissingData { .. } => "missing_data",
             StateHandlerError::DBError(_) => "db_error",
+            StateHandlerError::Timeout { .. } => "timeout",
             StateHandlerError::PoolReleaseError(_) => "pool_release_error",
             StateHandlerError::PoolAllocateError { .. } => "pool_allocate_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",

@@ -282,6 +282,7 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
         let io = io.clone();
         let handler = state_handler.clone();
         let concurrency_limiter = concurrency_limiter.clone();
+        let max_object_handling_time = config.max_object_handling_time;
 
         let _abort_handle = task_set
             .build_task()
@@ -305,58 +306,73 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                     // Note that this inner async block is required to be able to use
                     // the ? operator in the inner block, and then return a `Result`
                     // from the other outer block.
-                    let result: Result<(), StateHandlerError> = async {
-                        let mut txn = services.pool.begin().await?;
-                        let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
-                        let mut controller_state = io
-                            .load_controller_state(&mut txn, &object_id, &snapshot)
-                            .await?;
-                        metrics.common.state = Some(controller_state.value.clone());
-                        // Unwrap uses a very large duration as default to show something is wrong
-                        metrics.common.time_in_state = chrono::Utc::now()
-                            .signed_duration_since(controller_state.version.timestamp())
-                            .to_std()
-                            .unwrap_or(Duration::from_secs(60 * 60 * 24));
-                        metrics.common.time_in_state_above_sla =
-                            IO::time_in_state_above_sla(&controller_state);
+                    let result: Result<Result<(), StateHandlerError>, tokio::time::error::Elapsed> =
+                        tokio::time::timeout(max_object_handling_time, async {
+                            let mut txn = services.pool.begin().await?;
+                            let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
+                            let mut controller_state = io
+                                .load_controller_state(&mut txn, &object_id, &snapshot)
+                                .await?;
+                            metrics.common.state = Some(controller_state.value.clone());
+                            // Unwrap uses a very large duration as default to show something is wrong
+                            metrics.common.time_in_state = chrono::Utc::now()
+                                .signed_duration_since(controller_state.version.timestamp())
+                                .to_std()
+                                .unwrap_or(Duration::from_secs(60 * 60 * 24));
+                            metrics.common.time_in_state_above_sla =
+                                IO::time_in_state_above_sla(&controller_state);
 
-                        let mut ctx = StateHandlerContext {
-                            services: &services,
-                            metrics: &mut metrics.specific,
-                        };
+                            let mut ctx = StateHandlerContext {
+                                services: &services,
+                                metrics: &mut metrics.specific,
+                            };
 
-                        let mut state_holder =
-                            ControllerStateReader::new(&mut controller_state.value);
+                            let mut state_holder =
+                                ControllerStateReader::new(&mut controller_state.value);
 
-                        match handler
-                            .handle_object_state(
-                                &object_id,
-                                &mut snapshot,
-                                &mut state_holder,
-                                &mut txn,
-                                &mut ctx,
-                            )
-                            .await
-                        {
-                            Ok(()) => {
-                                if state_holder.is_modified() {
-                                    io.persist_controller_state(
-                                        &mut txn,
-                                        &object_id,
-                                        controller_state.version,
-                                        controller_state.value,
-                                    )
-                                    .await?;
+                            match handler
+                                .handle_object_state(
+                                    &object_id,
+                                    &mut snapshot,
+                                    &mut state_holder,
+                                    &mut txn,
+                                    &mut ctx,
+                                )
+                                .await
+                            {
+                                Ok(()) => {
+                                    if state_holder.is_modified() {
+                                        io.persist_controller_state(
+                                            &mut txn,
+                                            &object_id,
+                                            controller_state.version,
+                                            controller_state.value,
+                                        )
+                                        .await?;
+                                    }
+
+                                    txn.commit()
+                                        .await
+                                        .map_err(StateHandlerError::TransactionError)
                                 }
-
-                                txn.commit()
-                                    .await
-                                    .map_err(StateHandlerError::TransactionError)
+                                Err(e) => Err(e),
                             }
-                            Err(e) => Err(e),
-                        }
-                    }
-                    .await;
+                        })
+                        .await;
+
+                    let result = match result {
+                        Ok(Ok(result)) => Ok(result),
+                        Ok(Err(err)) => Err(err),
+                        Err(_timeout) => Err(StateHandlerError::Timeout {
+                            object_id: object_id.to_string(),
+                            state: metrics
+                                .common
+                                .state
+                                .as_ref()
+                                .map(|state| format!("{:?}", state))
+                                .unwrap_or_default(),
+                        }),
+                    };
 
                     metrics.common.handler_latency = start.elapsed();
 
@@ -424,6 +440,8 @@ enum IterationError {
 struct Config {
     /// Iteration time
     iteration_time: Duration,
+    /// Maxmimum duration of the controller iteration for a single object
+    max_object_handling_time: Duration,
     /// Maximum concurrency level
     max_concurrency: usize,
     /// The name that will be assigned for state controller metrics
@@ -448,6 +466,13 @@ pub enum StateControllerBuildError {
 
 /// Default iteration time for the state controller
 const DEFAULT_ITERATION_TIME: Duration = Duration::from_secs(30);
+/// Default maximimum duration of the controller iteration for a single object
+///
+/// This is by default set rather high to make sure we usually run the operations
+/// in the state handlers to completion. The purpose of the timeout is just to
+/// prevent an indefinitely stuck state handler - e.g. to due to networking issues
+/// and missing sqlx timeouts
+const DEFAULT_MAX_OBJECT_HANDLING_TIME: Duration = Duration::from_secs(3 * 60);
 /// Default maximum concurrency for the state controller
 ///
 /// The controller will act on this amount of instances in parallel
@@ -459,6 +484,7 @@ pub struct Builder<IO: StateControllerIO> {
     redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
     ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
     iteration_time: Option<Duration>,
+    max_object_handling_time: Duration,
     max_concurrency: usize,
     object_type_for_metrics: Option<String>,
     meter: Option<Meter>,
@@ -502,6 +528,7 @@ impl<IO: StateControllerIO> Builder<IO> {
                 IO::ContextObjects,
             >::default()),
             max_concurrency: DEFAULT_MAX_CONCURRENCY,
+            max_object_handling_time: DEFAULT_MAX_OBJECT_HANDLING_TIME,
             meter: None,
             object_type_for_metrics: None,
             forge_api: None,
@@ -557,6 +584,7 @@ impl<IO: StateControllerIO> Builder<IO> {
         let controller_name = object_type_for_metrics.unwrap_or_else(|| "undefined".to_string());
         let config = Config {
             iteration_time: self.iteration_time.unwrap_or(DEFAULT_ITERATION_TIME),
+            max_object_handling_time: self.max_object_handling_time,
             max_concurrency: self.max_concurrency,
             object_type_for_metrics: controller_name.clone(),
         };
@@ -662,6 +690,15 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// However they will also increase the load on the system
     pub fn iteration_time(mut self, time: Duration) -> Self {
         self.iteration_time = Some(time);
+        self
+    }
+
+    /// Configures the maximum time that the state handler will spend on evaluating
+    /// and advancing the state of a single object. If more time elapses during
+    /// state handling than this timeout allows for, state handling will fail with
+    /// a `TimeoutError`.
+    pub fn max_object_handling_time(mut self, time: Duration) -> Self {
+        self.max_object_handling_time = time;
         self
     }
 
