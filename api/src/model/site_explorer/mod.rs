@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
+use std::collections::HashMap;
 
 use crate::{
     db::{
@@ -290,10 +291,27 @@ impl EndpointExplorationReport {
             .unwrap();
         let dmi_data = self.create_temporary_dmi_data(serial_number.as_str());
 
+        let chassis_map = self
+            .chassis
+            .clone()
+            .into_iter()
+            .map(|x| (x.id.clone(), x))
+            .collect::<HashMap<_, _>>();
+
         let dpu_data = DpuData {
             factory_mac_address: explored_host
                 .host_pf_mac_address
                 .ok_or(CarbideError::MissingArgument("Missing base mac"))?
+                .to_string(),
+            part_number: chassis_map
+                .get("Card1")
+                .and_then(|value: &Chassis| value.part_number.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            part_description: chassis_map
+                .get("Card1")
+                .and_then(|value| value.model.as_ref())
+                .unwrap_or(&"".to_string())
                 .to_string(),
             ..Default::default()
         };
