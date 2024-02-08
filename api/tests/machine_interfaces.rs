@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 
 use carbide::{
     db::{
@@ -21,6 +21,7 @@ use carbide::{
     model::machine::machine_id::MachineId,
     CarbideError,
 };
+use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, InterfaceSearchQuery};
 use sqlx::{Connection, Postgres};
@@ -30,6 +31,7 @@ use common::api_fixtures::{
     create_test_env, dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
+use tokio::sync::broadcast;
 
 #[ctor::ctor]
 fn setup() {
@@ -353,6 +355,75 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             .to_string(),
         new_interface.domain_id.unwrap().to_string()
     );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let network = NetworkSegment::find(
+        &mut txn,
+        UuidKeyedObjectFilter::One(
+            uuid::Uuid::from_str("91609f10-c91d-470d-a260-6293ea0c1200").unwrap(),
+        ),
+        carbide::db::network_segment::NetworkSegmentSearchConfig {
+            include_history: false,
+        },
+    )
+    .await
+    .unwrap()
+    .remove(0);
+    txn.commit().await.unwrap();
+
+    let (tx, _rx1) = broadcast::channel(10);
+    let max_interfaces = 250;
+    let mut handles = vec![];
+    for i in 0..max_interfaces {
+        let n = network.clone();
+        let mac = format!("ff:ff:ff:ff:{:02}:{:02}", i / 100, i % 100);
+        let hostname = format!("host{:02}", i);
+        let db_pool = pool.clone();
+        let mut rx = tx.subscribe();
+        let h = tokio::spawn(async move {
+            // Let's start all threads together.
+            _ = rx.recv().await.unwrap();
+            let mut txn = db_pool.begin().await.unwrap();
+            MachineInterface::create(
+                &mut txn,
+                &n,
+                &MacAddress::from_str(&mac).unwrap(),
+                Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+                hostname,
+                true,
+                AddressSelectionStrategy::Automatic,
+            )
+            .await
+            .unwrap();
+
+            // This call must pass. inner_txn is an illusion. Lock is still alive.
+            _ = MachineInterface::find_all(&mut txn).await.unwrap();
+            txn.commit().await.unwrap();
+        });
+        handles.push(h);
+    }
+
+    tx.send(10).unwrap();
+
+    for h in handles {
+        _ = h.await;
+    }
+    let mut txn = pool.begin().await?;
+    let interfaces = MachineInterface::find_all(&mut txn).await.unwrap();
+
+    assert_eq!(interfaces.len(), max_interfaces);
+    let ips = interfaces
+        .iter()
+        .map(|x| x.addresses()[0].address.to_string())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect_vec();
+    assert_eq!(interfaces.len(), ips.len());
 
     Ok(())
 }

@@ -392,7 +392,7 @@ impl MachineInterface {
             .begin()
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
-        let query = "LOCK TABLE machine_interfaces IN ACCESS EXCLUSIVE MODE";
+        let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
         sqlx::query(query)
             .execute(&mut *inner_txn)
             .await
