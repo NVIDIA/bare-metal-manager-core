@@ -2835,60 +2835,6 @@ where
             .map(Response::new)?)
     }
 
-    async fn update_security_group_policy(
-        &self,
-        request: Request<rpc::SecurityGroupPolicy>,
-    ) -> Result<Response<rpc::SecurityGroupPolicy>, Status> {
-        log_request_data(&request);
-
-        return Err(Status::unimplemented("not implemented"));
-    }
-
-    async fn delete_security_group_policy(
-        &self,
-        request: Request<rpc::SecurityGroupPolicyDeletion>,
-    ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-
-        return Err(Status::unimplemented("not implemented"));
-    }
-
-    async fn bind_security_group(
-        &self,
-        request: Request<rpc::SecurityGroupBind>,
-    ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-
-        return Err(Status::unimplemented("not implemented"));
-    }
-
-    async fn unbind_security_group(
-        &self,
-        request: Request<rpc::SecurityGroupBind>,
-    ) -> Result<Response<()>, Status> {
-        log_request_data(&request);
-
-        return Err(Status::unimplemented("not implemented"));
-    }
-
-    async fn list_security_group_policies(
-        &self,
-        request: Request<rpc::SecurityGroupPolicyQuery>,
-    ) -> Result<Response<rpc::SecurityGroupPolicyList>, Status> {
-        log_request_data(&request);
-
-        return Err(Status::unimplemented("not implemented"));
-    }
-
-    async fn list_security_group_binds(
-        &self,
-        request: Request<rpc::SecurityGroupBindQuery>,
-    ) -> Result<Response<rpc::SecurityGroupBindList>, Status> {
-        log_request_data(&request);
-
-        return Err(Status::unimplemented("not implemented"));
-    }
-
     async fn get_pxe_instructions(
         &self,
         request: Request<rpc::PxeInstructionRequest>,
