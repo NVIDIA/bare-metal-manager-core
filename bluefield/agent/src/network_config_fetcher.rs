@@ -79,6 +79,7 @@ impl NetworkConfigFetcher {
             while single_fetch(forge_client_config.clone(), task_state.clone()).await {
                 tokio::time::sleep(task_state.config.config_fetch_interval).await;
             }
+            tracing::info!("NetworkConfigFetcher stopped");
         });
 
         Self {

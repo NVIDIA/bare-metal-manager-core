@@ -284,43 +284,48 @@ impl ForgeTlsClient {
             forge_resolv_config.parsed_configuration(),
         )?;
 
-        let http = match self.forge_client_config.use_mgmt_vrf {
-            false => {
-                let hickory_resolver_config = ResolverConfig::from_parts(
-                    forge_resolver_config.0.domain,
-                    forge_resolver_config.0.search_domain,
-                    forge_resolver_config.0.inner.into_inner(),
-                );
+        let resolver_config = ResolverConfig::from_parts(
+            forge_resolver_config.0.domain,
+            forge_resolver_config.0.search_domain,
+            forge_resolver_config.0.inner.into_inner(),
+        );
+        // Five seconds is the default, but setting anyway for documentation and future proofing
+        let mut resolver_opts = ForgeResolverOpts::default().timeout(Duration::from_secs(5));
+        if self.forge_client_config.use_mgmt_vrf {
+            resolver_opts = resolver_opts.use_mgmt_vrf();
+        }
+        let resolver = ForgeResolver::with_config_and_options(resolver_config, resolver_opts);
+        let mut http = ForgeHttpConnector::new_with_resolver(resolver);
+        if self.forge_client_config.use_mgmt_vrf {
+            http.set_interface("mgmt".to_string());
+        }
+        http.set_socks5_proxy(self.forge_client_config.socks_proxy.clone());
+        http.enforce_http(false);
 
-                let hickory_resolver = ForgeResolver::with_config_and_options(
-                    hickory_resolver_config,
-                    ForgeResolverOpts::default(),
-                );
+        // Wait this long for `connect` syscall to return.
+        // Hyper implements this by wrapping the call in `tokio::time::timeout`.
+        http.set_connect_timeout(Some(Duration::from_secs(5)));
 
-                let mut http = ForgeHttpConnector::new_with_resolver(hickory_resolver);
-                http.set_socks5_proxy(self.forge_client_config.socks_proxy.clone());
-                http.enforce_http(false);
-                http
-            }
-            true => {
-                let hickory_resolver_config = ResolverConfig::from_parts(
-                    forge_resolver_config.0.domain,
-                    forge_resolver_config.0.search_domain,
-                    forge_resolver_config.0.inner.into_inner(),
-                );
-
-                let updated_opts = ForgeResolverOpts::new().use_mgmt_vrf();
-                let resolver_cfg =
-                    ForgeResolver::with_config_and_options(hickory_resolver_config, updated_opts);
-
-                let mut http = ForgeHttpConnector::new_with_resolver(resolver_cfg);
-
-                http.set_socks5_proxy(self.forge_client_config.socks_proxy.clone());
-                http.enforce_http(false);
-                http.set_interface("mgmt".to_string());
-                http
-            }
-        };
+        // Set TCP timeouts. The interactions are non-obvious, but here are the basics:
+        // - An established socket with in-flight data will timeout exactly TCP_USER_TIMEOUT
+        // after data is first lost.
+        // - An idle socket will send it's first probe when it's been idle for TCP_KEEPIDLE. If
+        // the probe is not ACKed, it will timeout about TCP_USER_TIMEOUT after first data loss.
+        // - This formula should be maintained: TCP_USER_TIMEOUT < TCP_KEEPIDLE + TCP_KEEPINTVL * TCP_KEEPCNT
+        // where `<` means "just slightly lower than".
+        //
+        // The values below mean:
+        // - Disconnect broken active sockets after 30s
+        // - Disconnect broken idle sockets after 32s (first retry wakeup that's > tcp_user_time)
+        //
+        // If HTTP/2 PING (further down) is working the keepalive should never trigger, but if tokio borks the
+        // kernel should unwedge the socket.
+        //
+        // All the details: https://blog.cloudflare.com/when-tcp-sockets-refuse-to-die/
+        http.set_tcp_user_timeout(Some(Duration::from_secs(30)));
+        http.set_keepalive_time(Some(Duration::from_secs(20))); // TCP_KEEPIDLE
+        http.set_keepalive_interval(Some(Duration::from_secs(4)));
+        http.set_keepalive_retries(Some(3)); // initial probe at 20s, then 24s, 28s and 32s
 
         let connector = tower::ServiceBuilder::new()
             .layer_fn(move |s| {
@@ -334,15 +339,19 @@ impl ForgeTlsClient {
             })
             .service(http);
 
+        // ping interval + ping timeout should add up to less than tcp_user_timeout,
+        // so that the application gets a chance to fix things before the kernel.
         let hyper_client = hyper::client::Client::builder()
             .http2_only(true)
-            // Send a PING frame every 10s
+            // Send a PING frame every this
             .http2_keep_alive_interval(Some(Duration::from_secs(10)))
-            // The server will have 20s to respond with a PONG
-            .http2_keep_alive_timeout(Duration::from_secs(20))
+            // The server will have this much time to respond with a PONG
+            .http2_keep_alive_timeout(Duration::from_secs(15))
             // Send PING even when no active http2 streams
-            // Probably not relevant because our clients are short lived
             .http2_keep_alive_while_idle(true)
+            // How many connections will be kept open, per host.
+            // We never make more than a single connection to carbide at a time.
+            .pool_max_idle_per_host(2)
             .build(connector);
 
         let mut forge_client = ForgeClient::with_origin(hyper_client, uri);

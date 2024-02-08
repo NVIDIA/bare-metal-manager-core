@@ -123,7 +123,8 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 options,
             )
             .await
-            .wrap_err("main_loop exit")?;
+            .wrap_err("main_loop error exit")?;
+            tracing::info!("Agent exit");
         }
 
         // enumerate hardware and exit

@@ -3,6 +3,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
+use std::time::Duration;
 use std::{task, vec};
 
 use dsocket::Dsocket;
@@ -169,6 +170,12 @@ impl ForgeResolverOpts {
             inner: ResolverOpts::default(),
             use_mgmt_vrf: false,
         }
+    }
+
+    #[must_use]
+    pub fn timeout(mut self, d: Duration) -> Self {
+        self.inner.timeout = d;
+        self
     }
 
     #[must_use]

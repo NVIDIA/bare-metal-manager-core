@@ -155,11 +155,20 @@ fn connect(
         .map_err(ConnectError::message("tcp set_nonblocking error"))?;
 
     if let Some(dur) = config.keep_alive_timeout {
-        let conf = TcpKeepalive::new().with_time(dur);
+        let mut conf = TcpKeepalive::new().with_time(dur);
+        if let Some(dur) = config.keep_alive_interval {
+            conf = conf.with_interval(dur);
+        }
+        if let Some(retries) = config.keep_alive_retries {
+            conf = conf.with_retries(retries)
+        }
         if let Err(e) = socket.set_tcp_keepalive(&conf) {
             warn!("tcp set_keepalive error: {}", e);
         }
     }
+    socket
+        .set_tcp_user_timeout(config.tcp_user_timeout)
+        .map_err(ConnectError::message("set tcp_user_timeout error"))?;
 
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     // That this only works for some socket types, particularly AF_INET sockets.
@@ -392,12 +401,15 @@ pub struct ForgeHttpConnector {
     resolver: ForgeResolver,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct Config {
     connect_timeout: Option<Duration>,
     enforce_http: bool,
     happy_eyeballs_timeout: Option<Duration>,
     keep_alive_timeout: Option<Duration>,
+    keep_alive_interval: Option<Duration>,
+    keep_alive_retries: Option<u32>,
+    tcp_user_timeout: Option<Duration>,
     local_address_ipv4: Option<Ipv4Addr>,
     local_address_ipv6: Option<Ipv6Addr>,
     nodelay: bool,
@@ -413,21 +425,7 @@ impl ForgeHttpConnector {
     #[must_use]
     pub fn new_with_resolver(resolver: ForgeResolver) -> Self {
         ForgeHttpConnector {
-            config: Arc::new(Config {
-                connect_timeout: None,
-                enforce_http: false,
-                happy_eyeballs_timeout: None,
-                keep_alive_timeout: None,
-                local_address_ipv4: None,
-                local_address_ipv6: None,
-                nodelay: false,
-                reuse_address: false,
-                send_buffer_size: None,
-                recv_buffer_size: None,
-                #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-                interface: None,
-                socks5_proxy: None,
-            }),
+            config: Arc::new(Config::default()),
             resolver,
         }
     }
@@ -438,14 +436,31 @@ impl ForgeHttpConnector {
     pub fn enforce_http(&mut self, is_enforced: bool) {
         self.config_mut().enforce_http = is_enforced;
     }
-    /// Set that all sockets have `SO_KEEPALIVE` set with the supplied duration.
+
+    /// Set both `SO_KEEPALIVE` to true, and `TCP_KEEPIDLE`  to the given duration.
+    /// You must set this if using set_keepalive_interval or set_keepalive_retries.
     ///
-    /// If `None`, the option will not be set.
-    ///
-    /// Default is `None`.
-    #[inline]
-    pub fn set_keepalive(&mut self, dur: Option<Duration>) {
+    /// See https://blog.cloudflare.com/when-tcp-sockets-refuse-to-die/ for how
+    /// the keep alive and tcp_user_timeout values work together.
+    pub fn set_keepalive_time(&mut self, dur: Option<Duration>) {
         self.config_mut().keep_alive_timeout = dur;
+    }
+
+    /// Set TCP_KEEPINTVL
+    /// Must also set_keepalive_time
+    pub fn set_keepalive_interval(&mut self, dur: Option<Duration>) {
+        self.config_mut().keep_alive_interval = dur;
+    }
+
+    /// Set TCP_KEEPCNT
+    /// Must also set_keepalive_time
+    pub fn set_keepalive_retries(&mut self, retries: Option<u32>) {
+        self.config_mut().keep_alive_retries = retries;
+    }
+
+    /// Set TCP_USER_TIMEOUT
+    pub fn set_tcp_user_timeout(&mut self, dur: Option<Duration>) {
+        self.config_mut().tcp_user_timeout = dur;
     }
 
     /// Set that all sockets have `SO_NODELAY` set to the supplied value `nodelay`.

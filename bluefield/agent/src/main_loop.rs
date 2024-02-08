@@ -66,15 +66,13 @@ pub async fn run(
         if let (Some(metadata_service_config), Some(telemetry_config)) =
             (&agent.metadata_service, &agent.telemetry)
         {
-            if let Err(e) = run_metadata_service(
+            if let Err(e) = spawn_metadata_service(
                 machine_id,
                 forge_client_config.clone(),
                 &agent,
                 metadata_service_config.address.clone(),
                 telemetry_config.metrics_address.clone(),
-            )
-            .await
-            {
+            ) {
                 return Err(eyre::eyre!("Failed to run metadata service: {:#}", e));
             }
         } else {
@@ -88,6 +86,8 @@ pub async fn run(
 
     let forge_api = &agent.forge_system.api_server;
     let build_version = forge_version::v!(build_version).to_string();
+    // `new` does a network call and spawns a task. It fetches an initial config from carbide-api,
+    // then spawns a task fetching config every network_config_fetch_secs.
     let network_config_fetcher = network_config_fetcher::NetworkConfigFetcher::new(
         network_config_fetcher::NetworkConfigFetcherConfig {
             config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
@@ -170,6 +170,7 @@ pub async fn run(
             instance_id: None,
             client_certificate_expiry_unix_epoch_secs,
         };
+        // `read` does not block
         match *network_config_reader.read() {
             Some(ref conf) => {
                 // i32 -> VpcVirtualizationType -> NetworkVirtualizationType
@@ -443,7 +444,7 @@ async fn start_inventory_updater(
     Ok(())
 }
 
-async fn run_metadata_service(
+fn spawn_metadata_service(
     machine_id: &str,
     forge_client_config: forge_tls_client::ForgeClientConfig,
     agent: &AgentConfig,
