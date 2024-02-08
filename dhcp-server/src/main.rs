@@ -40,7 +40,10 @@ pub struct Server {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let subscriber = tracing_subscriber::fmt().pretty().finish();
+    let subscriber = tracing_subscriber::fmt()
+        .compact()
+        .with_ansi(false)
+        .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
     let args = Args::load();
