@@ -5,6 +5,7 @@ use std::{
     fmt::Write,
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
+    time::Duration,
 };
 
 use diff::Result as DiffResult;
@@ -101,7 +102,9 @@ impl UrlResolver {
             forge_resolver_config.0.inner.into_inner(),
         );
 
-        let updated_opts = ForgeResolverOpts::new().use_mgmt_vrf();
+        let updated_opts = ForgeResolverOpts::new()
+            .use_mgmt_vrf()
+            .timeout(Duration::from_secs(5));
         let resolver_cfg =
             ForgeResolver::with_config_and_options(hickory_resolver_config, updated_opts);
 
