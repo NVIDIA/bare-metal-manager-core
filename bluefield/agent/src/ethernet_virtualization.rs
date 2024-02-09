@@ -16,12 +16,14 @@ use std::fs::File;
 use std::io::Read;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::{fs, io, net::Ipv4Addr};
 
 use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
 use eyre::WrapErr;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
+use tokio::time::timeout;
 
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
 
@@ -907,8 +909,15 @@ async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
     // Find our side - both will have the same ifname
     let ovs_side = format!("{}_r", vlan_fdb[0].ifname);
     let mut cmd = TokioCommand::new("ip");
+    cmd.kill_on_drop(true);
     let cmd = cmd.args(["-j", "address", "show", &ovs_side.to_string()]);
-    let ip_out = cmd.output().await?;
+    let cmd_str = super::pretty_cmd(cmd.as_std());
+
+    let cmd_res = timeout(Duration::from_secs(5), cmd.output())
+        .await
+        .wrap_err_with(|| format!("timeout calling {cmd_str}"))?;
+    let ip_out = cmd_res.wrap_err(cmd_str.to_string())?;
+
     if !ip_out.status.success() {
         tracing::debug!(
             "STDERR {}: {}",
