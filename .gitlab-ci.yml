@@ -438,6 +438,7 @@ build-boot-artifacts-aarch64:
       - pxe/static/blobs/internal/aarch64/carbide.efi
       - pxe/static/blobs/internal/aarch64/carbide.root
       - pxe/static/blobs/internal/apt
+      - pxe/static/blobs/internal/fwpkg
       - target/debug/forge-admin-cli
       - target/debug/forge-scout
     when: always

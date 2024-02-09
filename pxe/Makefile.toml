@@ -23,6 +23,16 @@ DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.15.5-doca2.5.0"
 K8S_PAUSE_URI = "k8s.gcr.io/pause:3.2"
 DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always | cut -c 2-)"] }
 
+# https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release
+# BF2-24.01-5
+BF2_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF2/BF2BMC-24.01-5/OPN/bf2-bmc-ota-24.01-5-opn.tar"
+BF2_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/CEC1712/04.0f/prod/cec_ota_BMGP-04.0f_prod.bin"
+
+# https://confluence.nvidia.com/display/SW/BF3+BMC+Firmware+release
+# BF3-24.01-5
+BF3_BMC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/BF3/BF3BMC-24.01-5/OPN/bf3-bmc-24.01-5_opn.fwpkg"
+BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glacier/00.02.0152.0000/sign/n02/rel-prod/cec1736-ecfw-00.02.0152.0000-n02-rel-prod.fwpkg"
+
 [tasks.build-boot-artifacts-x86_64]
 dependencies = [
         "mkdir-static-x86_64",
@@ -53,6 +63,7 @@ dependencies = [
 	"bfb-aarch64",
 	"ipxe-aarch64",
 	"setup-apt-repo",
+	"setup-firmware-repo",
 ]
 
 [tasks.build-boot-artifacts-aarch64-ci]
@@ -62,6 +73,7 @@ dependencies = [
 	"bfb-aarch64-ci",
 	"ipxe-aarch64",
 	"setup-apt-repo",
+	"setup-firmware-repo",
 ]
 
 [tasks.create-ephemeral-image-x86_64-ci]
@@ -96,6 +108,7 @@ script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/aarch64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/dists/focal/main/binary-arm64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/apt/pool/base/f/forge-dpu"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 '''
 
 [tasks.mkdir-static-x86_64]
@@ -637,6 +650,18 @@ Label: Ubuntu
 Architecture: arm64" > Release
 '''
 
+[tasks.setup-firmware-repo]
+category = "iPXE Kernel"
+description = "Download vendor specific firmware packages"
+script = [
+  "echo Downloading nvidia firmware",
+  "mkdir -p nvidia/dpu",
+  "curl -L \"${BF2_BMC_PACKAGE}\" --output nvidia/dpu/bf2-bmc.fwpkg",
+  "curl -L \"${BF2_CEC_PACKAGE}\" --output nvidia/dpu/bf2-cec.fwpkg",
+  "curl -L \"${BF3_BMC_PACKAGE}\" --output nvidia/dpu/bf3-bmc.fwpkg",
+  "curl -L \"${BF3_CEC_PACKAGE}\" --output nvidia/dpu/bf3-cec.fwpkg",
+]
+cwd = "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 
 [tasks.bfb-copy-efi]
 category = "iPXE Kernel"
