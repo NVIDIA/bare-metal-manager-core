@@ -84,6 +84,7 @@ pub struct ManagedHostOutput {
     pub dpu_oob_ip: Option<String>,
     pub dpu_oob_mac: Option<String>,
     pub dpu_last_reboot_time: Option<String>,
+    pub dpu_last_reboot_requested_time_and_mode: Option<String>,
     pub dpu_last_observation_time: Option<String>,
 }
 
@@ -205,6 +206,15 @@ pub fn get_managed_host_output(
                         get_bmc_info_from_machine!(dpu_machine, firmware_version);
                     managed_host_output.dpu_last_reboot_time =
                         to_time(dpu_machine.last_reboot_time.clone(), dpu_machine_id);
+                    managed_host_output.dpu_last_reboot_requested_time_and_mode = Some(format!(
+                        "{}/{}",
+                        to_time(
+                            dpu_machine.last_reboot_requested_time.clone(),
+                            dpu_machine_id
+                        )
+                        .unwrap_or("Unknown".to_string()),
+                        dpu_machine.last_reboot_requested_mode()
+                    ));
                     managed_host_output.dpu_last_observation_time =
                         to_time(dpu_machine.last_observation_time.clone(), dpu_machine_id);
 
