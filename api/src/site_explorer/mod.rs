@@ -20,16 +20,22 @@ use tracing::Instrument;
 use crate::{
     cfg::SiteExplorerConfig,
     db::{
+        bmc_metadata::BmcMetaDataUpdateRequest,
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
+        machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
+        machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentType},
         DatabaseError,
     },
     model::{
+        bmc_info::BmcInfo,
         config_version::ConfigVersion,
+        hardware_info::{DpuData, HardwareInfo},
+        machine::{machine_id::MachineId, DpuDiscoveringState, ManagedHostState},
         site_explorer::{
-            EndpointExplorationReport, EndpointType, ExploredEndpoint, ExploredManagedHost,
+            Chassis, EndpointExplorationReport, EndpointType, ExploredEndpoint, ExploredManagedHost,
         },
     },
     CarbideError, CarbideResult,
@@ -214,35 +220,225 @@ impl SiteExplorer {
         // This is improvable
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
-        self.update_explored_managed_hosts(metrics).await?;
+        let identified_hosts = self.identify_managed_hosts(metrics).await?;
+
+        if self.config.create_machines {
+            self.create_machines(metrics, &identified_hosts).await?;
+        }
 
         Ok(())
     }
 
-    pub async fn create_managed_host(
+    /// Creates a new ManagedHost (Host `Machine` and DPU `Machine` pair)
+    /// for each ManagedHost that was identified and that doesn't have a corresponding `Machine` yet
+    async fn create_machines(
         &self,
-        dpu_report: &EndpointExplorationReport,
-        explored_host: ExploredManagedHost,
+        metrics: &mut SiteExplorationMetrics,
+        identified_managed_hosts: &IdentifiedManageHosts,
     ) -> CarbideResult<()> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "begin load create_managed_host data", e)
+        // TODO: Improve the efficiency of this method. Right now we perform 3 database transactions
+        // for every identified ManagedHost even if we don't create any objects.
+        // We can perform a single query upfront to identify which ManagedHosts don't yet have Machines
+        for host in &identified_managed_hosts.managed_hosts {
+            if host.host_pf_mac_address.is_none() {
+                tracing::warn!(
+                    "Can't create Machines for ManagedHost, since factory MAC address is missing. Host: {:#?}",
+                    host
+                );
+                continue;
+            }
+
+            let dpu_ep = match identified_managed_hosts.dpu_endpoints.get(&host.dpu_bmc_ip) {
+                Some(ep) => ep,
+                None => continue,
+            };
+            let _host_ep = match identified_managed_hosts
+                .host_endpoints
+                .get(&host.host_bmc_ip)
+            {
+                Some(ep) => ep,
+                None => continue,
+            };
+
+            match Self::create_machine_pair(&dpu_ep.report, host, &self.database_connection).await {
+                Ok(true) => metrics.created_machines += 1,
+                Ok(false) => {}
+                Err(error) => tracing::error!(%error, "Failed to create managed host"),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Creates a pair of `Machine` objects for an identified `ManagedHost` with initial states
+    ///
+    /// Returns `true` if new `Machine` objects have been created or `false` otherwise
+    pub async fn create_machine_pair(
+        dpu_report: &EndpointExplorationReport,
+        explored_host: &ExploredManagedHost,
+        pool: &PgPool,
+    ) -> CarbideResult<bool> {
+        let mut txn = pool.begin().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "begin load create_machine_pair", e)
         })?;
 
-        dpu_report
-            .create_managed_host(&mut txn, explored_host)
+        if dpu_report.machine_id.is_none() {
+            return Err(CarbideError::MissingArgument("Missing Machine ID"));
+        }
+
+        if dpu_report.systems.is_empty() {
+            return Err(CarbideError::MissingArgument("Missing Systems Info"));
+        }
+
+        let stable_machine_id = dpu_report.machine_id.as_ref().unwrap();
+
+        let (dpu_machine, is_new) =
+            match Machine::find_one(&mut txn, stable_machine_id, MachineSearchConfig::default())
+                .await?
+            {
+                // Do nothing if machine exists. It'll be reprovisioned via redfish
+                Some(m) => (m, false),
+                None => match Machine::create(
+                    &mut txn,
+                    stable_machine_id,
+                    ManagedHostState::DpuDiscoveringState {
+                        discovering_state: DpuDiscoveringState::Initializing,
+                    },
+                )
+                .await
+                {
+                    Ok(m) => {
+                        tracing::info!("Created machine id: {}", stable_machine_id);
+                        (m, true)
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Can't create Machine");
+                        return Err(e);
+                    }
+                },
+            };
+        if !is_new {
+            return Ok(false);
+        }
+
+        let serial_number = dpu_report
+            .systems
+            .get(0)
+            .and_then(|system| system.serial_number.as_ref())
+            .unwrap();
+        let dmi_data = dpu_report.create_temporary_dmi_data(serial_number.as_str());
+
+        let chassis_map = dpu_report
+            .chassis
+            .clone()
+            .into_iter()
+            .map(|x| (x.id.clone(), x))
+            .collect::<HashMap<_, _>>();
+
+        let dpu_data = DpuData {
+            factory_mac_address: explored_host
+                .host_pf_mac_address
+                .ok_or(CarbideError::MissingArgument("Missing base mac"))?
+                .to_string(),
+            part_number: chassis_map
+                .get("Card1")
+                .and_then(|value: &Chassis| value.part_number.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            part_description: chassis_map
+                .get("Card1")
+                .and_then(|value| value.model.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            ..Default::default()
+        };
+
+        let hardware_info = HardwareInfo {
+            dmi_data: Some(dmi_data),
+            dpu_info: Some(dpu_data),
+            machine_type: "aarch64".to_string(),
+            ..Default::default()
+        };
+
+        let _topology =
+            MachineTopology::create_or_update(&mut txn, stable_machine_id, &hardware_info).await?;
+
+        // Forge scout will update this topology with a full information.
+        MachineTopology::set_topology_update_needed(&mut txn, stable_machine_id, true).await?;
+
+        let bmc_info = BmcInfo {
+            ip: Some(explored_host.dpu_bmc_ip.to_string()),
+            mac: dpu_report.managers.first().and_then(|m| {
+                m.ethernet_interfaces
+                    .first()
+                    .and_then(|e| e.mac_address.clone())
+            }),
+            ..Default::default()
+        };
+
+        let bmc_metadata = BmcMetaDataUpdateRequest {
+            machine_id: stable_machine_id.clone(),
+            bmc_info,
+            data: Vec::new(),
+        };
+
+        bmc_metadata
+            .update_bmc_network_into_topologies(&mut txn)
+            .await?;
+
+        // Create Host proactively.
+        // In case host interface is created, this method will return existing one, instead
+        // creating new everytime.
+        let machine_interface = MachineInterface::create_host_machine_interface_proactively(
+            &mut txn,
+            Some(&hardware_info),
+            dpu_machine.id(),
+        )
+        .await?;
+
+        // Create host machine with temporary ID if no machine is attached.
+        if machine_interface.machine_id.is_some() {
+            return Err(CarbideError::GenericError(
+                format!(
+                    "Machine id: {} attached to network interface",
+                    machine_interface.machine_id.unwrap()
+                )
+                .to_string(),
+            ));
+        }
+
+        let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&hardware_info)
+            .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
+        let mi_id = machine_interface.id;
+        let host_machine = Machine::create(
+            &mut txn,
+            &predicted_machine_id,
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state: DpuDiscoveringState::Initializing,
+            },
+        )
+        .await?;
+        tracing::info!(
+            ?mi_id,
+            machine_id = %host_machine.id(),
+            "Created host machine proactively in site-explorer",
+        );
+
+        machine_interface
+            .associate_interface_with_machine(&mut txn, host_machine.id())
             .await?;
 
         txn.commit()
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "end create_managed_host data", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "end create_machine_pair", e))?;
 
-        Ok(())
+        Ok(true)
     }
 
-    async fn update_explored_managed_hosts(
+    async fn identify_managed_hosts(
         &self,
         metrics: &mut SiteExplorationMetrics,
-    ) -> CarbideResult<()> {
+    ) -> CarbideResult<IdentifiedManageHosts> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(
                 file!(),
@@ -257,23 +453,23 @@ impl SiteExplorer {
         // are quite complicated in the previous step, this makes things much easier
         let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
 
-        let mut explored_dpus = Vec::new();
-        let mut explored_hosts = Vec::new();
+        let mut explored_dpus = HashMap::new();
+        let mut explored_hosts = HashMap::new();
         for ep in explored_endpoints.into_iter() {
             if ep.report.endpoint_type != EndpointType::Bmc {
                 continue;
             }
             if ep.report.is_dpu() {
-                explored_dpus.push(ep);
+                explored_dpus.insert(ep.address, ep);
             } else {
-                explored_hosts.push(ep);
+                explored_hosts.insert(ep.address, ep);
             }
         }
 
         // Match HOST and DPU using SerialNumber.
         // Compare DPU system.serial_number with HOST chassis.network_adapters[].serial_number
         let mut dpu_sn_to_endpoint = HashMap::new();
-        for ep in explored_dpus.iter() {
+        for ep in explored_dpus.values() {
             if let Some(sn) = ep
                 .report
                 .systems
@@ -285,13 +481,13 @@ impl SiteExplorer {
         }
 
         let mut managed_hosts = Vec::new();
-        'loop_hosts: for ep in explored_hosts {
+        'loop_hosts: for ep in explored_hosts.values() {
             for chassis in ep.report.chassis.iter() {
                 for net_adapter in chassis.network_adapters.iter() {
                     if net_adapter.serial_number.is_some() {
                         let sn = net_adapter.serial_number.as_ref().unwrap();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
-                            let host_pf_mac_address = match find_host_pf_mac_address(&ep, dpu_ep) {
+                            let host_pf_mac_address = match find_host_pf_mac_address(ep, dpu_ep) {
                                 Ok(m) => m,
                                 Err(error) => {
                                     tracing::error!(%error, "Failed to find base mac address");
@@ -304,17 +500,6 @@ impl SiteExplorer {
                                 host_pf_mac_address,
                             };
                             managed_hosts.push(explored_host.clone());
-
-                            if self.config.create_machines {
-                                if host_pf_mac_address.is_none() {
-                                    tracing::warn!("Can't create managed host, since no factory MAC address for host: {:#?}", ep);
-                                } else if let Err(error) = self
-                                    .create_managed_host(&dpu_ep.report, explored_host)
-                                    .await
-                                {
-                                    tracing::error!(%error, "Failed to create managed host");
-                                }
-                            }
                             metrics.exploration_identified_managed_hosts += 1;
                             continue 'loop_hosts;
                         }
@@ -329,7 +514,11 @@ impl SiteExplorer {
             DatabaseError::new(file!(), line!(), "end update_explored_endpoints data", e)
         })?;
 
-        Ok(())
+        Ok(IdentifiedManageHosts {
+            dpu_endpoints: explored_dpus,
+            host_endpoints: explored_hosts,
+            managed_hosts,
+        })
     }
 
     async fn update_explored_endpoints(
@@ -603,6 +792,12 @@ impl SiteExplorer {
 
         Ok(())
     }
+}
+
+struct IdentifiedManageHosts {
+    pub dpu_endpoints: HashMap<IpAddr, ExploredEndpoint>,
+    pub host_endpoints: HashMap<IpAddr, ExploredEndpoint>,
+    pub managed_hosts: Vec<ExploredManagedHost>,
 }
 
 /// Identifies the MAC address that is used by the pf0 interface that
