@@ -24,7 +24,7 @@ use tracing_subscriber::{
 
 use crate::{
     cfg::CarbideConfig,
-    logging::{logfmt, otel_stdout_exporter::OtelStdoutExporter, sqlx_query_tracing},
+    logging::{otel_stdout_exporter::OtelStdoutExporter, sqlx_query_tracing},
 };
 
 pub async fn setup_telemetry(
@@ -125,7 +125,7 @@ pub async fn setup_telemetry(
         .with_threads(false)
         .with_tracer(tracer);
 
-    let logfmt_er = logfmt::LogFmtFormatter {};
+    let logfmt_er = utils::logfmt::LogFmtFormatter {};
     let stdout_formatter = fmt::Layer::default()
         .with_ansi(false)
         .event_format(logfmt_er);
