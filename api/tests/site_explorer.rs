@@ -290,6 +290,12 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                             ),
                             release_date: None,
                         },
+                        Inventory {
+                            id: "DPU_SYS_IMAGE".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("b83f:d203:0090:97a4".to_string()),
+                            release_date: None,
+                        },
                     ],
                 }],
             }),

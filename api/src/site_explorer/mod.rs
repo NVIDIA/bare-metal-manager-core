@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, net::IpAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc, time::Duration};
 
 use mac_address::MacAddress;
 use sqlx::PgPool;
@@ -351,7 +351,7 @@ impl SiteExplorer {
             .collect::<HashMap<_, _>>();
 
         let inventory_map = service_map
-            .get(&"FirmwareInventory".to_string())
+            .get("FirmwareInventory")
             .map(|value| value.inventories.clone())
             .unwrap()
             .into_iter()
@@ -538,7 +538,7 @@ impl SiteExplorer {
                     if net_adapter.serial_number.is_some() {
                         let sn = net_adapter.serial_number.as_ref().unwrap();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
-                            let host_pf_mac_address = match find_host_pf_mac_address(ep, dpu_ep) {
+                            let host_pf_mac_address = match find_host_pf_mac_address(dpu_ep) {
                                 Ok(m) => m,
                                 Err(error) => {
                                     tracing::error!(%error, "Failed to find base mac address");
@@ -854,67 +854,81 @@ struct IdentifiedManageHosts {
 /// Identifies the MAC address that is used by the pf0 interface that
 /// the DPU exposes to the host.
 ///
-/// Note: This method uses MAC address prefix matching between a DPUs BMC
-/// MAC address and any other MAC address on the system. This mechanism is not
-/// necessarily 100% reliable, and might lead to incorrect results if the host
-/// uses different NICs which uses similar MAC address ranges.
+/// According "MAC and GUID allocation and assignment" document
+///
+/// Ethernet only require allocation of MAC address. Similarly,
+/// IB only requires GUID allocation. Yet, since Mellanox devices support RoCE,
+/// NIC cards require allocation of GUID addresses. Similarly, since IB supports
+/// IP traffic HCA cards require allocation of MAC addresses.
+/// As both MAC addresses and GUID addresses are allocated together, there is a
+/// correlation between these 2 values. Unfortunately the translation from MAC
+/// address to GUID and vice-versa is inconsistent between different platforms and operating systems.
+/// To assure that this will not cause future issues, it is required that future
+/// devices will not rely on any conversion formulas between MAC and GUID values,
+/// and that these values will be explicitly stored in the device’s nonvolatile memory.
+///
+/// Assumption:
+/// redfish/v1/UpdateService/FirmwareInventory/DPU_SYS_IMAGE(Version)
+/// is identical to
+/// flint -d /dev/mst/mt*_pciconf0 q full (BASE GUID)
+///
+/// Details:
+/// redfish/v1/UpdateService/FirmwareInventory/DPU_SYS_IMAGE
+/// is taken from /sys/class/infiniband/mlx*_<port>/sys_image_guid
+///
+/// Example:
+/// DPU_SYS_IMAGE: a088:c203:0046:0c68
+/// Base GUID: a088c20300460c68
+/// Base MAC:  a088c2    460c68
+/// Note: 0300 in the middle looks as a constant for dpu
+///
+/// redfish/v1/UpdateService/FirmwareInventory/DPU_SYS_IMAGE
+/// "Version": "a088:c203:0046:0c68"
+///
+/// ibdev2netdev -v
+/// 0000:31:00.0 mlx5_0 (MT41692 - 900-9D3B6-00CV-AA0) BlueField-3 P-Series DPU 200GbE/NDR200 dual-port QSFP112,
+/// PCIe Gen5.0 x16 FHHL, Crypto Enabled, 32GB DDR5, BMC, Tall Bracket  fw 32.37.1306 port 1 (DOWN  ) ==> ens3np0 (Down)
+///
+/// cat /sys/class/infiniband/mlx5_0/sys_image_guid
+/// a088:c203:0046:0c68
+///
+/// ip link show ens3np0
+/// 6: ens3np0: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN mode DEFAULT group default qlen 1000
+/// link/ether a0:88:c2:46:0c:68 brd ff:ff:ff:ff:ff:ff
 ///
 /// The method should be migrated to the DPU directly providing the
 /// MAC address: https://redmine.mellanox.com/issues/3749837
-fn find_host_pf_mac_address(
-    host_ep: &ExploredEndpoint,
-    dpu_ep: &ExploredEndpoint,
-) -> CarbideResult<Option<MacAddress>> {
-    let dpu_bmc_mac = match dpu_ep
+fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> CarbideResult<Option<MacAddress>> {
+    let service_map = dpu_ep
         .report
-        .managers
-        .first()
-        .and_then(|manager| manager.ethernet_interfaces.first())
-        .and_then(|iface| iface.mac_address.clone())
-    {
-        Some(mac) => mac,
-        None => {
-            return Err(CarbideError::GenericError(
-                "No DPU BMC MAC address".to_string(),
-            ))
-        }
-    };
-    // Bmc  mac: b8:3f:d2:99:07:36
-    // Base mac: b8:3f:d2:90:97:34
-    let bmc_prefix: String = dpu_bmc_mac.chars().take(8).collect();
+        .service
+        .clone()
+        .into_iter()
+        .map(|x| (x.id.clone(), x))
+        .collect::<HashMap<_, _>>();
 
-    let mut base_mac: Option<MacAddress> = None;
+    let inventory_map = service_map
+        .get("FirmwareInventory")
+        .map(|value| value.inventories.clone())
+        .unwrap()
+        .into_iter()
+        .map(|x| (x.id.clone(), x))
+        .collect::<HashMap<_, _>>();
 
-    for host_interface in host_ep
-        .report
-        .systems
-        .iter()
-        .flat_map(|sys| sys.ethernet_interfaces.iter())
-    {
-        let host_mac = match host_interface.mac_address.as_ref() {
-            None => continue,
-            Some(mac) => mac,
-        };
+    let mut base_mac = inventory_map
+        .get("DPU_SYS_IMAGE")
+        .and_then(|value| value.version.as_ref())
+        .unwrap_or(&"".to_string())
+        .replace(':', "");
 
-        if host_mac.starts_with(bmc_prefix.as_str()) {
-            match host_mac.parse::<MacAddress>() {
-                Ok(mac) => {
-                    if base_mac.is_none() {
-                        base_mac = Some(mac);
-                    } else {
-                        let msg = format!(
-                            "2 MAC addresses ({}, {}) overlaps with DPU BMC address: {}.",
-                            mac,
-                            base_mac.unwrap(),
-                            bmc_prefix
-                        );
-                        return Err(CarbideError::GenericError(msg));
-                    }
-                }
-                Err(_) => continue,
-            };
-        }
-    }
+    base_mac.replace_range(6..10, "");
+    let mut base_mac_vec: Vec<char> = base_mac.chars().collect();
+    base_mac_vec.insert(10, ':');
+    base_mac_vec.insert(8, ':');
+    base_mac_vec.insert(6, ':');
+    base_mac_vec.insert(4, ':');
+    base_mac_vec.insert(2, ':');
+    let base_mac: String = base_mac_vec.into_iter().collect();
 
-    Ok(base_mac)
+    Ok(Some(MacAddress::from_str(base_mac.as_str()).unwrap()))
 }
