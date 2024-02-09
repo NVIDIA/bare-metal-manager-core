@@ -475,7 +475,6 @@ async fn start_inventory_updater(
             forge_client_config,
         },
     ));
-
     Ok(())
 }
 
