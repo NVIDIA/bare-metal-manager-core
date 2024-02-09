@@ -289,7 +289,7 @@ fn create_dhcp_reply_packet(
                 src.packet
                     .chaddr()
                     .iter()
-                    .map(|x| x.to_string())
+                    .map(|x| format!("{:x}", x))
                     .collect::<Vec<String>>()
                     .join(":"),
             ));
