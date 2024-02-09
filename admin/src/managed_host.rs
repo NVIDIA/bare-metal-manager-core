@@ -185,7 +185,7 @@ async fn show_managed_hosts(
 }
 
 fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResult<()> {
-    let width = 21;
+    let width = 24;
     let mut lines = String::new();
 
     writeln!(
@@ -221,14 +221,14 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         ("  ID", m.machine_id.clone()),
         ("  Last reboot completed", m.host_last_reboot_time),
         (
-            "  Last reboot requested/mode",
+            "  Last reboot requested",
             m.host_last_reboot_requested_time_and_mode,
         ),
         ("  Serial Number", m.host_serial_number.clone()),
         ("  BIOS Version", m.host_bios_version.clone()),
         ("  GPU Count", Some(m.host_gpu_count.to_string())),
         (
-            "  InfiniBand Interface Count",
+            "  IB Interface Count",
             Some(m.host_ib_ifs_count.to_string()),
         ),
         ("  Memory", m.host_memory.clone()),
@@ -273,6 +273,10 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
     let data = vec![
         ("  ID", m.dpu_machine_id.clone()),
         ("  Last reboot", m.dpu_last_reboot_time),
+        (
+            "  Last reboot requested",
+            m.dpu_last_reboot_requested_time_and_mode,
+        ),
         ("  Last seen", m.dpu_last_observation_time),
         ("  Serial Number", m.dpu_serial_number.clone()),
         ("  BIOS Version", m.dpu_bios_version.clone()),
