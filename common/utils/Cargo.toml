@@ -13,6 +13,7 @@ chrono = "0.4.26"
 serde = { version = "1", features = ["derive"] }
 thiserror = "1.0.44"
 tracing = "*"
+tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 tokio = { workspace = true }
 ipnetwork = "0.20.0"
 

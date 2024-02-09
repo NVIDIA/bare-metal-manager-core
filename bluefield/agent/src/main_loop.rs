@@ -10,12 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::ops::Add;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ::rpc::forge as rpc;
 use ::rpc::forge::VpcVirtualizationType;
@@ -124,17 +122,17 @@ pub async fn run(
             .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
 
         // This log should be removed after some time.
-        tracing::info!("Pxe server resolved as: {:?}", pxe_ip);
+        tracing::info!(%pxe_ip, "Pxe server resolved");
 
         let ntp_ip = match url_resolver.resolve("carbide-ntp.forge").await {
             Ok(x) => {
                 let ntp_server_ip = x.get(0);
                 // This log should be removed after some time.
-                tracing::info!("Ntp server resolved as: {:?}", ntp_server_ip);
+                tracing::info!(?ntp_server_ip, "Ntp server resolved");
                 ntp_server_ip.cloned()
             }
             Err(e) => {
-                tracing::error!("NTP server couldn't be resolved. Dhcp-server won't send NTP server IP in dhcpoffer/ack. Error: {}", e);
+                tracing::error!(error = %e, "NTP server couldn't be resolved. Dhcp-server won't send NTP server IP in dhcpoffer/ack.");
                 None
             }
         };
@@ -150,10 +148,18 @@ pub async fn run(
     };
 
     loop {
-        systemd::notify_watchdog().await?;
+        let loop_start = Instant::now();
 
+        if let Err(err) = systemd::notify_watchdog().await {
+            tracing::error!(error = format!("{err:#}"), "systemd::notify_watchdog");
+        }
+
+        let mut current_health_report = None;
+        let mut current_config_error = None;
         let mut is_healthy = false;
         let mut has_changed_configs = false;
+        let mut current_host_config_version = None;
+        let mut current_instance_config_version = None;
 
         let client_certificate_expiry_unix_epoch_secs =
             forge_client_config.client_cert_expiry().await;
@@ -224,7 +230,7 @@ pub async fn run(
                             has_changed_configs = has_changed;
                             tenant_peers = ethernet_virtualization::tenant_peers(conf);
                             if let Err(err) = mtu::ensure().await {
-                                tracing::error!("Error reading/setting MTU for p0 or p1: {err}");
+                                tracing::error!(error = %err, "Error reading/setting MTU for p0 or p1");
                             }
 
                             // Updating network config succeeded.
@@ -236,13 +242,20 @@ pub async fn run(
                                 status_out.instance_config_version =
                                     Some(conf.instance_config_version.clone());
                             }
+                            current_host_config_version = status_out.network_config_version.clone();
+                            current_instance_config_version =
+                                status_out.instance_config_version.clone();
+
                             match ethernet_virtualization::interfaces(conf, mac_address).await {
                                 Ok(interfaces) => status_out.interfaces = interfaces,
                                 Err(err) => status_out.network_config_error = Some(err.to_string()),
                             }
                         }
                         Err(err) => {
-                            tracing::error!("Error writing network configuration: {err:#}");
+                            tracing::error!(
+                                error = format!("{err:#}"),
+                                "Writing network configuration"
+                            );
                             status_out.network_config_error = Some(err.to_string());
                         }
                     }
@@ -254,7 +267,7 @@ pub async fn run(
                 is_healthy = health_report.is_healthy();
                 is_hbn_up = health_report.is_up();
                 // subset of is_healthy
-                tracing::trace!("{} HBN health is: {}", machine_id, health_report);
+                tracing::trace!(%machine_id, %health_report, "HBN health");
                 // If we just applied a new network config report network as unhealthy.
                 // This gives HBN / BGP time to act on the config.
                 let hs = rpc::NetworkHealth {
@@ -269,7 +282,7 @@ pub async fn run(
                         .iter()
                         .map(|hc| hc.to_string())
                         .collect(),
-                    message: health_report.message.or_else(|| {
+                    message: health_report.message.clone().or_else(|| {
                         if has_changed_configs {
                             Some("Post-config waiting period".to_string())
                         } else {
@@ -278,6 +291,8 @@ pub async fn run(
                     }),
                 };
                 status_out.health = Some(hs);
+                current_health_report = Some(health_report);
+                current_config_error = status_out.network_config_error.clone();
 
                 record_network_status(status_out, forge_api, forge_client_config.clone()).await;
                 seen_blank = false;
@@ -288,7 +303,8 @@ pub async fn run(
                             .await
                     {
                         tracing::error!(
-                            "Failed creating missing forge_admin user: {err}. Will retry."
+                            error = %err,
+                            "Failed creating missing forge_admin user. Will retry."
                         );
                     }
                 }
@@ -328,7 +344,9 @@ pub async fn run(
                 }
                 Ok(true) => {
                     // upgraded, need to exit and restart
-                    systemd::notify_stop().await?;
+                    if let Err(err) = systemd::notify_stop().await {
+                        tracing::error!(error = format!("{err:#}"), "systemd::notify_stop");
+                    }
                     return Ok(());
                 }
                 Err(e) => {
@@ -350,6 +368,23 @@ pub async fn run(
             }
             main_loop_period_idle
         };
+
+        let cr7 = current_health_report.as_ref();
+        tracing::info!(
+            is_healthy,
+            has_changed_configs,
+            seen_blank,
+            num_health_check_errors = cr7.map(|hs| hs.checks_failed.len()).unwrap_or_default(),
+            health_check_first_error = cr7.and_then(|hs| hs.message.as_deref()).unwrap_or_default(),
+            write_config_error = current_config_error.unwrap_or_default(),
+            managed_host_config_version = current_host_config_version.unwrap_or_default(),
+            instance_config_version = current_instance_config_version.unwrap_or_default(),
+            loop_duration = %dt(loop_start.elapsed()),
+            version_check_in = %dt(version_check_time - Instant::now()),
+            uptime = %dt(started_at.elapsed()),
+            "loop metrics",
+        );
+
         tokio::select! {
             biased;
             _ = term_signal.recv() => {
@@ -562,4 +597,15 @@ async fn create_forge_admin_user(
     forge_host_support::ipmi::send_bmc_metadata_update(&mut client, machine_id, vec![ipmi_user])
         .await?;
     Ok(())
+}
+
+const ONE_SECOND: Duration = Duration::from_secs(1);
+
+// Format a Duration for display
+fn dt(d: Duration) -> humantime::FormattedDuration {
+    humantime::format_duration(if d > ONE_SECOND {
+        Duration::from_secs(d.as_secs())
+    } else {
+        Duration::from_millis(d.as_millis() as u64)
+    })
 }

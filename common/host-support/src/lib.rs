@@ -55,11 +55,10 @@ pub fn subscriber() -> impl SubscriberInitExt {
         .add_directive("hickory_proto::xfer=info".parse().unwrap())
         .add_directive("hickory_resolver::name_server=info".parse().unwrap())
         .add_directive("hickory_proto=info".parse().unwrap());
+    let logfmt_er = utils::logfmt::LogFmtFormatter {};
     let stdout_formatter = fmt::Layer::default()
-        .compact()
-        .with_file(true)
-        .with_line_number(true)
-        .with_ansi(false);
+        .with_ansi(false)
+        .event_format(logfmt_er);
     Box::new(
         tracing_subscriber::registry()
             .with(stdout_formatter)

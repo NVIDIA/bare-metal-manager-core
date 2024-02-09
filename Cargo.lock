@@ -66,6 +66,7 @@ dependencies = [
  "hickory-proto",
  "hickory-resolver",
  "http-body",
+ "humantime",
  "hyper",
  "ipnetwork",
  "lazy_static",
@@ -6732,6 +6733,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
