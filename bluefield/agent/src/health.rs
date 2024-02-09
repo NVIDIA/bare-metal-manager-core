@@ -16,6 +16,7 @@ use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use tokio::process::Command as TokioCommand;
+use tokio::time::timeout;
 
 use crate::hbn;
 
@@ -366,12 +367,19 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
     let mut cmd = TokioCommand::new("bash");
     cmd.arg("-c")
         .arg("mlxprivhost -d /dev/mst/mt*_pciconf0 query");
-    let out = match cmd.output().await {
+    cmd.kill_on_drop(true);
+
+    let cmd_str = super::pretty_cmd(cmd.as_std());
+    let Ok(cmd_res) = timeout(Duration::from_secs(10), cmd.output()).await else {
+        hr.failed(HealthCheck::RestrictedMode, format!("Timeout running '{cmd_str}'."));
+        return;
+    };
+    let out = match cmd_res {
         Ok(out) => out,
         Err(err) => {
             hr.failed(
                 HealthCheck::RestrictedMode,
-                format!("Error running {}. {err}", super::pretty_cmd(cmd.as_std())),
+                format!("Error running '{cmd_str}'. {err}"),
             );
             return;
         }
@@ -439,12 +447,18 @@ fn check_ipmi_device(hr: &mut HealthReport, process_started_at: Instant) {
 async fn check_forge_admin_user(hr: &mut HealthReport) {
     let mut cmd = TokioCommand::new("ipmitool");
     cmd.args(["user", "list", "1", "-c"]); // -c says CSV output
-    let out = match cmd.output().await {
+    cmd.kill_on_drop(true);
+    let cmd_str = super::pretty_cmd(cmd.as_std());
+    let Ok(cmd_res) = timeout(Duration::from_secs(10), cmd.output()).await else {
+        hr.failed(HealthCheck::ForgeAdminUser(IpmiUserCheck::Timeout), format!("Timeout running '{cmd_str}'."));
+        return;
+    };
+    let out = match cmd_res {
         Ok(out) => out,
         Err(err) => {
             hr.failed(
                 HealthCheck::ForgeAdminUser(IpmiUserCheck::Error),
-                format!("Error running: {}. {err}", super::pretty_cmd(cmd.as_std())),
+                format!("Error running '{cmd_str}'. {err}"),
             );
             return;
         }
@@ -667,6 +681,7 @@ pub enum IpmiUserCheck {
     Exists,
     Missing,
     Error,
+    Timeout,
 }
 
 fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {

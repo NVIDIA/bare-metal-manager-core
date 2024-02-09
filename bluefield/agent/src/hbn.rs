@@ -10,9 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::time::Duration;
+
 use eyre::WrapErr;
 use serde::Deserialize;
-use tokio::process::Command as TokioCommand;
+use tokio::{process::Command as TokioCommand, time::timeout};
+
+/// How long to wait for `crictl ps`
+const TIMEOUT_GET_CONTAINER_ID: Duration = Duration::from_secs(5);
+
+/// How long to wait for an arbitrary command run in the HBN container.
+/// `nv config apply` can take > 10s
+const TIMEOUT_CONTAINER_CMD: Duration = Duration::from_secs(45);
 
 // Containerd is started in the mgmt VRF.  Processes started in the MGMT VRF are not reachable
 // from the default VRF.  This means that we need to run crictl commands in the MGMT VRF in order to
@@ -49,9 +58,13 @@ impl<'a> RunCommandPredicate<'a> {
 
 pub async fn get_hbn_container_id() -> eyre::Result<String> {
     let mut crictl = TokioCommand::new("crictl");
+    crictl.kill_on_drop(true);
     let cmd = crictl.args(["ps", "--name=doca-hbn", "-o=json"]);
     let cmd_str = super::pretty_cmd(cmd.as_std());
-    let out = cmd.output().await.wrap_err(cmd_str.to_string())?;
+    let cmd_res = timeout(TIMEOUT_GET_CONTAINER_ID, cmd.output())
+        .await
+        .wrap_err_with(|| format!("timeout calling {cmd_str}"))?;
+    let out = cmd_res.wrap_err(cmd_str.to_string())?;
     if !out.status.success() {
         tracing::debug!("STDERR {cmd_str}: {}", String::from_utf8_lossy(&out.stderr));
         return Err(eyre::eyre!("{} for cmd '{cmd_str}'", out.status,));
@@ -102,13 +115,19 @@ pub async fn run_in_container(
     args.extend_from_slice(command);
 
     let cmd = crictl.args(args);
-    let pretty = super::pretty_cmd(cmd.as_std());
-    tracing::trace!("run_in_container: {pretty}");
-    let out = cmd.output().await?;
+    cmd.kill_on_drop(true);
+    let cmd_str = super::pretty_cmd(cmd.as_std());
+    tracing::trace!("run_in_container: {cmd_str}");
+
+    let cmd_res = timeout(TIMEOUT_CONTAINER_CMD, cmd.output())
+        .await
+        .wrap_err_with(|| format!("timeout calling {cmd_str}"))?;
+    let out = cmd_res.wrap_err(cmd_str.to_string())?;
+
     if need_success && !out.status.success() {
-        tracing::debug!("STDERR {pretty}: {}", String::from_utf8_lossy(&out.stderr));
+        tracing::debug!("STDERR {cmd_str}: {}", String::from_utf8_lossy(&out.stderr));
         return Err(eyre::eyre!(
-            "{} for cmd '{pretty}'",
+            "{} for cmd '{cmd_str}'",
             out.status, // includes the string "exit status"
         ));
     }

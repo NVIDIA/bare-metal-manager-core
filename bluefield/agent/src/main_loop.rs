@@ -583,6 +583,7 @@ fn create_metric_view_for_retry_histograms(
     opentelemetry_sdk::metrics::new_view(criteria, mask)
 }
 
+/// DANGER TODO set_ipmi_creds and send_bmc_metadata_update are not async and may block tokio forever
 async fn create_forge_admin_user(
     forge_api: &str,
     forge_client_config: forge_tls_client::ForgeClientConfig,

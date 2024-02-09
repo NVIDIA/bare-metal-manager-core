@@ -14,12 +14,14 @@ use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::io::Read;
+use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 use data_encoding::BASE64;
 use eyre::WrapErr;
 use tokio::process::Command as TokioCommand;
+use tokio::time::timeout;
 
 // __PKG_VERSION__ will be replaced by the package version
 const UPGRADE_CMD: &str = "ip vrf exec mgmt apt-get update -o Dir::Etc::sourcelist=sources.list.d/forge.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && ip vrf exec mgmt apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__";
@@ -119,11 +121,12 @@ pub async fn upgrade_check(
 }
 
 async fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
-    let out = TokioCommand::new("bash")
-        .arg("-c")
-        .arg(upgrade_cmd)
-        .output()
-        .await?;
+    let mut cmd = TokioCommand::new("bash");
+    cmd.arg("-c").arg(upgrade_cmd).kill_on_drop(true);
+    let out = timeout(Duration::from_secs(30), cmd.output())
+        .await
+        .wrap_err("Timeout")?
+        .wrap_err("Error running command")?;
     if !out.status.success() {
         tracing::error!(" STDOUT: {}", String::from_utf8_lossy(&out.stdout));
         tracing::error!(" STDERR: {}", String::from_utf8_lossy(&out.stderr));
