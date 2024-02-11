@@ -1500,15 +1500,12 @@ where
                 machine_id
             )));
         }
-        let bmc_ip =
-            snapshot
-                .host_snapshot
-                .bmc_info
-                .ip
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "bmc_ip",
-                    id: machine_id.to_string(),
-                })?;
+        let bmc_ip = snapshot.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
+            CarbideError::NotFoundError {
+                kind: "bmc_ip",
+                id: machine_id.to_string(),
+            }
+        })?;
 
         let always_boot_with_custom_ipxe = snapshot
             .instance
@@ -1585,8 +1582,8 @@ where
         let client = self
             .redfish_pool
             .create_client(
-                &bmc_ip,
-                None,
+                bmc_ip,
+                snapshot.host_snapshot.bmc_info.port,
                 CredentialKey::Bmc {
                     machine_id: machine_id.to_string(),
                     user_role: UserRoles::Administrator.to_string(),
@@ -3378,7 +3375,7 @@ where
                     .redfish_pool
                     .create_client(
                         ip,
-                        None,
+                        machine.bmc_info().port,
                         CredentialKey::Bmc {
                             machine_id: machine.id().to_string(),
                             user_role: UserRoles::Administrator.to_string(),

@@ -524,6 +524,7 @@ pub async fn update_bmc_metadata(
 ) {
     let bmc_info = rpc::forge::BmcInfo {
         ip: Some(bmc_ip_address.to_owned()),
+        port: None,
         mac: Some(bmc_mac_address.to_owned()),
         version: Some(bmc_version),
         firmware_version: Some(bmc_firmware_version),

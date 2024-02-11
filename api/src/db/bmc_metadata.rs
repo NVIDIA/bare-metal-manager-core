@@ -152,6 +152,7 @@ impl BmcMetaDataGetRequest {
 
         Ok(rpc::BmcMetaDataGetResponse {
             ip: bmc_info.ip.unwrap_or_default(),
+            port: bmc_info.port.map(|p| p as u32),
             mac: bmc_info.mac.unwrap_or_default(),
             user: username,
             password,

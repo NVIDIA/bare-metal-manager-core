@@ -104,6 +104,7 @@ pub async fn send_bmc_metadata_update(
         request_type: rpc::BmcRequestType::Ipmi as i32,
         bmc_info: Some(BmcInfo {
             ip: bmc_ip,
+            port: None,
             mac: bmc_mac,
             version: bmc_version,
             firmware_version: bmc_firmware_version,
@@ -127,6 +128,7 @@ fn get_bmc_info() -> eyre::Result<String> {
     }
 }
 
+// Parse BMC information from `ipmitool lan print`.
 fn fetch_bmc_network_config() -> eyre::Result<(Option<String>, Option<String>)> {
     let versions_pattern = Regex::new("(?s)IP Address *: (.*?)\n.*MAC Address *: (.*?)\n")?;
     debug!("Fetching BMC Network Information.");

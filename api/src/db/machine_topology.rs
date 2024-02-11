@@ -125,6 +125,7 @@ impl MachineTopology {
             },
             bmc_info: BmcInfo {
                 ip: None,
+                port: None,
                 mac: None,
                 version: None,
                 firmware_version: None,
