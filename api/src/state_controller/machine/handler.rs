@@ -589,7 +589,7 @@ impl StateHandler for DpuMachineStateHandler {
                     .redfish_client_pool
                     .create_client(
                         state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
-                        None,
+                        state.dpu_snapshot.bmc_info.port,
                         CredentialKey::DpuRedfish {
                             credential_type: CredentialType::SiteDefault,
                         },
@@ -620,7 +620,7 @@ impl StateHandler for DpuMachineStateHandler {
                     .redfish_client_pool
                     .create_client(
                         state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
-                        None,
+                        state.dpu_snapshot.bmc_info.port,
                         CredentialKey::DpuRedfish {
                             credential_type: CredentialType::Machine {
                                 machine_id: host_machine_id.to_string(),
@@ -693,7 +693,7 @@ impl StateHandler for DpuMachineStateHandler {
                     .redfish_client_pool
                     .create_client(
                         state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
-                        None,
+                        state.dpu_snapshot.bmc_info.port,
                         CredentialKey::DpuRedfish {
                             credential_type: CredentialType::SiteDefault,
                         },
@@ -1647,7 +1647,7 @@ async fn host_power_control(
         .redfish_client_pool
         .create_client(
             bmc_ip,
-            None,
+            machine_snapshot.bmc_info.port,
             CredentialKey::Bmc {
                 machine_id: machine_snapshot.machine_id.to_string(),
                 user_role: UserRoles::Administrator.to_string(),
@@ -1735,7 +1735,7 @@ async fn lockdown_host(
         .redfish_client_pool
         .create_client(
             bmc_ip,
-            None,
+            machine_snapshot.bmc_info.port,
             CredentialKey::Bmc {
                 machine_id: machine_snapshot.machine_id.to_string(),
                 user_role: UserRoles::Administrator.to_string(),

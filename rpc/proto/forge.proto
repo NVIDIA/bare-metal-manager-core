@@ -993,6 +993,7 @@ message BmcInfo {
   optional string mac = 2;
   optional string version = 3;
   optional string firmware_version = 4;
+  optional uint32 port = 5;
 }
 
 message Machine {
@@ -1403,6 +1404,7 @@ message BMCMetaDataGetResponse {
     string user = 2;
     string password = 3;
     string mac = 4;
+    optional uint32 port = 5;
 }
 
 message BMCMetaDataUpdateRequest {

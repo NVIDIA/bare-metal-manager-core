@@ -7,6 +7,7 @@ use sqlx::{FromRow, Row};
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BmcInfo {
     pub ip: Option<String>,
+    pub port: Option<u16>,
     pub mac: Option<String>,
     pub version: Option<String>,
     pub firmware_version: Option<String>,
@@ -26,6 +27,7 @@ impl From<rpc::BmcInfo> for BmcInfo {
     fn from(value: rpc::BmcInfo) -> Self {
         BmcInfo {
             ip: value.ip,
+            port: value.port.map(|p| p as u16),
             mac: value.mac,
             version: value.version,
             firmware_version: value.firmware_version,
@@ -37,6 +39,7 @@ impl From<BmcInfo> for rpc::BmcInfo {
     fn from(value: BmcInfo) -> Self {
         rpc::BmcInfo {
             ip: value.ip,
+            port: value.port.map(|p| p as u32),
             mac: value.mac,
             version: value.version,
             firmware_version: value.firmware_version,

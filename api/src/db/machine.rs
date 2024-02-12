@@ -196,6 +196,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             hardware_info: None,
             bmc_info: BmcInfo {
                 ip: None,
+                port: None,
                 mac: None,
                 version: None,
                 firmware_version: None,

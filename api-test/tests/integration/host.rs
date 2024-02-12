@@ -19,7 +19,8 @@ const BMC_METADATA: &str = r#"{
     "id": "$HOST_MACHINE_ID"
   },
   "bmc_info": {
-    "ip": "localhost:1266"
+    "ip": "localhost",
+    "port": 1266
   },
   "data": [
     {
