@@ -25,6 +25,8 @@ pub struct SiteExplorationMetrics {
     pub endpoint_exploration_duration: Vec<Duration>,
     /// Total amount of managedhosts that has been identified via Site Exploration
     pub exploration_identified_managed_hosts: usize,
+    /// The amount of Machine pairs (Host + DPU) that have been created by Site Explorer
+    pub created_machines: usize,
 }
 
 impl SiteExplorationMetrics {
@@ -36,6 +38,7 @@ impl SiteExplorationMetrics {
             endpoint_explorations_failures_by_type: HashMap::new(),
             endpoint_exploration_duration: Vec::new(),
             exploration_identified_managed_hosts: 0,
+            created_machines: 0,
         }
     }
 }
@@ -47,6 +50,7 @@ pub struct SiteExplorerInstruments {
     pub exploration_failures_counter: Counter<u64>,
     pub exploration_durations: Histogram<f64>,
     pub exploration_identified_managed_hosts: Counter<u64>,
+    pub created_machines: Counter<u64>,
 }
 
 impl SiteExplorerInstruments {
@@ -73,6 +77,10 @@ impl SiteExplorerInstruments {
                 .u64_counter("forge_site_exploration_identified_managed_hosts")
                 .with_description("The amount of Host+DPU pairs that has been identified in the last SiteExplorer run")
                 .init(),
+            created_machines: meter
+                .u64_counter("forge_site_explorer_created_machines")
+                .with_description("The amount of Machine pairs that had been created by Site Explorer after being identified")
+                .init(),
         }
     }
 
@@ -82,6 +90,9 @@ impl SiteExplorerInstruments {
             metrics.exploration_identified_managed_hosts as u64,
             attributes,
         );
+
+        self.created_machines
+            .add(metrics.created_machines as u64, attributes);
 
         self.explorations_counter
             .add(metrics.endpoint_explorations as u64, attributes);

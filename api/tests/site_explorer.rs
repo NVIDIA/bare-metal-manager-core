@@ -516,26 +516,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert!(!response.address.is_empty());
 
-    let explorer_config = SiteExplorerConfig {
-        enabled: true,
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: 1,
-        create_machines: true,
-    };
-    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
-        reports: Arc::new(Mutex::new(HashMap::new())),
-    });
-
-    let meter = opentelemetry::global::meter("test");
-    let explorer = SiteExplorer::new(
-        pool.clone(),
-        Some(&explorer_config),
-        meter,
-        endpoint_explorer.clone(),
-    );
-
-    let mut report = EndpointExplorationReport {
+    let mut dpu_report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
         last_exploration_error: None,
         vendor: Some("NVIDIA".to_string()),
@@ -565,11 +546,11 @@ async fn test_site_explorer_creates_managed_host(
             network_adapters: vec![],
         }],
     };
-    report.generate_machine_id();
+    dpu_report.generate_machine_id();
 
-    assert!(report.machine_id.as_ref().is_some());
+    assert!(dpu_report.machine_id.as_ref().is_some());
     assert_eq!(
-        report.machine_id.as_ref().unwrap().to_string(),
+        dpu_report.machine_id.as_ref().unwrap().to_string(),
         "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg".to_string(),
     );
 
@@ -579,13 +560,11 @@ async fn test_site_explorer_creates_managed_host(
         host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
     };
 
-    explorer
-        .create_managed_host(&report, exploration_report)
-        .await?;
+    assert!(SiteExplorer::create_machine_pair(&dpu_report, &exploration_report, &env.pool).await?);
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
-        report.machine_id.as_ref().unwrap(),
+        dpu_report.machine_id.as_ref().unwrap(),
         MachineSearchConfig {
             include_predicted_host: true,
             ..Default::default()
@@ -650,6 +629,9 @@ async fn test_site_explorer_creates_managed_host(
     );
     assert_eq!(host_machine.bmc_info().ip, None);
     assert_eq!(host_machine.hardware_info(), None);
+
+    // 2nd creation does nothing
+    assert!(!SiteExplorer::create_machine_pair(&dpu_report, &exploration_report, &env.pool).await?);
 
     // Run ManagedHost state iteration
     let handler = MachineStateHandler::new(chrono::Duration::minutes(1), true, true);
