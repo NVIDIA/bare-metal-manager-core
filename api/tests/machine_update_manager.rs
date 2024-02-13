@@ -4,7 +4,10 @@ use crate::common::api_fixtures::host::create_host_machine;
 use async_trait::async_trait;
 use carbide::{
     cfg::CarbideConfig,
-    db::dpu_machine_update::DpuMachineUpdate,
+    db::{
+        dpu_machine_update::DpuMachineUpdate,
+        machine::{Machine, MaintenanceMode},
+    },
     machine_update_manager::{
         machine_update_module::{
             AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, MachineUpdateModule,
@@ -321,4 +324,73 @@ fn test_start(pool: sqlx::PgPool) {
     let end_count = test_module.get_start_updates_called();
 
     assert_eq!(start_count, end_count);
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_get_machines_in_maintenance(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_sim1 = env.start_managed_host_sim();
+    let host_sim2 = env.start_managed_host_sim();
+    let dpu_machine_id1 =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim1.config).await).unwrap();
+    let host_machine_id1 =
+        try_parse_machine_id(&create_host_machine(&env, &host_sim1.config, &dpu_machine_id1).await)
+            .unwrap();
+    let dpu_machine_id2 =
+        try_parse_machine_id(&create_dpu_machine(&env, &host_sim2.config).await).unwrap();
+    let host_machine_id2 =
+        try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id2).await)
+            .unwrap();
+
+    let mut txn = pool.begin().await.expect("Failed to create transaction");
+
+    let machine_update = DpuMachineUpdate {
+        host_machine_id: host_machine_id1.clone(),
+        dpu_machine_id: dpu_machine_id1,
+        firmware_version: "1".to_owned(),
+        product_name: "product_x".to_owned(),
+    };
+
+    let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
+        from: "x".to_owned(),
+        to: "y".to_owned(),
+    });
+
+    MachineUpdateManager::put_machine_in_maintenance(&mut txn, &machine_update, reference)
+        .await
+        .unwrap();
+
+    Machine::set_maintenance_mode(
+        &mut txn,
+        &host_machine_id2,
+        MaintenanceMode::On {
+            reference: "testing".to_owned(),
+        },
+    )
+    .await
+    .unwrap();
+
+    Machine::set_maintenance_mode(
+        &mut txn,
+        &dpu_machine_id2,
+        MaintenanceMode::On {
+            reference: "testing".to_owned(),
+        },
+    )
+    .await
+    .unwrap();
+
+    txn.commit().await.unwrap();
+
+    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let machines = MachineUpdateManager::get_machines_in_maintenance(&mut txn)
+        .await
+        .unwrap();
+
+    assert_eq!(machines.len(), 1);
+    assert_eq!(machines.iter().nth(0).unwrap(), &host_machine_id1);
+
+    Ok(())
 }
