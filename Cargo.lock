@@ -2039,6 +2039,13 @@ dependencies = [
 [[package]]
 name = "forge-tls"
 version = "0.1.0"
+dependencies = [
+ "rpc",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tonic 0.10.2",
+]
 
 [[package]]
 name = "forge-version"
@@ -6727,11 +6734,14 @@ version = "0.1.0"
 dependencies = [
  "byte-unit",
  "chrono",
+ "forge-tls",
  "ipnetwork",
  "rpc",
  "serde",
+ "serde_json",
  "thiserror",
  "tokio",
+ "tonic 0.10.2",
  "tracing",
  "tracing-subscriber",
 ]
