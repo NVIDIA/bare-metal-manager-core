@@ -25,6 +25,10 @@ to obtain credentials and afterwards directly `ssh` onto a control plane node.
 If your local user does not match your nvidia login, replace the invocation of
 `whoami` with your actual login.
 
+**Note**: If you do not have `nvinit` installed, visit the `nvinit`
+[documentation](https://gitlab-master.nvidia.com/ngcsecurity/nvinit#installation)
+for installation instructions.
+
 ## Obtaining the IPs of Forge Control plane nodes
 
 IPs for Forge control plane nodes can be looked up in the FleetCommand web UI
@@ -40,6 +44,11 @@ using the following steps:
 4. In the box of a control plane node - e.g. `pdx01-m01-h16-cpu-1`, click on `Details`
 5. Copy the IPv4 address in `IP Addresses`. This will be the IP address you can
   `ssh` to for control plane access.
+
+**Note**: You must be a member of the `forge-prime-site-support` distribution
+list alias to access the `Forge-Prime-Provider` organization in the production
+environment. As of 2/12/2024 access to the staging environment is handled
+manually. Please reach out to Brandon Brown <brabrown@nvidia.com>.
 
 ### Jump hosts required to access the Forge control plane servers
 
@@ -76,6 +85,7 @@ Host *
   ServerAliveCountMax 2
   ForwardAgent yes
   LogLevel QUIET
+  user # Insert your AD username here. Example: 'user apatten'
 
 # You can specify that the jump host is automatically applied for certain IPs
 # using sections like this.
