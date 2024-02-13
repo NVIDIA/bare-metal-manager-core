@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
+// TODO(chet): Once SocketAddr::parse_ascii is no longer an experimental
+// feature, it would be good to parse bmc_info.ip to verify it's a valid IP
+// address.
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BmcInfo {
     pub ip: Option<String>,
