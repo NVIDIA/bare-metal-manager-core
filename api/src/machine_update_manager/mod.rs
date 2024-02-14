@@ -25,7 +25,9 @@ use tokio::sync::oneshot;
 
 use self::{
     dpu_nic_firmware::DpuNicFirmwareUpdate,
-    machine_update_module::{DpuReprovisionInitiator, MachineUpdateModule},
+    machine_update_module::{
+        AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, MachineUpdateModule,
+    },
     metrics::MachineUpdateManagerMetrics,
 };
 use crate::{
@@ -304,8 +306,17 @@ impl MachineUpdateManager {
 
         Ok(machines
             .into_iter()
-            .filter(|m| !m.is_dpu())
-            .map(|m| m.id().clone())
+            .filter_map(|m| {
+                if !m.is_dpu()
+                    && m.maintenance_reference().is_some_and(|maint_ref| {
+                        maint_ref.starts_with(AutomaticFirmwareUpdateReference::REF_NAME)
+                    })
+                {
+                    Some(m.id().clone())
+                } else {
+                    None
+                }
+            })
             .collect())
     }
 }
