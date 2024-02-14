@@ -238,16 +238,21 @@ pub enum NetworkDeviceAction {
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("show_nd")
-        .required(true)
-        .args(&["all", "id"])))]
 pub struct NetworkDeviceShow {
-    #[clap(short, long, action, help = "Show all network devices")]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "id",
+        help = "Show all network devices (DEPRECATED)"
+    )]
     pub all: bool,
 
-    #[clap(short, long, help = "Show data for given network devices")]
-    pub id: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "Show data for the given network device (e.g. `mac=<mac>`), leave empty for all (default)"
+    )]
+    pub id: String,
 }
 
 #[derive(Parser, Debug)]
@@ -430,33 +435,57 @@ pub struct BmcUser {
         .required(true)
         .args(&["all", "bmc", "dpu_os", "uefi", "fw"])))]
 pub struct ShowFw {
-    #[clap(short, long, action, help = "Show information")]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "fw",
+        help = "Show all discovered firmware key/values"
+    )]
     pub all: bool,
 
-    #[clap(long, action, help = "Show BMC FW Version")]
+    #[clap(long, action, conflicts_with = "fw", help = "Show BMC FW Version")]
     pub bmc: bool,
 
-    #[clap(long, action, help = "Show DPU OS version")]
+    #[clap(
+        long,
+        action,
+        conflicts_with = "fw",
+        help = "Show DPU OS version (shortcut for `show DPU_OS`)"
+    )]
     pub dpu_os: bool,
 
-    #[clap(long, action, help = "Show UEFI version")]
+    #[clap(
+        long,
+        action,
+        conflicts_with = "fw",
+        help = "Show UEFI version (shortcut for `show DPU_UEFI`)"
+    )]
     pub uefi: bool,
 
-    #[clap(short, long)]
-    pub fw: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "The firmware type to query (e.g. DPU_OS, DPU_UEFI, DPU_NIC), leave empty for all (default)"
+    )]
+    pub fw: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
-#[clap(group(
-        ArgGroup::new("show_port")
-        .required(true)
-        .args(&["all", "port"])))]
 pub struct ShowPort {
-    #[clap(short, long, action, help = "Show information")]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "port",
+        help = "Show all ports (DEPRECATED)"
+    )]
     pub all: bool,
 
-    #[clap(short, long)]
-    pub port: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "The port to query (e.g. eth0, eth1), leave empty for all (default)"
+    )]
+    pub port: String,
 }
 
 #[derive(Parser, Debug)]
@@ -545,45 +574,65 @@ pub struct NetworkConfigQuery {
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("show_machine")
-        .required(true)
-        .args(&["all", "dpus", "hosts", "machine"])
-    ),
-    disable_help_flag = true,
-)]
+#[clap(disable_help_flag = true)]
 pub struct ShowMachine {
     #[clap(long, action = clap::ArgAction::HelpLong)]
     help: Option<bool>,
 
-    #[clap(short, long, action, help = "Show all machines")]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "machine",
+        help = "Show all machines (DEPRECATED)"
+    )]
     pub all: bool,
 
-    #[clap(short, long, action, help = "Show only DPUs")]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "machine",
+        help = "Show only DPUs"
+    )]
     pub dpus: bool,
 
-    #[clap(short, long, action, help = "Show only hosts")]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "machine",
+        help = "Show only hosts"
+    )]
     pub hosts: bool,
 
-    pub machine: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "The machine to query, leave empty for all (default)"
+    )]
+    pub machine: String,
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("show_managed_host")
-        .required(true)
-        .args(&["all", "machine"])),
-        disable_help_flag = true,
-    )]
+#[clap(disable_help_flag = true)]
 pub struct ShowManagedHost {
     #[clap(long, action = clap::ArgAction::HelpLong)]
     help: Option<bool>,
 
-    #[clap(short, long, action, help = "Show all managed hosts")]
+    #[clap(
+        short,
+        long,
+        action,
+        help = "Show all managed hosts (DEPRECATED)",
+        conflicts_with = "machine"
+    )]
     pub all: bool,
 
-    #[clap(help = "Show managed host specific details (using host or dpu machine id)")]
-    pub machine: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "Show managed host specific details (using host or dpu machine id), leave empty for all"
+    )]
+    pub machine: String,
 
     #[clap(
         short,
@@ -648,15 +697,21 @@ pub enum Instance {
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("show_instance")
-        .required(true)
-        .args(&["all", "id"])),)]
 pub struct ShowInstance {
-    #[clap(short, long, action)]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "id",
+        help = "Show all instances (DEPRECATED)"
+    )]
     pub all: bool,
 
-    pub id: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "The instance ID to query, leave empty for all (default)"
+    )]
+    pub id: String,
 
     #[clap(short, long, action)]
     pub extrainfo: bool,
@@ -694,15 +749,21 @@ pub enum Domain {
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("show_domain")
-        .required(true)
-        .args(&["all", "domain"])))]
 pub struct ShowDomain {
-    #[clap(short, long, action)]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "domain",
+        help = "Show all domains (DEPRECATED)"
+    )]
     pub all: bool,
 
-    pub domain: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "The domain to query, leave empty for all (default)"
+    )]
+    pub domain: String,
 }
 
 #[derive(Parser, Debug)]
@@ -712,15 +773,21 @@ pub enum NetworkSegment {
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("show_network")
-        .required(true)
-        .args(&["all", "network"])))]
 pub struct ShowNetwork {
-    #[clap(short, long, action)]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "network",
+        help = "Show all network segments (DEPRECATED)"
+    )]
     pub all: bool,
 
-    pub network: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "The network segment to query, leave empty for all (default)"
+    )]
+    pub network: String,
 }
 
 #[derive(PartialEq, Eq, ValueEnum, Clone, Debug)]
@@ -855,16 +922,21 @@ pub enum MachineInterfaces {
 }
 
 #[derive(Parser, Debug)]
-#[clap(group(
-        ArgGroup::new("show_machine_interfaces")
-        .required(true)
-        .args(&["all", "interface_id"])))]
 pub struct ShowMachineInterfaces {
-    #[clap(short, long, action, help = "Show all machine interfaces")]
+    #[clap(
+        short,
+        long,
+        action,
+        conflicts_with = "interface_id",
+        help = "Show all machine interfaces (DEPRECATED)"
+    )]
     pub all: bool,
 
-    #[clap(short, long)]
-    pub interface_id: Option<String>,
+    #[clap(
+        default_value(""),
+        help = "The interface ID to query, leave empty for all (default)"
+    )]
+    pub interface_id: String,
 
     #[clap(long, action)]
     pub more: bool,

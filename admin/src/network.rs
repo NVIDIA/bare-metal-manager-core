@@ -14,8 +14,9 @@ use std::fmt::Write;
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 use serde::Deserialize;
+use tracing::warn;
 
-use super::cfg::carbide_options::ShowNetwork;
+use super::cfg::carbide_options::{OutputFormat, ShowNetwork};
 use super::{default_uuid, rpc, CarbideCliError, CarbideCliResult};
 use crate::Config;
 
@@ -252,14 +253,23 @@ async fn show_network_information(
 
 pub async fn handle_show(
     args: ShowNetwork,
-    json: bool,
+    output_format: OutputFormat,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    if args.all {
-        show_all_segments(json, api_config).await?;
-    } else if let Some(network_id) = args.network {
-        show_network_information(network_id, json, api_config).await?;
+    let is_json = output_format == OutputFormat::Json;
+    if args.all || args.network.is_empty() {
+        show_all_segments(is_json, api_config).await?;
+        // TODO(chet): Remove this ~March 2024.
+        // Use tracing::warn for this so its both a little more
+        // noticeable, and a little more annoying/naggy. If people
+        // complain, it means its working.
+        if args.all && output_format == OutputFormat::AsciiTable {
+            warn!(
+                "redundant `--all` with basic `show` is deprecated. just do `network-segment show`"
+            )
+        }
+        return Ok(());
     }
-
+    show_network_information(args.network, is_json, api_config).await?;
     Ok(())
 }

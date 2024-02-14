@@ -14,8 +14,9 @@ use std::time::Duration;
 
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
+use tracing::warn;
 
-use super::cfg::carbide_options::ShowMachine;
+use super::cfg::carbide_options::{OutputFormat, ShowMachine};
 use super::{default_uuid, rpc, CarbideCliResult};
 use crate::cfg::carbide_options::ForceDeleteMachineQuery;
 use crate::Config;
@@ -235,21 +236,29 @@ async fn show_machine_information(
 
 pub async fn handle_show(
     args: ShowMachine,
-    json: bool,
+    output_format: OutputFormat,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    if let Some(machine_id) = args.machine {
-        show_machine_information(machine_id, json, api_config).await?;
+    let is_json = output_format == OutputFormat::Json;
+    if !args.machine.is_empty() {
+        show_machine_information(args.machine, is_json, api_config).await?;
     } else {
-        let machine_type = if args.all {
-            None
-        } else if args.dpus {
+        let machine_type = if args.dpus {
             Some(forgerpc::MachineType::Dpu)
-        } else {
+        } else if args.hosts {
             Some(forgerpc::MachineType::Host)
+        } else {
+            None
         };
 
-        show_all_machines(json, api_config, machine_type).await?;
+        show_all_machines(is_json, api_config, machine_type).await?;
+        // TODO(chet): Remove this ~March 2024.
+        // Use tracing::warn for this so its both a little more
+        // noticeable, and a little more annoying/naggy. If people
+        // complain, it means its working.
+        if args.all && output_format == OutputFormat::AsciiTable {
+            warn!("redundant `--all` with basic `show` is deprecated. just do `machine show`")
+        }
     }
 
     Ok(())

@@ -16,8 +16,9 @@ use std::fmt::Write;
 use ::rpc::Uuid;
 use prettytable::Cell;
 use prettytable::Row;
+use tracing::warn;
 
-use super::cfg::carbide_options::ShowMachineInterfaces;
+use super::cfg::carbide_options::{OutputFormat, ShowMachineInterfaces};
 use super::CarbideCliResult;
 
 use super::rpc;
@@ -28,14 +29,22 @@ use prettytable::Table;
 
 pub async fn handle_show(
     args: ShowMachineInterfaces,
-    is_json: bool,
+    output_format: OutputFormat,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    if args.all {
+    let is_json = output_format == OutputFormat::Json;
+    if args.all || args.interface_id.is_empty() {
         show_all_machine_interfaces(is_json, args.more, api_config).await?;
-    } else if let Some(id) = args.interface_id {
-        show_machine_interfaces_information(id, is_json, api_config).await?;
+        // TODO(chet): Remove this ~March 2024.
+        // Use tracing::warn for this so its both a little more
+        // noticeable, and a little more annoying/naggy. If people
+        // complain, it means its working.
+        if args.all && output_format == OutputFormat::AsciiTable {
+            warn!("redundant `--all` with basic `show` is deprecated. just do `machine-interfaces show`")
+        }
+        return Ok(());
     }
+    show_machine_interfaces_information(args.interface_id, is_json, api_config).await?;
     Ok(())
 }
 

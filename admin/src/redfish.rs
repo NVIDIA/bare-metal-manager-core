@@ -19,6 +19,7 @@ use libredfish::{
     Chassis, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish, RedfishError,
 };
 use prettytable::{row, Table};
+use tracing::warn;
 
 use super::cfg::carbide_options::RedfishCommand;
 use crate::cfg::carbide_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort};
@@ -249,35 +250,39 @@ pub async fn handle_fw_status(redfish: Box<dyn Redfish>) -> Result<(), RedfishEr
 }
 
 pub async fn handle_fw_show(redfish: Box<dyn Redfish>, args: ShowFw) -> Result<(), RedfishError> {
-    if args.all || args.bmc || args.dpu_os || args.uefi {
+    if args.all || args.bmc || args.dpu_os || args.uefi || args.fw.is_empty() {
         let f = FwFilter {
             only_bmc: args.bmc,
             only_dpu_os: args.dpu_os,
             only_uefi: args.uefi,
         };
         match show_all_fws(redfish, f).await {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                // TODO(chet): Remove this ~March 2024.
+                // Use tracing::warn for this so its both a little more
+                // noticeable, and a little more annoying/naggy. If people
+                // complain, it means its working.
+                if args.all {
+                    warn!("redundant `--all` with basic `show` is deprecated. just do `fw show`")
+                }
+                Ok(())
+            }
             Err(e) => {
                 eprintln!("Error displaying firmware information: {}", e);
                 Err(e)
             }
         }
-    } else if let Some(fw_id) = args.fw {
-        match redfish.get_firmware(&fw_id).await {
+    } else {
+        match redfish.get_firmware(&args.fw).await {
             Ok(firmware) => {
                 convert_fws_to_nice_table(vec![firmware]).printstd();
                 Ok(())
             }
             Err(err) => {
-                eprintln!("Error fetching firmware '{fw_id}'");
+                eprintln!("Error fetching firmware '{}'", args.fw);
                 Err(err)
             }
         }
-    } else {
-        eprintln!(
-            "Please specify at least one option (e.g., --all, --bmc, --dpu-os, --uefi, --fw)"
-        );
-        Ok(())
     }
 }
 
@@ -367,16 +372,19 @@ pub async fn handle_port_show(
     redfish: Box<dyn Redfish>,
     args: ShowPort,
 ) -> Result<(), RedfishError> {
-    if !args.all && args.port.is_none() {
-        eprintln!("Please specify at least one option (e.g., --all, --port)");
-        return Ok(());
-    }
     match show_all_ports(redfish).await {
         Ok((mut ports_info, netdev_funcs_info)) => {
-            if let Some(port) = args.port {
-                ports_info.retain(|f| *f.id.as_ref().unwrap() == port);
+            if !args.port.is_empty() {
+                ports_info.retain(|f| *f.id.as_ref().unwrap() == args.port);
             }
             convert_ports_to_nice_table(ports_info, netdev_funcs_info).printstd();
+            // TODO(chet): Remove this ~March 2024.
+            // Use tracing::warn for this so its both a little more
+            // noticeable, and a little more annoying/naggy. If people
+            // complain, it means its working.
+            if args.all {
+                warn!("redundant `--all` with basic `show` is deprecated. just do `port show`")
+            }
             Ok(())
         }
         Err(err) => Err(err),

@@ -155,7 +155,7 @@ fn convert_managed_hosts_to_nice_output(
 
 async fn show_managed_hosts(
     output: &mut dyn std::io::Write,
-    output_format: OutputFormat,
+    output_format: &OutputFormat,
     machines: Vec<Machine>,
     show_ips: bool,
     more_details: bool,
@@ -317,40 +317,49 @@ pub async fn handle_show(
         .await?
         .managed_hosts;
 
-    if args.all {
+    if args.all || args.machine.is_empty() {
         let machines = rpc::get_all_machines(api_config, None, args.fix)
             .await?
             .machines;
         show_managed_hosts(
             output,
-            output_format,
+            &output_format,
             machines,
             args.ips,
             args.more,
             site_report_managed_hosts,
         )
         .await?;
-    } else if let Some(requested_machine_id) = args.machine {
-        let mut machines = Vec::default();
-        let requested_machine = rpc::get_machine(requested_machine_id, api_config.clone()).await?;
 
-        if let Some(associated_machine_id) = requested_machine
-            .associated_dpu_machine_id
-            .as_ref()
-            .or(requested_machine.associated_host_machine_id.as_ref())
-        {
-            let associated_machine: Machine =
-                rpc::get_machine(associated_machine_id.to_string(), api_config.clone()).await?;
-            machines.push(associated_machine);
+        // TODO(chet): Remove this ~March 2024.
+        // Use tracing::warn for this so its both a little more
+        // noticeable, and a little more annoying/naggy. If people
+        // complain, it means its working.
+        if args.all && output_format == OutputFormat::AsciiTable {
+            warn!("redundant `--all` with basic `show` is deprecated. just do `mh show`")
         }
+        return Ok(());
+    }
 
-        machines.push(requested_machine);
-        if args.fix {
-            machines.retain(|m| m.maintenance_reference.is_some());
-        }
-        for m in utils::get_managed_host_output(machines, site_report_managed_hosts).into_iter() {
-            show_managed_host_details_view(m)?;
-        }
+    let mut machines = Vec::default();
+    let requested_machine = rpc::get_machine(args.machine, api_config.clone()).await?;
+
+    if let Some(associated_machine_id) = requested_machine
+        .associated_dpu_machine_id
+        .as_ref()
+        .or(requested_machine.associated_host_machine_id.as_ref())
+    {
+        let associated_machine: Machine =
+            rpc::get_machine(associated_machine_id.to_string(), api_config.clone()).await?;
+        machines.push(associated_machine);
+    }
+
+    machines.push(requested_machine);
+    if args.fix {
+        machines.retain(|m| m.maintenance_reference.is_some());
+    }
+    for m in utils::get_managed_host_output(machines, site_report_managed_hosts).into_iter() {
+        show_managed_host_details_view(m)?;
     }
 
     Ok(())

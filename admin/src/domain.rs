@@ -12,12 +12,13 @@
 use std::fmt::Write;
 
 use prettytable::{row, Table};
+use tracing::warn;
 
 use ::rpc::forge as forgerpc;
 
 use crate::Config;
 
-use super::cfg::carbide_options::ShowDomain;
+use super::cfg::carbide_options::{OutputFormat, ShowDomain};
 use super::{rpc, CarbideCliError, CarbideCliResult};
 
 fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<String> {
@@ -103,12 +104,23 @@ async fn show_domain_information(
     Ok(())
 }
 
-pub async fn handle_show(args: ShowDomain, json: bool, api_config: Config) -> CarbideCliResult<()> {
-    if args.all {
-        show_all_domains(json, api_config).await?;
-    } else if let Some(domain_id) = args.domain {
-        show_domain_information(domain_id, json, api_config).await?;
+pub async fn handle_show(
+    args: ShowDomain,
+    output_format: OutputFormat,
+    api_config: Config,
+) -> CarbideCliResult<()> {
+    let is_json = output_format == OutputFormat::Json;
+    if args.all || args.domain.is_empty() {
+        show_all_domains(is_json, api_config).await?;
+        // TODO(chet): Remove this ~March 2024.
+        // Use tracing::warn for this so its both a little more
+        // noticeable, and a little more annoying/naggy. If people
+        // complain, it means its working.
+        if args.all && output_format == OutputFormat::AsciiTable {
+            warn!("redundant `--all` with basic `show` is deprecated. just do `domain show`.")
+        }
+        return Ok(());
     }
-
+    show_domain_information(args.domain, is_json, api_config).await?;
     Ok(())
 }

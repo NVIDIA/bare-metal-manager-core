@@ -194,8 +194,7 @@ async fn main() -> color_eyre::Result<()> {
         }
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
-                machine::handle_show(machine, config.format == OutputFormat::Json, api_config)
-                    .await?
+                machine::handle_show(machine, config.format, api_config).await?
             }
             Machine::DpuSshCredentials(query) => {
                 let cred = rpc::get_dpu_ssh_credential(query.query, api_config).await?;
@@ -273,8 +272,7 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {
-                instance::handle_show(instance, config.format == OutputFormat::Json, api_config)
-                    .await?
+                instance::handle_show(instance, config.format, api_config).await?
             }
             Instance::Reboot(reboot_request) => {
                 instance::handle_reboot(reboot_request, api_config).await?
@@ -298,14 +296,11 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {
-                network::handle_show(network, config.format == OutputFormat::Json, api_config)
-                    .await?
+                network::handle_show(network, config.format, api_config).await?
             }
         },
         CarbideCommand::Domain(domain) => match domain {
-            Domain::Show(domain) => {
-                domain::handle_show(domain, config.format == OutputFormat::Json, api_config).await?
-            }
+            Domain::Show(domain) => domain::handle_show(domain, config.format, api_config).await?,
         },
         CarbideCommand::ManagedHost(managed_host) => match managed_host {
             ManagedHost::Show(managed_host) => {
@@ -544,12 +539,8 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {
-                machine_interfaces::handle_show(
-                    machine_interfaces,
-                    config.format == OutputFormat::Json,
-                    api_config,
-                )
-                .await?
+                machine_interfaces::handle_show(machine_interfaces, config.format, api_config)
+                    .await?
             }
         },
         CarbideCommand::GenerateShellComplete(shell) => {

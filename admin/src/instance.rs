@@ -13,10 +13,11 @@ use std::fmt::Write;
 
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
+use tracing::warn;
 
 use super::cfg::carbide_options::ShowInstance;
 use super::{default_uuid, invalid_machine_id, rpc, CarbideCliResult};
-use crate::cfg::carbide_options::RebootInstance;
+use crate::cfg::carbide_options::{OutputFormat, RebootInstance};
 use crate::{CarbideCliError, Config};
 
 fn convert_instance_to_nice_format(
@@ -287,15 +288,22 @@ async fn show_instance_details(
 
 pub async fn handle_show(
     args: ShowInstance,
-    json: bool,
+    output_format: OutputFormat,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    if args.all {
-        show_all_instances(json, api_config).await?;
-    } else if let Some(id) = args.id {
-        show_instance_details(id, json, api_config, args.extrainfo).await?;
+    let is_json = output_format == OutputFormat::Json;
+    if args.all || args.id.is_empty() {
+        show_all_instances(is_json, api_config).await?;
+        // TODO(chet): Remove this ~March 2024.
+        // Use tracing::warn for this so its both a little more
+        // noticeable, and a little more annoying/naggy. If people
+        // complain, it means its working.
+        if args.all && output_format == OutputFormat::AsciiTable {
+            warn!("redundant `--all` with basic `show` is deprecated. just do `instance show`")
+        }
+        return Ok(());
     }
-
+    show_instance_details(args.id, is_json, api_config, args.extrainfo).await?;
     Ok(())
 }
 
