@@ -11,10 +11,10 @@ use crate::AppConfig;
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
     #[error("Unable to connect to carbide API: {0}")]
-    ApiConnectFailed(String),
+    ConnectFailed(String),
 
     #[error("The API call to the Forge API server returned {0}")]
-    ApiInvocationError(tonic::Status),
+    InvocationError(tonic::Status),
 }
 
 type ClientApiResult<T> = Result<T, ClientApiError>;
@@ -29,7 +29,7 @@ where
     let client = forge_tls_client::ForgeTlsClient::new(app_config.forge_client_config.clone())
         .connect(app_config.carbide_api_url.clone())
         .await
-        .map_err(|err| ClientApiError::ApiConnectFailed(err.to_string()))?;
+        .map_err(|err| ClientApiError::ConnectFailed(err.to_string()))?;
 
     callback(client).await
 }
@@ -42,7 +42,7 @@ pub async fn version(app_config: &AppConfig) -> ClientApiResult<rpc::forge::Buil
             }))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)?;
+            .map_err(ClientApiError::InvocationError)?;
         Ok(out)
     })
     .await
@@ -70,7 +70,7 @@ pub async fn discover_dhcp(
             }))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)?;
+            .map_err(ClientApiError::InvocationError)?;
 
         Ok(out)
     })
@@ -132,7 +132,7 @@ pub async fn discover_machine(
             .discover_machine(tonic::Request::new(mdi))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)?;
+            .map_err(ClientApiError::InvocationError)?;
         Ok(out)
     })
     .await
@@ -164,7 +164,7 @@ pub async fn update_bmc_metadata(
             }))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)?;
+            .map_err(ClientApiError::InvocationError)?;
         Ok(out)
     })
     .await
@@ -183,7 +183,7 @@ pub async fn forge_agent_control(
             }))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)?;
+            .map_err(ClientApiError::InvocationError)?;
         Ok(out)
     })
     .await
@@ -205,7 +205,7 @@ pub async fn discovery_complete(
             ))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)?;
+            .map_err(ClientApiError::InvocationError)?;
         Ok(out)
     })
     .await
@@ -233,7 +233,7 @@ pub async fn get_machine(
             }))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)?;
+            .map_err(ClientApiError::InvocationError)?;
 
         Ok(out.machines.first().cloned())
     })
@@ -253,7 +253,7 @@ pub async fn get_managed_host_network_config(
             ))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)?;
+            .map_err(ClientApiError::InvocationError)?;
 
         Ok(out)
     })
@@ -288,7 +288,7 @@ pub async fn record_dpu_network_status(
             }))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)
+            .map_err(ClientApiError::InvocationError)
     })
     .await
 }
@@ -304,7 +304,7 @@ pub async fn find_network_segments(
             }))
             .await
             .map(|response| response.into_inner())
-            .map_err(ClientApiError::ApiInvocationError)
+            .map_err(ClientApiError::InvocationError)
     })
     .await
 }
