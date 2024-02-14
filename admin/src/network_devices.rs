@@ -10,7 +10,13 @@ pub async fn show(
     query: NetworkDeviceShow,
     api_config: Config,
 ) -> CarbideCliResult<()> {
-    let devices = crate::rpc::get_network_device_topology(query.id, api_config).await?;
+    let query_id: Option<String> = if query.all || query.id.is_empty() {
+        None
+    } else {
+        Some(query.id)
+    };
+
+    let devices = crate::rpc::get_network_device_topology(query_id, api_config).await?;
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&devices).unwrap()),
