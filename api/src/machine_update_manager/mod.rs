@@ -306,13 +306,17 @@ impl MachineUpdateManager {
 
         Ok(machines
             .into_iter()
-            .filter(|m| !m.is_dpu())
-            .filter(|m| {
-                m.maintenance_reference().is_some_and(|maint_ref| {
-                    maint_ref.starts_with(AutomaticFirmwareUpdateReference::REF_NAME)
-                })
+            .filter_map(|m| {
+                if !m.is_dpu()
+                    && m.maintenance_reference().is_some_and(|maint_ref| {
+                        maint_ref.starts_with(AutomaticFirmwareUpdateReference::REF_NAME)
+                    })
+                {
+                    Some(m.id().clone())
+                } else {
+                    None
+                }
             })
-            .map(|m| m.id().clone())
             .collect())
     }
 }
