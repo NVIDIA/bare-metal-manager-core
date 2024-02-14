@@ -93,7 +93,13 @@ impl HostMachine {
                     true
                 }
                 MachineState::DhcpComplete => {
-                    let mac_address = self.dpu_machines[0].host_mac_address.clone();
+                    let first_mac_address =
+                        self.dpu_machines.first().unwrap().host_mac_address.clone();
+                    let mac_addresses = self
+                        .dpu_machines
+                        .iter()
+                        .map(|dpus| dpus.host_mac_address.clone())
+                        .collect();
 
                     let machine_interface_id = self
                         .dhcp_record
@@ -102,13 +108,14 @@ impl HostMachine {
                         .unwrap()
                         .machine_interface_id
                         .unwrap();
+
                     self.machine_discovery_result = Some(
                         api_client::discover_machine(
                             &self.app_config,
                             rpc::forge::MachineType::Host,
                             machine_interface_id,
-                            vec![mac_address.clone()],
-                            mac_address.replace(':', ""),
+                            mac_addresses,
+                            first_mac_address.replace(':', ""),
                             "".to_owned(),
                         )
                         .await
@@ -335,15 +342,23 @@ impl DpuMachine {
                     .unwrap();
                     self.last_network_status_update = Some(Instant::now());
                 }
+                if reboot_requested(&self.app_config, &self.get_machine_id()).await {
+                    self.machine_state = MachineState::Init;
+                    return true;
+                }
+
                 let state = log_api_state(&self.app_config, &machine_id, &self.machine_state).await;
 
-                if state == "DPU/INIT"
-                    || reboot_requested(&self.app_config, &self.get_machine_id()).await
-                {
-                    self.machine_state = MachineState::Init;
-                    true
-                } else {
-                    false
+                match state.as_str() {
+                    "DPU/WaitingForNetworkConfig" => {
+                        self.machine_state = MachineState::GetNetworkConfig;
+                        false
+                    }
+                    "DPU/INIT" => {
+                        self.machine_state = MachineState::Init;
+                        true
+                    }
+                    _ => false,
                 }
             }
         }
@@ -432,7 +447,7 @@ async fn log_api_state(
     machine_id: &rpc::forge::MachineId,
     local_state: &MachineState,
 ) -> String {
-    let machine = api_client::get_machine(&app_config, machine_id.clone())
+    let machine = api_client::get_machine(app_config, machine_id.clone())
         .await
         .unwrap();
 
