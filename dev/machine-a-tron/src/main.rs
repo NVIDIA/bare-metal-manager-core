@@ -17,8 +17,8 @@ use crate::machine::HostMachine;
 pub struct MachineSimArgs {
     #[clap(help = "The number of host machines to create")]
     num_hosts: u32,
-    #[clap(help = "The number of DPUs per host to create")]
-    num_dpus_per_host: u32,
+    // #[clap(help = "The number of DPUs per host to create")]
+    // num_dpus_per_host: u32,
     #[clap(help = "the api url")]
     pub carbide_api: Option<String>,
     #[clap(long, env = "FORGE_ROOT_CA_PATH")]
@@ -91,7 +91,7 @@ async fn main() {
         template_dir: args.template_dir.unwrap_or("templates".to_owned()),
         relay_address: args.relay_address,
         num_hosts: args.num_hosts,
-        num_dpus_per_host: args.num_dpus_per_host,
+        num_dpus_per_host: 1, //args.num_dpus_per_host,
         circuit_id: None,
     };
 
