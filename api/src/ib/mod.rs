@@ -10,17 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::cfg;
-use crate::CarbideError;
+use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 
 pub use self::iface::Filter;
 pub use self::iface::IBFabric;
 pub use self::iface::IBFabricManager;
+use crate::cfg;
+use crate::CarbideError;
 
 mod disable;
 mod iface;
@@ -99,7 +99,7 @@ impl<C: CredentialProvider + 'static> IBFabricManager for IBFabricManagerImpl<C>
                     })
                     .await
                     .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-                        Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
+                        Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
                             CarbideError::GenericError(format!(
                                 "Vault key not found: ufm/{}/token",
                                 fabric_name.clone()

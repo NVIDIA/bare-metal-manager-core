@@ -16,11 +16,6 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use itertools::Itertools;
-use sqlx::{Postgres, Transaction};
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
@@ -34,7 +29,12 @@ use ::rpc::protos::forge::{
 };
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
+use itertools::Itertools;
+use sqlx::{Postgres, Transaction};
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
+use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -93,8 +93,6 @@ use crate::{
     state_controller::snapshot_loader::DbSnapshotLoader,
     CarbideError, CarbideResult,
 };
-
-use self::rpc::forge_server::Forge;
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -330,7 +328,6 @@ where
         let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
         let domains = match (id, name) {
             (Some(id), _) => {
-                let id = id;
                 let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                     Err(err) => {
@@ -453,7 +450,6 @@ where
 
         let vpcs = match (id, name) {
             (Some(id), _) => {
-                let id = id;
                 let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                     Err(err) => {
@@ -876,7 +872,6 @@ where
         // and InstanceSnapshotLoader do redundant jobs
         let raw_instances = match id {
             Some(id) => {
-                let id = id;
                 let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                     Err(err) => {
@@ -2584,7 +2579,7 @@ where
             })
             .await
             .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-                Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
+                Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
                     CarbideError::NotFoundError {
                         kind: "dpu-ssh-cred",
                         id: machine_id.to_string(),
@@ -2676,7 +2671,7 @@ where
                     })
                     .await
                     .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-                        Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
+                        Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
                             CarbideError::GenericError(format!(
                                 "Vault key not found: bmc-metadata-items for machine_id {}",
                                 machine_id
@@ -3250,7 +3245,7 @@ where
 
         if let Some(host_machine) = &host_machine {
             response.managed_host_machine_id = host_machine.id().to_string();
-            if let Some(iface) = host_machine.interfaces().get(0) {
+            if let Some(iface) = host_machine.interfaces().first() {
                 response.managed_host_machine_interface_id = iface.id().to_string();
             }
             if let Some(ip) = host_machine.bmc_info().ip.as_ref() {
@@ -3259,7 +3254,7 @@ where
         }
         if let Some(dpu_machine) = &dpu_machine {
             response.dpu_machine_id = dpu_machine.id().to_string();
-            if let Some(iface) = dpu_machine.interfaces().get(0) {
+            if let Some(iface) = dpu_machine.interfaces().first() {
                 response.dpu_machine_interface_id = iface.id().to_string();
             }
             if let Some(ip) = dpu_machine.bmc_info().ip.as_ref() {
@@ -3334,7 +3329,7 @@ where
                 if let Some(guid) = ib.guid.as_deref() {
                     ib_config_map
                         .entry(ib_partition_id)
-                        .or_insert(vec![])
+                        .or_default()
                         .push(guid.to_string());
                 }
             }
@@ -4037,7 +4032,7 @@ where
                     })
                     .await
                     .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-                        Ok(vaultrs::error::ClientError::APIError { code, .. }) if code == 404 => {
+                        Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
                             CarbideError::GenericError(format!(
                                 "Vault key not found: bmc-metadata-items for machine_id {machine_id}"
                             ))

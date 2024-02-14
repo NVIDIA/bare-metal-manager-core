@@ -226,7 +226,7 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
 /// Validates that any container which has elements that have InterfaceFunctionIds
 /// assigned assigned is using unique and valid FunctionIds.
 pub fn validate_interface_function_ids<T, F: Fn(&T) -> InterfaceFunctionId>(
-    container: &Vec<T>,
+    container: &[T],
     get_function_id: F,
 ) -> Result<(), String> {
     if container.is_empty() {

@@ -317,6 +317,17 @@ impl DatabaseMetricEmitters {
     }
 }
 
+fn truncate(mut s: String, max_chars: usize) -> String {
+    if s.len() <= max_chars {
+        // shortcut for ascii that's already short enough - 99%+ of calls
+        return s;
+    }
+    let (idx, _) = s.char_indices().nth(max_chars).unwrap();
+    s.truncate(idx);
+    s += "...";
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -416,15 +427,4 @@ mod tests {
             assert!(log_lines[0].contains("sql_max_query_duration_summary=\"Statement4\""));
         }
     }
-}
-
-fn truncate(mut s: String, max_chars: usize) -> String {
-    if s.len() <= max_chars {
-        // shortcut for ascii that's already short enough - 99%+ of calls
-        return s;
-    }
-    let (idx, _) = s.char_indices().nth(max_chars).unwrap();
-    s.truncate(idx);
-    s += "...";
-    s
 }

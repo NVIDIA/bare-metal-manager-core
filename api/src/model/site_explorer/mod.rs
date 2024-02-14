@@ -170,7 +170,7 @@ impl EndpointExplorationReport {
     /// Return `true` if the explored endpoint is a DPU
     pub fn is_dpu(&self) -> bool {
         self.systems
-            .get(0)
+            .first()
             .map(|system| system.id == "Bluefield")
             .unwrap_or(false)
     }
@@ -200,7 +200,7 @@ impl EndpointExplorationReport {
         if let (true, Some(serial_number)) = (
             self.is_dpu(),
             self.systems
-                .get(0)
+                .first()
                 .and_then(|system| system.serial_number.as_ref()),
         ) {
             let dmi_data = self.create_temporary_dmi_data(serial_number.as_str());

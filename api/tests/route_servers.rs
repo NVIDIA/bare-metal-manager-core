@@ -26,7 +26,7 @@ fn setup() {
 #[sqlx::test()]
 async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let expected_servers = vec![
+    let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
         IpAddr::from_str("3.4.5.6")?,
@@ -77,7 +77,7 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     assert_eq!(actual_servers, expected_servers);
 
-    let removed_servers = vec![expected_servers.pop().unwrap()];
+    let removed_servers = [expected_servers.pop().unwrap()];
     let request: tonic::Request<RouteServers> = tonic::Request::new(RouteServers {
         route_servers: removed_servers.iter().map(|a| a.to_string()).collect(),
     });
@@ -116,7 +116,7 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 #[sqlx::test()]
 async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let expected_servers = vec![
+    let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
         IpAddr::from_str("3.4.5.6")?,
@@ -144,7 +144,7 @@ async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 #[sqlx::test()]
 async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let expected_servers = vec![
+    let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
         IpAddr::from_str("3.4.5.6")?,
@@ -182,7 +182,7 @@ async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 #[sqlx::test()]
 async fn test_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let expected_servers = vec![
+    let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
         IpAddr::from_str("3.4.5.6")?,

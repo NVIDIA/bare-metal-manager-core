@@ -47,7 +47,7 @@ pub struct AutomaticFirmwareUpdateReference {
 }
 
 impl AutomaticFirmwareUpdateReference {
-    pub const REF_NAME: &str = "AutomaticDpuFirmwareUpdate";
+    pub const REF_NAME: &'static str = "AutomaticDpuFirmwareUpdate";
 }
 
 pub enum DpuReprovisionInitiator {

@@ -85,8 +85,8 @@ impl From<SiteExplorationReport> for ExploredEndpointsShow {
                     .unwrap_or_default(),
                 host_pf_mac: mh.host_pf_mac_address.clone().unwrap_or_default(),
                 dpu_oob_mac: dpu
-                    .and_then(|report| report.systems.get(0))
-                    .and_then(|sys| sys.ethernet_interfaces.get(0))
+                    .and_then(|report| report.systems.first())
+                    .and_then(|sys| sys.ethernet_interfaces.first())
                     .and_then(|iface| iface.mac_address.clone())
                     .unwrap_or_default(),
             });

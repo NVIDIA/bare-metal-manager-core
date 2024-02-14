@@ -140,7 +140,7 @@ pub async fn interface_to_snapshot(
         }
         let segment = &segments[0];
 
-        let prefix = match segment.prefixes.get(0) {
+        let prefix = match segment.prefixes.first() {
             Some(p) => p,
             None => {
                 return Err(SnapshotLoaderError::GenericError(eyre::eyre!(

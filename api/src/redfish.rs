@@ -174,7 +174,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         client: Box<dyn Redfish>,
         machine_id: String,
     ) -> Result<(), RedfishClientCreationError> {
-        let username = FORGE_DPU_BMC_USERNAME.clone();
+        let username = FORGE_DPU_BMC_USERNAME;
         let password = Credentials::generate_password();
         self.credential_provider
             .set_credentials(
@@ -616,7 +616,7 @@ impl RedfishClientPool for RedfishSim {
         client: Box<dyn Redfish>,
         _machine_id: String,
     ) -> Result<(), RedfishClientCreationError> {
-        let username = FORGE_DPU_BMC_USERNAME.clone();
+        let username = FORGE_DPU_BMC_USERNAME;
         let password = Credentials::generate_password();
         if let Err(e) = client
             .create_user(username, password.as_str(), RoleId::Administrator)

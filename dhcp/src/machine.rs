@@ -339,7 +339,7 @@ pub extern "C" fn machine_free_filename(filename: *const libc::c_char) {
             return;
         }
 
-        CString::from_raw(filename as *mut _)
+        drop(CString::from_raw(filename as *mut _))
     };
 }
 
@@ -350,7 +350,7 @@ pub extern "C" fn machine_free_client_type(client_type: *mut libc::c_char) {
             return;
         }
 
-        CString::from_raw(client_type)
+        drop(CString::from_raw(client_type))
     };
 }
 
@@ -361,7 +361,7 @@ pub extern "C" fn machine_free_uuid(uuid: *mut libc::c_char) {
             return;
         }
 
-        CString::from_raw(uuid)
+        drop(CString::from_raw(uuid))
     };
 }
 
@@ -372,7 +372,7 @@ pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
             return;
         }
 
-        CString::from_raw(fqdn)
+        drop(CString::from_raw(fqdn))
     };
 }
 
@@ -383,7 +383,7 @@ pub extern "C" fn machine_free_nameservers(nameservers: *mut libc::c_char) {
             return;
         }
 
-        CString::from_raw(nameservers)
+        drop(CString::from_raw(nameservers))
     };
 }
 
@@ -394,7 +394,7 @@ pub extern "C" fn machine_free_ntpserver(ntpserver: *mut libc::c_char) {
             return;
         }
 
-        CString::from_raw(ntpserver)
+        drop(CString::from_raw(ntpserver))
     };
 }
 
@@ -456,7 +456,9 @@ pub extern "C" fn machine_free(ctx: *mut Machine) {
         return;
     }
 
-    unsafe { Box::from_raw(ctx) };
+    unsafe {
+        drop(Box::from_raw(ctx));
+    }
 }
 
 #[cfg(test)]

@@ -874,9 +874,6 @@ disable_counter_rd            : TRUE
     fn test_has_forge_admin_user() {
         assert!(super::has_forge_admin_user(IPMITOOL_USERS_OUT_SUCCESS).unwrap());
         assert!(!super::has_forge_admin_user(IPMITOOL_USERS_OUT_FAIL).unwrap());
-        assert!(matches!(
-            super::has_forge_admin_user("invalid output"),
-            Err(_)
-        ));
+        assert!(super::has_forge_admin_user("invalid output").is_err());
     }
 }

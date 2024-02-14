@@ -17,7 +17,6 @@ use carbide::{
     },
     model::machine::{machine_id::MachineId, InstanceState, ManagedHostState},
 };
-
 use common::api_fixtures::{
     create_managed_host, create_test_env,
     ib_partition::{create_ib_partition, DEFAULT_TENANT},
@@ -147,7 +146,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     // MT2910 Family [ConnectX-7]    0000:c1:00.1    946dae03002ac100      3
     // MT27800 Family [ConnectX-5]   0000:98:00.0    946dae03002ac752      0
     // MT27800 Family [ConnectX-5]   0000:98:00.1    946dae03002ac753      1
-    if let Some(iface) = ib_config.ib_interfaces.get(0) {
+    if let Some(iface) = ib_config.ib_interfaces.first() {
         assert_eq!(
             iface.function_type,
             rpc::forge::InterfaceFunctionType::Physical as i32
@@ -160,7 +159,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     } else {
         panic!("ib configuration is incorrect.");
     }
-    if let Some(iface) = ib_status.ib_interfaces.get(0) {
+    if let Some(iface) = ib_status.ib_interfaces.first() {
         assert_eq!(iface.pf_guid, Some("946dae03002ac102".to_string()));
         assert_eq!(iface.guid, Some("946dae03002ac102".to_string()));
     } else {

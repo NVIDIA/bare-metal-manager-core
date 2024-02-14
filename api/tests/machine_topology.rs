@@ -96,7 +96,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap()
     .unwrap();
 
-    let rpc_machine = rpc::Machine::try_from(machine2).unwrap();
+    let rpc_machine: rpc::Machine = machine2.into();
     let discovery_info = rpc_machine.discovery_info.unwrap();
     let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
 
@@ -144,7 +144,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap()
     .unwrap();
 
-    let rpc_machine = rpc::Machine::try_from(machine2).unwrap();
+    let rpc_machine: rpc::Machine = machine2.into();
     let discovery_info = rpc_machine.discovery_info.unwrap();
     let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
 

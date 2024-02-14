@@ -48,7 +48,7 @@ async fn test_network_segment_lifecycle_impl(
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
     let _: uuid::Uuid = segment
         .prefixes
-        .get(0)
+        .first()
         .unwrap()
         .id
         .clone()
@@ -116,7 +116,7 @@ async fn test_network_segment_lifecycle_impl(
     let mut txn = pool.begin().await.unwrap();
     assert!(segments.is_empty());
 
-    let expected_history = vec!["provisioning", "ready", "drainallocatedips", "dbdelete"];
+    let expected_history = ["provisioning", "ready", "drainallocatedips", "dbdelete"];
     let history = text_history(&mut txn, segment_id).await;
     for (i, state) in history.iter().enumerate() {
         assert!(state.contains(expected_history[i]));

@@ -2,9 +2,8 @@ use std::net::IpAddr;
 
 use sqlx::{FromRow, Postgres, Transaction};
 
-use crate::{db::BIND_LIMIT, CarbideError, CarbideResult};
-
 use super::DatabaseError;
+use crate::{db::BIND_LIMIT, CarbideError, CarbideResult};
 
 #[derive(FromRow)]
 pub struct RouteServer {
@@ -14,7 +13,7 @@ pub struct RouteServer {
 impl RouteServer {
     pub async fn get_or_create(
         txn: &mut Transaction<'_, Postgres>,
-        addresses: &Vec<IpAddr>,
+        addresses: &[IpAddr],
     ) -> CarbideResult<Vec<IpAddr>> {
         let route_servers = RouteServer::get(txn).await?;
         if route_servers.is_empty() {
@@ -56,7 +55,7 @@ impl RouteServer {
                 tracing::warn!("{msg}");
                 return Err(crate::CarbideError::GenericError(msg));
             }
-            Ok(addresses.clone())
+            Ok(addresses.to_vec())
         } else {
             Ok(route_servers.into_iter().map(|rs| rs.address).collect())
         }
@@ -73,7 +72,7 @@ impl RouteServer {
 
     pub async fn add(
         txn: &mut Transaction<'_, Postgres>,
-        addresses: &Vec<IpAddr>,
+        addresses: &[IpAddr],
     ) -> CarbideResult<()> {
         if !addresses.is_empty() {
             let query = r#"INSERT INTO route_servers "#;
@@ -109,7 +108,7 @@ impl RouteServer {
 
     pub async fn replace(
         txn: &mut Transaction<'_, Postgres>,
-        addresses: &Vec<IpAddr>,
+        addresses: &[IpAddr],
     ) -> CarbideResult<()> {
         let query = r#"DELETE FROM route_servers;"#;
         let _result = sqlx::query(query)
