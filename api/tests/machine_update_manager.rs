@@ -390,7 +390,7 @@ async fn test_get_machines_in_maintenance(
         .unwrap();
 
     assert_eq!(machines.len(), 1);
-    assert_eq!(machines.iter().nth(0).unwrap(), &host_machine_id1);
+    assert_eq!(machines.iter().next().unwrap(), &host_machine_id1);
 
     Ok(())
 }
