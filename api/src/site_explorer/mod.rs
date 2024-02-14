@@ -416,6 +416,14 @@ impl SiteExplorer {
                     .first()
                     .and_then(|e| e.mac_address.clone())
             }),
+            firmware_version: Some(
+                inventory_map
+                    .get("BMC_Firmware")
+                    .and_then(|value| value.version.as_ref())
+                    .unwrap_or(&"".to_string())
+                    .to_lowercase()
+                    .replace("bf-", ""),
+            ),
             ..Default::default()
         };
 

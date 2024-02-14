@@ -687,6 +687,10 @@ async fn test_site_explorer_creates_managed_host(
         "192.168.1.2".to_string()
     );
     assert_eq!(
+        dpu_machine.bmc_info().firmware_version.clone().unwrap(),
+        "23.10-3".to_string()
+    );
+    assert_eq!(
         dpu_machine
             .hardware_info()
             .unwrap()
