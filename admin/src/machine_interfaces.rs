@@ -30,7 +30,7 @@ use prettytable::Table;
 pub async fn handle_show(
     args: ShowMachineInterfaces,
     output_format: OutputFormat,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.all || args.interface_id.is_empty() {
@@ -51,9 +51,9 @@ pub async fn handle_show(
 async fn show_all_machine_interfaces(
     is_json: bool,
     has_more: bool,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
-    let machine_interfaces = rpc::get_all_machines_interfaces(api_config.clone(), None).await?;
+    let machine_interfaces = rpc::get_all_machines_interfaces(api_config, None).await?;
 
     if is_json {
         println!(
@@ -71,11 +71,10 @@ async fn show_all_machine_interfaces(
 async fn show_machine_interfaces_information(
     id: String,
     is_json: bool,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let interface_id = Some(Uuid { value: id });
-    let machine_interfaces =
-        rpc::get_all_machines_interfaces(api_config.clone(), interface_id).await?;
+    let machine_interfaces = rpc::get_all_machines_interfaces(api_config, interface_id).await?;
     if !machine_interfaces.interfaces.is_empty() {
         if is_json {
             println!(

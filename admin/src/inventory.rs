@@ -188,9 +188,9 @@ fn get_bmc_info(
 }
 
 /// Main entry function which print inventory.
-pub async fn print_inventory(api_config: Config, action: InventoryAction) -> CarbideCliResult<()> {
-    let all_machines = rpc::get_all_machines(api_config.clone(), None, false).await?;
-    let all_instances = rpc::get_instances(api_config.clone(), None).await?;
+pub async fn print_inventory(api_config: &Config, action: InventoryAction) -> CarbideCliResult<()> {
+    let all_machines = rpc::get_all_machines(api_config, None, false).await?;
+    let all_instances = rpc::get_instances(api_config, None).await?;
 
     let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines);
 
@@ -204,7 +204,7 @@ pub async fn print_inventory(api_config: Config, action: InventoryAction) -> Car
         TopYamlElement::InstanceChildren(children),
     )]);
 
-    let site_report_managed_host = rpc::get_site_exploration_report(&api_config)
+    let site_report_managed_host = rpc::get_site_exploration_report(api_config)
         .await?
         .managed_hosts;
 

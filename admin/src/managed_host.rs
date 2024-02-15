@@ -311,9 +311,9 @@ pub async fn handle_show(
     output: &mut dyn std::io::Write,
     args: ShowManagedHost,
     output_format: OutputFormat,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
-    let site_report_managed_hosts = rpc::get_site_exploration_report(&api_config)
+    let site_report_managed_hosts = rpc::get_site_exploration_report(api_config)
         .await?
         .managed_hosts;
 
@@ -342,7 +342,7 @@ pub async fn handle_show(
     }
 
     let mut machines = Vec::default();
-    let requested_machine = rpc::get_machine(args.machine, api_config.clone()).await?;
+    let requested_machine = rpc::get_machine(args.machine, api_config).await?;
 
     if let Some(associated_machine_id) = requested_machine
         .associated_dpu_machine_id
@@ -350,7 +350,7 @@ pub async fn handle_show(
         .or(requested_machine.associated_host_machine_id.as_ref())
     {
         let associated_machine: Machine =
-            rpc::get_machine(associated_machine_id.to_string(), api_config.clone()).await?;
+            rpc::get_machine(associated_machine_id.to_string(), api_config).await?;
         machines.push(associated_machine);
     }
 

@@ -25,12 +25,12 @@ pub async fn trigger_reprovisioning(
     id: String,
     set: bool,
     update_firmware: bool,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     rpc::trigger_dpu_reprovisioning(id, set, update_firmware, api_config).await
 }
 
-pub async fn list_dpus_pending(api_config: Config) -> CarbideCliResult<()> {
+pub async fn list_dpus_pending(api_config: &Config) -> CarbideCliResult<()> {
     let response = rpc::list_dpu_pending_for_reprovisioning(api_config).await?;
     print_pending_dpus(response);
     Ok(())
@@ -74,17 +74,17 @@ fn print_pending_dpus(dpus: ::rpc::forge::DpuReprovisioningListResponse) {
 }
 
 pub async fn handle_agent_upgrade_policy(
-    api_config: Config,
+    api_config: &Config,
     action: Option<::rpc::forge::AgentUpgradePolicy>,
 ) -> CarbideCliResult<()> {
     match action {
         None => {
-            let resp = rpc::dpu_agent_upgrade_policy_action(&api_config, None).await?;
+            let resp = rpc::dpu_agent_upgrade_policy_action(api_config, None).await?;
             let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
             tracing::info!("{policy}");
         }
         Some(choice) => {
-            let resp = rpc::dpu_agent_upgrade_policy_action(&api_config, Some(choice)).await?;
+            let resp = rpc::dpu_agent_upgrade_policy_action(api_config, Some(choice)).await?;
             let policy: AgentUpgradePolicyChoice = resp.active_policy.into();
             tracing::info!(
                 "Policy is now: {policy}. Update succeeded? {}.",
@@ -192,11 +192,11 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
 pub async fn handle_dpu_versions(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
-    api_config: Config,
+    api_config: &Config,
     updates_only: bool,
 ) -> CarbideCliResult<()> {
     let expected_versions: HashMap<String, String> = if updates_only {
-        let bi = rpc::version(&api_config, true).await?;
+        let bi = rpc::version(api_config, true).await?;
         let rc = bi.runtime_config.unwrap_or_default();
         rc.dpu_nic_firmware_update_version
     } else {
