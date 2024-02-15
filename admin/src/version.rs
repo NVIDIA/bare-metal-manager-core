@@ -22,9 +22,9 @@ macro_rules! rv {
 
 pub async fn handle_show_version(
     version: Version,
-    api_config: Config,
+    api_config: &Config,
 ) -> Result<(), CarbideCliError> {
-    let v = rpc::version(&api_config, version.show_runtime_config).await?;
+    let v = rpc::version(api_config, version.show_runtime_config).await?;
 
     // Same as running `carbide-api --version`
     println!(

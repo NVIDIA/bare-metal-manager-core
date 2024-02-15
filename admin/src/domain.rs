@@ -64,7 +64,7 @@ fn convert_domain_to_nice_table(domains: forgerpc::DomainList) -> Box<Table> {
     table.into()
 }
 
-async fn show_all_domains(json: bool, api_config: Config) -> CarbideCliResult<()> {
+async fn show_all_domains(json: bool, api_config: &Config) -> CarbideCliResult<()> {
     let domains = rpc::get_domains(None, api_config).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&domains).unwrap());
@@ -77,7 +77,7 @@ async fn show_all_domains(json: bool, api_config: Config) -> CarbideCliResult<()
 async fn show_domain_information(
     id: String,
     json: bool,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let domains = rpc::get_domains(
         Some(
@@ -107,7 +107,7 @@ async fn show_domain_information(
 pub async fn handle_show(
     args: ShowDomain,
     output_format: OutputFormat,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.all || args.domain.is_empty() {

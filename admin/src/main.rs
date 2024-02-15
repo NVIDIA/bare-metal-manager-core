@@ -175,7 +175,9 @@ async fn main() -> color_eyre::Result<()> {
         ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
     forge_client_config.socks_proxy(proxy);
 
-    let api_config = Config {
+    // api_config is created here and subsequently
+    // borrowed by all others.
+    let api_config = &Config {
         carbide_api_url,
         forge_client_config,
     };
@@ -282,8 +284,7 @@ async fn main() -> color_eyre::Result<()> {
                     (Some(instance_id), _) => uuid::Uuid::parse_str(&instance_id)?.into(),
                     (_, Some(machine_id)) => {
                         let instances =
-                            rpc::get_instances_by_machine_id(api_config.clone(), machine_id)
-                                .await?;
+                            rpc::get_instances_by_machine_id(api_config, machine_id).await?;
                         if instances.instances.is_empty() {
                             color_eyre::eyre::bail!("No instances assigned to that machine");
                         }
@@ -340,7 +341,7 @@ async fn main() -> color_eyre::Result<()> {
             ResourcePool::Grow(def) => {
                 let defs = fs::read_to_string(&def.filename)?;
                 let rpc_req = forgerpc::GrowResourcePoolRequest { text: defs };
-                let _ = rpc::grow_resource_pool(rpc_req, api_config.clone()).await?;
+                let _ = rpc::grow_resource_pool(rpc_req, api_config).await?;
                 tracing::info!("Resource Pool request sent.");
             }
             ResourcePool::List => {
@@ -371,7 +372,7 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CarbideCommand::Migrate(migration) => match migration {
-            MigrateAction::VpcVni => migrate_vpc_vni(&api_config).await?,
+            MigrateAction::VpcVni => migrate_vpc_vni(api_config).await?,
         },
         CarbideCommand::Dpu(dpu_action) => match dpu_action {
             Reprovision(reprov) => match reprov {
@@ -421,7 +422,7 @@ async fn main() -> color_eyre::Result<()> {
         CarbideCommand::BootOverride(boot_override_args) => match boot_override_args {
             BootOverrideAction::Get(boot_override) => {
                 let mbo = rpc::get_boot_override(
-                    &api_config,
+                    api_config,
                     Uuid {
                         value: boot_override.interface_id,
                     },
@@ -448,7 +449,7 @@ async fn main() -> color_eyre::Result<()> {
                 let custom_user_data_path = boot_override_set.custom_user_data.map(PathBuf::from);
 
                 rpc::set_boot_override(
-                    &api_config,
+                    api_config,
                     Uuid {
                         value: boot_override_set.interface_id,
                     },
@@ -459,7 +460,7 @@ async fn main() -> color_eyre::Result<()> {
             }
             BootOverrideAction::Clear(boot_override) => {
                 rpc::clear_boot_override(
-                    &api_config,
+                    api_config,
                     Uuid {
                         value: boot_override.interface_id,
                     },
@@ -490,7 +491,7 @@ async fn main() -> color_eyre::Result<()> {
                     username: Some(username),
                     password,
                 };
-                rpc::add_credential(&api_config, req).await?;
+                rpc::add_credential(api_config, req).await?;
             }
             CredentialAction::DeleteUFM(c) => {
                 let username = url_validator(c.url.clone()).await?;
@@ -498,7 +499,7 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::Ufm.into(),
                     username: Some(username),
                 };
-                rpc::delete_credential(&api_config, req).await?;
+                rpc::delete_credential(api_config, req).await?;
             }
             CredentialAction::AddBMC(c) => {
                 let password = password_validator(c.password.clone()).await?;
@@ -507,7 +508,7 @@ async fn main() -> color_eyre::Result<()> {
                     username: None,
                     password,
                 };
-                rpc::add_credential(&api_config, req).await?;
+                rpc::add_credential(api_config, req).await?;
             }
             CredentialAction::AddUefi(c) => {
                 let password = password_validator(c.password.clone()).await?;
@@ -516,24 +517,24 @@ async fn main() -> color_eyre::Result<()> {
                     username: None,
                     password,
                 };
-                rpc::add_credential(&api_config, req).await?;
+                rpc::add_credential(api_config, req).await?;
             }
         },
         CarbideCommand::RouteServer(action) => match action {
             RouteServer::Get => {
-                let route_servers = rpc::get_route_servers(&api_config).await?;
+                let route_servers = rpc::get_route_servers(api_config).await?;
                 println!("{}", serde_json::to_string(&route_servers)?);
             }
             RouteServer::Add(ip) => {
-                rpc::add_route_server(&api_config, ip.ip).await?;
+                rpc::add_route_server(api_config, ip.ip).await?;
             }
             RouteServer::Remove(ip) => {
-                rpc::remove_route_server(&api_config, ip.ip).await?;
+                rpc::remove_route_server(api_config, ip.ip).await?;
             }
         },
         CarbideCommand::SiteExplorer(action) => match action {
             SiteExplorer::GetReport => {
-                let exploration_report = rpc::get_site_exploration_report(&api_config).await?;
+                let exploration_report = rpc::get_site_exploration_report(api_config).await?;
                 println!("{}", serde_json::to_string_pretty(&exploration_report)?);
             }
         },

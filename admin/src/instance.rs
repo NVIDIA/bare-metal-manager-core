@@ -246,7 +246,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
     table.into()
 }
 
-async fn show_all_instances(json: bool, api_config: Config) -> CarbideCliResult<()> {
+async fn show_all_instances(json: bool, api_config: &Config) -> CarbideCliResult<()> {
     let instances = rpc::get_instances(api_config, None).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&instances).unwrap());
@@ -259,7 +259,7 @@ async fn show_all_instances(json: bool, api_config: Config) -> CarbideCliResult<
 async fn show_instance_details(
     id: String,
     json: bool,
-    api_config: Config,
+    api_config: &Config,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
     let instance = if id.starts_with("fm100") {
@@ -289,7 +289,7 @@ async fn show_instance_details(
 pub async fn handle_show(
     args: ShowInstance,
     output_format: OutputFormat,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.all || args.id.is_empty() {
@@ -307,8 +307,8 @@ pub async fn handle_show(
     Ok(())
 }
 
-pub async fn handle_reboot(args: RebootInstance, api_config: Config) -> CarbideCliResult<()> {
-    let machine_id = rpc::get_instances(api_config.clone(), Some(args.instance.clone()))
+pub async fn handle_reboot(args: RebootInstance, api_config: &Config) -> CarbideCliResult<()> {
+    let machine_id = rpc::get_instances(api_config, Some(args.instance.clone()))
         .await?
         .instances
         .last()

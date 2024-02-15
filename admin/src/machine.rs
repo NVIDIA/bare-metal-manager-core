@@ -205,7 +205,7 @@ pub struct MachineFilter {
 
 async fn show_all_machines(
     json: bool,
-    api_config: Config,
+    api_config: &Config,
     machine_type: Option<forgerpc::MachineType>,
 ) -> CarbideCliResult<()> {
     let machines = rpc::get_all_machines(api_config, machine_type, false).await?;
@@ -220,7 +220,7 @@ async fn show_all_machines(
 async fn show_machine_information(
     id: String,
     json: bool,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let machine = rpc::get_machine(id, api_config).await?;
     if json {
@@ -237,7 +237,7 @@ async fn show_machine_information(
 pub async fn handle_show(
     args: ShowMachine,
     output_format: OutputFormat,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if !args.machine.is_empty() {
@@ -266,7 +266,7 @@ pub async fn handle_show(
 
 pub async fn force_delete(
     mut query: ForceDeleteMachineQuery,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     const RETRY_TIME: Duration = Duration::from_secs(5);
     const MAX_WAIT_TIME: Duration = Duration::from_secs(60 * 20);
@@ -275,7 +275,7 @@ pub async fn force_delete(
     let mut dpu_machine_id = String::new();
 
     loop {
-        let response = rpc::machine_admin_force_delete(query.clone(), api_config.clone()).await?;
+        let response = rpc::machine_admin_force_delete(query.clone(), api_config).await?;
         println!(
             "Force delete response: {}",
             serde_json::to_string_pretty(&response).unwrap()

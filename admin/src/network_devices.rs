@@ -8,7 +8,7 @@ use crate::{
 pub async fn show(
     output_format: OutputFormat,
     query: NetworkDeviceShow,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let query_id: Option<String> = if query.all || query.id.is_empty() {
         None

@@ -27,7 +27,7 @@ struct NetworkState {
 
 async fn convert_network_to_nice_format(
     segment: &forgerpc::NetworkSegment,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
@@ -136,7 +136,7 @@ async fn convert_network_to_nice_format(
     Ok(lines)
 }
 
-async fn get_domain_name(domain_id: Option<forgerpc::Uuid>, api_config: Config) -> String {
+async fn get_domain_name(domain_id: Option<forgerpc::Uuid>, api_config: &Config) -> String {
     match domain_id {
         Some(id) => match rpc::get_domains(Some(id), api_config).await {
             Ok(domain_list) => {
@@ -154,7 +154,7 @@ async fn get_domain_name(domain_id: Option<forgerpc::Uuid>, api_config: Config) 
 
 async fn convert_network_to_nice_table(
     segments: forgerpc::NetworkSegmentList,
-    api_config: Config,
+    api_config: &Config,
 ) -> Box<Table> {
     let mut table = Table::new();
 
@@ -172,7 +172,7 @@ async fn convert_network_to_nice_table(
     ]);
 
     for segment in segments.network_segments {
-        let domain = get_domain_name(segment.subdomain_id, api_config.clone()).await;
+        let domain = get_domain_name(segment.subdomain_id, api_config).await;
 
         table.add_row(row![
             segment.id.unwrap_or_default(),
@@ -207,8 +207,8 @@ async fn convert_network_to_nice_table(
     table.into()
 }
 
-async fn show_all_segments(json: bool, api_config: Config) -> CarbideCliResult<()> {
-    let segments = rpc::get_segments(None, api_config.clone()).await?;
+async fn show_all_segments(json: bool, api_config: &Config) -> CarbideCliResult<()> {
+    let segments = rpc::get_segments(None, api_config).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&segments).unwrap());
     } else {
@@ -222,7 +222,7 @@ async fn show_all_segments(json: bool, api_config: Config) -> CarbideCliResult<(
 async fn show_network_information(
     id: String,
     json: bool,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let segment = rpc::get_segments(
         Some(
@@ -230,7 +230,7 @@ async fn show_network_information(
                 .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
                 .into(),
         ),
-        api_config.clone(),
+        api_config,
     )
     .await?;
     if segment.network_segments.is_empty() {
@@ -254,7 +254,7 @@ async fn show_network_information(
 pub async fn handle_show(
     args: ShowNetwork,
     output_format: OutputFormat,
-    api_config: Config,
+    api_config: &Config,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.all || args.network.is_empty() {
