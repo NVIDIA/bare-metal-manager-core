@@ -241,6 +241,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     pxe_ip,
                     ntp_ip,
                     nameservers.clone(),
+                    params
+                        .override_network_virtualization_type
+                        .unwrap_or(NetworkVirtualizationType::Etv),
                 )
                 .await;
                 update_result = match dhcp_result {

@@ -25,6 +25,7 @@ use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
+use crate::command_line::NetworkVirtualizationType;
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
 
 // VPC writes these to various HBN config files
@@ -295,17 +296,22 @@ pub async fn update_dhcp(
     pxe_ip: Ipv4Addr,
     ntp_ip: Option<Ipv4Addr>,
     nameservers: Vec<IpAddr>,
+    nvt: NetworkVirtualizationType,
 ) -> eyre::Result<bool> {
     let path_dhcp_relay = hbn_root.join(dhcp::RELAY_PATH);
+    let path_dhcp_relay_nvue = hbn_root.join(dhcp::RELAY_PATH_NVUE);
     let paths_dhcp_server = DhcpServerPaths {
         server: hbn_root.join(dhcp::SERVER_PATH),
         config: hbn_root.join(dhcp::SERVER_CONFIG_PATH),
         host_config: hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH),
     };
 
-    // Dhcp server listen on vlan interfaces, so interface must be up before running dhcp server.
     let (post_actions, errs) = if network_config.enable_dhcp {
-        // Start DHCP Server in hbn.
+        // dhcp-server
+
+        // Delete NVUE relay config in case we used that previously
+        let _ = fs::remove_file(path_dhcp_relay_nvue);
+        // Start DHCP Server in HBN.
         match write_dhcp_server_config(
             path_dhcp_relay,
             &paths_dhcp_server,
@@ -320,7 +326,13 @@ pub async fn update_dhcp(
             }
             Err(err) => eyre::bail!("write dhcp server config file: {err:#}"),
         }
+    } else if matches!(nvt, NetworkVirtualizationType::EtvNvue) {
+        // dhcp-relay managed by NVUE
+        let _ = fs::remove_file(path_dhcp_relay);
+        return Ok(false);
     } else {
+        // dhcp-relay managed by us
+        let _ = fs::remove_file(path_dhcp_relay_nvue);
         match write_dhcp_relay_config(path_dhcp_relay, paths_dhcp_server.server, network_config) {
             Ok(Some((post_action, err))) => (post_action, err),
             Ok(None) => {

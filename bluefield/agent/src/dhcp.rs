@@ -16,7 +16,11 @@ use ::rpc::forge as rpc;
 use gtmpl_derive::Gtmpl;
 use utils::models::dhcp::HostConfig;
 
+/// The path we write in non-NVUE mode, when using dhcp-relay (versus dhcp-server)
 pub const RELAY_PATH: &str = "etc/supervisor/conf.d/default-isc-dhcp-relay.conf";
+
+/// The path NVUE writes if we're using dhcp-relay
+pub const RELAY_PATH_NVUE: &str = "etc/supervisor/conf.d/isc-dhcp-relay-default";
 
 pub const SERVER_PATH: &str = "etc/supervisor/conf.d/default-forge-dhcp-server.conf";
 pub const SERVER_CONFIG_PATH: &str = "var/support/forge-dhcp/conf/dhcp.yaml";
