@@ -74,7 +74,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.InstanceStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceList", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.BmcInfo", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Machine", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineEvent", "#[derive(serde::Serialize)]")
@@ -108,7 +107,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.TenantPublicKey", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.UUID", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcResourceState", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineBootOverride", "#[derive(serde::Serialize)]")
         .type_attribute("forge.ConnectedDevice", "#[derive(serde::Serialize)]")
@@ -122,6 +120,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.ResourcePool", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcList", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.MachineDiscoveryInfo",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.UUID",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.MachineDiscoveryInfo.discovery_data",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.DhcpDiscovery",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.UserRoles",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.BMCRequestType",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.BmcInfo",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.bmc_meta_data_update_request.DataItem",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "DataItem",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "bmc_meta_data_update_request",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "BMCMetaDataUpdateRequest",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

@@ -1,0 +1,53 @@
+{
+  "cpus": [
+    {
+      "core": 0,
+      "node": 2,
+      "model": "0x1",
+      "number": 7,
+      "socket": 0,
+      "vendor": "0x41",
+      "frequency": "400.00"
+    }
+  ],
+  "gpus": [
+    {
+      "name": "NVIDIA H100 PCIe",
+      "serial": "1654422005699",
+      "driver_version": "530.30.02",
+      "vbios_version": "96.00.30.00.01",
+      "inforom_version": "1010.0200.00.02",
+      "total_memory": "81559 MiB",
+      "frequency": "1755 MHz",
+      "pci_bus_id": "00000000:17:00.0"
+    }
+  ],
+  "machine_type": "x86_64",
+  "nvme_devices": [],
+  "memory_devices": [
+    {
+      "size_mb": 2048,
+      "mem_type": "DDR4"
+    }
+  ],
+  "block_devices": [
+    {
+      "model": "NO_MODEL",
+      "serial": "NO_SERIAL",
+      "revision": "NO_REVISION"
+    }
+  ],
+  "dmi_data": {
+    "board_name": "",
+    "board_version": "",
+    "bios_version": "",
+    "bios_date": "01/01/1971",
+    "product_serial": "Host123",
+    "board_serial": "HostBoard123",
+    "chassis_serial": "HostChassis123",
+    "product_name": "HostProductName234",
+    "sys_vendor": "HostSysVendor234"
+  },
+  "network_interfaces": [],
+  "infiniband_interfaces": []
+}
