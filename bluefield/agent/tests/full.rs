@@ -126,12 +126,16 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
     forge_host_support::init_logging()?;
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
     env::set_var("IGNORE_MGMT_VRF", "true");
+    env::set_var("NO_DPU_CONTAINERS", "true");
 
     let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
         tracing::warn!(
             "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
         );
-        return Ok(TestOut{is_skip: true, ..Default::default()});
+        return Ok(TestOut {
+            is_skip: true,
+            ..Default::default()
+        });
     };
     let root_dir = PathBuf::from(repo_root);
 

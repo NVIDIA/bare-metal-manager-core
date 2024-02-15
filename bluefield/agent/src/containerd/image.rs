@@ -1,8 +1,9 @@
+use std::fmt;
+use std::fmt::{Display, Formatter};
+
 use regex::Regex;
 use serde;
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::fmt::{Display, Formatter};
 use tracing::log::trace;
 
 /// Represents the individual components of a container image name.
@@ -10,7 +11,7 @@ use tracing::log::trace;
 /// nvcr.io/nvidia/doca/doca_hbn:1.5.0-doca2.2.0
 ///
 /// repository - nvcr.io/nvidia/doca, name - doca_hbn, version - 1.5.0-doca2.2.0
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ImageNameComponent {
     /// The repository of the container image
     pub repository: String,
@@ -21,7 +22,7 @@ pub struct ImageNameComponent {
 }
 
 /// A container image present on the system
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Image {
     pub id: String,
     #[serde(rename = "repoTags")]

@@ -133,6 +133,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
 
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
+    tracing::debug!("Attempting to create machine inventory");
     create_machine_inventory(env, &dpu_machine_id).await;
 
     // Simulate the ForgeAgentControl request of the DPU
@@ -194,6 +195,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
 }
 
 pub async fn create_machine_inventory(env: &TestEnv, machine_id: &MachineId) {
+    tracing::debug!("Creating machine inventory for {}", machine_id);
     env.api
         .update_agent_reported_inventory(Request::new(rpc::forge::DpuAgentInventoryReport {
             machine_id: Some(rpc::MachineId {
