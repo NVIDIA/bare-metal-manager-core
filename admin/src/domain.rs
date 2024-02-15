@@ -9,37 +9,50 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::fmt::Write;
-
 use prettytable::{row, Table};
+use std::fmt::Write;
 use tracing::warn;
 
-use ::rpc::forge as forgerpc;
+use ::rpc::{forge as forgerpc, Timestamp};
 
 use crate::Config;
 
 use super::cfg::carbide_options::{OutputFormat, ShowDomain};
 use super::{rpc, CarbideCliError, CarbideCliResult};
 
+// timestamp_or_default returns a String representation of
+// the given timestamp Option, or, if the Option is None,
+// returns a String representation of the provided "default".
+//
+// A default is provided with the idea that multiple callers
+// may want to use a default timestamp as part of a similar
+// operation, and it would be strange for multiple sequential
+// calls to get different timestamps.
+//
+// TODO(chet): Consider making default an &Option<Timestamp>,
+// and if None, generate a default timestamp when called.
+fn timestamp_or_default(ts: &Option<Timestamp>, default: &Timestamp) -> String {
+    return ts.as_ref().unwrap_or(default).to_string();
+}
+
 fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
 
+    let domain_default = &forgerpc::Uuid::default();
+    let timestamp_default = &Timestamp::default();
+
+    let domain_id = domain.id.as_ref().unwrap_or(domain_default).value.as_str();
+    let domain_created = timestamp_or_default(&domain.created, timestamp_default);
+    let domain_updated = timestamp_or_default(&domain.updated, timestamp_default);
+    let domain_deleted = timestamp_or_default(&domain.deleted, timestamp_default);
+
     let data = vec![
-        ("ID", domain.id.clone().unwrap_or_default().value),
-        ("NAME", domain.name.clone()),
-        (
-            "CREATED",
-            domain.created.clone().unwrap_or_default().to_string(),
-        ),
-        (
-            "UPDATED",
-            domain.updated.clone().unwrap_or_default().to_string(),
-        ),
-        (
-            "DELETED",
-            domain.deleted.clone().unwrap_or_default().to_string(),
-        ),
+        ("ID", domain_id),
+        ("NAME", domain.name.as_str()),
+        ("CREATED", domain_created.as_str()),
+        ("UPDATED", domain_updated.as_str()),
+        ("DELETED", domain_deleted.as_str()),
     ];
     for (key, value) in data {
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;
