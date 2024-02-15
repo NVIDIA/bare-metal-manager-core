@@ -188,8 +188,20 @@ pub async fn run(
                     .unwrap_or(super::DEFAULT_NETWORK_VIRTUALIZATION_TYPE); // admin/service network
                 let mut tenant_peers = vec![];
                 if is_hbn_up {
-                    tracing::trace!("Desired network config is {:?}", conf);
-                    let mut update_result = match nvt {
+                    tracing::trace!("Desired network config is {conf:?}");
+
+                    let dhcp_result = ethernet_virtualization::update_dhcp(
+                        &agent.hbn.root_dir,
+                        conf,
+                        agent.hbn.skip_reload,
+                        pxe_ip,
+                        ntp_ip,
+                        nameservers.clone(),
+                        nvt,
+                    )
+                    .await;
+
+                    let update_result = match nvt {
                         NetworkVirtualizationType::Etv => {
                             ethernet_virtualization::update_files(
                                 &agent.hbn.root_dir,
@@ -207,23 +219,13 @@ pub async fn run(
                             .await
                         }
                     };
-                    // If that succeeded update DHCP
-                    if let Ok(has_changes) = update_result {
-                        let dhcp_result = ethernet_virtualization::update_dhcp(
-                            &agent.hbn.root_dir,
-                            conf,
-                            agent.hbn.skip_reload,
-                            pxe_ip,
-                            ntp_ip,
-                            nameservers.clone(),
-                        )
-                        .await;
-                        update_result = match dhcp_result {
-                            Ok(dhcp_has_changes) => Ok(has_changes || dhcp_has_changes),
-                            Err(errs) => Err(errs),
-                        };
-                    }
-                    match update_result {
+
+                    let joined_result = match (update_result, dhcp_result) {
+                        (Ok(a), Ok(b)) => Ok(a | b),
+                        (Err(e1), Err(e2)) => Err(eyre::eyre!("errors update: {e1}, dhcp: {e2}")),
+                        (Err(err), _) | (_, Err(err)) => Err(err),
+                    };
+                    match joined_result {
                         Ok(has_changed) => {
                             has_changed_configs = has_changed;
                             tenant_peers = ethernet_virtualization::tenant_peers(conf);
