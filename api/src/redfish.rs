@@ -23,6 +23,7 @@ use libredfish::{
 };
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
+const AMI_USERNAME: &str = "admin";
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
@@ -81,6 +82,62 @@ impl<C: CredentialProvider + 'static> RedfishClientPoolImpl<C> {
             pool,
         }
     }
+
+    /// This method determines the username for AMI vendor. AMI vendor represents Viking host and
+    /// Viking hosts have 'admin' as site_default username. Rest all hardware have root as
+    /// site_default username.
+    async fn get_user_for_ami_vendor(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        password: String,
+    ) -> Result<Option<&str>, RedfishClientCreationError> {
+        // create a client without credentials.
+        let endpoint = Endpoint {
+            host: host.to_string(),
+            port,
+            user: None,
+            password: None,
+        };
+        let standard_client = self
+            .pool
+            .create_standard_client(endpoint.clone())
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        let service_root = standard_client
+            .get_service_root()
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        // AMI seems very generic vendor name. So we should validate if host is reachable with
+        // admin or not. If not, we can try to continue with root.
+        if service_root
+            .vendor()
+            .is_some_and(|x| x.to_uppercase() == "AMI")
+        {
+            let endpoint = Endpoint {
+                host: host.to_string(),
+                port,
+                user: Some(AMI_USERNAME.to_string()),
+                password: Some(password),
+            };
+
+            // Creating the client performs a HTTP request to determine the BMC vendor
+            let pool = self.pool.clone();
+            match pool.create_client(endpoint).await {
+                Ok(_) => {
+                    return Ok(Some(AMI_USERNAME));
+                }
+                Err(_) => {
+                    // We couldn't connect with admin user, may be some other hardware has AMI
+                    // as vendor.
+                    return Ok(None);
+                }
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -93,12 +150,31 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let credentials = self
             .credential_provider
-            .get_credentials(credential_key)
+            .get_credentials(credential_key.clone())
             .await
             .map_err(RedfishClientCreationError::MissingCredentials)?;
 
         let (username, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        // AMI (Viking) host uses 'admin' as username while all other hardware use 'root' as
+        // username. This method will impact only for site_default HostCredentials.
+        let username = if let CredentialKey::HostRedfish {
+            credential_type: CredentialType::SiteDefault,
+        } = credential_key
+        {
+            let username = match self
+                .get_user_for_ami_vendor(host, port, password.clone())
+                .await?
+            {
+                None => username,
+                Some(u) => u.to_string(),
+            };
+            tracing::info!("Using {username} user for host: {host}");
+            username
+        } else {
+            username
         };
 
         let endpoint = Endpoint {
@@ -197,9 +273,8 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
                     .change_password(username, password.as_str())
                     .await
                     .map_err(RedfishClientCreationError::RedfishError);
-            } else {
-                return Err(RedfishClientCreationError::RedfishError(e));
             }
+            return Err(RedfishClientCreationError::RedfishError(e));
         }
         Ok(())
     }
