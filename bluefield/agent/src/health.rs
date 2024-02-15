@@ -449,8 +449,9 @@ async fn check_forge_admin_user(hr: &mut HealthReport) {
     cmd.args(["user", "list", "1", "-c"]); // -c says CSV output
     cmd.kill_on_drop(true);
     let cmd_str = super::pretty_cmd(cmd.as_std());
-    let Ok(cmd_res) = timeout(Duration::from_secs(10), cmd.output()).await else {
-        hr.failed(HealthCheck::ForgeAdminUser(IpmiUserCheck::Timeout), format!("Timeout running '{cmd_str}'."));
+    let Ok(cmd_res) = timeout(Duration::from_secs(15), cmd.output()).await else {
+        tracing::info!("check_forge_admin_user: Timeout running '{cmd_str}', will retry.");
+        // ipmitool times out often (~hourly) so we don't record it as either passed or failed
         return;
     };
     let out = match cmd_res {
@@ -681,7 +682,6 @@ pub enum IpmiUserCheck {
     Exists,
     Missing,
     Error,
-    Timeout,
 }
 
 fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
