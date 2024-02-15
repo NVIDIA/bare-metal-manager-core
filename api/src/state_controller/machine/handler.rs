@@ -848,7 +848,7 @@ fn get_reboot_cycle(
     if next_potential_reboot_time <= entered_state_at {
         return Err(
             StateHandlerError::GenericError(
-                eyre::eyre!("Poorly configured paramters: next_potential_reboot_time: {}, entered_state_at: {}, wait_period: {}", 
+                eyre::eyre!("Poorly configured paramters: next_potential_reboot_time: {}, entered_state_at: {}, wait_period: {}",
                     next_potential_reboot_time,
                     entered_state_at,
                     wait_period.num_minutes()
@@ -1403,10 +1403,7 @@ async fn record_infiniband_status_observation(
             missing: "GUID of IB Port",
         })?;
 
-        ibconf
-            .entry(ib.ib_partition_id)
-            .or_insert(Vec::new())
-            .push(guid);
+        ibconf.entry(ib.ib_partition_id).or_default().push(guid);
     }
 
     if ibconf.is_empty() {
@@ -1496,10 +1493,7 @@ async fn bind_ib_ports(
             missing: "GUID of IB Port",
         })?;
 
-        ibconf
-            .entry(ib.ib_partition_id)
-            .or_insert(Vec::new())
-            .push(guid);
+        ibconf.entry(ib.ib_partition_id).or_default().push(guid);
     }
 
     if ibconf.is_empty() {
@@ -1551,10 +1545,7 @@ async fn unbind_ib_ports(
             object_id: instance_id.to_string(),
             missing: "GUID of IB Port",
         })?;
-        ibconf
-            .entry(ib.ib_partition_id)
-            .or_insert(Vec::new())
-            .push(guid);
+        ibconf.entry(ib.ib_partition_id).or_default().push(guid);
     }
 
     if ibconf.is_empty() {

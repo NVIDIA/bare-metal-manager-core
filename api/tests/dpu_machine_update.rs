@@ -85,7 +85,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     }
 
     let machine_obs = MachineNetworkStatusObservation {
-        machine_id: dpu_machine_ids.get(0).unwrap().to_string(),
+        machine_id: dpu_machine_ids.first().unwrap().to_string(),
         agent_version: None,
         observed_at: chrono::Utc::now(),
         health_status: HealthStatus {
@@ -101,7 +101,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     let mut txn = pool.begin().await.expect("Failed to create transaction");
     Machine::update_network_status_observation(
         &mut txn,
-        dpu_machine_ids.get(0).unwrap(),
+        dpu_machine_ids.first().unwrap(),
         &machine_obs,
     )
     .await?;
@@ -240,8 +240,8 @@ async fn test_find_unavailable_outdated_dpus(
             .await?;
 
     assert_eq!(dpus.len(), 1);
-    assert_eq!(dpus.get(0).unwrap().dpu_machine_id, dpu_machine_id);
-    assert_eq!(dpus.get(0).unwrap().host_machine_id, host_machine_id);
+    assert_eq!(dpus.first().unwrap().dpu_machine_id, dpu_machine_id);
+    assert_eq!(dpus.first().unwrap().host_machine_id, host_machine_id);
 
     Ok(())
 }

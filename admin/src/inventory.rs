@@ -318,7 +318,7 @@ fn create_inventory_for_instances(
         let physical_ip = if_status.iter().find_map(|x| {
             // For physical interface `virtual_function_id` is None.
             if x.virtual_function_id.is_none() {
-                x.addresses.get(0).map(|x| x.to_string())
+                x.addresses.first().map(|x| x.to_string())
             } else {
                 None
             }
@@ -352,10 +352,7 @@ fn create_inventory_for_instances(
             .unwrap()
             .tenant_organization_id;
 
-        tenant_map
-            .entry(tenant)
-            .or_insert_with(Vec::new)
-            .push(details);
+        tenant_map.entry(tenant).or_default().push(details);
     }
 
     (tenant_map, used_machines)

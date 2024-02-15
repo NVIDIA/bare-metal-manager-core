@@ -9,12 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+// Rust somewhere 1.71->1.76 added a lint that doesn't like Rocket
+#![allow(unused_imports)]
+
 use std::collections::HashMap;
 use std::fmt::Display;
 
 use rocket::{get, routes, Route};
 use rocket_dyn_templates::Template;
-
 use rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 
 use crate::routes::RpcContext;

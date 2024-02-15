@@ -258,7 +258,7 @@ fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
     for md in memory_devices {
         let size =
             byte_unit::Byte::from_unit(md.size_mb.unwrap_or(0) as f64, byte_unit::ByteUnit::MiB)
-                .unwrap_or(byte_unit::Byte::default());
+                .unwrap_or_default();
         total_size += size.get_bytes();
         *breakdown.entry(size).or_insert(0u32) += 1;
     }

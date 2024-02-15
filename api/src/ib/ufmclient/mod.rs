@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use base64::prelude::*;
 use std::collections::HashMap;
 
+use base64::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
@@ -384,10 +384,10 @@ impl Ufm {
         let path = String::from("/resources/ports?sys_type=Computer");
         let ports: Vec<Port> = self.client.list(&path).await?;
 
-        let mut f = filter.unwrap_or(Filter::default());
+        let mut f = filter.unwrap_or_default();
         if let Some(pkey) = &f.pkey {
             let mut ports = self.list_partition_ports(pkey).await?;
-            ports.extend(f.guids.unwrap_or(vec![]));
+            ports.extend(f.guids.unwrap_or_default());
             f.guids = Some(ports);
         }
 

@@ -13,6 +13,8 @@
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 
+use super::instance::Instance;
+use super::ObjectFilter;
 use crate::db::DatabaseError;
 use crate::model::config_version::ConfigVersion;
 use crate::model::tenant::{
@@ -20,9 +22,6 @@ use crate::model::tenant::{
     TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
 use crate::{CarbideError, CarbideResult};
-
-use super::instance::Instance;
-use super::ObjectFilter;
 
 impl Tenant {
     pub async fn create_and_persist(
@@ -275,7 +274,7 @@ impl TenantPublicKeyValidationRequest {
         let instance =
             Instance::find(txn, super::UuidKeyedObjectFilter::One(self.instance_id)).await?;
 
-        let instance = instance.get(0).ok_or(CarbideError::NotFoundError {
+        let instance = instance.first().ok_or(CarbideError::NotFoundError {
             kind: "instance",
             id: self.instance_id.to_string(),
         })?;

@@ -701,7 +701,7 @@ SELECT m.id FROM
                 } else {
                     machine.associated_dpu_machine_id = interfaces_for_machine
                         .get(&machine.id)
-                        .and_then(|i| i.get(0))
+                        .and_then(|i| i.first())
                         .and_then(|i| i.attached_dpu_machine_id().clone());
                 }
             }
@@ -1338,10 +1338,10 @@ SELECT m.id FROM
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let current_time = chrono::Utc::now();
-        let query = r#"UPDATE machines 
+        let query = r#"UPDATE machines
                         SET reprovisioning_requested=
-                                    jsonb_set(reprovisioning_requested, 
-                                                '{started_at}', $2, true) 
+                                    jsonb_set(reprovisioning_requested,
+                                                '{started_at}', $2, true)
                        WHERE id=$1 RETURNING id"#;
         let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(machine_id.to_string())
@@ -1358,10 +1358,10 @@ SELECT m.id FROM
         machine_id: &MachineId,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query = r#"UPDATE machines 
+        let query = r#"UPDATE machines
                         SET reprovisioning_requested=
-                                    jsonb_set(reprovisioning_requested, 
-                                                '{user_approval_received}', $2, true) 
+                                    jsonb_set(reprovisioning_requested,
+                                                '{user_approval_received}', $2, true)
                        WHERE id=$1 RETURNING id"#;
         let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(machine_id.to_string())
@@ -1379,7 +1379,7 @@ SELECT m.id FROM
         machine_id: &MachineId,
         validate_started_time: bool,
     ) -> Result<(), DatabaseError> {
-        let query = r#"UPDATE machines SET reprovisioning_requested=NULL 
+        let query = r#"UPDATE machines SET reprovisioning_requested=NULL
                         WHERE id=$1 {validate_started} RETURNING id"#
             .to_string();
 

@@ -323,7 +323,7 @@ impl SiteExplorer {
 
         let serial_number = dpu_report
             .systems
-            .get(0)
+            .first()
             .and_then(|system| system.serial_number.as_ref())
             .unwrap();
         let dmi_data = dpu_report.create_temporary_dmi_data(serial_number.as_str());
@@ -473,7 +473,7 @@ impl SiteExplorer {
             if let Some(sn) = ep
                 .report
                 .systems
-                .get(0)
+                .first()
                 .and_then(|system| system.serial_number.as_ref())
             {
                 dpu_sn_to_endpoint.insert(sn, ep);
@@ -817,8 +817,8 @@ fn find_host_pf_mac_address(
     let dpu_bmc_mac = match dpu_ep
         .report
         .managers
-        .get(0)
-        .and_then(|manager| manager.ethernet_interfaces.get(0))
+        .first()
+        .and_then(|manager| manager.ethernet_interfaces.first())
         .and_then(|iface| iface.mac_address.clone())
     {
         Some(mac) => mac,

@@ -13,13 +13,13 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
+use std::time::SystemTime;
 
 use hyper::client::HttpConnector;
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
 use hyper::{Body, Client, Method, Uri};
 use hyper_rustls::HttpsConnector;
 use hyper_timeout::TimeoutConnector;
-use std::time::SystemTime;
 use thiserror::Error;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
@@ -212,7 +212,7 @@ impl RestClient {
             .parse::<Uri>()
             .map_err(|_| RestError::InvalidConfig("invalid path".to_string()))?;
 
-        let body = data.unwrap_or(String::new());
+        let body = data.unwrap_or_default();
 
         let req = hyper::Request::builder()
             .method(method)

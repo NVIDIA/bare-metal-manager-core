@@ -186,7 +186,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     .resolve(&pxe_hostname)
                     .await
                     .wrap_err("netconf DNS resolver for carbide-pxe")?
-                    .get(0)
+                    .first()
                     .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
 
                 // This log should be removed after some time.
@@ -194,7 +194,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
                 let ntp_ip = match url_resolver.resolve("carbide-ntp.forge").await {
                     Ok(x) => {
-                        let ntp_server_ip = x.get(0);
+                        let ntp_server_ip = x.first();
                         // This log should be removed after some time.
                         tracing::info!("Ntp server resolved as: {:?}", ntp_server_ip);
                         ntp_server_ip.cloned()

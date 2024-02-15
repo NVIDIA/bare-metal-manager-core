@@ -131,12 +131,12 @@ impl Iterator for IpAllocator {
             }
         }
 
-        excluded_ips.extend(self.used_ips.iter().filter_map(|(ip,)| {
-            segment_prefix
-                .prefix
-                .contains(*ip)
-                .then(|| (to_vec(ip), ()))
-        }));
+        excluded_ips.extend(
+            self.used_ips
+                .iter()
+                .filter(|(ip,)| segment_prefix.prefix.contains(*ip))
+                .map(|(ip,)| (to_vec(ip), ())),
+        );
 
         // TODO: add gateway to the list of used IPs above?
         if let Some(gateway) = segment_prefix.gateway {
@@ -167,20 +167,20 @@ impl Iterator for IpAllocator {
 
         // Iterate over all the IPs until we find one that's not in the map, that's our
         // first free IPs
-        Some((
-            segment_prefix.id,
-            segment_prefix
-                .prefix
-                .iter()
-                .find_map(|address| {
-                    excluded_ips
-                        .get(to_vec(&address))
-                        .is_none()
-                        .then_some(address)
-                })
-                .ok_or_else(|| DhcpError::PrefixExhausted(segment_prefix.prefix.ip()))
-                .map_err(CarbideError::from),
-        ))
+        let mut maybe_first_free_ip = None;
+        for address in segment_prefix.prefix.iter() {
+            if !excluded_ips.contains_key(to_vec(&address)) {
+                maybe_first_free_ip = Some(address);
+                break;
+            }
+        }
+        match maybe_first_free_ip {
+            None => Some((
+                segment_prefix.id,
+                Err(DhcpError::PrefixExhausted(segment_prefix.prefix.ip()).into()),
+            )),
+            Some(ip) => Some((segment_prefix.id, Ok(ip))),
+        }
     }
 }
 

@@ -48,7 +48,7 @@ pub async fn admin_network(
         .await
         .map_err(CarbideError::from)?;
 
-    let prefix = match admin_segment.prefixes.get(0) {
+    let prefix = match admin_segment.prefixes.first() {
         Some(p) => p,
         None => {
             return Err(Status::internal(format!(
@@ -108,7 +108,7 @@ pub async fn tenant_network(
     )
     .await
     .map_err(CarbideError::from)?;
-    let Some(segment) = segments.get(0) else {
+    let Some(segment) = segments.first() else {
         return Err(Status::internal(format!(
             "Tenant network segment id '{}' matched more than one segment",
             iface.network_segment_id

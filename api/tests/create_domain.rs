@@ -11,7 +11,6 @@
  */
 use carbide::db::domain::{Domain, NewDomain};
 use carbide::{CarbideError, CarbideResult};
-
 use uuid::Uuid;
 
 #[sqlx::test]
@@ -25,11 +24,11 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
 
     let domain = NewDomain { name: test_name }.persist(&mut txn).await;
 
-    assert!(matches!(domain, Ok(_)));
+    assert!(domain.is_ok());
 
     let delete_result = domain.unwrap().delete(&mut txn).await;
 
-    assert!(matches!(delete_result, Ok(_)));
+    assert!(delete_result.is_ok());
 
     let domains = Domain::find(&mut txn, carbide::db::UuidKeyedObjectFilter::All)
         .await
@@ -152,5 +151,5 @@ async fn update_domain(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(update_result, Ok(_)));
+    assert!(update_result.is_ok());
 }

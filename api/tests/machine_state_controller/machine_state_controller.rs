@@ -79,10 +79,7 @@ impl StateHandler for TestMachineStateHandler {
 ))]
 async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool.clone()).await;
-    let hosts: Vec<_> = [0..4]
-        .iter()
-        .map(|_| env.start_managed_host_sim())
-        .collect();
+    let hosts: Vec<_> = (0..4).map(|_| env.start_managed_host_sim()).collect();
 
     let mut machine_ids = Vec::new();
     for host_sim in hosts.iter() {

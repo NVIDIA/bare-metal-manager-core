@@ -13,6 +13,7 @@
 use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
 
+use super::{machine::DbMachineId, DatabaseError, ObjectFilter};
 use crate::model::{
     hardware_info::LldpSwitchData,
     machine::machine_id::MachineId,
@@ -20,8 +21,6 @@ use crate::model::{
         DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
     },
 };
-
-use super::{machine::DbMachineId, DatabaseError, ObjectFilter};
 
 pub struct NetworkDeviceSearchConfig {
     include_dpus: bool,
@@ -43,7 +42,7 @@ fn get_port_data<'a>(
         .collect::<Vec<&LldpSwitchData>>();
 
     let port_data = port_data
-        .get(0)
+        .first()
         .ok_or(LldpError::MissingPort(port.to_string()))?;
 
     Ok(*port_data)
@@ -174,11 +173,11 @@ impl DpuToNetworkDeviceMap {
         network_device_id: &str,
     ) -> Result<Self, DatabaseError> {
         // Update the association if already exists, else just insert into table.
-        let query = r#"INSERT INTO port_to_network_device_map(dpu_id, local_port, remote_port, network_device_id) 
+        let query = r#"INSERT INTO port_to_network_device_map(dpu_id, local_port, remote_port, network_device_id)
                          VALUES($1, $2::dpu_local_ports, $3, $4)
                          ON CONFLICT ON CONSTRAINT network_device_dpu_associations_primary
-                         DO UPDATE SET 
-                            network_device_id=EXCLUDED.network_device_id, 
+                         DO UPDATE SET
+                            network_device_id=EXCLUDED.network_device_id,
                             local_port=EXCLUDED.local_port,
                             remote_port=EXCLUDED.remote_port
                        RETURNING *"#;

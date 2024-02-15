@@ -66,7 +66,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let no_org_vpc_version: ConfigVersion = no_org_vpc.version.parse()?;
     assert_eq!(no_org_vpc_version.version_nr(), 1);
 
-    assert!(matches!(no_org_vpc.deleted, None));
+    assert!(no_org_vpc.deleted.is_none());
     let initial_no_org_vpc_version = no_org_vpc_version;
 
     let mut txn = pool
@@ -130,7 +130,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     let vpc = DeleteVpc { id: no_org_vpc_id }.delete(&mut txn).await?;
 
-    assert!(matches!(vpc.deleted, Some(_)));
+    assert!(vpc.deleted.is_some());
 
     let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(vpc.id)).await?;
 
@@ -145,7 +145,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(vpcs[0].id, forge_vpc_id);
 
     let vpc = DeleteVpc { id: forge_vpc_id }.delete(&mut txn).await?;
-    assert!(matches!(vpc.deleted, Some(_)));
+    assert!(vpc.deleted.is_some());
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;

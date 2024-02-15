@@ -11,6 +11,5 @@
  */
 mod cmdrun;
 mod scrabbing;
-pub use cmdrun::run_prog;
 pub(crate) use scrabbing::run;
 pub use scrabbing::run_no_api;

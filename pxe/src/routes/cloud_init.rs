@@ -9,10 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use base64::prelude::*;
+
+// Rust somewhere 1.71->1.76 added a lint that doesn't like Rocket
+#![allow(unused_imports)]
+
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::prelude::*;
+use forge_host_support::agent_config;
 use rocket::get;
 use rocket::routes;
 use rocket::Route;
@@ -20,7 +25,6 @@ use rocket_dyn_templates::Template;
 use rpc::forge;
 
 use crate::{Machine, RuntimeConfig};
-use forge_host_support::agent_config;
 
 fn user_data_handler(
     machine_interface_id: rpc::Uuid,
@@ -222,9 +226,11 @@ pub fn routes() -> Vec<Route> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use forge_tls::default as tls_default;
     use std::fs;
+
+    use forge_tls::default as tls_default;
+
+    use super::*;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
 

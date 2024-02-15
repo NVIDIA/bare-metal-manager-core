@@ -19,7 +19,6 @@ use ::rpc::forge as rpc;
 use ::rpc::forge::VpcVirtualizationType;
 use ::rpc::forge_tls_client;
 use axum::Router;
-pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::registration;
@@ -28,7 +27,6 @@ use opentelemetry_sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
-pub use upgrade::upgrade_check;
 
 use crate::command_line;
 use crate::command_line::NetworkVirtualizationType;
@@ -118,7 +116,7 @@ pub async fn run(
             .resolve("carbide-pxe.forge")
             .await
             .wrap_err("DNS resolver for carbide-pxe")?
-            .get(0)
+            .first()
             .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
 
         // This log should be removed after some time.
@@ -126,7 +124,7 @@ pub async fn run(
 
         let ntp_ip = match url_resolver.resolve("carbide-ntp.forge").await {
             Ok(x) => {
-                let ntp_server_ip = x.get(0);
+                let ntp_server_ip = x.first();
                 // This log should be removed after some time.
                 tracing::info!(?ntp_server_ip, "Ntp server resolved");
                 ntp_server_ip.cloned()

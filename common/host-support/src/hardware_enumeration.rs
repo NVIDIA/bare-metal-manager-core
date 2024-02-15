@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::{
+    fmt::Write,
     fs,
     io::{BufRead, BufReader},
     path::Path,
@@ -91,10 +92,10 @@ fn convert_udev_to_mac(udev: String) -> Result<String, HardwareEnumerationError>
         .collect::<Result<Vec<&str>, Utf8Error>>()
         .map_err(|_| HardwareEnumerationError::InvalidMacAddress(udev.clone()))?;
     // add colons
-    let mut mac = chunks
-        .into_iter()
-        .map(|chunk| format!("{}:", chunk))
-        .collect::<String>();
+    let mut mac = chunks.into_iter().fold(String::new(), |mut s, chunk| {
+        let _ = write!(s, "{chunk}:");
+        s
+    });
     // remove trailing colon from the above format
     mac.pop();
 

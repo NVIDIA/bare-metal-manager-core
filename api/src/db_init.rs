@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
+
 use forge_secrets::{certificates::CertificateProvider, credentials::CredentialProvider};
 use sqlx::{Pool, Postgres};
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
 use crate::{
     api::Api,
@@ -114,7 +115,7 @@ pub async fn create_initial_route_servers(
 
         RouteServer::get_or_create(&mut txn, &route_servers).await?
     } else {
-        RouteServer::replace(&mut txn, &vec![]).await?;
+        RouteServer::replace(&mut txn, &[]).await?;
         vec![]
     };
 

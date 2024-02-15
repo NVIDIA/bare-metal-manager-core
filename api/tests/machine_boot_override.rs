@@ -97,8 +97,8 @@ async fn confirm_null_fields(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(machine_boot_override.custom_pxe, None));
-    assert!(matches!(machine_boot_override.custom_user_data, None));
+    assert!(machine_boot_override.custom_pxe.is_none());
+    assert!(machine_boot_override.custom_user_data.is_none());
     Ok(())
 }
 

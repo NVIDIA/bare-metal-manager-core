@@ -35,8 +35,8 @@ pub struct IPMIToolImpl<C: CredentialProvider> {
 }
 
 impl<C: CredentialProvider> IPMIToolImpl<C> {
-    const IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 chassis power reset";
-    const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
+    const IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 chassis power reset";
+    const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
 
     pub fn new(credential_provider: Arc<C>, attempts: &Option<u32>) -> Self {
         IPMIToolImpl {
