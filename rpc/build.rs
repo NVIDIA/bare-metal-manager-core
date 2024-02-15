@@ -41,6 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.CredentialResponse", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Domain", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DomainList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.InstanceInterfaceConfig",
             "#[derive(serde::Serialize)]",
@@ -83,6 +84,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.MachineInventory", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineInventorySoftwareComponent",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ManagedHostNetworkConfig",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ManagedHostNetworkConfigResponse",
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.NetworkHealth", "#[derive(serde::Serialize)]")

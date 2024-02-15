@@ -415,7 +415,9 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
             .await
             .map(|response| response.into_inner())
         {
-            display.network_config = format!("{netconf:?}").replace(", ", "<br/>");
+            display.network_config = serde_json::to_string_pretty(&netconf)
+                .unwrap_or_else(|_| "\"Invalid\"".to_string())
+                .replace('\n', "<br/>");
         }
     }
     (StatusCode::OK, Html(display.render().unwrap()))
