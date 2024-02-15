@@ -34,7 +34,7 @@ const DPU_PHYSICAL_NETWORK_INTERFACE: &str = "pf0hpf";
 const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 
 /// None of the files we deal with should be bigger than this
-const MAX_EXPECTED_SIZE: u64 = 4096;
+const MAX_EXPECTED_SIZE: u64 = 16384; // 16 KiB
 
 struct EthernetVirtualizerPaths {
     interfaces: PathBuf,
@@ -120,7 +120,8 @@ pub async fn update_nvue(
             vlan: admin_interface.vlan_id as u16,
             vni: None,
             gateway_cidr: admin_interface.gateway.clone(),
-            svi_ip: None, // FNN only
+            vpc_prefixes: admin_interface.vpc_prefixes.clone(), // probably empty
+            svi_ip: None,                                       // FNN only
         }]
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
@@ -144,6 +145,7 @@ pub async fn update_nvue(
                 vlan: net.vlan_id as u16,
                 vni: Some(net.vni), // TODO should this be nc.vni_device?
                 gateway_cidr: net.gateway.clone(),
+                vpc_prefixes: net.vpc_prefixes.clone(),
                 svi_ip: None, // FNN only
             });
         }
@@ -153,6 +155,7 @@ pub async fn update_nvue(
     let hostname = hostname().wrap_err("gethostname error")?;
     let conf = nvue::NvueConfig {
         is_fnn: false,
+        use_admin_network: nc.use_admin_network,
         loopback_ip,
         asn: nc.asn,
         dpu_hostname: hostname.hostname,
@@ -164,6 +167,7 @@ pub async fn update_nvue(
         ct_name: UPLINKS[0].to_string(),
         ct_access_vlans: access_vlans,
         use_local_dhcp: nc.enable_dhcp,
+        deny_prefixes: nc.deny_prefixes.clone(),
 
         // FNN only, not used yet
         ct_l3_vni: "FNN".to_string(),
@@ -1246,10 +1250,12 @@ mod tests {
             } else {
                 None
             },
+            vpc_prefixes: vec!["10.217.4.168/29".to_string()],
         }];
         let hostname = super::hostname().wrap_err("gethostname error")?;
         let conf = nvue::NvueConfig {
             is_fnn,
+            use_admin_network: true,
             loopback_ip: "10.217.5.39".to_string(),
             asn: 65535,
             dpu_hostname: hostname.hostname,
@@ -1257,6 +1263,7 @@ mod tests {
             uplinks: super::UPLINKS.into_iter().map(String::from).collect(),
             dhcp_servers: vec!["10.217.5.197".to_string()],
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
+            deny_prefixes: vec!["10.217.4.128/26".to_string()],
             ct_port_configs: networks,
             ct_name: super::UPLINKS[0].to_string(),
             use_local_dhcp: false,

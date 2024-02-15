@@ -35,7 +35,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     }];
 
     let mut port_configs = Vec::with_capacity(conf.ct_port_configs.len());
-    for network in conf.ct_port_configs {
+    for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
         port_configs.push(TmplConfigPort {
             Name: network.interface_name.clone(),
             VlanID: network.vlan,
@@ -43,10 +43,20 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             IP: network.gateway_cidr.clone(),
             SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
             VrrMAC: "".to_string(),                          // FNN only
+            VpcPrefixes: network
+                .vpc_prefixes
+                .iter()
+                .enumerate()
+                .map(|(i, prefix)| Prefix {
+                    Index: format!("{}", (base_i + 1) * 10 + i),
+                    Prefix: prefix.to_string(),
+                })
+                .collect(),
         });
     }
 
     let params = TmplNvue {
+        UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
         ASN: conf.asn,
         DPUHostname: conf.dpu_hostname,
@@ -55,6 +65,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         RouteServers: conf.route_servers.clone(),
         UseLocalDHCP: conf.use_local_dhcp,
         DHCPServers: conf.dhcp_servers.clone(),
+        DenyPrefixes: conf
+            .deny_prefixes
+            .iter()
+            .enumerate()
+            .map(|(i, s)| Prefix {
+                Index: format!("{}", 1000 + i),
+                Prefix: s.to_string(),
+            })
+            .collect(),
         Infrastructure: infra,
         ComputeTENANTs: vec![TmplComputeTenant {
             Name: conf.ct_name,
@@ -166,6 +185,7 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
 // What we need to configure NVUE
 pub struct NvueConfig {
     pub is_fnn: bool,
+    pub use_admin_network: bool,
     pub loopback_ip: String,
     pub asn: u32,
     pub dpu_hostname: String,
@@ -175,6 +195,7 @@ pub struct NvueConfig {
     pub dhcp_servers: Vec<String>,
     pub l3_domains: Vec<L3Domain>,
     pub use_local_dhcp: bool,
+    pub deny_prefixes: Vec<String>,
 
     // Currently we have a single tenant. Later this will be Vec<ComputeTenant>
     pub ct_name: String,
@@ -203,6 +224,7 @@ pub struct PortConfig {
     pub vlan: u16,
     pub vni: Option<u32>, // admin network doens't haven one
     pub gateway_cidr: String,
+    pub vpc_prefixes: Vec<String>,
     pub svi_ip: Option<String>,
 }
 
@@ -213,6 +235,7 @@ pub struct PortConfig {
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplNvue {
+    UseAdminNetwork: bool, // akak service network
     LoopbackIP: String,
     ASN: u32,
     DPUHostname: String,  // The first part of the FQDN
@@ -226,6 +249,9 @@ struct TmplNvue {
 
     /// Format: IPv4 address of (per tenant) dhcp server
     DHCPServers: Vec<String>, // Previously 'Servers'
+
+    /// Format: CIDR of the infastructure prefixes to block. Origin is carbide-api config file.
+    DenyPrefixes: Vec<Prefix>,
 
     // A structure to hold infra wide information to be used in the configuration. It would need
     // to hold multiple levels.
@@ -282,6 +308,9 @@ struct TmplConfigPort {
     /// on the different VTEPs, but it is very convenient to be unique on the same VTEP.
     /// Format: 48bit mac address in standard hex notation, e.g: 00:00:00:00:00:10
     VrrMAC: String,
+
+    /// Tenant VPCs we should allow them to access
+    VpcPrefixes: Vec<Prefix>,
 }
 
 #[allow(non_snake_case)]
@@ -296,4 +325,11 @@ struct TmplInfra {
 struct TmplL3Domain {
     Name: String,
     Services: Vec<String>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug)]
+struct Prefix {
+    Index: String,
+    Prefix: String,
 }
