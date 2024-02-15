@@ -393,12 +393,14 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     .collect();
                 let conf = nvue::NvueConfig {
                     is_fnn: opts.is_fnn,
+                    use_admin_network: true,
                     loopback_ip: opts.loopback_ip.to_string(),
                     asn: opts.asn,
                     dpu_hostname: opts.dpu_hostname,
                     dpu_search_domain: "".to_string(),
                     uplinks: opts.uplinks,
                     dhcp_servers: opts.dhcp_servers,
+                    deny_prefixes: vec![],
                     route_servers: opts.route_servers,
                     l3_domains: vec![],
                     use_local_dhcp: false,
