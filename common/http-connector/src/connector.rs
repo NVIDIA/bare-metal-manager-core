@@ -166,11 +166,12 @@ fn connect(
             warn!("tcp set_keepalive error: {}", e);
         }
     }
+    #[cfg(target_os = "linux")]
     socket
         .set_tcp_user_timeout(config.tcp_user_timeout)
         .map_err(ConnectError::message("set tcp_user_timeout error"))?;
 
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     // That this only works for some socket types, particularly AF_INET sockets.
     if let Some(interface) = &config.interface {
         socket
@@ -416,7 +417,7 @@ struct Config {
     reuse_address: bool,
     send_buffer_size: Option<usize>,
     recv_buffer_size: Option<usize>,
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     interface: Option<String>,
     socks5_proxy: Option<String>,
 }
@@ -570,13 +571,13 @@ impl ForgeHttpConnector {
     /// This function is only available on Android、Fuchsia and Linux.
     ///
     /// [VRF]: https://www.kernel.org/doc/Documentation/networking/vrf.txt
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     #[inline]
     pub fn set_interface<S: Into<String>>(&mut self, interface: S) -> &mut Self {
         self.config_mut().interface = Some(interface.into());
         self
     }
-    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    #[cfg(not(target_os = "linux"))]
     pub fn set_interface<S: Into<String>>(&mut self, _interface: S) -> &mut Self {
         self
     }
