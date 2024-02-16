@@ -18,6 +18,7 @@ use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
 pub const PATH: &str = "var/support/nvue_startup.yaml";
+pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 
 const TMPL_ETV: &str = include_str!("../templates/nvue_startup_etv.conf");
 const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
