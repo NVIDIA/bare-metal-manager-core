@@ -176,8 +176,31 @@ pub async fn update_nvue(
         ct_external_access: vec![],
         l3_domains: vec![],
     };
-    let next_contents = nvue::build(conf)?;
 
+    // Write the extra ACL config
+    let path_acl = hbn_root.join(nvue::PATH_ACL);
+    match write(
+        acl_rules::ARP_SUPPRESSION_RULES.to_string(),
+        &path_acl,
+        "NVUE ACL",
+        Some(acl_rules::RELOAD_CMD),
+    ) {
+        Ok(Some(post_action)) => {
+            if !skip_post {
+                let cmd = post_action.cmd.unwrap_or("");
+                if let Err(err) = hbn::run_in_container_shell(cmd).await {
+                    tracing::error!("running nvue extra acl post '{}': {err:#}", cmd);
+                }
+            }
+        }
+        // ACLs didn't need changing, should be always this except on first boot
+        Ok(None) => {}
+        // Log the error but continue so that we get network working
+        Err(err) => tracing::error!("write nvue extra ACL: {err:#}"),
+    }
+
+    // Write startup.yaml
+    let next_contents = nvue::build(conf)?;
     let path = hbn_root.join(nvue::PATH);
     let Some(post) = write(next_contents, &path, "NVUE", None).wrap_err(format!("NVUE config at {}", path.display()))? else {
         // config didn't change
@@ -1048,84 +1071,8 @@ mod tests {
 
     // Pretend we received a new config from API server. Apply it and check the resulting files.
     #[test]
-    fn test_with_tenant() -> Result<(), Box<dyn std::error::Error>> {
-        // The config we received from API server
-        // Admin won't be used
-        let admin_interface = rpc::FlatInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical.into(),
-            virtual_function_id: None,
-            vlan_id: 1,
-            vni: 1001,
-            gateway: "10.217.5.123/28".to_string(),
-            ip: "10.217.5.123".to_string(),
-            vpc_prefixes: vec![],
-            prefix: "10.217.5.123/28".to_string(),
-            fqdn: "myhost.forge".to_string(),
-            booturl: Some("test".to_string()),
-        };
-        let tenant_interfaces = vec![
-            rpc::FlatInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual.into(),
-                virtual_function_id: Some(0),
-                vlan_id: 196,
-                vni: 1025196,
-                gateway: "10.217.5.169/29".to_string(),
-                ip: "10.217.5.170".to_string(),
-                vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
-                prefix: "10.217.5.169/29".to_string(),
-                fqdn: "myhost.forge.1".to_string(),
-                booturl: None,
-            },
-            rpc::FlatInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical.into(),
-                virtual_function_id: None,
-                vlan_id: 185,
-                vni: 1025185,
-                gateway: "10.217.5.161/30".to_string(),
-                ip: "10.217.5.162".to_string(),
-                vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
-                prefix: "10.217.5.162/30".to_string(),
-                fqdn: "myhost.forge.2".to_string(),
-                booturl: None,
-            },
-        ];
-        let netconf = rpc::ManagedHostNetworkConfig {
-            loopback_ip: "10.217.5.39".to_string(),
-        };
-        let network_config = rpc::ManagedHostNetworkConfigResponse {
-            asn: 4259912557,
-            // yes it's in there twice I dunno either
-            dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
-            vni_device: "vxlan5555".to_string(),
-
-            managed_host_config: Some(netconf),
-            managed_host_config_version: "V1-T1666644937952267".to_string(),
-
-            use_admin_network: false,
-            admin_interface: Some(admin_interface),
-
-            tenant_interfaces,
-            instance_config_version: "V1-T1666644937952999".to_string(),
-
-            instance_id: Some(
-                uuid::Uuid::try_from("60cef902-9779-4666-8362-c9bb4b37184f")
-                    .wrap_err("Uuid::try_from")?
-                    .into(),
-            ),
-            remote_id: "test".to_string(),
-
-            // For FNN:
-            // vpc_vni: Some(2024500),
-            // route_servers: vec![],
-
-            // For ETV:
-            network_virtualization_type: None,
-            vpc_vni: None,
-            route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
-            deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
-            enable_dhcp: false,
-            host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
-        };
+    fn test_with_tenant_etv() -> Result<(), Box<dyn std::error::Error>> {
+        let network_config = netconf();
 
         let f = tempfile::NamedTempFile::new()?;
         let g = tempfile::NamedTempFile::new()?;
@@ -1189,6 +1136,112 @@ mod tests {
         compare_diffed(&f, expected)?;
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_with_tenant_nvue() -> Result<(), Box<dyn std::error::Error>> {
+        let network_config = netconf();
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let has_changes = super::update_nvue(hbn_root, &network_config, true).await?;
+        assert!(
+            has_changes,
+            "update_nvue should have written the file, there should be changes"
+        );
+
+        // check ACLs
+        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
+        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
+
+        // check startup.yaml
+        let expected = include_str!("../templates/tests/nvue_startup.yaml.expected");
+        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
+
+        Ok(())
+    }
+
+    fn netconf() -> rpc::ManagedHostNetworkConfigResponse {
+        // The config we received from API server
+        // Admin won't be used
+        let admin_interface = rpc::FlatInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical.into(),
+            virtual_function_id: None,
+            vlan_id: 1,
+            vni: 1001,
+            gateway: "10.217.5.123/28".to_string(),
+            ip: "10.217.5.123".to_string(),
+            vpc_prefixes: vec![],
+            prefix: "10.217.5.123/28".to_string(),
+            fqdn: "myhost.forge".to_string(),
+            booturl: Some("test".to_string()),
+        };
+        let tenant_interfaces = vec![
+            rpc::FlatInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual.into(),
+                virtual_function_id: Some(0),
+                vlan_id: 196,
+                vni: 1025196,
+                gateway: "10.217.5.169/29".to_string(),
+                ip: "10.217.5.170".to_string(),
+                vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
+                prefix: "10.217.5.169/29".to_string(),
+                fqdn: "myhost.forge.1".to_string(),
+                booturl: None,
+            },
+            rpc::FlatInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical.into(),
+                virtual_function_id: None,
+                vlan_id: 185,
+                vni: 1025185,
+                gateway: "10.217.5.161/30".to_string(),
+                ip: "10.217.5.162".to_string(),
+                vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
+                prefix: "10.217.5.162/30".to_string(),
+                fqdn: "myhost.forge.2".to_string(),
+                booturl: None,
+            },
+        ];
+        let netconf = rpc::ManagedHostNetworkConfig {
+            loopback_ip: "10.217.5.39".to_string(),
+        };
+        rpc::ManagedHostNetworkConfigResponse {
+            asn: 4259912557,
+            // yes it's in there twice I dunno either
+            dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
+            vni_device: "vxlan5555".to_string(),
+
+            managed_host_config: Some(netconf),
+            managed_host_config_version: "V1-T1666644937952267".to_string(),
+
+            use_admin_network: false,
+            admin_interface: Some(admin_interface),
+
+            tenant_interfaces,
+            instance_config_version: "V1-T1666644937952999".to_string(),
+
+            instance_id: Some(
+                uuid::Uuid::try_from("60cef902-9779-4666-8362-c9bb4b37184f")
+                    .unwrap()
+                    .into(),
+            ),
+            remote_id: "test".to_string(),
+
+            // For FNN:
+            // vpc_vni: Some(2024500),
+            // route_servers: vec![],
+
+            // For ETV:
+            network_virtualization_type: None,
+            vpc_vni: None,
+            route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
+            deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
+            enable_dhcp: false,
+            host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
+        }
     }
 
     #[tokio::test]
