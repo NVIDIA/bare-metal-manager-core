@@ -16,7 +16,7 @@
 use std::sync::Once;
 
 use tracing::metadata::LevelFilter;
-use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*, util::SubscriberInitExt};
+use tracing_subscriber::{filter::EnvFilter, prelude::*, util::SubscriberInitExt};
 
 pub mod agent_config;
 pub mod hardware_enumeration;
@@ -55,10 +55,7 @@ pub fn subscriber() -> impl SubscriberInitExt {
         .add_directive("hickory_proto::xfer=info".parse().unwrap())
         .add_directive("hickory_resolver::name_server=info".parse().unwrap())
         .add_directive("hickory_proto=info".parse().unwrap());
-    let logfmt_er = utils::logfmt::LogFmtFormatter {};
-    let stdout_formatter = fmt::Layer::default()
-        .with_ansi(false)
-        .event_format(logfmt_er);
+    let stdout_formatter = utils::logfmt::layer();
     Box::new(
         tracing_subscriber::registry()
             .with(stdout_formatter)

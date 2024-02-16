@@ -1220,6 +1220,10 @@ where
                 }
             }),
         };
+
+        // If this all worked, we shouldn't emit a log line
+        tracing::Span::current().record("logfmt.suppress", true);
+
         Ok(Response::new(resp))
     }
 
@@ -1410,6 +1414,9 @@ where
                 e,
             ))
         })?;
+
+        // If this all worked, we shouldn't emit a log line
+        tracing::Span::current().record("logfmt.suppress", true);
 
         Ok(Response::new(()))
     }

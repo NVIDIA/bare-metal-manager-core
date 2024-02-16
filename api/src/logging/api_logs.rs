@@ -150,6 +150,7 @@ where
                 client.address = client_address.ip().to_string(),
                 client.port = client_address.port() as u64,
                 client.num_certs = client_certs as u64,
+                logfmt.suppress = tracing::field::Empty,
                 sql_queries = 0,
                 sql_total_rows_affected = 0,
                 sql_total_rows_returned = 0,
