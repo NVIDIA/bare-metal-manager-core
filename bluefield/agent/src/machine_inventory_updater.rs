@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use tracing::{error, info, trace};
-
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use tracing::{error, info, trace};
 
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
@@ -109,7 +108,7 @@ async fn update_agent_reported_inventory(
             Ok(())
         }
         Err(err) => Err(eyre::eyre!(
-            "Error while executing the update_machine_inventory gRPC call: {}",
+            "Error while executing the update_agent_reported_inventory gRPC call: {}",
             err.to_string()
         )),
     }
