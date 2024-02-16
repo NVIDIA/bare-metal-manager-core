@@ -105,9 +105,9 @@ impl<IO: StateControllerIO> StateController<IO> {
     pub async fn run(mut self) {
         let max_jitter = (self.config.iteration_time.as_millis() / 3) as u64;
         let err_jitter = (self.config.iteration_time.as_millis() / 5) as u64;
-        let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
 
         loop {
+            let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
             let mut metrics = IterationMetrics::default();
 
             let controller_span = tracing::span!(
