@@ -14,17 +14,6 @@ pub struct BashCommand {
     output: Option<String>,
 }
 
-impl std::hash::Hash for BashCommand {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: std::hash::Hasher,
-    {
-        self.command.hash(state);
-        self.args.hash(state);
-        state.finish();
-    }
-}
-
 impl BashCommand {
     pub fn new(command: &str) -> Self {
         BashCommand {

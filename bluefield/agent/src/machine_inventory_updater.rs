@@ -1,8 +1,9 @@
 use std::time::Duration;
 
+use tracing::{error, info, trace};
+
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
-use tracing::{error, info, trace};
 
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
@@ -76,6 +77,8 @@ pub async fn run(config: MachineInventoryUpdaterConfig) -> eyre::Result<()> {
                 "Error while executing update_agent_reported_inventory: {:#}",
                 e
             );
+        } else {
+            info!("Successfully updated machine inventory");
         }
         tokio::time::sleep(config.update_inventory_interval).await;
     }
