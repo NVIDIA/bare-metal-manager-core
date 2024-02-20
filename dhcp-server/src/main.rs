@@ -288,6 +288,7 @@ mod test {
     use std::{
         env,
         net::{Ipv4Addr, SocketAddrV4},
+        path::PathBuf,
     };
 
     use dhcproto::{v4::Message, Decodable};
@@ -296,18 +297,19 @@ mod test {
     use crate::{cache, command_line::Args, init, packet_handler, DhcpMode, Test};
 
     fn get_test_args() -> Args {
-        let Ok(base_path) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
-            panic!(
-                "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
-            );
-        };
+        let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
         Args {
             interfaces: vec!["eth0".to_string()],
-            dhcp_config: format!("{}/dhcp-server/conf/conf.yaml", base_path),
-            host_config: Some(format!("{}/dhcp-server/test/host_config.yaml", base_path)),
+            dhcp_config: base_path.join("conf/conf.yaml").display().to_string(),
+            host_config: Some(
+                base_path
+                    .join("test/host_config.yaml")
+                    .display()
+                    .to_string(),
+            ),
             mode: crate::command_line::ServerMode::Dpu,
-            fnn_config: Some(format!("{}/dhcp-server/test/fnn_config.yaml", base_path)),
+            fnn_config: Some(base_path.join("test/fnn_config.yaml").display().to_string()),
         }
     }
 
