@@ -122,8 +122,10 @@ pub async fn upgrade_check(
 
 async fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
     let mut cmd = TokioCommand::new("bash");
-    cmd.arg("-c").arg(upgrade_cmd).kill_on_drop(true);
-    let out = timeout(Duration::from_secs(30), cmd.output())
+    // Do not kill the upgrade command even if it hangs because that risks losing `/usr/bin/forge-dpu-agent`
+    cmd.arg("-c").arg(upgrade_cmd).kill_on_drop(false);
+    // This can easily take 60 seconds. systemd watchdog gives us 5 mins, so take 3.
+    let out = timeout(Duration::from_secs(180), cmd.output())
         .await
         .wrap_err("Timeout")?
         .wrap_err("Error running command")?;
