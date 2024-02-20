@@ -143,14 +143,12 @@ impl Containers {
 /// Return a list of all container images in JSON format.
 async fn get_container_images() -> eyre::Result<String> {
     if cfg!(test) || std::env::var("NO_DPU_CONTAINERS").is_ok() {
-        let repo_root = PathBuf::from(std::env::var("REPO_ROOT").unwrap_or(".".to_string()));
+        let test_data_dir = PathBuf::from(TEST_DATA_DIR);
 
-        std::fs::read_to_string(repo_root.join("dev/docker-env/container_images.json")).map_err(
-            |e| {
-                error!("Could not read container_images.json: {}", e);
-                eyre::eyre!("Could not read container_images.json: {}", e)
-            },
-        )
+        std::fs::read_to_string(test_data_dir.join("container_images.json")).map_err(|e| {
+            error!("Could not read container_images.json: {}", e);
+            eyre::eyre!("Could not read container_images.json: {}", e)
+        })
     } else {
         let result = BashCommand::new("bash")
             .args(vec!["-c", "crictl images -o json"])
@@ -167,9 +165,11 @@ async fn get_container_images() -> eyre::Result<String> {
 /// Returns a list of all containers on a host in JSON format.
 async fn get_containers() -> eyre::Result<String> {
     if cfg!(test) || std::env::var("NO_DPU_CONTAINERS").is_ok() {
-        let repo_root = PathBuf::from(std::env::var("REPO_ROOT").unwrap_or(".".to_string()));
+        let test_data_dir = PathBuf::from(TEST_DATA_DIR);
 
-        std::fs::read_to_string(repo_root.join("dev/docker-env/containers.json")).map_err(|e| {
+        println!("Path: {}", test_data_dir.join("containers.json").display());
+
+        std::fs::read_to_string(test_data_dir.join("containers.json")).map_err(|e| {
             error!("Could not read containers.json: {}", e);
             eyre::eyre!("Could not read containers.json: {}", e)
         })
@@ -185,6 +185,8 @@ async fn get_containers() -> eyre::Result<String> {
         Ok(result)
     }
 }
+
+const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dev/docker-env");
 
 #[cfg(test)]
 mod tests {
