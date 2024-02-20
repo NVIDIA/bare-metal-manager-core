@@ -167,6 +167,10 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
             "/forge.Forge/DpuAgentUpgradeCheck",
             post(handle_dpu_agent_upgrade_check),
         )
+        .route(
+            "/forge.Forge/UpdateAgentReportedInventory",
+            post(handle_update_agent_reported_inventory),
+        )
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;
@@ -332,6 +336,10 @@ async fn handle_dpu_agent_upgrade_check(
         package_version: forge_version::v!(build_version)[1..].to_string(),
         server_version: forge_version::v!(build_version).to_string(),
     })
+}
+
+async fn handle_update_agent_reported_inventory() -> impl axum::response::IntoResponse {
+    common::respond(())
 }
 
 async fn handler(uri: Uri) -> impl IntoResponse {

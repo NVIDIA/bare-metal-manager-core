@@ -1,4 +1,4 @@
-# Force deleting an rebuilding Forge hosts
+# Force deleting and rebuilding Forge hosts
 
 In various cases it might be necessary to force-delete knowledge about hosts from
 the Forge database, and to restart the discovery process for those. Examples for
