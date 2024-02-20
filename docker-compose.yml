@@ -188,7 +188,7 @@ services:
   vault:
     depends_on:
       - loki
-    image: vault:latest
+    image: hashicorp/vault:latest
     networks:
       carbide:
         ipv4_address: 172.20.0.19
