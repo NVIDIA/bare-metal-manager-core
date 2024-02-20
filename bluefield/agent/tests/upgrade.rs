@@ -28,13 +28,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
     env::set_var("IGNORE_MGMT_VRF", "true");
 
-    let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
-        tracing::warn!(
-            "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
-        );
-        return Ok(());
-    };
-    let root_dir = PathBuf::from(repo_root);
+    let root_dir = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
 
     let marker = tempfile::NamedTempFile::new()?;
 
