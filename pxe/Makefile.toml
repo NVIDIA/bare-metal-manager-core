@@ -618,7 +618,7 @@ description = "Copy aarch64 EFI iPXE debian file"
 command = "cp"
 args = [
 	"${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}.deb",
-	"/tmp/bfb-dump/initramfs-tmp",
+	"/tmp/bfb-dump/initramfs-tmp/forge-dpu.deb",
 ]
 
 [tasks.setup-apt-repo]

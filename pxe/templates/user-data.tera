@@ -16,7 +16,7 @@ bfb_modify_os()
 # move the files out of the installer and into the installed OS
 mkdir -p /mnt/opt/forge
 mv /forge-scout /mnt/opt/forge
-mv /forge-dpu_{{dpu_agent_pkg_version}}.deb /mnt/opt/forge
+mv /forge-dpu.deb /mnt/opt/forge
 mv /doca_container_configs /mnt/opt/forge
 mv /forge_root.pem /mnt/opt/forge
 mv /doca_telemetry.tar /mnt/opt/forge
@@ -188,7 +188,7 @@ runcmd:
   - [ systemctl, start, ntp@mgmt ]
   - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
   - [ bash, -c, '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1' ]
-  - [ dpkg, -i, /opt/forge/forge-dpu_{{dpu_agent_pkg_version}}.deb ]
+  - [ dpkg, -i, /opt/forge/forge-dpu.deb ]
   - [ mkdir, -p, /etc/apt/sources.list.d ]
   - [ bash, -c, 'echo "deb [trusted=yes] {{ pxe_url }}/public/blobs/internal/apt/ focal main" > /etc/apt/sources.list.d/forge.list' ]
   - [ chmod, +x, /opt/forge/doca_container_configs/scripts/hbn-dpu-setup.sh]
