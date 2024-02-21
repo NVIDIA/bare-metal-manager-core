@@ -383,16 +383,6 @@ impl SiteExplorer {
                 .and_then(|value| value.release_date.as_ref())
                 .unwrap_or(&"".to_string())
                 .to_string(),
-            uefi_version: inventory_map
-                .get("DPU_UEFI")
-                .and_then(|value| value.version.as_ref())
-                .unwrap_or(&"".to_string())
-                .to_string(),
-            cec_version: inventory_map
-                .get("Bluefield_FW_ERoT")
-                .and_then(|value| value.version.as_ref())
-                .unwrap_or(&"".to_string())
-                .to_string(),
             ..Default::default()
         };
 

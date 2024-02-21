@@ -453,7 +453,6 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
             firmware_version: "1".to_string(),
             firmware_date: "01/01/1970".to_string(),
             switches: vec![],
-            ..Default::default()
         });
     }
     let factory_mac_address = match hardware_info.dpu_info.as_ref() {

@@ -115,8 +115,6 @@ message DpuData {
   string firmware_version = 5;
   string firmware_date = 6;
   repeated LldpSwitchData switches = 7;
-  string uefi_version = 8;
-  string cec_version = 9;
 }
 
 message Gpu {

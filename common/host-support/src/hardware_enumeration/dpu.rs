@@ -303,7 +303,6 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         firmware_version: fw_ver[0].clone(),
         firmware_date: fw_date[0].clone(),
         switches,
-        ..Default::default()
     };
     Ok(dpu_info)
 }
