@@ -23,6 +23,8 @@ message EndpointExplorationReport {
     repeated ComputerSystem systems = 13;
     // `Chassis` reported by Redfish
     repeated Chassis chassis = 14;
+    // `Service` reported by Redfish
+    repeated Service service = 15;
 }
 
 message ExploredEndpoint {
@@ -92,4 +94,18 @@ message NetworkAdapter {
     optional string model = 3;
     optional string part_number = 4;
     optional string serial_number = 5;
+}
+
+// `Service` definition. Matches redfish definition `UpdateService`
+message Service {
+    string id = 1;
+    repeated Inventory inventories = 2;
+}
+
+// `Inventory` definition. Matches redfish definition
+message Inventory {
+    string id = 1;
+    optional string description = 2;
+    optional string version = 3;
+    optional string release_date = 4;
 }
