@@ -1159,7 +1159,10 @@ impl StateHandler for InstanceStateHandler {
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
         let Some(ref instance) = state.instance else {
-            return Err(StateHandlerError::GenericError(eyre!("Instance is empty at this point. Cleanup is needed for host: {}.", host_machine_id)));
+            return Err(StateHandlerError::GenericError(eyre!(
+                "Instance is empty at this point. Cleanup is needed for host: {}.",
+                host_machine_id
+            )));
         };
 
         if let ManagedHostState::Assigned { instance_state } = &state.managed_state {

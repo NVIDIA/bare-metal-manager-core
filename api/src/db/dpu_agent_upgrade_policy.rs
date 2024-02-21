@@ -24,8 +24,9 @@ impl DpuAgentUpgradePolicy {
         let Some(row) = sqlx::query(query)
             .fetch_optional(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))? else {
-                return Ok(None);
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+        else {
+            return Ok(None);
         };
         let str_policy: &str = row
             .try_get("policy")

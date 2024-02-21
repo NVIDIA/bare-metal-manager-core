@@ -187,7 +187,8 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
 
         let Some(dpu) = Machine::find_dpu_by_host_machine_id(txn, &host_machine_id)
             .await
-            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))? else {
+            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
+        else {
             return Err(SnapshotLoaderError::HostNotFound(host_machine_id.clone()));
         };
 

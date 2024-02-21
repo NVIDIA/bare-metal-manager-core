@@ -145,12 +145,13 @@ fn get_bmc_info(
         .collect();
 
     for machine in machines {
-        let Some(bmc_ip) = machine
-            .bmc_info
-            .as_ref()
-            .map(|x| x.ip.clone()) else {continue;};
+        let Some(bmc_ip) = machine.bmc_info.as_ref().map(|x| x.ip.clone()) else {
+            continue;
+        };
 
-        let Some(bmc_ip) = bmc_ip else {continue;};
+        let Some(bmc_ip) = bmc_ip else {
+            continue;
+        };
 
         let hostname = machine
             .interfaces

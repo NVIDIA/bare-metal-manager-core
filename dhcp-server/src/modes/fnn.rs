@@ -74,10 +74,10 @@ pub async fn get_fnn_config(
     fnn_config_path: Option<String>,
 ) -> Result<Option<FnnConfig>, DhcpError> {
     let Some(fnn_config) = fnn_config_path else {
-            return Err(DhcpError::MissingArgument(
-                "--fnn_config is missing.".to_string(),
-            ));
-        };
+        return Err(DhcpError::MissingArgument(
+            "--fnn_config is missing.".to_string(),
+        ));
+    };
 
     let f = tokio::fs::read_to_string(fnn_config).await?;
     let fnn_config: FnnConfig = serde_yaml::from_str(&f)?;

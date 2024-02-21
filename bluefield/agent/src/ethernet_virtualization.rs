@@ -202,7 +202,9 @@ pub async fn update_nvue(
     // Write startup.yaml
     let next_contents = nvue::build(conf)?;
     let path = hbn_root.join(nvue::PATH);
-    let Some(post) = write(next_contents, &path, "NVUE", None).wrap_err(format!("NVUE config at {}", path.display()))? else {
+    let Some(post) = write(next_contents, &path, "NVUE", None)
+        .wrap_err(format!("NVUE config at {}", path.display()))?
+    else {
         // config didn't change
         return Ok(false);
     };
@@ -562,7 +564,9 @@ fn write_dhcp_server_config<P: AsRef<Path>>(
     };
 
     let Some(mh_nc) = &nc.managed_host_config else {
-        return Err(eyre::eyre!("Loopback IP is missing. Can't write dhcp-server config."))
+        return Err(eyre::eyre!(
+            "Loopback IP is missing. Can't write dhcp-server config."
+        ));
     };
 
     let loopback_ip = mh_nc.loopback_ip.parse()?;

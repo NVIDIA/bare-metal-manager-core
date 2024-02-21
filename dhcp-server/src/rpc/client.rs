@@ -18,7 +18,9 @@ pub async fn discover_dhcp(
     );
 
     let Some(carbide_api_url) = &config.dhcp_config.carbide_api_url else {
-        return Err(DhcpError::MissingArgument("carbide_api_url in DhcpConfig".to_string()));
+        return Err(DhcpError::MissingArgument(
+            "carbide_api_url in DhcpConfig".to_string(),
+        ));
     };
 
     let mut client = ForgeTlsClient::new(forge_tls_config)
