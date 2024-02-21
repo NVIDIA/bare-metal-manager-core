@@ -18,7 +18,7 @@ environment.
 
    Arch - `sudo pacman -S base-devel`
 
-   Debian - `sudo apt-get -y install build-essential libudev-dev libssl-dev binutils-aarch64-linux-gnu`
+   Debian - `sudo apt-get -y install build-essential libudev-dev libssl-dev binutils-aarch64-linux-gnu`pkg-config
 
    Fedora - `sudo dnf -y install gcc-c++ systemd-devel binutils-aarch64-linux-gnu`
     - systemd-devel is needed for libudev-devel
