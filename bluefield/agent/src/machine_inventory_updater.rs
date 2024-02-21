@@ -1,8 +1,9 @@
 use std::time::Duration;
 
+use tracing::{error, info, trace};
+
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
-use tracing::{error, info, trace};
 
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
