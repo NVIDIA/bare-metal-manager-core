@@ -90,10 +90,10 @@ pub async fn get_host_config(
     host_config_path: Option<String>,
 ) -> Result<Option<HostConfig>, DhcpError> {
     let Some(host_config) = host_config_path else {
-            return Err(DhcpError::MissingArgument(
-                "--host_config is missing.".to_string(),
-            ));
-        };
+        return Err(DhcpError::MissingArgument(
+            "--host_config is missing.".to_string(),
+        ));
+    };
 
     let f = tokio::fs::read_to_string(host_config).await?;
     let host_config: HostConfig = serde_yaml::from_str(&f)?;

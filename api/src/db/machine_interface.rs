@@ -230,7 +230,8 @@ impl MachineInterface {
             .bind(dpu_machine_id.to_string())
             .fetch_optional(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))? else {
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+        else {
             return Ok(None);
         };
 

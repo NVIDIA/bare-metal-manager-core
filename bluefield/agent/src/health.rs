@@ -371,7 +371,10 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
 
     let cmd_str = super::pretty_cmd(cmd.as_std());
     let Ok(cmd_res) = timeout(Duration::from_secs(10), cmd.output()).await else {
-        hr.failed(HealthCheck::RestrictedMode, format!("Timeout running '{cmd_str}'."));
+        hr.failed(
+            HealthCheck::RestrictedMode,
+            format!("Timeout running '{cmd_str}'."),
+        );
         return;
     };
     let out = match cmd_res {
