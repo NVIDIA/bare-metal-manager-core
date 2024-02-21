@@ -18,6 +18,7 @@
 
 - [Forge Site Controller control plane node SSH access](sites/control_plane_ssh_access.md)
 - [Configuring kubernetes for site access](sites/remote_kubernetes.md)
+- [Remote Site Access Using an ssh Socks Proxy](sites/remote_access.md)
 - [forge-admin-cli access](sites/forge_admin_cli.md)
 - [DPU SSH access](sites/dpu_ssh_access.md)
 
