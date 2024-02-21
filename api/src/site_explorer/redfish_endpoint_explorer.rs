@@ -20,7 +20,7 @@ use crate::{
     db::machine_interface::MachineInterface,
     model::site_explorer::{
         Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-        EthernetInterface, Manager, NetworkAdapter,
+        EthernetInterface, Inventory, Manager, NetworkAdapter, Service,
     },
     redfish::{RedfishClientCreationError, RedfishClientPool},
     site_explorer::EndpointExplorer,
@@ -105,6 +105,9 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         let chassis = fetch_chassis(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
+        let service = fetch_service(client.as_ref())
+            .await
+            .map_err(map_redfish_error)?;
 
         Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
@@ -113,6 +116,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
             managers: vec![manager],
             systems: vec![system],
             chassis,
+            service,
             vendor,
         })
     }
@@ -315,6 +319,34 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
     }
 
     Ok(chassis)
+}
+
+async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishError> {
+    let mut service: Vec<Service> = Vec::new();
+
+    let inventory_list = client.get_software_inventories().await?;
+    let mut inventories: Vec<Inventory> = Vec::new();
+    for inventory_id in &inventory_list {
+        let Ok(value) = client.get_firmware(inventory_id).await else {
+            continue;
+        };
+
+        let inventory = Inventory {
+            id: value.id,
+            description: value.description,
+            version: value.version,
+            release_date: value.release_date,
+        };
+
+        inventories.push(inventory);
+    }
+
+    service.push(Service {
+        id: "FirmwareInventory".to_string(),
+        inventories,
+    });
+
+    Ok(service)
 }
 
 fn map_redfish_client_creation_error(

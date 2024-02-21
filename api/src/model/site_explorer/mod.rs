@@ -43,6 +43,9 @@ pub struct EndpointExplorationReport {
     /// `Chassis` reported by Redfish
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chassis: Vec<Chassis>,
+    /// `Service` reported by Redfish
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub service: Vec<Service>,
     /// If the endpoint is a BMC that belongs to a Machine and enough data is
     /// available to calculate the `MachineId`, this field contains the `MachineId`
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,6 +64,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             managers: report.managers.into_iter().map(Into::into).collect(),
             systems: report.systems.into_iter().map(Into::into).collect(),
             chassis: report.chassis.into_iter().map(Into::into).collect(),
+            service: report.service.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -162,6 +166,7 @@ impl EndpointExplorationReport {
             managers: Vec::new(),
             systems: Vec::new(),
             chassis: Vec::new(),
+            service: Vec::new(),
             vendor: None,
             machine_id: None,
         }
@@ -391,6 +396,45 @@ impl From<NetworkAdapter> for rpc::site_explorer::NetworkAdapter {
     }
 }
 
+/// `Service` definition. Matches redfish definition
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Service {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inventories: Vec<Inventory>,
+}
+
+impl From<Service> for rpc::site_explorer::Service {
+    fn from(service: Service) -> Self {
+        rpc::site_explorer::Service {
+            id: service.id,
+            inventories: service.inventories.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// `Inventory` definition. Matches redfish definition
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct Inventory {
+    pub id: String,
+    pub description: Option<String>,
+    pub version: Option<String>,
+    pub release_date: Option<String>,
+}
+
+impl From<Inventory> for rpc::site_explorer::Inventory {
+    fn from(inventory: Inventory) -> Self {
+        rpc::site_explorer::Inventory {
+            id: inventory.id,
+            description: inventory.description,
+            version: inventory.version,
+            release_date: inventory.release_date,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +533,16 @@ mod tests {
                 part_number: None,
                 network_adapters: vec![],
             }],
+            service: vec![
+                Service {
+                    id: "FirmwareInventory".to_string(),
+                    inventories: vec![],
+                },
+                Service {
+                    id: "SoftwareInventory".to_string(),
+                    inventories: vec![],
+                },
+            ],
             machine_id: None,
         };
         report.generate_machine_id();

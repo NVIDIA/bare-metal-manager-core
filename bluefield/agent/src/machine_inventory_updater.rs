@@ -76,6 +76,8 @@ pub async fn run(config: MachineInventoryUpdaterConfig) -> eyre::Result<()> {
                 "Error while executing update_agent_reported_inventory: {:#}",
                 e
             );
+        } else {
+            info!("Successfully updated machine inventory");
         }
         tokio::time::sleep(config.update_inventory_interval).await;
     }

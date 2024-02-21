@@ -29,7 +29,8 @@ use carbide::{
         machine::{DpuDiscoveringState, MachineState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
-            EndpointType, EthernetInterface, ExploredManagedHost, Manager, NetworkAdapter,
+            EndpointType, EthernetInterface, ExploredManagedHost, Inventory, Manager,
+            NetworkAdapter, Service,
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
@@ -254,6 +255,49 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                     serial_number: Some("MT2333XZ0X5W".to_string()),
                     network_adapters: vec![],
                 }],
+                service: vec![Service {
+                    id: "FirmwareInventory".to_string(),
+                    inventories: vec![
+                        Inventory {
+                            id: "DPU_NIC".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("32.38.1002".to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "DPU_BSP".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("4.5.0.12984".to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "BMC_Firmware".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("BF-23.10-3".to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "DPU_OFED".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "DPU_OS".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some(
+                                "DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string(),
+                            ),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "DPU_SYS_IMAGE".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("b83f:d203:0090:97a4".to_string()),
+                            release_date: None,
+                        },
+                    ],
+                }],
             }),
         );
         guard.insert(
@@ -272,6 +316,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 managers: Vec::new(),
                 systems: Vec::new(),
                 chassis: Vec::new(),
+                service: Vec::new(),
             }),
         );
     }
@@ -309,6 +354,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             assert_eq!(res.clone().unwrap().managers, report.report.managers);
             assert_eq!(res.clone().unwrap().systems, report.report.systems);
             assert_eq!(res.clone().unwrap().chassis, report.report.chassis);
+            assert_eq!(res.clone().unwrap().service, report.report.service);
         }
     }
 
@@ -342,6 +388,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             assert_eq!(res.clone().unwrap().managers, report.report.managers);
             assert_eq!(res.clone().unwrap().systems, report.report.systems);
             assert_eq!(res.clone().unwrap().chassis, report.report.chassis);
+            assert_eq!(res.clone().unwrap().service, report.report.service);
         }
     }
     versions.sort();
@@ -419,6 +466,23 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                         model: Some("5720".to_string()),
                         part_number: Some("SN30L21970".to_string()),
                         serial_number: Some("L2NV97J018G".to_string()),
+                    },
+                ],
+            }],
+            service: vec![Service {
+                id: "FirmwareInventory".to_string(),
+                inventories: vec![
+                    Inventory {
+                        id: "Slot_3.1".to_string(),
+                        description: Some("The information of Firmware firmware.".to_string()),
+                        version: Some("32.38.1002".to_string()),
+                        release_date: None,
+                    },
+                    Inventory {
+                        id: "BMC-Primary".to_string(),
+                        description: Some("The information of BMC (Primary) firmware.".to_string()),
+                        version: Some("38U-3.86".to_string()),
+                        release_date: Some("2023-09-12T00:00:00Z".to_string()),
                     },
                 ],
             }],
@@ -545,6 +609,47 @@ async fn test_site_explorer_creates_managed_host(
             serial_number: Some("MT2328XZ185R".to_string()),
             network_adapters: vec![],
         }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "DPU_NIC".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("32.38.1002".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_BSP".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0.12984".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("BF-23.10-3".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OFED".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OS".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-43-geb17a52".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
     };
     dpu_report.generate_machine_id();
 
@@ -586,6 +691,10 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.bmc_info().ip.clone().unwrap(),
         "192.168.1.2".to_string()
+    );
+    assert_eq!(
+        dpu_machine.bmc_info().firmware_version.clone().unwrap(),
+        "23.10-3".to_string()
     );
     assert_eq!(
         dpu_machine
