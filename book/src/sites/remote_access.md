@@ -5,7 +5,7 @@ ssh has the ability to create a socks proxy over an ssh connection.  Using a soc
 ```
 ssh -fND 8888 <jumphost>
 ```
-This start ssh and once authenticated drops into the background.
+This starts ssh and once authenticated drops into the background.
 * -f run ssh in the background
 * -N do not run a command on the jump host (its not allowed anyway)
 * -D start the socks proxy on the specified local port
@@ -14,7 +14,6 @@ Note that port 8888 was chosen because it is what is in the SRE kubernetes confi
 
 ## logcli
 ```
-$ export https_proxy='socks5://127.0.0.1:8888/'
 $ logcli --addr="https://loki-dev3.frg.nvidia.com" --proxy-url="socks5://localhost:8888" --org-id="forge" query -o raw --since 1h  --limit 5 '{k8s_container_name="carbide-api"}'
 2024/02/21 14:23:10 https://loki-dev3.frg.nvidia.com/loki/api/v1/query_range?direction=BACKWARD&end=1708543390912429573&limit=5&query=%7Bk8s_container_name%3D%22carbide-api%22%7D&start=1708539790912429573
 2024/02/21 14:23:11 Common labels: {exporter="OTLP", k8s_container_name="carbide-api", k8s_namespace_name="forge-system", k8s_node_name="pdx01-m01-h16-cpu-1.fc.nvda.co", k8s_pod_name="carbide-api-68bfc6dd9c-mq6mh"}
