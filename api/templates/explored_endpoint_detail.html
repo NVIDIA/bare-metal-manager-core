@@ -112,6 +112,35 @@
 </table>
 {% endfor %}
 
+<h2>Services</h2>
+{% for service in report.service %}
+<table>
+	<tr><th>ID</th><td>{{ service.id }}</td></tr>
+	<tr><th>Inventory</th><td style="padding: 0;">
+		<table style="width: 100%;">
+			<thead>
+				<tr>
+					<th>ID</th>
+					<th>Version</th>
+					<th>Release Date</th>
+					<th>Description</th>
+				</tr>
+			</thead>
+			<tbody>
+			{% for item in service.inventories %}
+				<tr>
+					<td>{{ item.id }}</td>
+					<td>{% match item.version %}{% when Some with (version) %} {{ version }} {% else %}{% endmatch %}</td>
+					<td>{% match item.release_date %}{% when Some with (release_date) %} {{ release_date }} {% else %}{% endmatch %}</td>
+					<td>{% match item.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
+				</tr>
+			{% endfor %}
+			</tbody>
+		</table>
+	</td></tr>
+</table>
+{% endfor %}
+
 {% else %}
 {% endmatch %}
 
