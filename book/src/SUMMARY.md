@@ -14,6 +14,13 @@
 - [State Machines]()
   - [ManagedHost](architecture/state_machines/managedhost.md)
 
+# Sites and site access
+
+- [Forge Site Controller control plane node SSH access](sites/control_plane_ssh_access.md)
+- [Configuring kubernetes for site access](sites/remote_kubernetes.md)
+- [forge-admin-cli access](sites/forge_admin_cli.md)
+- [DPU SSH access](sites/dpu_ssh_access.md)
+
 # Components
 
 - [gRPC API]()
@@ -46,27 +53,12 @@
 # Playbooks
 
 - [Azure OIDC for a Forge Site](playbooks/azure_oidc.md)
-- [Forge Site Controller control plane node SSH access](playbooks/control_plane_ssh_access.md)
-- [kubectl cheat sheet for Forge deployments](playbooks/kubectl.md)
-- [forge-admin-cli access](playbooks/forge_admin_cli.md)
-- [DPU SSH access](playbooks/dpu_ssh_access.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
 - [Discovering Machines](playbooks/machine_discovery.md)
 - [Cleaning up the Gitlab Runner in CI when it runs out of disk space](playbooks/gitlab_runner_disk_cleanup.md)
+- [kubectl cheat sheet for Forge deployments](playbooks/kubectl.md)
 - [Instance/Subnet/etc is stuck in a state](playbooks/stuck_objects.md)
-
-# Environments
-
-- [Labs](labs.md)
-  - [Configuring kubernetes for site access](labs/remote_kubernetes.md)
-  - [Ansible Host Files](labs/ansible_host_files.md)
-  - [Dev1(SJC4)](labs/dev1.md)
-  - [Dev2(RENO)](labs/dev2.md)
-  - [Dev2 New DPUs(RENO)](labs/dev2_newdpus.md)
-  - [Integration Control Nodes(RENO)](labs/integration-control-nodes.md)
-  - [Integration(RENO)](labs/integration.md)
-- [Production](production.md)
 
 # NVMesh
 

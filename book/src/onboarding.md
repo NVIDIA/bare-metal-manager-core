@@ -10,11 +10,11 @@
 6. Create a SSH keygroup. Use the name `$youruserid-onboarding-keygroup`. Add a SSH key to it. Sync it with the site dev3.
 7. Create an instance within the VPC that uses the newly created subnet. You can use a predefined operating system like `forge-tenant-dev-test-ubuntu-dell` (ssh password will be `Welcome123`).
 8. Use the Forge serial over lan console in combination with the SSH key you created to view the instance installing and booting.
-9. Once the boot is complete, use regular ssh to connect to the instance. You can find the IP address of your instance in the instance details on the web UI. You will need to use a SSH jumphost to access hosts in dev3 as described in [Jump hosts required to access the Forge control plane servers](playbooks/control_plane_ssh_access.md#jump-hosts-required-to-access-the-forge-control-plane-servers)
+9. Once the boot is complete, use regular ssh to connect to the instance. You can find the IP address of your instance in the instance details on the web UI. You will need to use a SSH jumphost to access hosts in dev3 as described in [Jump hosts required to access the Forge control plane servers](sites/control_plane_ssh_access.md#jump-hosts-required-to-access-the-forge-control-plane-servers)
 
 ## Step 2: Inspect what happens behind the scenes (For engineers)
 
-1. Use forge-admin CLI to inspect the state of the dev3 site. Check the instructions in the [forge-admin-cli playbook](playbooks/forge_admin_cli.md). Try to retrieve the following information:
+1. Use forge-admin CLI to inspect the state of the dev3 site. Check the instructions in the [forge-admin-cli playbook](sites/forge_admin_cli.md). Try to retrieve the following information:
     1. Which VPCs exist?
     2. Which subnets exist?
     3. Which instances exist?
@@ -24,12 +24,12 @@
 4. Search for logs that are related to your Machine state transitions. To do that, log into [https://grafana-dev3.frg.nvidia.com/explore](https://grafana-dev3.frg.nvidia.com/explore). Use a query like `{k8s_container_name="carbide-api"} |= "fm100htm5bvj68vrlq3ilueif9nv1s5stpmo9et96s5p60l382a1qonnh4g"` (replace the machine ID with the ID of the Machine that powers your instance).
 5. Inspect the state of the DPU that is providing network virtualization for your instance:
     1. Using forge-admin-cli, locate the IP of the associated DPU. You can use `forge-admin-cli managed-host show` for this.
-    2. SSH to the DPU using the instructions on the [DPU SSH Access Playbook](playbooks/dpu_ssh_access.md)
+    2. SSH to the DPU using the instructions on the [DPU SSH Access Playbook](sites/dpu_ssh_access.md)
     3. Search for the `forge-dpu-agent` process, which updates the DPU configuration based on requests of the carbide-api control-plane server.
     5. Inspect the logs of the forge-dpu-agent process using `journalctl -u forge-dpu-agent.service`. You should be able to observe the dpu-agent applying new configurations at the time your instance was created.
     6. Inspect the status reports that the DPU is periodically sending to carbide-api. You can check the last submitted report using forge-admin-cli machine network status. 
 6. Inspect the state of the site controller database for the objects you created:
-    1. Get access to the dev3 site controller node. See [Control Plane SSH Access](playbooks/control_plane_ssh_access.md)
+    1. Get access to the dev3 site controller node. See [Control Plane SSH Access](sites/control_plane_ssh_access.md)
     2. Execute `kubectl exec -i -t -n postgres forge-pg-cluster-0 -- /usr/bin/psql -U postgres forge_system_carbide`
     3. Execute the following queries to observe basic information around the objects you created:
         1. `select * from vpcs where id = 'your_vpc_id';`
