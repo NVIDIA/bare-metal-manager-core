@@ -1,9 +1,9 @@
 [package]
 name = "rpc"
 version = "0.0.1"
-license = "LicenseRef-NvidiaProprietary"
-authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
 edition.workspace = true
+license-file.workspace = true
+authors.workspace = true
 
 [dependencies]
 chrono = { version = "0.4.19", features = ["serde"] }
