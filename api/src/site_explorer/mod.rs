@@ -529,9 +529,9 @@ impl SiteExplorer {
                         let sn = net_adapter.serial_number.as_ref().unwrap();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
                             let host_pf_mac_address = match find_host_pf_mac_address(dpu_ep) {
-                                Ok(m) => m,
+                                Ok(m) => Some(m),
                                 Err(error) => {
-                                    tracing::error!(%error, "Failed to find base mac address");
+                                    tracing::error!(%error, dpu_ip = %dpu_ep.address, "Failed to find base mac address for DPU");
                                     None
                                 }
                             };
@@ -888,37 +888,160 @@ struct IdentifiedManageHosts {
 ///
 /// The method should be migrated to the DPU directly providing the
 /// MAC address: https://redmine.mellanox.com/issues/3749837
-fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> CarbideResult<Option<MacAddress>> {
-    let service_map = dpu_ep
+fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, String> {
+    let Some(service) = dpu_ep
         .report
         .service
-        .clone()
-        .into_iter()
-        .map(|x| (x.id.clone(), x))
-        .collect::<HashMap<_, _>>();
+        .iter()
+        .find(|s| s.id == "FirmwareInventory")
+    else {
+        return Err("Missing FirmwareInventory".to_string());
+    };
 
-    let inventory_map = service_map
-        .get("FirmwareInventory")
-        .map(|value| value.inventories.clone())
-        .unwrap()
-        .into_iter()
-        .map(|x| (x.id.clone(), x))
-        .collect::<HashMap<_, _>>();
+    let Some(image) = service
+        .inventories
+        .iter()
+        .find(|inv| inv.id == "DPU_SYS_IMAGE")
+    else {
+        return Err("Missing DPU_SYS_IMAGE".to_string());
+    };
 
-    let mut base_mac = inventory_map
-        .get("DPU_SYS_IMAGE")
-        .and_then(|value| value.version.as_ref())
-        .unwrap_or(&"".to_string())
-        .replace(':', "");
+    let mut base_mac = image.version.clone().unwrap_or("".to_string());
+    if base_mac.len() != 19 {
+        return Err(format!("Invalid base_mac length: {}", base_mac.len()));
+    }
+    base_mac = base_mac.replace(':', "");
+    if base_mac.len() != 16 {
+        return Err(format!(
+            "Invalid base_mac length after removing ':': {}",
+            base_mac.len()
+        ));
+    }
 
     base_mac.replace_range(6..10, "");
-    let mut base_mac_vec: Vec<char> = base_mac.chars().collect();
-    base_mac_vec.insert(10, ':');
-    base_mac_vec.insert(8, ':');
-    base_mac_vec.insert(6, ':');
-    base_mac_vec.insert(4, ':');
-    base_mac_vec.insert(2, ':');
-    let base_mac: String = base_mac_vec.into_iter().collect();
+    base_mac.insert(10, ':');
+    base_mac.insert(8, ':');
+    base_mac.insert(6, ':');
+    base_mac.insert(4, ':');
+    base_mac.insert(2, ':');
 
-    Ok(Some(MacAddress::from_str(base_mac.as_str()).unwrap()))
+    MacAddress::from_str(base_mac.as_str())
+        .map_err(|_| format!("Invalid MAC address format: {}", base_mac.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn load_bf2_ep_report() -> EndpointExplorationReport {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/site_explorer/test_data/bf2_report.json"
+        );
+        let report: EndpointExplorationReport =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(!report.systems.is_empty());
+        assert!(!report.managers.is_empty());
+        assert!(!report.chassis.is_empty());
+        assert!(!report.service.is_empty());
+        report
+    }
+
+    fn load_dell_ep_report() -> EndpointExplorationReport {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/site_explorer/test_data/dell_report.json"
+        );
+        let report: EndpointExplorationReport =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(!report.systems.is_empty());
+        assert!(!report.managers.is_empty());
+        assert!(!report.chassis.is_empty());
+        assert!(report.service.is_empty());
+        report
+    }
+
+    #[test]
+    fn test_load_dell_report() {
+        let _ = load_dell_ep_report();
+    }
+
+    #[test]
+    fn test_find_host_pf_mac_address() {
+        let ep_report: EndpointExplorationReport = load_bf2_ep_report();
+        let ep = ExploredEndpoint {
+            address: "10.217.132.202".parse().unwrap(),
+            report: ep_report,
+            report_version: ConfigVersion::initial(),
+        };
+
+        assert_eq!(
+            find_host_pf_mac_address(&ep).unwrap(),
+            "B8:3F:D2:90:95:F4".parse().unwrap()
+        );
+
+        // Invalid DPU_SYS_IMAGE field
+        let mut ep1 = ep.clone();
+        let update_service = ep1
+            .report
+            .service
+            .iter_mut()
+            .find(|s| s.id == "FirmwareInventory")
+            .unwrap();
+        let inv = update_service
+            .inventories
+            .iter_mut()
+            .find(|inv| inv.id == "DPU_SYS_IMAGE")
+            .unwrap();
+        inv.version = Some("b83f:d203:0090:95fz".to_string());
+        assert_eq!(
+            find_host_pf_mac_address(&ep1),
+            Err("Invalid MAC address format: b8:3f:d2:90:95:fz".to_string())
+        );
+
+        // Invalid DPU_SYS_IMAGE field
+        let mut ep1 = ep.clone();
+        let update_service = ep1
+            .report
+            .service
+            .iter_mut()
+            .find(|s| s.id == "FirmwareInventory")
+            .unwrap();
+        let inv = update_service
+            .inventories
+            .iter_mut()
+            .find(|inv| inv.id == "DPU_SYS_IMAGE")
+            .unwrap();
+        inv.version = Some("abc".to_string());
+        assert_eq!(
+            find_host_pf_mac_address(&ep1),
+            Err("Invalid base_mac length: 3".to_string())
+        );
+
+        // Missing DPU_SYS_IMAGE field
+        let mut ep1 = ep.clone();
+        let update_service = ep1
+            .report
+            .service
+            .iter_mut()
+            .find(|s| s.id == "FirmwareInventory")
+            .unwrap();
+        update_service
+            .inventories
+            .retain_mut(|inv| inv.id != "DPU_SYS_IMAGE");
+        assert_eq!(
+            find_host_pf_mac_address(&ep1),
+            Err("Missing DPU_SYS_IMAGE".to_string())
+        );
+
+        // Missing FirmwareInventory field
+        let mut ep1 = ep.clone();
+        ep1.report
+            .service
+            .retain_mut(|inv| inv.id != "FirmwareInventory");
+        assert_eq!(
+            find_host_pf_mac_address(&ep1),
+            Err("Missing FirmwareInventory".to_string())
+        );
+    }
 }
