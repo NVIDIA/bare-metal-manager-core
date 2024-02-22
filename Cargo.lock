@@ -2072,9 +2072,6 @@ dependencies = [
 [[package]]
 name = "forge-version"
 version = "0.1.0"
-dependencies = [
- "rpc",
-]
 
 [[package]]
 name = "forge_secrets"
