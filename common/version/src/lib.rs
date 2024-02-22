@@ -46,10 +46,12 @@ pub fn build() {
 
     // Only re-calculate all of this when there's a new commit
     // CARGO_MANIFEST_DIR points to version, so to get to the repository root we need ..
-    println!(
-        "cargo:rerun-if-changed={}/../.git/HEAD",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    let git_head = concat!(env!("CARGO_MANIFEST_DIR"), "/../../.git/HEAD");
+    // Check that this file is still relative to the repository root where we expect.
+    // If it isn't, then rerun-if-changed is wrong - and we will rebuilt the version
+    // crate and all dependents on each `cargo build`
+    assert!(std::path::PathBuf::from(git_head).exists(), "Git HEAD is not at the expected position relative to Cargo.toml\nAdjust location to avoid double compilation");
+    println!("cargo:rerun-if-changed={}", git_head);
 }
 
 // If the current user is not the owner of the repo root (containing .git), then
