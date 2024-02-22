@@ -3,8 +3,8 @@ name = "carbide-api"
 version = "0.0.1"
 edition.workspace = true
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
-license = "LicenseRef-NvidiaProprietary"
-authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
+license-file.workspace = true
+authors.workspace = true
 
 [lib]
 name = "carbide"

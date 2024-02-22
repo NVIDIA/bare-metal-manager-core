@@ -1,10 +1,10 @@
 [package]
 name = "api-test"
 version = "0.1.0"
-edition = "2021"
 description = "End-to-end test for carbide-api"
-license = "LicenseRef-NvidiaProprietary"
-authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
+edition.workspace = true
+license-file.workspace = true
+authors.workspace = true
 
 [dev-dependencies]
 chrono = "0.4"

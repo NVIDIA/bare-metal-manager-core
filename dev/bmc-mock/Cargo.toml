@@ -1,10 +1,10 @@
 [package]
 name = "bmc-mock"
 version = "0.1.0"
-edition.workspace = true
 description = "HTTP server that pretends to be a BMC / libredfish. For integration and local testing."
-license = "LicenseRef-NvidiaProprietary"
-authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
+edition.workspace = true
+license-file.workspace = true
+authors.workspace = true
 
 [dependencies]
 axum = "0.6.18"

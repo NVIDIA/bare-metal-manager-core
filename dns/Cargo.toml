@@ -1,10 +1,10 @@
 [package]
 name = "carbide-dns"
 version = "0.0.1"
-edition.workspace = true
 description = "Carbide is bare metal provisioning system with auto-discovery and API based machine manipulation"
-license = "LicenseRef-NvidiaProprietary"
-authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
+edition.workspace = true
+license-file.workspace = true
+authors.workspace = true
 
 [[bin]]
 name = "carbide-dns"

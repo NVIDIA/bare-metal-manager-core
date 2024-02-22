@@ -3,7 +3,7 @@ name = "dsocket"
 version = "0.1.0"
 edition.workspace = true
 license-file.workspace = true
-authors = ["NVIDIA Forge Engineering <swngc-forge-dev@exchange.nvidia.com>"]
+authors.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
