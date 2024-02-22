@@ -115,7 +115,6 @@ fn generate_forge_agent_config(
             interface_id,
             mac_address: Some(mac_address),
             hostname: Some(hostname),
-            override_upgrade_cmd: None,
             // This will get stripped from the serialized config
             // as part of the default value being excluded.
             is_fake_dpu: false,
@@ -128,6 +127,8 @@ fn generate_forge_agent_config(
         telemetry: Some(agent_config::TelemetryConfig {
             metrics_address: telemetry_metrics_service_address.to_string(),
         }),
+
+        updates: agent_config::UpdateConfig::default(),
 
         // TODO: In the original implementation of how we'd
         // build a string for this config, these were excluded

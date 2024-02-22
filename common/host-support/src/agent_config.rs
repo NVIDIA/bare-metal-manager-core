@@ -36,6 +36,8 @@ pub struct AgentConfig {
     pub hbn: HBNConfig,
     #[serde(default)]
     pub period: IterationTime,
+    #[serde(default, skip_serializing_if = "UpdateConfig::is_default")]
+    pub updates: UpdateConfig,
 }
 
 impl AgentConfig {
@@ -88,9 +90,6 @@ pub struct MachineConfig {
     pub mac_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
-    /// Override normal upgrade command. For automated testing only.
-    #[serde(default)]
-    pub override_upgrade_cmd: Option<String>,
     /// Local dev only. Pretend to be a DPU for discovery.
     /// If it's set to false, don't even serialize it out
     /// to config.
@@ -124,6 +123,20 @@ impl Default for HBNConfig {
             root_dir: PathBuf::from(HBN_DEFAULT_ROOT),
             skip_reload: false,
         }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct UpdateConfig {
+    /// Override normal upgrade command. For automated testing only.
+    #[serde(default)]
+    pub override_upgrade_cmd: Option<String>,
+}
+
+impl UpdateConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
     }
 }
 
@@ -220,6 +233,9 @@ main-loop-idle-secs = 30
 network-config-fetch-secs = 20
 version-check-secs = 1800
 inventory-update-secs = 3600
+
+[updates]
+override-upgrade-cmd = "update"
 "#;
 
         let config: AgentConfig = toml::from_str(config).unwrap();
@@ -246,6 +262,11 @@ inventory-update-secs = 3600
 
         assert_eq!(config.hbn.root_dir, PathBuf::from("/tmp/hbn-root"));
         assert!(config.hbn.skip_reload);
+
+        assert_eq!(
+            config.updates.override_upgrade_cmd,
+            Some("update".to_string())
+        );
     }
 
     #[test]
@@ -285,5 +306,7 @@ hostname = \"abc.forge.com\"
 
         assert_eq!(config.hbn.root_dir, PathBuf::from(HBN_DEFAULT_ROOT));
         assert!(!config.hbn.skip_reload);
+
+        assert!(config.updates.override_upgrade_cmd.is_none());
     }
 }
