@@ -6,6 +6,5 @@ license-file.workspace = true
 authors.workspace = true
 
 [dependencies]
-
-# [local-dependencies]
-rpc = { path = "../../rpc" }
+# Nothing should be here. The crate needs to be very lightweight
+# since its used as a dependency for everything else.
