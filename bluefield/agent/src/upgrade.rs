@@ -88,8 +88,13 @@ pub async fn upgrade_check(
         // - Kernel prevents overwriting inode of running binary, we'd get ETXTBSY.
         let mut backup = binary_path.clone();
         backup.set_extension("BAK");
-        fs::rename(&binary_path, &backup)
-            .wrap_err_with(|| format!("mv {} {}", binary_path.display(), backup.display()))?;
+        if override_upgrade_cmd.is_none() {
+            // If the updates are overridden for unit-test purposes, then don't move
+            // the binary. It will not be replaced by an update - and running the
+            // unit-test would require it to be rebuilt
+            fs::rename(&binary_path, &backup)
+                .wrap_err_with(|| format!("mv {} {}", binary_path.display(), backup.display()))?;
+        }
 
         let upgrade_cmd = override_upgrade_cmd
             .unwrap_or(UPGRADE_CMD)
@@ -110,7 +115,9 @@ pub async fn upgrade_check(
             }
             Err(err) => {
                 tracing::error!(upgrade_cmd, err = format!("{err:#}"), "Upgrade failed");
-                fs::rename(backup, binary_path)?;
+                if override_upgrade_cmd.is_none() {
+                    fs::rename(backup, binary_path)?;
+                }
                 eyre::bail!("run_upgrade_cmd failed");
             }
         }

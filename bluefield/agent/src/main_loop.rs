@@ -339,7 +339,7 @@ pub async fn run(
                 forge_api,
                 forge_client_config.clone(),
                 machine_id,
-                agent.machine.override_upgrade_cmd.as_deref(),
+                agent.updates.override_upgrade_cmd.as_deref(),
             )
             .await;
             match upgrade_result {
