@@ -96,7 +96,7 @@ pub async fn handle_agent_upgrade_policy(
 }
 
 #[derive(Serialize)]
-struct DpuFirmwareStatus {
+struct DpuVersions {
     id: Option<MachineId>,
     dpu_type: Option<String>,
     is_healthy: Option<bool>,
@@ -109,14 +109,14 @@ struct DpuFirmwareStatus {
     agent_version: Option<String>,
 }
 
-impl From<Machine> for DpuFirmwareStatus {
+impl From<Machine> for DpuVersions {
     fn from(machine: Machine) -> Self {
         let state = match machine.state.split_once(' ') {
             Some((state, _)) => state.to_owned(),
             None => machine.state,
         };
 
-        DpuFirmwareStatus {
+        DpuVersions {
             id: machine.id,
             dpu_type: machine
                 .discovery_info
@@ -151,8 +151,8 @@ impl From<Machine> for DpuFirmwareStatus {
     }
 }
 
-impl From<DpuFirmwareStatus> for Row {
-    fn from(value: DpuFirmwareStatus) -> Self {
+impl From<DpuVersions> for Row {
+    fn from(value: DpuVersions) -> Self {
         Row::from(vec![
             value.id.unwrap_or_default().to_string(),
             value.dpu_type.unwrap_or_default(),
@@ -169,8 +169,7 @@ impl From<DpuFirmwareStatus> for Row {
 }
 
 pub fn generate_firmware_status_json(machines: Vec<Machine>) -> CarbideCliResult<String> {
-    let machines: Vec<DpuFirmwareStatus> =
-        machines.into_iter().map(DpuFirmwareStatus::from).collect();
+    let machines: Vec<DpuVersions> = machines.into_iter().map(DpuVersions::from).collect();
     Ok(serde_json::to_string(&machines)?)
 }
 
@@ -192,12 +191,9 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
 
     table.set_titles(Row::from(headers));
 
-    machines
-        .into_iter()
-        .map(DpuFirmwareStatus::from)
-        .for_each(|f| {
-            table.add_row(f.into());
-        });
+    machines.into_iter().map(DpuVersions::from).for_each(|f| {
+        table.add_row(f.into());
+    });
 
     Box::new(table)
 }
