@@ -358,15 +358,21 @@ impl StateHandler for MachineStateHandler {
 
                         // Wait till failure_retry_time is over except first time.
                         // First time, host is already up and reported that discovery is failed.
-                        if *retry_count != 0
-                            && wait(state, ctx.services.reachability_params.failure_retry_time)
-                        {
+                        // Let's reboot now immediately.
+                        if *retry_count == 0 {
+                            restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                            *controller_state.modify() = ManagedHostState::Failed {
+                                retry_count: retry_count + 1,
+                                details: details.clone(),
+                                machine_id: machine_id.clone(),
+                            };
                             return Ok(());
                         }
 
                         if trigger_reboot_if_needed(
                             &state.host_snapshot,
                             &state.host_snapshot,
+                            Some(*retry_count as i64),
                             ctx.services,
                             txn,
                         )
@@ -425,8 +431,14 @@ async fn handle_dpu_reprovision(
         ReprovisionState::FirmwareUpgrade => {
             // Firmware upgrade is going on.
             if !rebooted(&state.dpu_snapshot).await? {
-                trigger_reboot_if_needed(&state.dpu_snapshot, &state.host_snapshot, services, txn)
-                    .await?;
+                trigger_reboot_if_needed(
+                    &state.dpu_snapshot,
+                    &state.host_snapshot,
+                    None,
+                    services,
+                    txn,
+                )
+                .await?;
                 return Ok(None);
             }
 
@@ -503,7 +515,14 @@ async fn try_wait_for_dpu_discovery_and_reboot(
     )
     .await?
     {
-        trigger_reboot_if_needed(&state.dpu_snapshot, &state.host_snapshot, services, txn).await?;
+        trigger_reboot_if_needed(
+            &state.dpu_snapshot,
+            &state.host_snapshot,
+            None,
+            services,
+            txn,
+        )
+        .await?;
         return Ok(Poll::Pending);
     }
 
@@ -810,6 +829,7 @@ impl StateHandler for DpuMachineStateHandler {
                     trigger_reboot_if_needed(
                         &state.dpu_snapshot,
                         &state.host_snapshot,
+                        None,
                         ctx.services,
                         txn,
                     )
@@ -874,6 +894,7 @@ fn get_reboot_cycle(
 async fn trigger_reboot_if_needed(
     target: &MachineSnapshot,
     host: &MachineSnapshot,
+    retry_count: Option<i64>,
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<bool, StateHandlerError> {
@@ -902,15 +923,27 @@ async fn trigger_reboot_if_needed(
     let current_time = Utc::now();
     let entered_state_at = target.current.version.timestamp();
     let time_elapsed_since_state_change = (current_time - entered_state_at).num_minutes();
+    // Let's stop at 15 cycles of reboot.
+    let max_retry_duration = Duration::minutes(wait_period.num_minutes() * 15);
 
-    // We can try reboot only upto 6 hours from state change.
-    if entered_state_at + Duration::hours(6) > current_time {
+    let should_try = if let Some(retry_count) = retry_count {
+        retry_count < 15
+    } else {
+        entered_state_at + max_retry_duration > current_time
+    };
+
+    // We can try reboot only upto 15 cycles from state change.
+    if should_try {
         // A cycle is done but host has not responded yet. Let's try a reboot.
         if next_potential_reboot_time < current_time {
             // Find the cycle.
             // We are trying to reboot 3 times and power down/up on 4th cycle.
-            let cycle =
-                get_reboot_cycle(next_potential_reboot_time, entered_state_at, wait_period)?;
+            let cycle = match retry_count {
+                Some(x) => x,
+                None => {
+                    get_reboot_cycle(next_potential_reboot_time, entered_state_at, wait_period)?
+                }
+            };
 
             if cycle % 4 == 0 {
                 // PowerDown
@@ -1065,6 +1098,7 @@ impl StateHandler for HostMachineStateHandler {
                         trigger_reboot_if_needed(
                             &state.host_snapshot,
                             &state.host_snapshot,
+                            None,
                             ctx.services,
                             txn,
                         )
@@ -1082,6 +1116,7 @@ impl StateHandler for HostMachineStateHandler {
                         trigger_reboot_if_needed(
                             &state.host_snapshot,
                             &state.host_snapshot,
+                            None,
                             ctx.services,
                             txn,
                         )
@@ -1280,6 +1315,8 @@ impl StateHandler for InstanceStateHandler {
                         if trigger_reboot_if_needed(
                             &state.host_snapshot,
                             &state.host_snapshot,
+                            // can't send 0. 0 will force power-off as cycle calculator.
+                            Some(retry.count as i64 + 1),
                             ctx.services,
                             txn,
                         )
