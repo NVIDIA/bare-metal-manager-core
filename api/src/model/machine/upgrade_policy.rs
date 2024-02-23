@@ -44,9 +44,11 @@ impl AgentUpgradePolicy {
                         tracing::error!(
                             invalid_version = agent_version,
                             error = format!("{err:#}"),
-                            "Invalid build version"
+                            "Invalid agent build version. Forcing upgrade."
                         );
-                        return false;
+                        // If the agent has an invalid build version we need to fix it,
+                        // otherwise upgrades would be broken forever.
+                        return true;
                     }
                 };
                 let carbide = match BuildVersion::try_from(carbide_api_version) {
@@ -55,8 +57,10 @@ impl AgentUpgradePolicy {
                         tracing::error!(
                             invalid_version = carbide_api_version,
                             error = format!("{err:#}"),
-                            "Invalid build version"
+                            "Invalid carbide-api build version"
                         );
+                        // If carbide has an invalid version we wait until a fixed
+                        // carbide is deployed.
                         return false;
                     }
                 };
