@@ -186,28 +186,6 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert!(matches!(
-        host.current_state(),
-        ManagedHostState::Failed { retry_count: 1, .. }
-    ));
-    txn.commit().await.unwrap();
-
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
     let pxe = env
         .api
@@ -243,7 +221,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
             .machine_reboot_attempts_in_failed_during_discovery()
             .iter()
             .sum::<u64>(),
-        1
+        0
     );
 
     run_state_controller_iteration(

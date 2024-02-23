@@ -364,10 +364,14 @@ impl StateHandler for MachineStateHandler {
                             return Ok(());
                         }
 
-                        if *retry_count <= 2 {
-                            //Host discovery failed, let's retry.
-                            restart_machine(&state.host_snapshot, ctx.services, txn).await?;
-
+                        if trigger_reboot_if_needed(
+                            &state.host_snapshot,
+                            &state.host_snapshot,
+                            ctx.services,
+                            txn,
+                        )
+                        .await?
+                        {
                             *controller_state.modify() = ManagedHostState::Failed {
                                 retry_count: retry_count + 1,
                                 details: details.clone(),
@@ -499,6 +503,7 @@ async fn try_wait_for_dpu_discovery_and_reboot(
     )
     .await?
     {
+        trigger_reboot_if_needed(&state.dpu_snapshot, &state.host_snapshot, services, txn).await?;
         return Ok(Poll::Pending);
     }
 
@@ -731,38 +736,37 @@ impl StateHandler for DpuMachineStateHandler {
                     let msg = format!("Failed to reboot a DPU: {}", e);
                     *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
                     return Ok(());
-                } else {
-                    *controller_state.modify() = ManagedHostState::DPUNotReady {
-                        machine_state: MachineState::Init,
-                    };
-                    let host_machine_result = Machine::find_one(
-                        &mut *txn,
-                        &state.host_snapshot.machine_id,
-                        MachineSearchConfig::default(),
-                    )
-                    .await;
-
-                    if let Ok(Some(host_machine)) = host_machine_result {
-                        host_machine
-                            .advance(
-                                txn,
-                                ManagedHostState::DPUNotReady {
-                                    machine_state: MachineState::Init,
-                                },
-                                Some(host_machine.current_version().increment()),
-                            )
-                            .await?;
-                    } else {
-                        let msg = format!(
-                            "Failed to find associated host: {}",
-                            state.host_snapshot.machine_id
-                        );
-                        *controller_state.modify() =
-                            self.get_discovery_failure(msg, host_machine_id);
-                    }
-
-                    return Ok(());
                 }
+
+                *controller_state.modify() = ManagedHostState::DPUNotReady {
+                    machine_state: MachineState::Init,
+                };
+                let host_machine_result = Machine::find_one(
+                    &mut *txn,
+                    &state.host_snapshot.machine_id,
+                    MachineSearchConfig::default(),
+                )
+                .await;
+
+                if let Ok(Some(host_machine)) = host_machine_result {
+                    host_machine
+                        .advance(
+                            txn,
+                            ManagedHostState::DPUNotReady {
+                                machine_state: MachineState::Init,
+                            },
+                            Some(host_machine.current_version().increment()),
+                        )
+                        .await?;
+                } else {
+                    let msg = format!(
+                        "Failed to find associated host: {}",
+                        state.host_snapshot.machine_id
+                    );
+                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                }
+
+                return Ok(());
             }
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::Init,
@@ -1058,6 +1062,13 @@ impl StateHandler for HostMachineStateHandler {
                     )
                     .await?
                     {
+                        trigger_reboot_if_needed(
+                            &state.host_snapshot,
+                            &state.host_snapshot,
+                            ctx.services,
+                            txn,
+                        )
+                        .await?;
                         return Ok(());
                     }
 
