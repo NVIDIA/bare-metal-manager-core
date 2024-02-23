@@ -175,7 +175,7 @@ async fn get_containers() -> eyre::Result<String> {
         })
     } else {
         let result = BashCommand::new("bash")
-            .args(vec!["-c", "crictl ps -a -o json"])
+            .args(vec!["-c", "crictl ps -o json"])
             .run()
             .await
             .map_err(|e| {
@@ -190,9 +190,8 @@ const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dev/dock
 
 #[cfg(test)]
 mod tests {
-    use crate::containerd::image::ImageNameComponent;
-
     use super::*;
+    use crate::containerd::image::ImageNameComponent;
 
     #[tokio::test]
     async fn test_container_images() {
