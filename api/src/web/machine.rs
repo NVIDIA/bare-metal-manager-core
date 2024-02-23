@@ -210,7 +210,7 @@ async fn show<C1: CredentialProvider + 'static, C2: CertificateProvider + 'stati
     (StatusCode::OK, Html(tmpl.render().unwrap()))
 }
 
-async fn fetch_machines<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
+pub async fn fetch_machines<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
     api: Arc<Api<C1, C2>>,
     include_dpus: bool,
 ) -> Result<forgerpc::MachineList, tonic::Status> {

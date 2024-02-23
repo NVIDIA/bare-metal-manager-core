@@ -39,6 +39,7 @@ struct NetworkStatusDisplay {
     is_healthy: bool,
     check_failed: String,
     agent_version: String,
+    is_agent_updated: bool,
 }
 
 impl From<forgerpc::DpuNetworkStatus> for NetworkStatusDisplay {
@@ -53,6 +54,7 @@ impl From<forgerpc::DpuNetworkStatus> for NetworkStatusDisplay {
         } else {
             "".to_string()
         };
+        let agent_version = st.dpu_agent_version.unwrap_or_default();
         Self {
             observed_at: st
                 .observed_at
@@ -68,7 +70,8 @@ impl From<forgerpc::DpuNetworkStatus> for NetworkStatusDisplay {
             network_config_version: st.network_config_version.unwrap_or_default(),
             is_healthy: h.is_healthy,
             check_failed: failed_health_check,
-            agent_version: st.dpu_agent_version.unwrap_or_default(),
+            is_agent_updated: agent_version == forge_version::v!(build_version),
+            agent_version,
         }
     }
 }
