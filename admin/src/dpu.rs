@@ -105,6 +105,8 @@ struct DpuFirmwareStatus {
     firmware_version: Option<String>,
     bmc_version: Option<String>,
     bios_version: Option<String>,
+    hbn_version: Option<String>,
+    agent_version: Option<String>,
 }
 
 impl From<Machine> for DpuFirmwareStatus {
@@ -138,6 +140,13 @@ impl From<Machine> for DpuFirmwareStatus {
                 .as_ref()
                 .and_then(|di| di.dmi_data.as_ref())
                 .map(|dmi_data| dmi_data.bios_version.clone()),
+            hbn_version: machine.inventory.and_then(|inv| {
+                inv.components
+                    .iter()
+                    .find(|c| c.name == "doca_hbn")
+                    .map(|c| c.version.clone())
+            }),
+            agent_version: machine.dpu_agent_version,
         }
     }
 }
@@ -153,6 +162,8 @@ impl From<DpuFirmwareStatus> for Row {
             value.firmware_version.unwrap_or_default(),
             value.bmc_version.unwrap_or_default(),
             value.bios_version.unwrap_or_default(),
+            value.hbn_version.unwrap_or_default(),
+            value.agent_version.unwrap_or_default(),
         ])
     }
 }
@@ -175,6 +186,8 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
         "NIC FW Version",
         "BMC Version",
         "BIOS Version",
+        "HBN Version",
+        "Agent Version",
     ];
 
     table.set_titles(Row::from(headers));
