@@ -1040,6 +1040,8 @@ message Machine {
   optional MachineInventory inventory = 21;
   optional google.protobuf.Timestamp last_reboot_requested_time = 22;
   optional string last_reboot_requested_mode = 23;
+
+  optional string dpu_agent_version = 24;
 }
 
 message DpuAgentInventoryReport {

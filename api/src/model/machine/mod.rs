@@ -44,7 +44,7 @@ pub struct ManagedHostStateSnapshot {
 }
 
 /// Represents the last_reboot_requested data
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum MachineLastRebootRequestedMode {
     Reboot,
     PowerOff,

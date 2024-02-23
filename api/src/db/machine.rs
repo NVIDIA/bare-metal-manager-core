@@ -313,7 +313,12 @@ impl From<Machine> for rpc::Machine {
                 .map(|obs| obs.health_status.clone().into()),
             last_observation_time: machine
                 .network_status_observation
+                .as_ref()
                 .map(|obs| obs.observed_at.into()),
+            dpu_agent_version: machine
+                .network_status_observation
+                .as_ref()
+                .and_then(|obs| obs.agent_version.clone()),
             maintenance_reference: machine.maintenance_reference,
             maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
             associated_host_machine_id: machine
@@ -322,12 +327,15 @@ impl From<Machine> for rpc::Machine {
             associated_dpu_machine_id: machine
                 .associated_dpu_machine_id
                 .map(|id| id.to_string().into()),
-            inventory: machine.inventory.map(|i| i.into()),
+            inventory: machine.inventory.clone().map(|i| i.into()),
             last_reboot_requested_time: machine
                 .last_reboot_requested
-                .clone()
+                .as_ref()
                 .map(|x| x.time.into()),
-            last_reboot_requested_mode: machine.last_reboot_requested.map(|x| x.mode.to_string()),
+            last_reboot_requested_mode: machine
+                .last_reboot_requested
+                .as_ref()
+                .map(|x| x.mode.to_string()),
         }
     }
 }
