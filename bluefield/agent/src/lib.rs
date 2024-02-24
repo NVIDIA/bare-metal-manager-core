@@ -14,9 +14,9 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::process::Command;
 use std::time::Instant;
 
-use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 use ::rpc::machine_discovery::DpuData;
+use ::rpc::{forge as rpc, DiscoveryInfo};
 use command_line::NetworkVirtualizationType;
 pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
@@ -430,35 +430,22 @@ struct Registration {
 
 /// Discover hardware, register DPU with carbide-api, and return machine id
 async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
-    let interface_id = agent.machine.interface_id;
     let mut hardware_info = enumerate_hardware().wrap_err("enumerate_hardware failed")?;
     tracing::debug!("Successfully enumerated DPU hardware");
 
+    // Pretend to be a bluefield DPU for local dev.
+    // see model/hardware_info.rs::is_dpu
     if agent.machine.is_fake_dpu {
-        // Pretend to be a bluefield DPU for local dev.
-        // see model/hardware_info.rs::is_dpu
-        hardware_info.machine_type = "aarch64".to_string();
-        if let Some(dmi) = hardware_info.dmi_data.as_mut() {
-            dmi.board_name = "BlueField SoC".to_string();
-            if dmi.product_serial.is_empty() {
-                // Older Dell Precision 5760 don't have any serials
-                dmi.product_serial = "Stable Local Dev serial".to_string();
-            }
-        }
-        hardware_info.dpu_info = Some(DpuData {
-            part_number: "1".to_string(),
-            part_description: "1".to_string(),
-            product_version: "1".to_string(),
-            factory_mac_address: "11:22:33:44:55:66".to_string(),
-            firmware_version: "1".to_string(),
-            firmware_date: "01/01/1970".to_string(),
-            switches: vec![],
-        });
+        fill_fake_dpu_info(&mut hardware_info);
+        tracing::debug!("Successfully injected fake DPU data")
     }
+
+    let interface_id = agent.machine.interface_id;
     let factory_mac_address = match hardware_info.dpu_info.as_ref() {
         Some(dpu_info) => dpu_info.factory_mac_address.clone(),
-        None => eyre::bail!("Missing dpu info, should be impossible"),
+        None => eyre::bail!("Missing DPU info, should be impossible"),
     };
+
     let registration_data = register_machine(
         &agent.forge_system.api_server,
         agent.forge_system.root_ca.clone(),
@@ -486,4 +473,30 @@ pub fn pretty_cmd(c: &Command) -> String {
             .collect::<Vec<std::borrow::Cow<'_, str>>>()
             .join(" ")
     )
+}
+
+// fill_fake_dpu_info will take a pre-populated DiscoveryInfo
+// from enumerate_hardware (which also adds things like
+// discovered cores [from your local machine] and such),
+// and injects data to mock your machine to look like
+// a DPU. This is intended for use with unit testing
+// and local development only.
+fn fill_fake_dpu_info(hardware_info: &mut DiscoveryInfo) {
+    hardware_info.machine_type = "aarch64".to_string();
+    if let Some(dmi) = hardware_info.dmi_data.as_mut() {
+        dmi.board_name = "BlueField SoC".to_string();
+        if dmi.product_serial.is_empty() {
+            // Older Dell Precision 5760 don't have any serials
+            dmi.product_serial = "Stable Local Dev serial".to_string();
+        }
+    }
+    hardware_info.dpu_info = Some(DpuData {
+        part_number: "1".to_string(),
+        part_description: "1".to_string(),
+        product_version: "1".to_string(),
+        factory_mac_address: "11:22:33:44:55:66".to_string(),
+        firmware_version: "1".to_string(),
+        firmware_date: "01/01/1970".to_string(),
+        switches: vec![],
+    });
 }
