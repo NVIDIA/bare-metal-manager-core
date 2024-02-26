@@ -360,6 +360,9 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         .map(|response| response.into_inner())
     {
         Ok(x) => x,
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return (StatusCode::NOT_FOUND, Html(instance_id)).into_response();
+        }
         Err(err) => {
             tracing::error!(%err, %instance_id, "find_instances");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading instances").into_response();
