@@ -129,6 +129,11 @@ pub struct CarbideConfig {
     /// Enable DHCP server on DPU to serve host.
     #[serde(default)]
     pub dpu_dhcp_server_enabled: bool,
+
+    /// DPU agent to use NVUE instead of writing files directly.
+    /// Once we are comfortable with this and all DPUs are HBN 2+ it will become the only option.
+    #[serde(default)]
+    pub nvue_enabled: bool,
 }
 
 /// IBFabricManager related configuration
@@ -310,6 +315,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .unwrap_or_default(),
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
             dpu_dhcp_server_enabled: value.dpu_dhcp_server_enabled,
+            nvue_enabled: value.nvue_enabled,
         }
     }
 }

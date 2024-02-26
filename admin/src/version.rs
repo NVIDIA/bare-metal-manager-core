@@ -81,6 +81,7 @@ pub async fn handle_show_version(
         r!(table, config, max_concurrent_machine_updates);
         r!(table, config, machine_update_runtime_interval);
         r!(table, config, dpu_dhcp_server_enabled);
+        r!(table, config, nvue_enabled);
 
         _ = table.print_tty(true);
     }

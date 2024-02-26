@@ -1121,7 +1121,6 @@ where
             ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
                 .await?;
 
-        let mut network_virtualization_type = None;
         let mut vpc_vni = None;
 
         let tenant_interfaces = match &snapshot.instance {
@@ -1131,7 +1130,6 @@ where
                 let vpc = Vpc::find_by_segment(&mut txn, interfaces[0].network_segment_id)
                     .await
                     .map_err(CarbideError::from)?;
-                network_virtualization_type = Some(vpc.network_virtualization_type);
                 vpc_vni = vpc.vni;
 
                 let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
@@ -1205,7 +1203,13 @@ where
                     .version_string()
             },
             remote_id: dpu_machine_id.remote_id(),
-            network_virtualization_type: network_virtualization_type.map(|nvt| nvt as i32),
+            network_virtualization_type: Some(if self.runtime_config.nvue_enabled {
+                // new
+                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32
+            } else {
+                // old
+                rpc::VpcVirtualizationType::EthernetVirtualizer as i32
+            }),
             vpc_vni: vpc_vni.map(|vni| vni as u32),
             enable_dhcp: self.runtime_config.dpu_dhcp_server_enabled,
             host_interface_id: snapshot.host_snapshot.interfaces.iter().find_map(|x| {

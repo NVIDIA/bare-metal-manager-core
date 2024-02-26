@@ -40,7 +40,7 @@ override-upgrade-cmd = "echo 'apt-get install --yes --only-upgrade forge-dpu=__P
 
 [hbn]
 root-dir = "$HBN_ROOT"
-skip-reload = true
+skip-reload = false
 
 [period]
 main-loop-active-secs = 1
@@ -225,6 +225,9 @@ fn make_dpu_filesystem(
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
     fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+    fs::create_dir_all(hbn_root.join("var/support"))?;
+    fs::create_dir_all(hbn_root.join("var/support/forge-dhcp/conf"))?;
+    fs::create_dir_all(hbn_root.join("etc/nvue.d/"))?;
 
     write_config(
         dpu_config_path,
