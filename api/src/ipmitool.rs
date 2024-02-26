@@ -99,12 +99,13 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
         }
         */
 
-        result.map_or(
-            Err(CmdError::Generic(
-                "No commands were successful and no error reported".to_owned(),
-            )),
-            Err,
-        )?
+        Err(match result {
+            None => {
+                // This should be impossible, right? We always call execute_ipmitool_command.
+                eyre::eyre!("No commands were successful and no error reported")
+            }
+            Some(err) => err.into(),
+        })
     }
 }
 
