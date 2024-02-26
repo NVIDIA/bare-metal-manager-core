@@ -170,10 +170,6 @@ Start database container:
 
 `docker run --rm -di -e POSTGRES_PASSWORD="admin" -p "5432:5432" --name pgdev postgres:14.1-alpine`
 
-Init the database:
-
-`cd dev/terraform; docker run -v ${PWD}:/junk --rm hashicorp/terraform -chdir=/junk init`
-
 Test!
 
 `cargo test`
