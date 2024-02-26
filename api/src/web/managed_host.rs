@@ -274,6 +274,9 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         .map(|response| response.into_inner())
     {
         Ok(m) => m,
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return (StatusCode::NOT_FOUND, Html(machine_id.to_string())).into_response();
+        }
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machines");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();

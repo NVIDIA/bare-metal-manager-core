@@ -207,6 +207,9 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         .map(|response| response.into_inner())
     {
         Ok(n) => n,
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return (StatusCode::NOT_FOUND, Html(interface_id)).into_response();
+        }
         Err(err) => {
             tracing::error!(%err, "find_interfaces");
             return (
