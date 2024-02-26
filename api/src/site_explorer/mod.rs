@@ -408,8 +408,9 @@ impl SiteExplorer {
             }),
             firmware_version: Some(
                 inventory_map
-                    .get("BMC_Firmware")
-                    .and_then(|value| value.version.as_ref())
+                    .iter()
+                    .find(|s| s.0.contains("BMC_Firmware"))
+                    .and_then(|value| value.1.version.as_ref())
                     .unwrap_or(&"".to_string())
                     .to_lowercase()
                     .replace("bf-", ""),
