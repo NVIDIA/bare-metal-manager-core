@@ -70,11 +70,6 @@ fn user_data_handler(
         seconds_since_epoch.to_string(),
     );
 
-    context.insert(
-        "dpu_agent_pkg_version".to_string(),
-        forge_version::v!(build_version)[1..].to_string(),
-    );
-
     ("user-data".to_string(), context)
 }
 
