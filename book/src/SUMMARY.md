@@ -42,7 +42,9 @@
   - [Docker (works but deprecated)](docker/development.md)
   - [Running a PXE Client in a VM](development/vm_pxe_client.md)
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
-- [Data Model / DB Schema](development/schema.md)
+- [Database]()
+  - [Data Model / DB Schema](development/schema.md)
+  - [Local Playground](development/database_local_playground.md)
 - [DPU/Bluefield](dpu-operations.md)
 - [Baby Forge](babyforge.md)
 
