@@ -15,7 +15,6 @@
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    str::FromStr,
     sync::Arc,
     time::SystemTime,
 };
@@ -28,7 +27,6 @@ use carbide::{
     ib::{self, IBFabricManager, IBFabricManagerConfig, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     model::{
-        config_version::ConfigVersion,
         hardware_info::TpmEkCertificate,
         machine::{
             machine_id::{try_parse_machine_id, MachineId},
@@ -677,6 +675,7 @@ pub async fn update_time_params(pool: &sqlx::PgPool, machine: &Machine, retry_co
     let last_reboot_time = machine.last_reboot_time().unwrap() - Duration::minutes(2i64);
 
     let ts = machine.last_reboot_requested().unwrap().time - Duration::minutes(retry_count);
+    let last_discovery_time = ts - Duration::minutes(1);
 
     let version = format!(
         "V{}-T{}",
@@ -684,18 +683,13 @@ pub async fn update_time_params(pool: &sqlx::PgPool, machine: &Machine, retry_co
         ts.timestamp_micros()
     );
 
-    println!(
-        "Version: {}, Data: {:?}",
-        ConfigVersion::from_str(&version).unwrap().timestamp(),
-        data
-    );
-
-    let query = "UPDATE machines SET last_reboot_time=$4, last_reboot_requested=$1, controller_state_version=$3 WHERE id=$2 RETURNING *";
+    let query = "UPDATE machines SET last_reboot_requested=$1, controller_state_version=$3, last_reboot_time=$4, last_discovery_time=$5 WHERE id=$2 RETURNING *";
     sqlx::query(query)
         .bind(sqlx::types::Json(&data))
         .bind(machine.id().to_string())
         .bind(version)
         .bind(last_reboot_time)
+        .bind(last_discovery_time)
         .execute(&mut *txn)
         .await
         .unwrap();
