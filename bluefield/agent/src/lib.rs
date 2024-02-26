@@ -108,7 +108,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 factory_mac_address,
             } = match &options.override_machine_id {
                 // Normal case
-                None => register(&agent).await?,
+                None => register(&agent).await.wrap_err("registration error")?,
                 // Dev / test override
                 Some(id) => Registration {
                     machine_id: id.to_string(),
@@ -431,7 +431,7 @@ struct Registration {
 /// Discover hardware, register DPU with carbide-api, and return machine id
 async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
     let interface_id = agent.machine.interface_id;
-    let mut hardware_info = enumerate_hardware()?;
+    let mut hardware_info = enumerate_hardware().wrap_err("enumerate_hardware failed")?;
     tracing::debug!("Successfully enumerated DPU hardware");
 
     if agent.machine.is_fake_dpu {

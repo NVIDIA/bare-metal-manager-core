@@ -10,14 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use regex::Regex;
-use rpc::machine_discovery::{DpuData, LldpSwitchData};
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     thread::sleep,
     time::{Duration, Instant},
 };
+
+use regex::Regex;
+use rpc::machine_discovery::{DpuData, LldpSwitchData};
+use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 use utils::cmd::{Cmd, CmdError};
 
@@ -25,12 +26,16 @@ const LLDP_PORTS: &[&str] = &["p0", "p1", "oob_net0"];
 
 #[derive(thiserror::Error, Debug)]
 pub enum DpuEnumerationError {
-    #[error("DPU enumeration error: {0}")]
-    Generic(String),
+    #[error("Failed reading basic DPU info: {0}")]
+    BasicInfo(String),
     #[error("Regex error {0}")]
     Regex(#[from] regex::Error),
     #[error("Command error {0}")]
     Cmd(#[from] CmdError),
+    #[error("DPU enumeration failed reading '{0}': {1}")]
+    Read(&'static str, String),
+    #[error("LLDP error: {0}")]
+    Lldp(String),
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -84,18 +89,19 @@ pub struct LldpResponse {
 /// Get LLDP port info.
 pub fn get_lldp_port_info(port: &str) -> Result<String, DpuEnumerationError> {
     if cfg!(test) {
-        std::fs::read_to_string("test/lldp_query.json").map_err(|e| {
+        const TEST_DATA: &str = "test/lldp_query.json";
+        std::fs::read_to_string(TEST_DATA).map_err(|e| {
             warn!("Could not read LLDP json: {e}");
-            DpuEnumerationError::Generic(e.to_string())
+            DpuEnumerationError::Read(TEST_DATA, e.to_string())
         })
     } else {
-        let lldp_cmd = format!("lldpcli -f json show neighbors ports {}", port);
+        let lldp_cmd = format!("lldpcli -f json show neighbors ports {port}");
         Cmd::new("bash")
             .args(vec!["-c", lldp_cmd.as_str()])
             .output()
             .map_err(|e| {
                 warn!("Could not discover LLDP peer for {port}, {e}");
-                DpuEnumerationError::Generic(e.to_string())
+                DpuEnumerationError::Lldp(e.to_string())
             })
     }
 }
@@ -134,7 +140,7 @@ pub fn get_port_lldp_info(port: &str) -> Result<LldpSwitchData, DpuEnumerationEr
         Ok(x) => x,
         Err(e) => {
             warn!("Could not deserialize LLDP response {lldp_json}, {e}");
-            return Err(DpuEnumerationError::Generic(e.to_string()));
+            return Err(DpuEnumerationError::Lldp(e.to_string()));
         }
     };
 
@@ -154,7 +160,7 @@ pub fn get_port_lldp_info(port: &str) -> Result<LldpSwitchData, DpuEnumerationEr
             format!("{}={}", lldp_data.port.id.id_type, lldp_data.port.id.value);
     } else {
         warn!("Malformed LLDP JSON response, port not found");
-        return Err(DpuEnumerationError::Generic(
+        return Err(DpuEnumerationError::Lldp(
             "LLDP: port not found".to_string(),
         ));
     }
@@ -164,8 +170,9 @@ pub fn get_port_lldp_info(port: &str) -> Result<LldpSwitchData, DpuEnumerationEr
 
 fn get_flint_query() -> Result<String, DpuEnumerationError> {
     if cfg!(test) {
-        std::fs::read_to_string("test/flint_query.txt")
-            .map_err(|x| DpuEnumerationError::Generic(x.to_string()))
+        const TEST_DATA: &str = "test/flint_query.txt";
+        std::fs::read_to_string(TEST_DATA)
+            .map_err(|x| DpuEnumerationError::Read(TEST_DATA, x.to_string()))
     } else {
         Cmd::new("bash")
             .args(vec!["-c", "flint -d /dev/mst/mt*_pciconf0 q full"])
@@ -191,7 +198,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if fw_ver.is_empty() {
-        return Err(DpuEnumerationError::Generic(
+        return Err(DpuEnumerationError::BasicInfo(
             "Could not find firmware version.".to_string(),
         ));
     }
@@ -203,7 +210,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if fw_date.is_empty() {
-        return Err(DpuEnumerationError::Generic(
+        return Err(DpuEnumerationError::BasicInfo(
             "Could not find firmware date.".to_string(),
         ));
     }
@@ -216,7 +223,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if part_number.is_empty() {
-        return Err(DpuEnumerationError::Generic(
+        return Err(DpuEnumerationError::BasicInfo(
             "Could not find part number.".to_string(),
         ));
     }
@@ -229,7 +236,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if device_description.is_empty() {
-        return Err(DpuEnumerationError::Generic(
+        return Err(DpuEnumerationError::BasicInfo(
             "Could not find device description.".to_string(),
         ));
     }
@@ -242,7 +249,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if product_version.is_empty() {
-        return Err(DpuEnumerationError::Generic(
+        return Err(DpuEnumerationError::BasicInfo(
             "Could not find product version.".to_string(),
         ));
     }
@@ -255,7 +262,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         .collect::<Vec<String>>();
 
     if factory_mac_address.is_empty() {
-        return Err(DpuEnumerationError::Generic(
+        return Err(DpuEnumerationError::BasicInfo(
             "Could not find factory mac address.".to_string(),
         ));
     }

@@ -204,7 +204,7 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
     // Start forge-dpu-agent
     tokio::spawn(async move {
         if let Err(e) = agent::start(opts).await {
-            tracing::error!("Failed to start DPU agent: {}", e);
+            tracing::error!("Failed to start DPU agent: {:#}", e);
         }
     });
 
