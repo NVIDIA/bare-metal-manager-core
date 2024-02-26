@@ -228,7 +228,9 @@ runcmd:
   - [ cp, /opt/forge/doca_container_configs/configs/doca_telemetry.yaml, /etc/kubelet.d/ ]
   - [ sum, /etc/kubelet.d/doca_telemetry.yaml ]
   - [ sync ]
-  - [ mv, /etc/systemd/system/sfc.service.tmp, /etc/systemd/system/sfc.service ]
+  - [ mv, /etc/systemd/system/sfc.service.tmp, /etc/systemd/system/sfc.service ] # the following commands are temporary for https://jirasw.nvidia.com/browse/FORGE-2921
+  - [ systemctl, daemon-reload ]
+  - [ ovs-vsctl, --no-wait, del-br, br-hbn ]
   - [ /opt/forge/run-scout.sh ]
 {% endif %}
 EOF
