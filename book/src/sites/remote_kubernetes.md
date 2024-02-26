@@ -5,19 +5,24 @@ The instructions below show how to configure kubectl for remote access through a
 ### Assumptions
 1. ssh access to the site through a jump host has already been configured.
 2. Examples below use dev3, but any site can be used.
-3. the jump host has a socks proxy running on port 8080
+3. there is a socks proxy running to the jump host on port 8888
+	1. you can use: `ssh -fND 8888 <jumphost>`
 
 ## Context Setup
 
-### Use SRE Config
-Pull the latest config from vault:
+### Using The SRE Config
+1. Pull the latest config from vault:
 ```
 vault kv get -field=kubeconf secrets/sre/configs/ | base64 -d > kube-prod.config
 ```
-copy the config to, or merge it with, `~/.kube/config`
+2. copy the config to, or merge it with, `~/.kube/config`
 
-#### minikube use
-If you use minikube locally, it is not included in the config provided in vault, but minikube will add it automatically when started.  don't replace the config will minikube is running unless you're going to manually merge them
+3. create a socks proxy on port 8888 to the jumphost
+	* `ssh -ND 8888 renojump` (add -f to send ssh to the background)
+	* this is the same local port as used in the kube config.  any port can be used as long as they match
+
+#### Minikube Use
+If you use minikube locally, it is not included in the config provided in vault, but minikube will add it automatically when started.  Don't replace the config while minikube is running unless you're going to manually merge them
 
 ### Manual Config Merge
 1. Get the config from the site control node.
@@ -38,8 +43,8 @@ If you use minikube locally, it is not included in the config provided in vault,
 	1. `KUBECONFIG=./dev3.conf:./local.conf kubectl config view --merge --flatten > all-kube.config`
 2. Verify that the output config is has all the clusters with unique names.
 3. Copy the new config back to ~/.kube/config
-4. Port forward 8888 to the jumphost
-	1. `ssh -ND 8888 renojump`
+4. create a socks proxy on port 8888 to the jumphost
+	1. `ssh -ND 8888 renojump` (add -f to send ssh to the background)
 	2. this is the same local port as used in the kube config.  any port can be used as long as they match
 
 ## Example Usage
