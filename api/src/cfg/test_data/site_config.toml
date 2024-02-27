@@ -1,16 +1,16 @@
-asn=777
-dhcp_servers=["99.101.102.103"]
-rapid_iterations=true
-otlp_endpoint="https://localhost:4399"
+asn = 777
+dhcp_servers = ["99.101.102.103"]
+rapid_iterations = true
+otlp_endpoint = "https://localhost:4399"
 
 [tls]
-identity_pemfile_path="/patched/path/to/cert"
-identity_keyfile_path="/patched/path/to/key"
-root_cafile_path="/patched/path/to/ca"
+identity_pemfile_path = "/patched/path/to/cert"
+identity_keyfile_path = "/patched/path/to/key"
+root_cafile_path = "/patched/path/to/ca"
 
 [auth]
-permissive_mode=true
-casbin_policy_file="/patched/path/to/policy"
+permissive_mode = true
+casbin_policy_file = "/patched/path/to/policy"
 
 [pools.lo-ip]
 type = "ipv4"
@@ -21,3 +21,10 @@ enabled = true
 concurrent_explorations = 10
 explorations_per_run = 12
 create_machines = true
+
+# Unit is mandatory
+[machine_state_controller]
+dpu_wait_time = "5m"
+power_down_wait = "15s"
+failure_retry_time = "50m"
+dpu_up_threshold = "5m"

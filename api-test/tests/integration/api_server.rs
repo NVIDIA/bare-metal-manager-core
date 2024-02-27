@@ -13,7 +13,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use carbide::cfg::{
-    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig, TlsConfig,
+    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig,
+    MachineStateControllerConfig, TlsConfig,
 };
 use carbide::logging::sqlx_query_tracing;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -37,7 +38,6 @@ pub async fn start(
         metrics_endpoint: Some("127.0.0.1:1080".parse().unwrap()),
         otlp_endpoint: None,
         database_url: db_url,
-        rapid_iterations: true,
         asn: 65535,
         dhcp_servers: vec![],
         route_servers: vec![],
@@ -149,6 +149,13 @@ pub async fn start(
             max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
             enabled: false,
         }),
+        machine_state_controller: MachineStateControllerConfig {
+            dpu_wait_time: chrono::Duration::seconds(1),
+            power_down_wait: chrono::Duration::seconds(1),
+            failure_retry_time: chrono::Duration::seconds(1),
+            dpu_up_threshold: chrono::Duration::weeks(52),
+        },
+        rapid_iterations: true,
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

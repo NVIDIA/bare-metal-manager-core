@@ -1,22 +1,22 @@
-listen="[::]:1079"
-metrics_endpoint="[::]:1080"
-asn=65535
-dhcp_servers=["172.20.0.12"]
-route_servers=["127.0.0.1"]
-enable_route_servers=true
-rapid_iterations=true
-dpu_impi_tool_impl="test"
-initial_domain_name="forge.local"
-initial_dpu_agent_upgrade_policy="off"
+listen = "[::]:1079"
+metrics_endpoint = "[::]:1080"
+asn = 65535
+dhcp_servers = ["172.20.0.12"]
+route_servers = ["127.0.0.1"]
+enable_route_servers = true
+rapid_iterations = true
+dpu_impi_tool_impl = "test"
+initial_domain_name = "forge.local"
+initial_dpu_agent_upgrade_policy = "off"
 
 [tls]
-identity_pemfile_path="/app/code/dev/certs/server_identity.pem"
-identity_keyfile_path="/app/code/dev/certs/server_identity.key"
-root_cafile_path="/app/code/dev/certs/forge_developer_local_only_root_cert_pem"
+identity_pemfile_path = "/app/code/dev/certs/server_identity.pem"
+identity_keyfile_path = "/app/code/dev/certs/server_identity.key"
+root_cafile_path = "/app/code/dev/certs/forge_developer_local_only_root_cert_pem"
 
 [auth]
-permissive_mode=true
-casbin_policy_file="/app/code/api/casbin-policy.csv"
+permissive_mode = true
+casbin_policy_file = "/app/code/api/casbin-policy.csv"
 
 [pools.lo-ip]
 type = "ipv4"
@@ -51,3 +51,9 @@ prefix = "172.99.0.0/26"
 gateway = "172.99.0.1"
 mtu = 1500
 reserve_first = 5
+
+[machine_state_controller_config]
+dpu_wait_time = "1s"
+power_down_wait = "1s"
+failure_retry_time = "1s"
+dpu_up_threshold = "52w"

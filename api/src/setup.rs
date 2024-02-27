@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use chrono::Duration;
 use eyre::WrapErr;
 use figment::{
     providers::{Env, Format, Toml},
@@ -326,15 +325,14 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         .forge_api(api_service.clone())
         .iteration_time(service_config.machine_state_controller_iteration_time)
         .state_handler(Arc::new(MachineStateHandler::new(
-            service_config.dpu_up_threshold,
+            carbide_config.machine_state_controller.dpu_up_threshold,
             carbide_config.dpu_nic_firmware_initial_update_enabled,
             carbide_config.dpu_nic_firmware_reprovision_update_enabled,
         )))
         .reachability_params(ReachabilityParams {
-            dpu_wait_time: service_config.dpu_wait_time,
-            host_wait_time: service_config.host_wait_time,
-            power_down_wait: service_config.power_down_wait,
-            failure_retry_time: service_config.failure_retry_time,
+            dpu_wait_time: carbide_config.machine_state_controller.dpu_wait_time,
+            power_down_wait: carbide_config.machine_state_controller.power_down_wait,
+            failure_retry_time: carbide_config.machine_state_controller.failure_retry_time,
         })
         .ipmi_tool(ipmi_tool.clone())
         .build()
@@ -356,12 +354,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             sc_pool_vlan_id,
             sc_pool_vni,
         )))
-        .reachability_params(ReachabilityParams {
-            dpu_wait_time: service_config.dpu_wait_time,
-            host_wait_time: service_config.host_wait_time,
-            power_down_wait: service_config.power_down_wait,
-            failure_retry_time: service_config.failure_retry_time,
-        })
+        .reachability_params(ReachabilityParams::default())
         .ipmi_tool(ipmi_tool.clone())
         .build()
         .expect("Unable to build NetworkSegmentController");
@@ -373,12 +366,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             .redfish_client_pool(shared_redfish_pool.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
             .pool_pkey(common_pools.infiniband.pool_pkey.clone())
-            .reachability_params(ReachabilityParams {
-                dpu_wait_time: service_config.dpu_wait_time,
-                host_wait_time: service_config.host_wait_time,
-                power_down_wait: service_config.power_down_wait,
-                failure_retry_time: service_config.failure_retry_time,
-            })
+            .reachability_params(ReachabilityParams::default())
             .forge_api(api_service.clone())
             .iteration_time(service_config.network_segment_state_controller_iteration_time)
             .state_handler(Arc::new(IBPartitionStateHandler::new(
@@ -418,17 +406,6 @@ struct ServiceConfig {
     network_segment_state_controller_iteration_time: std::time::Duration,
     /// Maximum database connections
     max_db_connections: u32,
-    /// How long to wait for DPU to restart after BMC lockdown. Not a timeout, it's a forced wait.
-    /// This will be replaced with querying lockdown state.
-    dpu_wait_time: chrono::Duration,
-    /// How long to wait for Host to restart if it does not respond after reboot.
-    host_wait_time: chrono::Duration,
-    /// How long to wait for after power down before power on the machine.
-    power_down_wait: chrono::Duration,
-    /// How long to wait for a health report from the DPU before we assume it's down
-    dpu_up_threshold: chrono::Duration,
-    /// How long to wait for after machine moved to failed state
-    failure_retry_time: chrono::Duration,
 }
 
 impl Default for ServiceConfig {
@@ -438,11 +415,6 @@ impl Default for ServiceConfig {
             machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
             max_db_connections: 1000,
-            dpu_wait_time: Duration::minutes(5),
-            host_wait_time: Duration::minutes(30),
-            power_down_wait: Duration::seconds(15),
-            dpu_up_threshold: Duration::minutes(5),
-            failure_retry_time: Duration::minutes(30),
         }
     }
 }
@@ -458,12 +430,6 @@ impl ServiceConfig {
             machine_state_controller_iteration_time: std::time::Duration::from_secs(10),
             network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
             max_db_connections: 1000,
-            dpu_wait_time: Duration::seconds(1),
-            host_wait_time: Duration::seconds(1),
-            power_down_wait: Duration::seconds(1),
-            // In local dev forge-dpu-agent probably isn't running, so no heartbeat
-            dpu_up_threshold: Duration::weeks(52),
-            failure_retry_time: Duration::seconds(1),
         }
     }
 }
