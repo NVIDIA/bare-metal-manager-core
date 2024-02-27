@@ -23,7 +23,7 @@ use crate::hbn;
 const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
 const DHCP_RELAY_FILE: &str = "etc/supervisor/conf.d/default-isc-dhcp-relay.conf";
 const DHCP_SERVER_FILE: &str = "etc/supervisor/conf.d/default-forge-dhcp-server.conf";
-//const NVUE_FILE: &str = "etc/nvue.d/startup.yaml"; TODO check this exists, if we're doing NVUE
+// const NVUE_FILE: &str = "etc/nvue.d/startup.yaml";
 
 const EXPECTED_FILES: [&str; 5] = [
     "etc/frr/frr.conf",
@@ -261,7 +261,10 @@ fn check_files(hr: &mut HealthReport, hbn_root: &Path, expected_files: &[&str]) 
         } else if filename == &DHCP_RELAY_FILE {
             dhcp_relay_size = stat.len();
         } else if stat.len() < MIN_SIZE {
-            tracing::warn!("check_files {filename}: Too small");
+            tracing::warn!(
+                "check_files {filename}: Too small {} < {MIN_SIZE} bytes",
+                stat.len()
+            );
             hr.failed(
                 HealthCheck::FileIsValid(filename.to_string()),
                 "Too small".to_string(),

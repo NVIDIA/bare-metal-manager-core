@@ -55,11 +55,8 @@ mod util;
 
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 
-// What to use if the server doesn't send it.
-//
-// In practice this will be used for the service network (admin network) because carbide-api
-// doesn't send that.
-// It won't be used for instance networks which default in api/src/db/vpc.rs. Keep in sync.
+// What to use if the server doesn't send it. Which it always should.
+// Once NVUE is rolled out we can remove this.
 pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: NetworkVirtualizationType =
     NetworkVirtualizationType::Etv;
 

@@ -324,6 +324,7 @@ fn get_config() -> CarbideConfig {
         machine_update_run_interval: None,
         site_explorer: None,
         dpu_dhcp_server_enabled: false,
+        nvue_enabled: true,
         ib_config: None,
     }
 }

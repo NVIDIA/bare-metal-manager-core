@@ -188,8 +188,11 @@ pub async fn run(
                     .map(|v| v.into());
                 let nvt = options
                     .override_network_virtualization_type // dev
-                    .or(nvt_from_remote) // instance networks
-                    .unwrap_or(super::DEFAULT_NETWORK_VIRTUALIZATION_TYPE); // admin/service network
+                    .or(nvt_from_remote)
+                    .unwrap_or_else(|| {
+                        tracing::warn!("Missing network_virtualization_type, defaulting");
+                        super::DEFAULT_NETWORK_VIRTUALIZATION_TYPE
+                    });
                 let mut tenant_peers = vec![];
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {conf:?}");

@@ -27,6 +27,10 @@ use crate::{CarbideError, CarbideResult};
 
 // What to use if Cloud UI doesn't send it, which it never does so this is used for all vpcs / instances.
 // Keep in sync with bluefield/agent/src/lib.rs
+//
+// Currently this is only used to populate the database. The value itself is never read, instead
+// we use config file's `nvue_enabled`.
+// Once we do FNN this might be used once more.
 const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
     VpcVirtualizationType::EthernetVirtualizer;
 

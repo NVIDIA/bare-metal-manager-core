@@ -143,7 +143,8 @@ pub async fn start(
         max_concurrent_machine_updates: Some(1),
         machine_update_run_interval: None,
         site_explorer: None,
-        dpu_dhcp_server_enabled: false,
+        dpu_dhcp_server_enabled: true,
+        nvue_enabled: true,
         ib_config: Some(IBFabricConfig {
             max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
             enabled: false,

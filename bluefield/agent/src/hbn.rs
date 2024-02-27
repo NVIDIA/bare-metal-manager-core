@@ -88,18 +88,11 @@ pub async fn run_in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
     let container_id = get_hbn_container_id().await?;
     let check_result = true;
 
-    match run_in_container(&container_id, &["bash", "-c", cmd], check_result).await {
-        Ok(out) => {
-            if !out.is_empty() {
-                tracing::debug!("{}", out);
-            }
-        }
-        Err(err) => {
-            return Err(eyre::eyre!("Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/frr/frr-reload or similar. \nCommand: {}",
-                err
-            ));
-        }
-    }
+    run_in_container(&container_id, &["bash", "-c", cmd], check_result)
+        .await
+        .wrap_err_with(|| {
+            format!("Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/")
+        })?;
     Ok(())
 }
 
@@ -131,7 +124,11 @@ pub async fn run_in_container(
             out.status, // includes the string "exit status"
         ));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    if !stdout.is_empty() {
+        tracing::debug!("{stdout}");
+    }
+    Ok(stdout)
 }
 
 #[derive(Deserialize, Debug)]

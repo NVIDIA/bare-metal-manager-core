@@ -264,6 +264,7 @@ message RuntimeConfig {
     uint64 machine_update_runtime_interval = 23;
 
     bool dpu_dhcp_server_enabled = 24;
+    bool nvue_enabled = 25;
  }
 
 message MachineId {

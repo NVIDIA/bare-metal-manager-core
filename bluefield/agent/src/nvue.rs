@@ -154,13 +154,20 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
     if !in_container_path.has_root() {
         in_container_path = Path::new("/").join(in_container_path);
     }
+    let container_id = super::hbn::get_hbn_container_id().await?;
 
     // Set this config as the pending one. This is where we'd get yaml parse errors and
     // other validation errors. Stores the pending config internally somewhere.
-    super::hbn::run_in_container_shell(&format!(
-        "nv config replace {}",
-        in_container_path.display()
-    ))
+    super::hbn::run_in_container(
+        &container_id,
+        &[
+            "nv",
+            "config",
+            "replace",
+            &in_container_path.to_string_lossy(),
+        ],
+        true,
+    )
     .await?;
 
     // Apply the pending config.
@@ -174,13 +181,15 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
     // - Restarts necessary services.
     // - Log is in /var/lib/hbn/var/lib/nvue/config/apply_log.txt
     // Once this returns networking should be ready to use.
-    super::hbn::run_in_container_shell("nv config apply -y").await?;
+    super::hbn::run_in_container(&container_id, &["nv", "config", "apply", "-y"], true).await?;
 
     // Persist the config to disk
     //
     // - Writes the config to /etc/nvue.d/startup.yaml - location is not configurable
     // - Erases *everything else* in /etc/nvue.d/
-    super::hbn::run_in_container_shell("nv config save").await
+    super::hbn::run_in_container(&container_id, &["nv", "config", "save"], true).await?;
+
+    Ok(())
 }
 
 // What we need to configure NVUE
