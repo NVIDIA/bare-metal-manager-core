@@ -53,14 +53,7 @@ pub async fn run(
     systemd::notify_start().await?;
 
     let mut term_signal = signal(SignalKind::terminate())?;
-
-    tracing::info!("Starting machine inventory updater");
-    if let Err(e) = start_inventory_updater(machine_id, forge_client_config.clone(), &agent).await {
-        return Err(eyre::eyre!(
-            "Failed to start machine inventory updater: {:#}",
-            e
-        ));
-    }
+    let mut hup_signal = signal(SignalKind::hangup())?;
 
     if options.enable_metadata_service {
         if let (Some(metadata_service_config), Some(telemetry_config)) =
@@ -109,6 +102,7 @@ pub async fn run(
 
     let started_at = Instant::now();
     let mut version_check_time = Instant::now(); // check it on the first loop
+    let mut inventory_updater_time = Instant::now();
     let mut seen_blank = false;
     let mut is_hbn_up = false;
     let mut has_logged_stable = false;
@@ -147,6 +141,13 @@ pub async fn run(
             None,
             vec![IpAddr::from([127, 0, 0, 1])],
         )
+    };
+
+    let inventory_updater_config = MachineInventoryUpdaterConfig {
+        update_inventory_interval: Duration::from_secs(agent.period.inventory_update_secs),
+        machine_id: machine_id.to_string(),
+        forge_api: forge_api.to_string(),
+        forge_client_config: forge_client_config.clone(),
     };
 
     loop {
@@ -332,6 +333,14 @@ pub async fn run(
             renew_certificates(forge_api, forge_client_config.clone()).await;
         }
 
+        if now > inventory_updater_time {
+            inventory_updater_time = now.add(inventory_updater_config.update_inventory_interval);
+            if let Err(err) = machine_inventory_updater::single_run(&inventory_updater_config).await
+            {
+                tracing::error!(%err, "machine_inventory_updater error");
+            }
+        }
+
         // We potentially restart at this point, so make it last in the loop
         if now > version_check_time {
             version_check_time = now.add(version_check_period);
@@ -395,6 +404,14 @@ pub async fn run(
                 systemd::notify_stop().await?;
                 tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
                 return Ok(());
+            }
+            _ = hup_signal.recv() => {
+                tracing::info!("Hangup received, timer reset");
+                let now = Instant::now();
+                cert_renewal_time = now;
+                inventory_updater_time = now;
+                version_check_time = now;
+                // the loop_period sleep is interrupted so we will fetch new network config
             }
             _ = tokio::time::sleep(loop_period) => {}
         }
@@ -464,6 +481,7 @@ async fn renew_certificates(
     }
 }
 
+/*
 async fn start_inventory_updater(
     machine_id: &str,
     forge_client_config: forge_tls_client::ForgeClientConfig,
@@ -482,6 +500,7 @@ async fn start_inventory_updater(
 
     Ok(())
 }
+*/
 
 fn spawn_metadata_service(
     machine_id: &str,
