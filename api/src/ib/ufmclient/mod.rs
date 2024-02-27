@@ -32,6 +32,7 @@ pub struct PartitionQoS {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum PortMembership {
     Limited,
     Full,
