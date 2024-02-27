@@ -56,15 +56,15 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
 sha2 = "0.10.3"
 sqlx = { version = "0.7.1", features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "migrate",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
 ] }
 thiserror = "1.0"
 tokio = { workspace = true }
@@ -76,9 +76,9 @@ tonic-reflection = "0.10"
 url = { version = "2", features = ["serde"] }
 tower = "0.4"
 tower-http = { version = "0.4", features = [
-    "add-extension",
-    "auth",
-    "normalize-path",
+  "add-extension",
+  "auth",
+  "normalize-path",
 ] }
 tower-layer = "0.3"
 tracing = "*"
@@ -95,6 +95,7 @@ forge_secrets = { path = "../common/secrets" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
+duration-str = "0.7.1"
 
 [build-dependencies]
 tonic-build = "0.10.2"

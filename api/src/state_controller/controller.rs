@@ -505,9 +505,19 @@ pub struct Builder<IO: StateControllerIO> {
 #[derive(Clone)]
 pub struct ReachabilityParams {
     pub dpu_wait_time: chrono::Duration,
-    pub host_wait_time: chrono::Duration,
     pub power_down_wait: chrono::Duration,
     pub failure_retry_time: chrono::Duration,
+}
+
+impl Default for ReachabilityParams {
+    // Some dummy values for other controller except MachineState Controller.
+    fn default() -> Self {
+        Self {
+            dpu_wait_time: chrono::Duration::seconds(1),
+            power_down_wait: chrono::Duration::seconds(1),
+            failure_retry_time: chrono::Duration::seconds(1),
+        }
+    }
 }
 
 impl<IO: StateControllerIO> Builder<IO> {

@@ -14,11 +14,13 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Display};
 
+use chrono::Duration;
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
+use duration_str::deserialize_duration_chrono;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 3;
 
@@ -134,6 +136,80 @@ pub struct CarbideConfig {
     /// Once we are comfortable with this and all DPUs are HBN 2+ it will become the only option.
     #[serde(default)]
     pub nvue_enabled: bool,
+
+    /// MachineStateController related configuration parameter.
+    #[serde(default)]
+    pub machine_state_controller: MachineStateControllerConfig,
+}
+
+/// As of now, chorno::Duration does not support Serialization, so we have to handle it manually.
+fn as_duration<S>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("{}s", d.num_seconds()))
+}
+
+/// MachineStateController related config.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MachineStateControllerConfig {
+    /// How long should we wait before a DPU goes down for sure.
+    #[serde(
+        default = "MachineStateControllerConfig::dpu_wait_time_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub dpu_wait_time: Duration,
+    /// How long to wait for after power down before power on the machine.
+    #[serde(
+        default = "MachineStateControllerConfig::power_down_wait_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub power_down_wait: Duration,
+    /// After how much time, state machine should retrigger reboot if machine does not call back.
+    #[serde(
+        default = "MachineStateControllerConfig::failure_retry_time_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub failure_retry_time: Duration,
+    /// How long to wait for a health report from the DPU before we assume it's down
+    #[serde(
+        default = "MachineStateControllerConfig::dpu_up_threshold_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub dpu_up_threshold: Duration,
+}
+
+impl MachineStateControllerConfig {
+    pub fn dpu_wait_time_default() -> Duration {
+        Duration::minutes(5)
+    }
+
+    pub fn power_down_wait_default() -> Duration {
+        Duration::seconds(15)
+    }
+
+    pub fn failure_retry_time_default() -> Duration {
+        Duration::minutes(30)
+    }
+
+    pub fn dpu_up_threshold_default() -> Duration {
+        Duration::minutes(5)
+    }
+}
+
+impl Default for MachineStateControllerConfig {
+    fn default() -> Self {
+        Self {
+            dpu_wait_time: MachineStateControllerConfig::dpu_wait_time_default(),
+            power_down_wait: MachineStateControllerConfig::power_down_wait_default(),
+            failure_retry_time: MachineStateControllerConfig::failure_retry_time_default(),
+            dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
+        }
+    }
 }
 
 /// IBFabricManager related configuration
@@ -333,6 +409,55 @@ mod tests {
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
     #[test]
+    fn deserialize_serialize_machine_controller_config() {
+        let input = MachineStateControllerConfig {
+            dpu_wait_time: Duration::minutes(20),
+            power_down_wait: Duration::seconds(10),
+            failure_retry_time: Duration::minutes(90),
+            dpu_up_threshold: Duration::weeks(1),
+        };
+
+        let config_str = serde_json::to_string(&input).unwrap();
+        let config: MachineStateControllerConfig = serde_json::from_str(&config_str).unwrap();
+
+        assert_eq!(config, input);
+    }
+
+    #[test]
+    fn deserialize_machine_controller_config() {
+        let config = r#"{"dpu_wait_time": "20m","power_down_wait":"10s",
+        "failure_retry_time":"1h30m", "dpu_up_threshold": "1w"}"#;
+        let config: MachineStateControllerConfig = serde_json::from_str(config).unwrap();
+
+        assert_eq!(
+            config,
+            MachineStateControllerConfig {
+                dpu_wait_time: Duration::minutes(20),
+                power_down_wait: Duration::seconds(10),
+                failure_retry_time: Duration::minutes(90),
+                dpu_up_threshold: Duration::weeks(1),
+            }
+        );
+    }
+
+    #[test]
+    fn deserialize_machine_controller_config_with_default() {
+        let config =
+            r#"{"power_down_wait":"10s", "failure_retry_time":"1h30m", "dpu_up_threshold": "1w"}"#;
+        let config: MachineStateControllerConfig = serde_json::from_str(config).unwrap();
+
+        assert_eq!(
+            config,
+            MachineStateControllerConfig {
+                dpu_wait_time: Duration::minutes(5),
+                power_down_wait: Duration::seconds(10),
+                failure_retry_time: Duration::minutes(90),
+                dpu_up_threshold: Duration::weeks(1),
+            }
+        );
+    }
+
+    #[test]
     fn deserialize_min_config() {
         let config: CarbideConfig = Figment::new()
             .merge(Toml::file(format!("{}/min_config.toml", TEST_DATA_DIR)))
@@ -400,6 +525,15 @@ mod tests {
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: true,
+            }
+        );
+        assert_eq!(
+            config.machine_state_controller,
+            MachineStateControllerConfig {
+                dpu_wait_time: Duration::minutes(5),
+                power_down_wait: Duration::seconds(15),
+                failure_retry_time: Duration::minutes(50),
+                dpu_up_threshold: Duration::minutes(5),
             }
         );
     }
@@ -479,6 +613,16 @@ mod tests {
                 create_machines: true
             }
         );
+
+        assert_eq!(
+            config.machine_state_controller,
+            MachineStateControllerConfig {
+                dpu_wait_time: Duration::minutes(5),
+                power_down_wait: Duration::seconds(15),
+                failure_retry_time: Duration::minutes(30),
+                dpu_up_threshold: Duration::minutes(5),
+            }
+        );
     }
 
     #[test]
@@ -555,6 +699,16 @@ mod tests {
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: true,
+            }
+        );
+
+        assert_eq!(
+            config.machine_state_controller,
+            MachineStateControllerConfig {
+                dpu_wait_time: Duration::minutes(5),
+                power_down_wait: Duration::seconds(15),
+                failure_retry_time: Duration::minutes(50),
+                dpu_up_threshold: Duration::minutes(5),
             }
         );
     }

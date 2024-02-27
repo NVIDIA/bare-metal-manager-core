@@ -124,7 +124,6 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 .state_handler(machine_handler.clone())
                 .reachability_params(ReachabilityParams {
                     dpu_wait_time: chrono::Duration::seconds(0),
-                    host_wait_time: chrono::Duration::seconds(0),
                     power_down_wait: chrono::Duration::seconds(0),
                     failure_retry_time: chrono::Duration::seconds(0),
                 })
