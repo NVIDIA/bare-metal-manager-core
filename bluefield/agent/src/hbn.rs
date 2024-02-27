@@ -126,7 +126,7 @@ pub async fn run_in_container(
     }
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     if !stdout.is_empty() {
-        tracing::debug!("{stdout}");
+        tracing::trace!("{stdout}");
     }
     Ok(stdout)
 }
