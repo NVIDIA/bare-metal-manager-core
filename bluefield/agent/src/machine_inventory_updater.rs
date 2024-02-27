@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use tracing::{error, info, trace};
-
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use tracing::{error, info, trace};
 
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
@@ -17,71 +16,69 @@ pub struct MachineInventoryUpdaterConfig {
     pub forge_client_config: ForgeClientConfig,
 }
 
-pub async fn run(config: MachineInventoryUpdaterConfig) -> eyre::Result<()> {
-    info!("Entering loop for machine updater");
-    loop {
-        trace!(
-            "Updating machine inventory for machine: {}",
-            config.machine_id
-        );
+pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<()> {
+    trace!(
+        "Updating machine inventory for machine: {}",
+        config.machine_id
+    );
 
-        let containers = container::Containers::list().await?;
+    let containers = container::Containers::list().await?;
 
-        let images = container::Images::list().await?;
+    let images = container::Images::list().await?;
 
-        trace!("Containers: {:?}", containers);
+    trace!("Containers: {:?}", containers);
 
-        let machine_id = config.machine_id.clone();
+    let machine_id = config.machine_id.clone();
 
-        let mut result: Vec<ContainerSummary> = Vec::new();
+    let mut result: Vec<ContainerSummary> = Vec::new();
 
-        // Map container images to container names
-        for mut c in containers.containers {
-            let images_clone = images.clone();
-            let images_names = images_clone.find_by_id(&c.image.id)?;
-            c.image_ref = images_names.names;
-            result.push(c);
-        }
-
-        let inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
-            .into_iter()
-            .flat_map(|c| {
-                c.image_ref
-                    .into_iter()
-                    .map(|n| rpc::MachineInventorySoftwareComponent {
-                        name: n.name.clone(),
-                        version: n.version.clone(),
-                        url: n.repository.clone(),
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-
-        let inventory = rpc::MachineInventory {
-            components: inventory,
-        };
-
-        let agent_report = rpc::DpuAgentInventoryReport {
-            machine_id: Some(rpc::MachineId { id: machine_id }),
-            inventory: Some(inventory),
-        };
-
-        if let Err(e) = update_agent_reported_inventory(
-            agent_report,
-            config.forge_client_config.clone(),
-            &config.forge_api,
-        )
-        .await
-        {
-            error!(
-                "Error while executing update_agent_reported_inventory: {:#}",
-                e
-            );
-        } else {
-            info!("Successfully updated machine inventory");
-        }
-        tokio::time::sleep(config.update_inventory_interval).await;
+    // Map container images to container names
+    for mut c in containers.containers {
+        let images_clone = images.clone();
+        let images_names = images_clone.find_by_id(&c.image.id)?;
+        c.image_ref = images_names.names;
+        result.push(c);
     }
+
+    let inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
+        .into_iter()
+        .flat_map(|c| {
+            c.image_ref
+                .into_iter()
+                .map(|n| rpc::MachineInventorySoftwareComponent {
+                    name: n.name.clone(),
+                    version: n.version.clone(),
+                    url: n.repository.clone(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    let inventory = rpc::MachineInventory {
+        components: inventory,
+    };
+
+    let agent_report = rpc::DpuAgentInventoryReport {
+        machine_id: Some(rpc::MachineId { id: machine_id }),
+        inventory: Some(inventory),
+    };
+
+    if let Err(e) = update_agent_reported_inventory(
+        agent_report,
+        config.forge_client_config.clone(),
+        &config.forge_api,
+    )
+    .await
+    {
+        error!(
+            "Error while executing update_agent_reported_inventory: {:#}",
+            e
+        );
+    } else {
+        info!("Successfully updated machine inventory");
+    }
+
+    Ok(())
 }
 
 async fn update_agent_reported_inventory(
