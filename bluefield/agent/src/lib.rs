@@ -24,7 +24,6 @@ use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
-pub use upgrade::upgrade_check;
 use util::UrlResolver;
 
 use crate::frr::FrrVlanConfig;
@@ -50,7 +49,7 @@ mod mtu;
 mod network_config_fetcher;
 pub mod nvue; // pub so that integration tests can read nvue::PATH
 mod systemd;
-mod upgrade;
+pub mod upgrade;
 mod util;
 
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];

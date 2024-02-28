@@ -43,11 +43,11 @@ async fn test_upgrade_check() -> eyre::Result<()> {
             .use_mgmt_vrf()?;
 
     let upgrade_cmd = format!(
-        "echo apt-get install --yes --only-upgrade forge-dpu-agent=__PKG_VERSION__ > {}",
+        "echo apt-get install --yes --only-upgrade --reinstall forge-dpu-agent > {}",
         marker.path().display()
     );
     let machine_id = "test_machine_id";
-    agent::upgrade_check(
+    agent::upgrade::upgrade(
         &format!("https://{addr}"),
         client_config,
         machine_id,
