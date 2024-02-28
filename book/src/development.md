@@ -43,13 +43,11 @@ environment.
    Debian
     - Install required libraries
         - `sudo apt-get install -y libboost-dev`
-        - download libssl1 from [here](http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/) and install `sudo dpkg -i <downloaded-lib>`
+        - download libssl1 from [here](http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/) and install `sudo dpkg -i <downloaded-lib>`.  `libssl1.1_1.1.0g-2ubuntu4_amd64.deb` is known to work but there are newer versions that haven't been tested
 
-   - Add the KEA package source, just [as our build container does](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/243203db10f883376c933ed57b6f43a3861c4752/dev/docker/Dockerfile.build-container#L14-15)
-
-   - Install kea from source
+   - Install kea
      ```
-     sudo apt-get update && sudo apt-get install -y isc-kea-dhcp4-server isc-kea-dev
+     sudo apt-get update && sudo apt-get install -y kea-dev kea-dhcp4-server
      ```
 
    Fedora - `sudo dnf install -y kea kea-devel kea-libs`
