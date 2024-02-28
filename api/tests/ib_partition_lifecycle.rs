@@ -74,7 +74,7 @@ async fn test_ib_partition_lifecycle_impl(
         TenantState::Provisioning
     );
 
-    let state_handler = IBPartitionStateHandler::new(chrono::Duration::milliseconds(500));
+    let state_handler = IBPartitionStateHandler::default();
 
     env.run_ib_partition_controller_iteration(segment_id, &state_handler)
         .await;

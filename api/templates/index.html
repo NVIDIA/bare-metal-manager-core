@@ -75,6 +75,10 @@
     <td>{{ carbide_config.database_url }}</td>
   </tr>
   <tr>
+    <td>Max Database Connections</td>
+    <td>{{ carbide_config.max_database_connections }}</td>
+  </tr>
+  <tr>
     <td>IB Fabric</td>
     <td>
       {% match carbide_config.ib_config %}
@@ -87,7 +91,6 @@
         {% else %}
           Disabled
       {% endmatch %}</td></tr>
-  <tr><td>Rapid Iterations</td><td>{% if carbide_config.rapid_iterations %}Enabled{% else %}Disabled{% endif %}</td></tr>
   <tr><td>ASN</td><td>{{ carbide_config.asn }}</td></tr>
   <tr><td>DHCP Servers</td><td>{{ carbide_config.dhcp_servers.join(", ") }}</td></tr>
   <tr><td>Route Server State</td><td>{% if carbide_config.enable_route_servers %}Enabled{% else %}Disabled{% endif %}</td></tr>

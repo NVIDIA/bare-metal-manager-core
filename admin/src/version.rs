@@ -50,8 +50,8 @@ pub async fn handle_show_version(
         r!(table, config, metrics_endpoint);
         r!(table, config, otlp_endpoint);
         r!(table, config, database_url);
+        r!(table, config, max_database_connections);
         r!(table, config, enable_route_servers);
-        r!(table, config, rapid_iterations);
         r!(table, config, asn);
         rv!(table, config, dhcp_servers);
         rv!(table, config, route_servers);

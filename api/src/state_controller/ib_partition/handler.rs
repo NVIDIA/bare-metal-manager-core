@@ -24,14 +24,8 @@ use crate::{
 };
 
 /// The actual IBPartition State handler
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct IBPartitionStateHandler {}
-
-impl IBPartitionStateHandler {
-    pub fn new(_drain_period: chrono::Duration) -> Self {
-        Self {}
-    }
-}
 
 #[async_trait::async_trait]
 impl StateHandler for IBPartitionStateHandler {
