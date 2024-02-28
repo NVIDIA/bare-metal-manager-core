@@ -342,7 +342,7 @@ struct RedfishSimClient {
 #[async_trait]
 impl Redfish for RedfishSimClient {
     async fn get_power_state(&self) -> Result<libredfish::PowerState, RedfishError> {
-        todo!()
+        Ok(libredfish::PowerState::Off)
     }
 
     async fn get_power_metrics(&self) -> Result<libredfish::model::power::Power, RedfishError> {
