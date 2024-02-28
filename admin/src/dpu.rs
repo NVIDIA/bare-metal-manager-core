@@ -99,9 +99,7 @@ pub async fn handle_agent_upgrade_policy(
 struct DpuVersions {
     id: Option<MachineId>,
     dpu_type: Option<String>,
-    is_healthy: Option<bool>,
     state: String,
-    maintenance: Option<String>,
     firmware_version: Option<String>,
     bmc_version: Option<String>,
     bios_version: Option<String>,
@@ -116,16 +114,21 @@ impl From<Machine> for DpuVersions {
             None => machine.state,
         };
 
+        let dpu_type = machine
+            .discovery_info
+            .as_ref()
+            .and_then(|di| di.dmi_data.as_ref())
+            .map(|dmi_data| {
+                let dpu_type = dmi_data.product_name.clone();
+                let mut dpu_type = dpu_type.split(' ').collect::<Vec<&str>>();
+                dpu_type.truncate(2);
+                dpu_type.join(" ")
+            });
+
         DpuVersions {
             id: machine.id,
-            dpu_type: machine
-                .discovery_info
-                .as_ref()
-                .and_then(|di| di.dmi_data.as_ref())
-                .map(|dmi_data| dmi_data.product_name.clone()),
-            is_healthy: machine.network_health.as_ref().map(|h| h.is_healthy),
-            state: state.to_owned(),
-            maintenance: machine.maintenance_reference,
+            dpu_type,
+            state,
             firmware_version: machine
                 .discovery_info
                 .as_ref()
@@ -156,9 +159,7 @@ impl From<DpuVersions> for Row {
         Row::from(vec![
             value.id.unwrap_or_default().to_string(),
             value.dpu_type.unwrap_or_default(),
-            value.is_healthy.unwrap_or_default().to_string(),
             value.state,
-            value.maintenance.unwrap_or_default(),
             value.firmware_version.unwrap_or_default(),
             value.bmc_version.unwrap_or_default(),
             value.bios_version.unwrap_or_default(),
@@ -177,16 +178,7 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
     let mut table = Table::new();
 
     let headers = vec![
-        "DPU Id",
-        "DPU Type",
-        "Healthy",
-        "State",
-        "Maintenance",
-        "NIC FW Version",
-        "BMC Version",
-        "BIOS Version",
-        "HBN Version",
-        "Agent Version",
+        "DPU Id", "DPU Type", "State", "NIC FW", "BMC", "BIOS", "HBN", "Agent",
     ];
 
     table.set_titles(Row::from(headers));
