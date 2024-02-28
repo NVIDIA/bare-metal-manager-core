@@ -176,7 +176,9 @@ pub fn test_logging_subscriber() -> impl SubscriberInitExt {
         .add_directive("rustify=off".parse().unwrap())
         .add_directive("rustls=warn".parse().unwrap())
         .add_directive("hyper=warn".parse().unwrap())
-        .add_directive("h2=warn".parse().unwrap());
+        .add_directive("h2=warn".parse().unwrap())
+        // Silence permissive mode related messages
+        .add_directive("carbide::auth=error".parse().unwrap());
 
     // Note: `TestWriter` is required to use the standard behavior of Rust unit tests:
     // - Successful tests won't show output unless forced by the `--nocapture` CLI argument
