@@ -347,7 +347,7 @@ pub async fn run(
         // We potentially restart at this point, so make it last in the loop
         if now > version_check_time {
             version_check_time = now.add(version_check_period);
-            let upgrade_result = upgrade::upgrade_check(
+            let upgrade_result = upgrade::upgrade(
                 forge_api,
                 forge_client_config.clone(),
                 machine_id,

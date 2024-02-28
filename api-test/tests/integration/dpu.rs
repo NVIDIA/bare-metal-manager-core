@@ -36,7 +36,7 @@ mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.example.com"
 
 [updates]
-override-upgrade-cmd = "echo 'apt-get install --yes --only-upgrade forge-dpu=__PKG_VERSION__' > $UPGRADE_INDICATOR"
+override-upgrade-cmd = "echo 'apt-get install --yes --only-upgrade --reinstall forge-dpu' > $UPGRADE_INDICATOR"
 
 [hbn]
 root-dir = "$HBN_ROOT"

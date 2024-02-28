@@ -50,8 +50,7 @@ pub async fn upgrade_dpu(
     attach_blocking_trigger(&db_pool).await?;
 
     // The command in dpu.rs DPU_CONFIG upgrade_cmd should run. Wait for it
-    let expected_version = forge_version::v!(build_version)[1..].to_string();
-    wait_for_upgrade(upgrade_indicator, &expected_version).await?;
+    wait_for_upgrade(upgrade_indicator).await?;
     remove_blocking_trigger(&db_pool).await?;
 
     Ok(())
@@ -151,11 +150,11 @@ async fn mark_agent_for_upgrade(
 }
 
 /// The upgrade writes a file in `/tmp`. Wait for it to have the correct contents.
-async fn wait_for_upgrade(upgrade_indicator: &Path, expected_version: &str) -> eyre::Result<()> {
+async fn wait_for_upgrade(upgrade_indicator: &Path) -> eyre::Result<()> {
     let deadline = Instant::now() + MAX_UPGRADE_WAIT;
     while Instant::now() < deadline {
         if upgrade_indicator.exists()
-            && fs::read_to_string(upgrade_indicator)?.contains(expected_version)
+            && fs::read_to_string(upgrade_indicator)?.contains("apt-get install")
         {
             // Found it. Success
             return Ok(());
