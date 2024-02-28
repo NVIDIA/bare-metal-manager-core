@@ -24,7 +24,18 @@ pub type ForgeClientT = ForgeClient<hyper::Client<HttpsConnector<ForgeHttpConnec
 
 //this code was copy and pasted from the implementation of the same struct in sqlx::core,
 //and is only necessary for as long as we're optionally validating TLS
-struct DummyTlsVerifier;
+struct DummyTlsVerifier {
+    print_warning: bool,
+}
+
+impl DummyTlsVerifier {
+    pub fn new() -> Self {
+        Self {
+            // Warnings are suppressed if this is running in a unit-test
+            print_warning: std::env::var_os("CARGO_MANIFEST_DIR").is_none(),
+        }
+    }
+}
 
 pub const DEFAULT_DOMAIN: &str = "forge.local";
 
@@ -40,8 +51,11 @@ impl ServerCertVerifier for DummyTlsVerifier {
         _ocsp_response: &[u8],
         _now: SystemTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        #[cfg(not(test))]
-        println!("IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS.");
+        if self.print_warning {
+            eprintln!(
+                "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS."
+            );
+        }
         Ok(ServerCertVerified::assertion())
     }
 }
@@ -274,7 +288,7 @@ impl ForgeTlsClient {
             // tls disabled by environment variable
             ClientConfig::builder()
                 .with_safe_defaults()
-                .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier))
+                .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
                 .with_no_client_auth()
         };
 
