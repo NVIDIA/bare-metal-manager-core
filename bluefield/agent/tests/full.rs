@@ -298,12 +298,11 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         tenant_interfaces: vec![],
         instance_config_version: config_version,
         instance_id: None,
-        network_virtualization_type: if is_nvue {
-            Some(rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32)
+        network_virtualization_type: Some(if is_nvue {
+            rpc::forge::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32
         } else {
-            // EthernetVirtualizer is the default
-            None
-        },
+            rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32
+        }),
         vpc_vni: None,
         route_servers: vec![],
         remote_id: "".to_string(),
