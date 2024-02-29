@@ -29,13 +29,12 @@ pub async fn wait_until_ipmi_is_ready() -> CarbideClientResult<()> {
         {
             tracing::info!("ipmitool ready after {} seconds", now.elapsed().as_secs());
             return Ok(());
-        } else {
-            tracing::debug!(
-                "still waiting for ipmitool after {} seconds",
-                now.elapsed().as_secs()
-            );
-            sleep(RETRY_TIME).await;
         }
+        tracing::debug!(
+            "still waiting for ipmitool after {} seconds",
+            now.elapsed().as_secs()
+        );
+        sleep(RETRY_TIME).await;
     }
     //
     // Reached here, means MAX_TIMEOUT passed and yet ipmitool command is still failing.
