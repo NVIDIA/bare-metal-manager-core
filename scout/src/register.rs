@@ -21,6 +21,8 @@ pub async fn run(
     forge_api: &str,
     root_ca: String,
     machine_interface_id: uuid::Uuid,
+    discovery_retry_secs: u64,
+    discovery_retries_max: u32,
 ) -> Result<String, CarbideClientError> {
     let hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
@@ -31,6 +33,8 @@ pub async fn run(
         machine_interface_id,
         hardware_info,
         false,
+        discovery_retry_secs,
+        discovery_retries_max,
     )
     .await?;
     let machine_id = registration_data.machine_id;

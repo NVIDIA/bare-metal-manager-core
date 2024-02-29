@@ -48,6 +48,23 @@ pub(crate) struct Options {
     )]
     pub client_key: String,
 
+    // Combined with discovery_retries_max, the default of 60
+    // seconds worth of discovery_retry_secs provides for 1
+    // week worth of minutely retries.
+    #[clap(
+        long,
+        help = "How often (sec) to retry machine registration after failure",
+        default_value_t = 60u64
+    )]
+    pub discovery_retry_secs: u64,
+
+    #[clap(
+        long,
+        help = "How many times to reattempt discovery admist failure",
+        default_value_t = 10080u32
+    )]
+    pub discovery_retries_max: u32,
+
     #[clap(subcommand)]
     pub subcmd: Option<Command>,
 }

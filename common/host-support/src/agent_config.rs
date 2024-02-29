@@ -161,10 +161,31 @@ pub struct IterationTime {
     /// How often to update inventory
     #[serde(default = "default_inventory_update_secs")]
     pub inventory_update_secs: u64,
+
+    /// How often to retry discover_machine registration
+    /// calls in the event that retries are necessary.
+    /// Default is every 60 seconds.
+    #[serde(default = "default_discovery_retry_secs")]
+    pub discovery_retry_secs: u64,
+
+    /// How many times to retry discover_machine registration
+    /// calls until giving up. Default is 10080, which,
+    /// combine with the default discovery_retry_secs of 60,
+    /// equals retrying for 1 week.
+    #[serde(default = "default_discovery_retries_max")]
+    pub discovery_retries_max: u32,
 }
 
 fn default_inventory_update_secs() -> u64 {
     3600u64
+}
+
+fn default_discovery_retry_secs() -> u64 {
+    60u64
+}
+
+fn default_discovery_retries_max() -> u32 {
+    10080u32
 }
 
 impl Default for IterationTime {
@@ -175,6 +196,8 @@ impl Default for IterationTime {
             network_config_fetch_secs: 30,
             version_check_secs: 1800, // 30 minutes
             inventory_update_secs: default_inventory_update_secs(),
+            discovery_retry_secs: default_discovery_retry_secs(),
+            discovery_retries_max: default_discovery_retries_max(),
         }
     }
 }
@@ -233,6 +256,8 @@ main-loop-idle-secs = 30
 network-config-fetch-secs = 20
 version-check-secs = 1800
 inventory-update-secs = 3600
+discovery-retry-secs = 1
+discovery-retries-max = 1000
 
 [updates]
 override-upgrade-cmd = "update"

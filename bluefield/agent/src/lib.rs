@@ -433,7 +433,7 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
     // see model/hardware_info.rs::is_dpu
     if agent.machine.is_fake_dpu {
         fill_fake_dpu_info(&mut hardware_info);
-        tracing::debug!("Successfully injected fake DPU data")
+        tracing::debug!("Successfully injected fake DPU data");
     }
 
     let interface_id = agent.machine.interface_id;
@@ -448,6 +448,8 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
         interface_id,
         hardware_info,
         true,
+        agent.period.discovery_retry_secs,
+        agent.period.discovery_retries_max,
     )
     .await?;
 

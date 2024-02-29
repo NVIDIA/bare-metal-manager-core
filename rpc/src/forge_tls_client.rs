@@ -221,6 +221,7 @@ impl ForgeClientConfig {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct ForgeTlsClient {
     forge_client_config: ForgeClientConfig,
 }
