@@ -158,7 +158,7 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
 
     // Set this config as the pending one. This is where we'd get yaml parse errors and
     // other validation errors. Stores the pending config internally somewhere.
-    super::hbn::run_in_container(
+    let stdout = super::hbn::run_in_container(
         &container_id,
         &[
             "nv",
@@ -169,6 +169,9 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
         true,
     )
     .await?;
+    if !stdout.is_empty() {
+        tracing::info!("nv config replace: {stdout}");
+    }
 
     // Apply the pending config.
     //
@@ -181,13 +184,21 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
     // - Restarts necessary services.
     // - Log is in /var/lib/hbn/var/lib/nvue/config/apply_log.txt
     // Once this returns networking should be ready to use.
-    super::hbn::run_in_container(&container_id, &["nv", "config", "apply", "-y"], true).await?;
+    let stdout =
+        super::hbn::run_in_container(&container_id, &["nv", "config", "apply", "-y"], true).await?;
+    if !stdout.is_empty() {
+        tracing::info!("nv config apply: {stdout}");
+    }
 
     // Persist the config to disk
     //
     // - Writes the config to /etc/nvue.d/startup.yaml - location is not configurable
     // - Erases *everything else* in /etc/nvue.d/
-    super::hbn::run_in_container(&container_id, &["nv", "config", "save"], true).await?;
+    let stdout =
+        super::hbn::run_in_container(&container_id, &["nv", "config", "save"], true).await?;
+    if !stdout.is_empty() {
+        tracing::info!("nv config save: {stdout}");
+    }
 
     Ok(())
 }

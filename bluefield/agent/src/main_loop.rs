@@ -386,7 +386,7 @@ pub async fn run(
         };
 
         let cr7 = current_health_report.as_ref();
-        tracing::info!(
+        tracing::debug!(
             is_healthy,
             has_changed_configs,
             seen_blank,

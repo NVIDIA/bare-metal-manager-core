@@ -12,6 +12,7 @@ use std::{
     error::Error,
     net::{Ipv4Addr, SocketAddr},
     sync::Arc,
+    time::Duration,
 };
 
 use ::rpc::{
@@ -31,7 +32,6 @@ use modes::{
 use serde::Deserialize;
 use tokio::net::UdpSocket;
 use tonic::async_trait;
-
 use utils::models::dhcp::{DhcpConfig, HostConfig};
 
 pub struct Server {
@@ -79,7 +79,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
             socket.set_reuse_address(true).unwrap();
             socket.set_nonblocking(true).unwrap();
             socket.bind(&listen_address.into()).unwrap();
-            socket.bind_device(Some(interface.as_bytes())).unwrap();
+            let mut retries_left = 10;
+            while retries_left > 0 && socket.bind_device(Some(interface.as_bytes())).is_err() {
+                retries_left -= 1;
+                tracing::info!(
+                    "Interface {interface} not ready, retrying {retries_left} more times"
+                );
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            if retries_left == 0 {
+                panic!("Cannot bind interface {interface}.");
+            }
             socket.set_broadcast(true).unwrap(); // Not for listening, but allowed for sending.
 
             // Now create tokio UDPSocket from socket2, which has all needed advanced options set.
