@@ -15,7 +15,9 @@ use once_cell::sync::Lazy;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
 pub use scout::{CarbideClientError, CarbideClientResult};
+use std::time::Duration;
 use tokio::sync::RwLock;
+use tryhard::RetryFutureConfig;
 
 mod cfg;
 mod client;
@@ -152,7 +154,17 @@ async fn report_scout_error(
 }
 
 /// Ask API if we need to do anything after discovery.
-async fn query_api(config: &Options, machine_id: &str) -> CarbideClientResult<Action> {
+async fn query_api(
+    config: &Options,
+    machine_id: &str,
+    action_attempt: u64,
+    query_attempt: u64,
+) -> CarbideClientResult<Action> {
+    tracing::info!(
+        "Sending ForgeAgentControlRequest (attempt:{}.{})",
+        action_attempt,
+        query_attempt,
+    );
     let query = rpc_forge::ForgeAgentControlRequest {
         machine_id: Some(machine_id.to_string().into()),
     };
@@ -161,28 +173,60 @@ async fn query_api(config: &Options, machine_id: &str) -> CarbideClientResult<Ac
     let response = client.forge_agent_control(request).await?.into_inner();
     let action = Action::try_from(response.action)
         .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
+    tracing::info!(
+        "Received ForgeAgentControlResponse (attempt:{}.{}, action:{})",
+        action_attempt,
+        query_attempt,
+        action.as_str_name()
+    );
     Ok(action)
 }
 
 async fn query_api_with_retries(config: &Options, machine_id: &str) -> CarbideClientResult<Action> {
-    let mut attempts = 0;
+    let mut action_attempt = 0;
     const MAX_RETRY_COUNT: u64 = 5;
     const RETRY_TIMER: u64 = 30;
+
+    // The retry_config currently leverages the discovery_retry_*
+    // flags passed in via the Scout command line, since this also
+    // seems like a similar case where it should be persistent but
+    // not aggressive. If there ends up being a desire to also have a
+    // similar set of control_retry_* flags in the CLI, we can do
+    // that (but trying to limit the number of flags if possible).
+    let retry_config = RetryFutureConfig::new(config.discovery_retries_max)
+        .fixed_backoff(Duration::from_secs(config.discovery_retry_secs));
 
     // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
     // In case by the time, host comes up and IP is still not updated, let's wait.
     loop {
-        let action = query_api(config, machine_id).await?;
-        attempts += 1;
+        // Depending on the forge_agent_control_response Action received
+        // this entire loop may need to retry (as in, an Action::Retry was
+        // received).
+        //
+        // BUT, that's in the case of the API call being successful (where
+        // an Action is successfully returned). If the query_api attempt
+        // itself fails, then IT needs to be retried as well, so query_api
+        // also gets wrapped with a retry. Keep an inner attempt counter for
+        // the purpose of tracing -- it seems helpful to know where in the
+        // attempts thing sare.
+        let mut query_attempt = 0u64;
+        let action = tryhard::retry_fn(|| {
+            query_attempt += 1;
+            query_api(config, machine_id, action_attempt, query_attempt)
+        })
+        .with_config(retry_config)
+        .await?;
+
+        action_attempt += 1;
 
         if action != Action::Retry {
             return Ok(action);
         }
 
         // +1 for the initial attempt which happens immediately
-        if attempts == 1 + MAX_RETRY_COUNT {
+        if action_attempt == 1 + MAX_RETRY_COUNT {
             return Err(CarbideClientError::GenericError(format!(
-                "Retrieved no Action for machine {} after {} secs",
+                "Retrieved no viable Action for machine {} after {} secs",
                 machine_id,
                 MAX_RETRY_COUNT * RETRY_TIMER
             )));

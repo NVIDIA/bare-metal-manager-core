@@ -5136,6 +5136,7 @@ dependencies = [
  "tokio",
  "tonic 0.10.2",
  "tracing",
+ "tryhard",
  "uname",
  "utils",
  "uuid 1.7.0",
