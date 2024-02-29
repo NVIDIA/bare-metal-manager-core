@@ -1,6 +1,7 @@
 asn = 777
 dhcp_servers = ["99.101.102.103"]
 rapid_iterations = true
+max_database_connections = 1333
 otlp_endpoint = "https://localhost:4399"
 
 [tls]
@@ -24,7 +25,23 @@ create_machines = true
 
 # Unit is mandatory
 [machine_state_controller]
-dpu_wait_time = "5m"
-power_down_wait = "15s"
-failure_retry_time = "50m"
-dpu_up_threshold = "5m"
+dpu_wait_time = "7m"
+power_down_wait = "17s"
+failure_retry_time = "70m"
+dpu_up_threshold = "77m"
+[machine_state_controller.controller]
+iteration_time = "3m"
+max_object_handling_time = "11s"
+max_concurrency = 22
+
+[network_segment_state_controller]
+network_segment_drain_time = "45s"
+[network_segment_state_controller.controller]
+iteration_time = "18m"
+max_object_handling_time = "188s"
+max_concurrency = 1888
+
+[ib_partition_state_controller.controller]
+iteration_time = "17m"
+max_object_handling_time = "177s"
+max_concurrency = 1777

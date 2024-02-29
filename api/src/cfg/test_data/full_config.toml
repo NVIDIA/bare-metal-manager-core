@@ -1,6 +1,7 @@
 listen = "[::]:1081"
 metrics_endpoint = "[::]:1080"
 database_url = "postgres://a:b@postgresql"
+max_database_connections = 1222
 asn = 123
 dhcp_servers = ["1.2.3.4", "5.6.7.8"]
 route_servers = ["9.10.11.12"]
@@ -64,3 +65,26 @@ enabled = false
 run_interval = 100
 explorations_per_run = 11
 create_machines = true
+
+# Unit is mandatory
+[machine_state_controller]
+dpu_wait_time = "3m"
+power_down_wait = "13s"
+failure_retry_time = "31m"
+dpu_up_threshold = "33m"
+[machine_state_controller.controller]
+iteration_time = "9m"
+max_object_handling_time = "99s"
+max_concurrency = 999
+
+[network_segment_state_controller]
+network_segment_drain_time = "44s"
+[network_segment_state_controller.controller]
+iteration_time = "8m"
+max_object_handling_time = "88s"
+max_concurrency = 888
+
+[ib_partition_state_controller.controller]
+iteration_time = "7m"
+max_object_handling_time = "77s"
+max_concurrency = 777

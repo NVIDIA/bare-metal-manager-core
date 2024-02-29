@@ -21,7 +21,10 @@ use std::{
 
 use carbide::{
     api::Api,
-    cfg::{CarbideConfig, MachineStateControllerConfig},
+    cfg::{
+        CarbideConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
+        NetworkSegmentStateControllerConfig, StateControllerConfig,
+    },
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
     ib::{self, IBFabricManager, IBFabricManagerConfig, IBFabricManagerType},
@@ -296,8 +299,8 @@ fn get_config() -> CarbideConfig {
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
         metrics_endpoint: None,
         otlp_endpoint: None,
-        rapid_iterations: true,
         database_url: "pgsql:://localhost".to_string(),
+        max_database_connections: 1000,
         asn: 0,
         dhcp_servers: vec![],
         route_servers: vec![],
@@ -331,6 +334,14 @@ fn get_config() -> CarbideConfig {
             power_down_wait: Duration::seconds(1),
             failure_retry_time: Duration::seconds(1),
             dpu_up_threshold: Duration::weeks(52),
+            controller: StateControllerConfig::default(),
+        },
+        network_segment_state_controller: NetworkSegmentStateControllerConfig {
+            network_segment_drain_time: Duration::seconds(2),
+            controller: StateControllerConfig::default(),
+        },
+        ib_partition_state_controller: IbPartitionStateControllerConfig {
+            controller: StateControllerConfig::default(),
         },
     }
 }

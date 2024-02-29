@@ -20,7 +20,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
-use duration_str::deserialize_duration_chrono;
+use duration_str::{deserialize_duration, deserialize_duration_chrono};
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 3;
 
@@ -41,14 +41,12 @@ pub struct CarbideConfig {
     /// A connection string for the utilized postgres database
     pub database_url: String,
 
+    /// The maximum size of the database connection pool
+    #[serde(default = "default_max_database_connections")]
+    pub max_database_connections: u32,
+
     /// IB fabric related configuration
     pub ib_config: Option<IBFabricConfig>,
-
-    /// Set shorter timeouts and run background jobs more often. Appropriate
-    /// for local development.
-    /// See ServiceConfig type.
-    #[serde(default)]
-    pub rapid_iterations: bool,
 
     /// ASN: Autonomous System Number
     /// Fixed per environment. Used by forge-dpu-agent to write frr.conf (routing).
@@ -137,12 +135,20 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub nvue_enabled: bool,
 
-    /// MachineStateController related configuration parameter.
+    /// MachineStateController related configuration parameter
     #[serde(default)]
     pub machine_state_controller: MachineStateControllerConfig,
+
+    /// NetworkSegmentController related configuration parameter
+    #[serde(default)]
+    pub network_segment_state_controller: NetworkSegmentStateControllerConfig,
+
+    /// IbPartitionStateController related configuration parameter
+    #[serde(default)]
+    pub ib_partition_state_controller: IbPartitionStateControllerConfig,
 }
 
-/// As of now, chorno::Duration does not support Serialization, so we have to handle it manually.
+/// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
 fn as_duration<S>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -150,9 +156,20 @@ where
     serializer.serialize_str(&format!("{}s", d.num_seconds()))
 }
 
+fn as_std_duration<S>(d: &std::time::Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("{}s", d.as_secs()))
+}
+
 /// MachineStateController related config.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MachineStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+
     /// How long should we wait before a DPU goes down for sure.
     #[serde(
         default = "MachineStateControllerConfig::dpu_wait_time_default",
@@ -204,10 +221,110 @@ impl MachineStateControllerConfig {
 impl Default for MachineStateControllerConfig {
     fn default() -> Self {
         Self {
+            controller: StateControllerConfig::default(),
             dpu_wait_time: MachineStateControllerConfig::dpu_wait_time_default(),
             power_down_wait: MachineStateControllerConfig::power_down_wait_default(),
             failure_retry_time: MachineStateControllerConfig::failure_retry_time_default(),
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
+        }
+    }
+}
+
+/// NetworkSegmentStateController related config.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct NetworkSegmentStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+    /// The time for which network segments must have 0 allocated IPs, before they
+    /// are actually released.
+    /// This should be set to a duration long enough that ensures no pending
+    /// RPC calls might still use the network segment to avoid race conditions.
+    #[serde(
+        default = "NetworkSegmentStateControllerConfig::network_segment_drain_time_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub network_segment_drain_time: chrono::Duration,
+}
+
+impl NetworkSegmentStateControllerConfig {
+    pub fn network_segment_drain_time_default() -> Duration {
+        Duration::minutes(5)
+    }
+}
+
+impl Default for NetworkSegmentStateControllerConfig {
+    fn default() -> Self {
+        Self {
+            controller: StateControllerConfig::default(),
+            network_segment_drain_time: Self::network_segment_drain_time_default(),
+        }
+    }
+}
+
+/// IbPartitionStateController related config
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct IbPartitionStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+}
+
+/// Common StateController configurations
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct StateControllerConfig {
+    /// Configures the desired duration for one state controller iteration
+    ///
+    /// Lower iteration times will make the controller react faster to state changes.
+    /// However they will also increase the load on the system
+    #[serde(
+        default = "StateControllerConfig::iteration_time_default",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub iteration_time: std::time::Duration,
+
+    /// Configures the maximum time that the state handler will spend on evaluating
+    /// and advancing the state of a single object. If more time elapses during
+    /// state handling than this timeout allows for, state handling will fail with
+    /// a `TimeoutError`.
+    /// How long to wait for after power down before power on the machine.
+    #[serde(
+        default = "StateControllerConfig::max_object_handling_time_default",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub max_object_handling_time: std::time::Duration,
+
+    /// Configures the maximum amount of concurrency for the object state controller
+    ///
+    /// The controller will attempt to advance the state of this amount of instances
+    /// in parallel.
+    #[serde(default = "StateControllerConfig::max_concurrency_default")]
+    pub max_concurrency: usize,
+}
+
+impl StateControllerConfig {
+    pub const fn max_object_handling_time_default() -> std::time::Duration {
+        std::time::Duration::from_secs(3 * 60)
+    }
+
+    pub const fn iteration_time_default() -> std::time::Duration {
+        std::time::Duration::from_secs(30)
+    }
+
+    pub const fn max_concurrency_default() -> usize {
+        10
+    }
+}
+
+impl Default for StateControllerConfig {
+    fn default() -> Self {
+        Self {
+            iteration_time: Self::iteration_time_default(),
+            max_object_handling_time: Self::max_object_handling_time_default(),
+            max_concurrency: Self::max_concurrency_default(),
         }
     }
 }
@@ -338,6 +455,10 @@ fn default_listen() -> SocketAddr {
     "[::]:1079".parse().unwrap()
 }
 
+fn default_max_database_connections() -> u32 {
+    1000
+}
+
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -351,8 +472,8 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .map(|x| x.to_string())
                 .unwrap_or("NA".to_string()),
             database_url: value.database_url,
+            max_database_connections: value.max_database_connections,
             enable_ip_fabric: value.ib_config.unwrap_or_default().enabled,
-            rapid_iterations: value.rapid_iterations,
             asn: value.asn,
             dhcp_servers: value.dhcp_servers,
             route_servers: value.route_servers,
@@ -411,6 +532,11 @@ mod tests {
     #[test]
     fn deserialize_serialize_machine_controller_config() {
         let input = MachineStateControllerConfig {
+            controller: StateControllerConfig {
+                iteration_time: std::time::Duration::from_secs(30),
+                max_object_handling_time: std::time::Duration::from_secs(60),
+                max_concurrency: 10,
+            },
             dpu_wait_time: Duration::minutes(20),
             power_down_wait: Duration::seconds(10),
             failure_retry_time: Duration::minutes(90),
@@ -424,14 +550,30 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_serialize_machine_controller_config_default() {
+        let input = MachineStateControllerConfig::default();
+        let config_str = serde_json::to_string(&input).unwrap();
+        let config: MachineStateControllerConfig = serde_json::from_str(&config_str).unwrap();
+        assert_eq!(config, input);
+    }
+
+    #[test]
     fn deserialize_machine_controller_config() {
         let config = r#"{"dpu_wait_time": "20m","power_down_wait":"10s",
-        "failure_retry_time":"1h30m", "dpu_up_threshold": "1w"}"#;
+        "failure_retry_time":"1h30m", "dpu_up_threshold": "1w",
+        "controller": {"iteration_time": "33s", "max_object_handling_time": "63s", "max_concurrency": 13}}"#;
         let config: MachineStateControllerConfig = serde_json::from_str(config).unwrap();
 
         assert_eq!(
             config,
             MachineStateControllerConfig {
+                controller: {
+                    StateControllerConfig {
+                        iteration_time: std::time::Duration::from_secs(33),
+                        max_object_handling_time: std::time::Duration::from_secs(63),
+                        max_concurrency: 13,
+                    }
+                },
                 dpu_wait_time: Duration::minutes(20),
                 power_down_wait: Duration::seconds(10),
                 failure_retry_time: Duration::minutes(90),
@@ -449,12 +591,70 @@ mod tests {
         assert_eq!(
             config,
             MachineStateControllerConfig {
+                controller: StateControllerConfig::default(),
                 dpu_wait_time: Duration::minutes(5),
                 power_down_wait: Duration::seconds(10),
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
             }
         );
+    }
+
+    #[test]
+    fn deserialize_network_segment_state_controller_config() {
+        let config = r#"{"network_segment_drain_time": "21m",
+        "controller": {"iteration_time": "33s", "max_object_handling_time": "63s", "max_concurrency": 13}}"#;
+        let config: NetworkSegmentStateControllerConfig = serde_json::from_str(config).unwrap();
+
+        assert_eq!(
+            config,
+            NetworkSegmentStateControllerConfig {
+                controller: {
+                    StateControllerConfig {
+                        iteration_time: std::time::Duration::from_secs(33),
+                        max_object_handling_time: std::time::Duration::from_secs(63),
+                        max_concurrency: 13,
+                    }
+                },
+                network_segment_drain_time: Duration::minutes(21),
+            }
+        );
+    }
+
+    #[test]
+    fn deserialize_network_segment_state_controller_config_with_default() {
+        let config = r#"{}"#;
+        let config: NetworkSegmentStateControllerConfig = serde_json::from_str(config).unwrap();
+
+        assert_eq!(config, NetworkSegmentStateControllerConfig::default());
+    }
+
+    #[test]
+    fn serialize_empty_state_controller_config() {
+        let input = StateControllerConfig::default();
+        let config_str = serde_json::to_string(&input).unwrap();
+        assert_eq!(
+            config_str,
+            r#"{"iteration_time":"30s","max_object_handling_time":"180s","max_concurrency":10}"#
+        );
+        let config: StateControllerConfig = serde_json::from_str(&config_str).unwrap();
+        assert_eq!(config, input);
+    }
+
+    #[test]
+    fn serialize_configured_state_controller_config() {
+        let input = StateControllerConfig {
+            iteration_time: std::time::Duration::from_secs(11),
+            max_object_handling_time: std::time::Duration::from_secs(22),
+            max_concurrency: 33,
+        };
+        let config_str = serde_json::to_string(&input).unwrap();
+        assert_eq!(
+            config_str,
+            r#"{"iteration_time":"11s","max_object_handling_time":"22s","max_concurrency":33}"#
+        );
+        let config: StateControllerConfig = serde_json::from_str(&config_str).unwrap();
+        assert_eq!(config, input);
     }
 
     #[test]
@@ -467,13 +667,28 @@ mod tests {
         assert_eq!(config.metrics_endpoint, None);
         assert_eq!(config.asn, 123);
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
-        assert!(!config.rapid_iterations);
+        assert_eq!(
+            config.max_database_connections,
+            default_max_database_connections()
+        );
         assert!(config.dhcp_servers.is_empty());
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
         assert!(config.pools.is_none());
         assert!(config.site_explorer.is_none());
+        assert_eq!(
+            config.machine_state_controller,
+            MachineStateControllerConfig::default()
+        );
+        assert_eq!(
+            config.network_segment_state_controller,
+            NetworkSegmentStateControllerConfig::default()
+        );
+        assert_eq!(
+            config.ib_partition_state_controller,
+            IbPartitionStateControllerConfig::default()
+        );
     }
 
     #[test]
@@ -486,7 +701,7 @@ mod tests {
         assert_eq!(config.listen, "[::]:1081".parse().unwrap());
         assert_eq!(config.metrics_endpoint, None);
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
-        assert!(config.rapid_iterations);
+        assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
@@ -530,10 +745,36 @@ mod tests {
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
-                dpu_wait_time: Duration::minutes(5),
-                power_down_wait: Duration::seconds(15),
-                failure_retry_time: Duration::minutes(50),
-                dpu_up_threshold: Duration::minutes(5),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(3 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(11),
+                    max_concurrency: 22,
+                },
+                dpu_wait_time: Duration::minutes(7),
+                power_down_wait: Duration::seconds(17),
+                failure_retry_time: Duration::minutes(70),
+                dpu_up_threshold: Duration::minutes(77),
+            }
+        );
+        assert_eq!(
+            config.network_segment_state_controller,
+            NetworkSegmentStateControllerConfig {
+                network_segment_drain_time: Duration::seconds(45),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(18 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(188),
+                    max_concurrency: 1888,
+                },
+            }
+        );
+        assert_eq!(
+            config.ib_partition_state_controller,
+            IbPartitionStateControllerConfig {
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(17 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(177),
+                    max_concurrency: 1777,
+                },
             }
         );
     }
@@ -547,7 +788,7 @@ mod tests {
         assert_eq!(config.listen, "[::]:1081".parse().unwrap());
         assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
-        assert!(!config.rapid_iterations);
+        assert_eq!(config.max_database_connections, 1222);
         assert_eq!(config.asn, 123);
         assert_eq!(
             config.dhcp_servers,
@@ -617,10 +858,36 @@ mod tests {
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
-                dpu_wait_time: Duration::minutes(5),
-                power_down_wait: Duration::seconds(15),
-                failure_retry_time: Duration::minutes(30),
-                dpu_up_threshold: Duration::minutes(5),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(9 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(99),
+                    max_concurrency: 999,
+                },
+                dpu_wait_time: Duration::minutes(3),
+                power_down_wait: Duration::seconds(13),
+                failure_retry_time: Duration::minutes(31),
+                dpu_up_threshold: Duration::minutes(33),
+            }
+        );
+        assert_eq!(
+            config.network_segment_state_controller,
+            NetworkSegmentStateControllerConfig {
+                network_segment_drain_time: Duration::seconds(44),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(8 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(88),
+                    max_concurrency: 888,
+                },
+            }
+        );
+        assert_eq!(
+            config.ib_partition_state_controller,
+            IbPartitionStateControllerConfig {
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(7 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(77),
+                    max_concurrency: 777,
+                },
             }
         );
     }
@@ -635,11 +902,11 @@ mod tests {
         assert_eq!(config.listen, "[::]:1081".parse().unwrap());
         assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
+        assert_eq!(config.max_database_connections, 1333);
         assert_eq!(
             config.otlp_endpoint,
             Some("https://localhost:4399".to_string())
         );
-        assert!(config.rapid_iterations);
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
@@ -705,10 +972,36 @@ mod tests {
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig {
-                dpu_wait_time: Duration::minutes(5),
-                power_down_wait: Duration::seconds(15),
-                failure_retry_time: Duration::minutes(50),
-                dpu_up_threshold: Duration::minutes(5),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(3 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(11),
+                    max_concurrency: 22,
+                },
+                dpu_wait_time: Duration::minutes(7),
+                power_down_wait: Duration::seconds(17),
+                failure_retry_time: Duration::minutes(70),
+                dpu_up_threshold: Duration::minutes(77),
+            }
+        );
+        assert_eq!(
+            config.network_segment_state_controller,
+            NetworkSegmentStateControllerConfig {
+                network_segment_drain_time: Duration::seconds(45),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(18 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(188),
+                    max_concurrency: 1888,
+                },
+            }
+        );
+        assert_eq!(
+            config.ib_partition_state_controller,
+            IbPartitionStateControllerConfig {
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(17 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(177),
+                    max_concurrency: 1777,
+                },
             }
         );
     }
@@ -736,7 +1029,6 @@ mod tests {
                 Some("https://localhost:4317".to_string())
             );
             assert_eq!(config.database_url, "postgres://othersql".to_string());
-            assert!(!config.rapid_iterations);
             assert_eq!(config.asn, 777);
             assert_eq!(
                 config.dhcp_servers,

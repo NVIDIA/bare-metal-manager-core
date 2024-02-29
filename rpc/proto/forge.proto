@@ -238,7 +238,7 @@ message RuntimeConfig {
     string otlp_endpoint = 3;
     string database_url = 4;
     bool enable_ip_fabric = 5;
-    bool rapid_iterations = 6;
+    reserved 6; // deprecated rapid_iterations
     uint32 asn = 7;
     repeated string dhcp_servers = 8;
     repeated string route_servers = 9;
@@ -265,6 +265,7 @@ message RuntimeConfig {
 
     bool dpu_dhcp_server_enabled = 24;
     bool nvue_enabled = 25;
+    uint32 max_database_connections = 26;
  }
 
 message MachineId {

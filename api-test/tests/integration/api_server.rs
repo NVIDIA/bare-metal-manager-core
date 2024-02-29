@@ -14,7 +14,8 @@ use std::net::SocketAddr;
 
 use carbide::cfg::{
     AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig,
-    MachineStateControllerConfig, TlsConfig,
+    IbPartitionStateControllerConfig, MachineStateControllerConfig,
+    NetworkSegmentStateControllerConfig, StateControllerConfig, TlsConfig,
 };
 use carbide::logging::sqlx_query_tracing;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -38,6 +39,7 @@ pub async fn start(
         metrics_endpoint: Some("127.0.0.1:1080".parse().unwrap()),
         otlp_endpoint: None,
         database_url: db_url,
+        max_database_connections: 1000,
         asn: 65535,
         dhcp_servers: vec![],
         route_servers: vec![],
@@ -150,12 +152,29 @@ pub async fn start(
             enabled: false,
         }),
         machine_state_controller: MachineStateControllerConfig {
+            controller: StateControllerConfig {
+                iteration_time: std::time::Duration::from_secs(1),
+                ..StateControllerConfig::default()
+            },
             dpu_wait_time: chrono::Duration::seconds(1),
             power_down_wait: chrono::Duration::seconds(1),
             failure_retry_time: chrono::Duration::seconds(1),
             dpu_up_threshold: chrono::Duration::weeks(52),
         },
-        rapid_iterations: true,
+        network_segment_state_controller: NetworkSegmentStateControllerConfig {
+            network_segment_drain_time: chrono::Duration::seconds(60),
+            controller: StateControllerConfig {
+                iteration_time: std::time::Duration::from_secs(2),
+                ..StateControllerConfig::default()
+            },
+        },
+        ib_partition_state_controller: IbPartitionStateControllerConfig {
+            controller: StateControllerConfig {
+                // High iteration time because no IB is tested
+                iteration_time: std::time::Duration::from_secs(20),
+                ..StateControllerConfig::default()
+            },
+        },
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

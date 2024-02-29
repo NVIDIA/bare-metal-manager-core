@@ -166,10 +166,7 @@ pub fn create_ipmi_tool<C: CredentialProvider + 'static>(
 /// Configure and create a postgres connection pool
 ///
 /// This connects to the database to verify settings
-async fn create_and_connect_postgres_pool(
-    config: &CarbideConfig,
-    service_config: &ServiceConfig,
-) -> eyre::Result<PgPool> {
+async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Result<PgPool> {
     // We need logs to be enabled at least at `INFO` level. Otherwise
     // our global logging filter would reject the logs before they get injected
     // into the `SqlxQueryTracing` layer.
@@ -187,7 +184,7 @@ async fn create_and_connect_postgres_pool(
         }
     }
     Ok(sqlx::pool::PoolOptions::new()
-        .max_connections(service_config.max_db_connections)
+        .max_connections(config.max_database_connections)
         .connect_with(database_connect_options)
         .await?)
 }
@@ -200,20 +197,13 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     meter: opentelemetry::metrics::Meter,
     ipmi_tool: Arc<dyn IPMITool>,
 ) -> eyre::Result<()> {
-    let service_config = if carbide_config.rapid_iterations {
-        tracing::info!("Running with rapid iterations for local development");
-        ServiceConfig::for_local_development()
-    } else {
-        ServiceConfig::default()
-    };
-
     let rf_pool = libredfish::RedfishClientPool::builder()
         .build()
         .map_err(CarbideError::from)?;
     let redfish_pool = RedfishClientPoolImpl::new(credential_provider.clone(), rf_pool);
     let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
 
-    let db_pool = create_and_connect_postgres_pool(&carbide_config, &service_config).await?;
+    let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
     if let Some(domain_name) = &carbide_config.initial_domain_name {
         if db_init::create_initial_domain(db_pool.clone(), domain_name).await? {
@@ -323,7 +313,24 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         .redfish_client_pool(shared_redfish_pool.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone())
-        .iteration_time(service_config.machine_state_controller_iteration_time)
+        .iteration_time(
+            carbide_config
+                .machine_state_controller
+                .controller
+                .iteration_time,
+        )
+        .max_concurrency(
+            carbide_config
+                .machine_state_controller
+                .controller
+                .max_concurrency,
+        )
+        .max_object_handling_time(
+            carbide_config
+                .machine_state_controller
+                .controller
+                .max_object_handling_time,
+        )
         .state_handler(Arc::new(MachineStateHandler::new(
             carbide_config.machine_state_controller.dpu_up_threshold,
             carbide_config.dpu_nic_firmware_initial_update_enabled,
@@ -348,9 +355,28 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone());
     let _network_segment_controller_handle = ns_builder
-        .iteration_time(service_config.network_segment_state_controller_iteration_time)
+        .iteration_time(
+            carbide_config
+                .network_segment_state_controller
+                .controller
+                .iteration_time,
+        )
+        .max_concurrency(
+            carbide_config
+                .network_segment_state_controller
+                .controller
+                .max_concurrency,
+        )
+        .max_object_handling_time(
+            carbide_config
+                .network_segment_state_controller
+                .controller
+                .max_object_handling_time,
+        )
         .state_handler(Arc::new(NetworkSegmentStateHandler::new(
-            service_config.network_segment_drain_time,
+            carbide_config
+                .network_segment_state_controller
+                .network_segment_drain_time,
             sc_pool_vlan_id,
             sc_pool_vni,
         )))
@@ -368,10 +394,25 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             .pool_pkey(common_pools.infiniband.pool_pkey.clone())
             .reachability_params(ReachabilityParams::default())
             .forge_api(api_service.clone())
-            .iteration_time(service_config.network_segment_state_controller_iteration_time)
-            .state_handler(Arc::new(IBPartitionStateHandler::new(
-                service_config.network_segment_drain_time,
-            )))
+            .iteration_time(
+                carbide_config
+                    .ib_partition_state_controller
+                    .controller
+                    .iteration_time,
+            )
+            .max_concurrency(
+                carbide_config
+                    .ib_partition_state_controller
+                    .controller
+                    .max_concurrency,
+            )
+            .max_object_handling_time(
+                carbide_config
+                    .ib_partition_state_controller
+                    .controller
+                    .max_object_handling_time,
+            )
+            .state_handler(Arc::new(IBPartitionStateHandler::default()))
             .ipmi_tool(ipmi_tool.clone())
             .build()
             .expect("Unable to build IBPartitionStateController");
@@ -390,46 +431,4 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
 
     let listen_addr = carbide_config.listen;
     listener::listen_and_serve(api_service, tls_config, listen_addr, authorizer, meter).await
-}
-
-/// Configurations that are not yet exposed via the CLI
-///
-/// We might want to integrate those into a toml file instead of hardcoding,
-/// but for now this will do it
-struct ServiceConfig {
-    /// The time for which network segments must have 0 allocated IPs, before they
-    /// are actually released
-    network_segment_drain_time: chrono::Duration,
-    /// Iteration time for the machine state controller
-    machine_state_controller_iteration_time: std::time::Duration,
-    /// Iteration time for the network segment state controller
-    network_segment_state_controller_iteration_time: std::time::Duration,
-    /// Maximum database connections
-    max_db_connections: u32,
-}
-
-impl Default for ServiceConfig {
-    fn default() -> Self {
-        Self {
-            network_segment_drain_time: chrono::Duration::minutes(5),
-            machine_state_controller_iteration_time: std::time::Duration::from_secs(30),
-            network_segment_state_controller_iteration_time: std::time::Duration::from_secs(30),
-            max_db_connections: 1000,
-        }
-    }
-}
-
-impl ServiceConfig {
-    /// Configuration for local development
-    ///
-    /// Components are running faster, so we can observe state changes without waiting too long.
-    /// Machine state controller is kept normal for now, since it's output is noisy.
-    pub fn for_local_development() -> Self {
-        Self {
-            network_segment_drain_time: chrono::Duration::seconds(60),
-            machine_state_controller_iteration_time: std::time::Duration::from_secs(10),
-            network_segment_state_controller_iteration_time: std::time::Duration::from_secs(2),
-            max_db_connections: 1000,
-        }
-    }
 }
