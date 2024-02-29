@@ -23,6 +23,7 @@ toml = "0.8.8"
 tonic = { workspace = true }
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
+tryhard = "0.5.1"
 uname = "0.1"
 uuid = "1.0"
 

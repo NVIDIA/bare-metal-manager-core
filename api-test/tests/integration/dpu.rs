@@ -48,6 +48,8 @@ main-loop-idle-secs = 2
 network-config-fetch-secs = 1
 version-check-secs = 1
 inventory-update-secs = 30
+discovery-retry-secs = 1
+discovery-retries-max = 1000
 "#;
 
 const BMC_METADATA: &str = r#"{

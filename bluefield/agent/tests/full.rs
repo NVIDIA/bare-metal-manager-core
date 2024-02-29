@@ -54,6 +54,8 @@ network-config-fetch-secs = 1
 main-loop-idle-secs = 30
 version-check-secs = 1800
 inventory-update-secs = 3600
+discovery-retry-secs = 1
+discovery-retries-max = 1000
 "#;
 
 #[derive(Default, Debug)]

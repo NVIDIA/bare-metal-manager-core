@@ -69,14 +69,21 @@ async fn main() -> Result<(), eyre::Report> {
     };
 
     let machine_interface_id = subcmd.machine_interface_id();
-    let machine_id =
-        match register::run(&config.api, config.root_ca.clone(), machine_interface_id).await {
-            Ok(machine_id) => machine_id,
-            Err(e) => {
-                report_scout_error(&config, None, machine_interface_id, &e).await?;
-                return Err(e.into());
-            }
-        };
+    let machine_id = match register::run(
+        &config.api,
+        config.root_ca.clone(),
+        machine_interface_id,
+        config.discovery_retry_secs,
+        config.discovery_retries_max,
+    )
+    .await
+    {
+        Ok(machine_id) => machine_id,
+        Err(e) => {
+            report_scout_error(&config, None, machine_interface_id, &e).await?;
+            return Err(e.into());
+        }
+    };
 
     let action = match subcmd {
         Command::AutoDetect(AutoDetect { .. }) => {
