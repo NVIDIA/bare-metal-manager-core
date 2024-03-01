@@ -60,6 +60,7 @@ dependencies = [
  "eyre",
  "forge-host-support",
  "forge-http-connector",
+ "forge-tls",
  "forge-version",
  "gtmpl",
  "gtmpl_derive",
@@ -739,6 +740,7 @@ dependencies = [
  "async-trait",
  "clap 4.5.1",
  "eyre",
+ "forge-tls",
  "forge-version",
  "futures",
  "itertools 0.12.1",
@@ -2075,7 +2077,6 @@ dependencies = [
 name = "forge-tls"
 version = "0.1.0"
 dependencies = [
- "rpc",
  "serde",
  "serde_json",
  "thiserror",
@@ -2454,6 +2455,7 @@ dependencies = [
  "chrono",
  "clap 4.5.1",
  "eyre",
+ "forge-tls",
  "forge-version",
  "http",
  "hyper",
@@ -4843,6 +4845,7 @@ dependencies = [
  "chrono",
  "eyre",
  "forge-http-connector",
+ "forge-tls",
  "futures-util",
  "hickory-resolver",
  "hyper",

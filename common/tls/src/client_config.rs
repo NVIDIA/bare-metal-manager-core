@@ -1,7 +1,6 @@
 use std::{env, fs, io, path::Path, str::FromStr};
 
 use crate::default as tls_default;
-use rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
 use serde::Deserialize;
 use tonic::transport::Uri;
 
@@ -11,18 +10,18 @@ pub enum ClientConfigError {
     UrlParseError(String),
 }
 
+#[derive(Clone, Debug)]
+pub struct ClientCert {
+    pub cert_path: String,
+    pub key_path: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct FileConfig {
     pub carbide_api_url: Option<String>,
     pub forge_root_ca_path: Option<String>,
     pub client_key_path: Option<String>,
     pub client_cert_path: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub carbide_api_url: String,
-    pub forge_client_config: ForgeClientConfig,
 }
 
 pub fn get_carbide_api_url(
@@ -49,10 +48,10 @@ pub fn get_client_cert_info(
     client_cert_path: Option<String>,
     client_key_path: Option<String>,
     file_config: Option<&FileConfig>,
-) -> ForgeClientCert {
+) -> ClientCert {
     // First from command line, second env var.
     if let (Some(client_key_path), Some(client_cert_path)) = (client_key_path, client_cert_path) {
-        return ForgeClientCert {
+        return ClientCert {
             cert_path: client_cert_path,
             key_path: client_key_path,
         };
@@ -64,7 +63,7 @@ pub fn get_client_cert_info(
             file_config.client_key_path.as_ref(),
             file_config.client_cert_path.as_ref(),
         ) {
-            return ForgeClientCert {
+            return ClientCert {
                 cert_path: client_cert_path.clone(),
                 key_path: client_key_path.clone(),
             };
@@ -75,7 +74,7 @@ pub fn get_client_cert_info(
     if Path::new("/var/run/secrets/spiffe.io/tls.crt").exists()
         && Path::new("/var/run/secrets/spiffe.io/tls.key").exists()
     {
-        return ForgeClientCert {
+        return ClientCert {
             cert_path: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
             key_path: "/var/run/secrets/spiffe.io/tls.key".to_string(),
         };
@@ -83,7 +82,7 @@ pub fn get_client_cert_info(
 
     // this is the location for most compiled clients executing on x86 hosts or DPUs
     if Path::new(tls_default::CLIENT_CERT).exists() && Path::new(tls_default::CLIENT_KEY).exists() {
-        return ForgeClientCert {
+        return ClientCert {
             cert_path: tls_default::CLIENT_CERT.to_string(),
             key_path: tls_default::CLIENT_KEY.to_string(),
         };
@@ -95,7 +94,7 @@ pub fn get_client_cert_info(
         let cert_path = format!("{}/dev/certs/server_identity.pem", project_root);
         let key_path = format!("{}/dev/certs/server_identity.key", project_root);
         if Path::new(cert_path.as_str()).exists() && Path::new(key_path.as_str()).exists() {
-            return ForgeClientCert {
+            return ClientCert {
                 cert_path,
                 key_path,
             };

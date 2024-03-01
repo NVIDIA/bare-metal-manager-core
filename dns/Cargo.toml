@@ -24,6 +24,7 @@ tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
 trust-dns-server = { version = "0.21.1" }
 
 # [local-dependencies]
+forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
 

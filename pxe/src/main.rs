@@ -12,8 +12,9 @@
 use std::{env, fmt::Debug, fmt::Display};
 
 use ::rpc::forge;
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientConfig};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig};
 use clap::Parser;
+use forge_tls::client_config::ClientCert;
 use rocket::figment::Figment;
 use rocket::log::private::error;
 use rocket::{
@@ -122,7 +123,7 @@ impl<'r> FromRequest<'r> for Machine {
             Some(runtime_config) => {
                 let forge_client_config = ForgeClientConfig::new(
                     runtime_config.forge_root_ca_path.clone(),
-                    Some(ForgeClientCert {
+                    Some(ClientCert {
                         cert_path: runtime_config.server_cert_path.clone(),
                         key_path: runtime_config.server_key_path.clone(),
                     }),

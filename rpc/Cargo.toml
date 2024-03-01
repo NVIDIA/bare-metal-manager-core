@@ -40,7 +40,7 @@ tonic-build = "0.10.2"
 
 # [local-dependencies]
 forge-http-connector = { path = "../common/http-connector" }
-
+forge-tls = { path = "../common/tls" }
 
 [build-dependencies]
 tonic-build = "0.10.2"
