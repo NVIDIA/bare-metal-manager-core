@@ -15,8 +15,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientConfig, ForgeClientT};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeClientT};
 use eyre::Report;
+use forge_tls::client_config::ClientCert;
 use tokio::net::{TcpListener, UdpSocket};
 use tracing::{error, info, warn};
 use trust_dns_server::authority::MessageResponseBuilder;
@@ -147,7 +148,7 @@ impl DnsServer {
         let carbide_url = daemon_config.carbide_url.clone();
         let forge_client_config = ForgeClientConfig::new(
             daemon_config.forge_root_ca_path.clone(),
-            Some(ForgeClientCert {
+            Some(ClientCert {
                 cert_path: daemon_config.server_identity_cert_path.clone(),
                 key_path: daemon_config.server_identity_key_path.clone(),
             }),

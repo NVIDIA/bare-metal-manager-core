@@ -16,9 +16,10 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
+use forge_tls::client_config::ClientCert;
 use rocket::{get, routes, Route};
 use rocket_dyn_templates::Template;
-use rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
+use rpc::forge_tls_client::ForgeClientConfig;
 
 use crate::routes::RpcContext;
 use crate::{Machine, MachineInterface, RuntimeConfig};
@@ -89,7 +90,7 @@ pub async fn boot(contents: MachineInterface, config: RuntimeConfig) -> Result<T
 
     let forge_client_config = ForgeClientConfig::new(
         config.forge_root_ca_path.clone(),
-        Some(ForgeClientCert {
+        Some(ClientCert {
             cert_path: config.server_cert_path.clone(),
             key_path: config.server_key_path.clone(),
         }),

@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
-
 use crate::CONFIG;
+use forge_tls::client_config::ClientCert;
+use rpc::forge_tls_client::ForgeClientConfig;
 
 pub fn build_forge_client_config() -> ForgeClientConfig {
     let forge_root_ca_path = &CONFIG
@@ -31,7 +31,7 @@ pub fn build_forge_client_config() -> ForgeClientConfig {
         // which happens when another holder panics. we're already done at that point.
         .forge_client_cert_path;
 
-    let client_cert = ForgeClientCert {
+    let client_cert = ClientCert {
         cert_path: forge_client_cert_path.clone(),
         key_path: forge_client_key_path.clone(),
     };

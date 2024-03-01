@@ -1,8 +1,9 @@
 use crate::{errors::DhcpError, Config};
+use forge_tls::client_config::ClientCert;
 use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
 use rpc::{
     forge::{DhcpDiscovery, DhcpRecord},
-    forge_tls_client::{ForgeClientCert, ForgeClientConfig, ForgeTlsClient},
+    forge_tls_client::{ForgeClientConfig, ForgeTlsClient},
 };
 
 pub async fn discover_dhcp(
@@ -11,7 +12,7 @@ pub async fn discover_dhcp(
 ) -> Result<DhcpRecord, DhcpError> {
     let forge_tls_config = ForgeClientConfig::new(
         default_root_ca().to_string(),
-        Some(ForgeClientCert {
+        Some(ClientCert {
             cert_path: default_client_cert().to_string(),
             key_path: default_client_key().to_string(),
         }),

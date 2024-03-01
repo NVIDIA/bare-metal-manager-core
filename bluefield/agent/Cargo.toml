@@ -54,6 +54,7 @@ hickory-resolver = "0.24.0"
 # [local-dependencies]
 forge-host-support = { path = "../../common/host-support" }
 forge-http-connector = { path = "../../common/http-connector/" }
+forge-tls = { path = "../../common/tls" }
 forge-version = { path = "../../common/version" }
 rpc = { path = "../../rpc" }
 utils = { path = "../../common/utils" }

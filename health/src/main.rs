@@ -21,8 +21,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::rpc::forge::{self as rpc};
-use ::rpc::forge_tls_client::{self, ForgeClientCert, ForgeClientConfig, ForgeClientT};
+use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeClientT};
 use ::rpc::MachineId;
+use forge_tls::client_config::ClientCert;
 
 use http::header::CONTENT_LENGTH;
 use hyper::{
@@ -76,9 +77,9 @@ pub enum HealthError {
 fn get_client_cert_info(
     client_cert_path: Option<String>,
     client_key_path: Option<String>,
-) -> ForgeClientCert {
+) -> ClientCert {
     if let (Some(client_key_path), Some(client_cert_path)) = (client_key_path, client_cert_path) {
-        return ForgeClientCert {
+        return ClientCert {
             cert_path: client_cert_path,
             key_path: client_key_path,
         };
@@ -87,7 +88,7 @@ fn get_client_cert_info(
     if Path::new("/var/run/secrets/spiffe.io/tls.crt").exists()
         && Path::new("/var/run/secrets/spiffe.io/tls.key").exists()
     {
-        return ForgeClientCert {
+        return ClientCert {
             cert_path: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
             key_path: "/var/run/secrets/spiffe.io/tls.key".to_string(),
         };
@@ -125,7 +126,7 @@ async fn create_forge_client(
 ) -> Result<ForgeClientT, HealthError> {
     let forge_client_config = ForgeClientConfig::new(
         root_ca,
-        Some(ForgeClientCert {
+        Some(ClientCert {
             cert_path: client_cert,
             key_path: client_key,
         }),

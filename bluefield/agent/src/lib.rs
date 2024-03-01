@@ -14,7 +14,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::process::Command;
 use std::time::Instant;
 
-use ::rpc::forge_tls_client::{ForgeClientCert, ForgeClientConfig};
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
 use ::rpc::{forge as rpc, DiscoveryInfo};
 use command_line::NetworkVirtualizationType;
@@ -24,6 +24,7 @@ use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
+use forge_tls::client_config::ClientCert;
 use util::UrlResolver;
 
 use crate::frr::FrrVlanConfig;
@@ -84,7 +85,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
     let forge_client_config = ForgeClientConfig::new(
         agent.forge_system.root_ca.clone(),
-        Some(ForgeClientCert {
+        Some(ClientCert {
             cert_path: agent.forge_system.client_cert.clone(),
             key_path: agent.forge_system.client_key.clone(),
         }),

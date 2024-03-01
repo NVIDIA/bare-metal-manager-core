@@ -7,6 +7,7 @@ use eyre::Result;
 use forge_http_connector::connector::ForgeHttpConnector;
 use forge_http_connector::resolver::ForgeResolver;
 use forge_http_connector::resolver::ForgeResolverOpts;
+use forge_tls::client_config::ClientCert;
 use hickory_resolver::config::ResolverConfig;
 use hyper::http::uri::Scheme;
 use hyper::Uri;
@@ -60,16 +61,10 @@ impl ServerCertVerifier for DummyTlsVerifier {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ForgeClientCert {
-    pub cert_path: String,
-    pub key_path: String,
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct ForgeClientConfig {
     pub root_ca_path: String,
-    pub client_cert: Option<ForgeClientCert>,
+    pub client_cert: Option<ClientCert>,
     pub enforce_tls: bool,
     pub use_mgmt_vrf: bool,
     pub max_decoding_message_size: Option<usize>,
@@ -77,7 +72,7 @@ pub struct ForgeClientConfig {
 }
 
 impl ForgeClientConfig {
-    pub fn new(root_ca_path: String, client_cert: Option<ForgeClientCert>) -> Self {
+    pub fn new(root_ca_path: String, client_cert: Option<ClientCert>) -> Self {
         let disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok();
         let max_decoding_message_size = std::env::var("TONIC_MAX_DECODING_MESSAGE_SIZE")
             .ok()
