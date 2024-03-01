@@ -206,7 +206,7 @@ impl MachineStateControllerConfig {
     }
 
     pub fn power_down_wait_default() -> Duration {
-        Duration::seconds(15)
+        Duration::minutes(2)
     }
 
     pub fn failure_retry_time_default() -> Duration {

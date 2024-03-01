@@ -97,11 +97,8 @@ fn dpu_reprovisioning_needed(dpu_snapshot: &MachineSnapshot) -> Option<Reprovisi
 }
 
 // Function to wait for some time in state machine.
-fn wait(state: &ManagedHostStateSnapshot, wait_time: Duration) -> bool {
-    // Lets wait for some time before checking if DPU is up or not.
-    // Waiting is needed because DPU takes some time to go down. If we check DPU
-    // reachability before it goes down, it will give us wrong result.
-    let expected_time = state.host_snapshot.current.version.timestamp() + wait_time;
+fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
+    let expected_time = *basetime + wait_time;
     let current_time = Utc::now();
 
     current_time < expected_time
@@ -453,7 +450,32 @@ async fn handle_dpu_reprovision(
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
         }
         ReprovisionState::PowerDown => {
-            if wait(state, services.reachability_params.power_down_wait) {
+            let basetime = state
+                .host_snapshot
+                .last_reboot_requested
+                .as_ref()
+                .map(|x| x.time)
+                .unwrap_or(state.host_snapshot.current.version.timestamp());
+
+            if wait(&basetime, services.reachability_params.power_down_wait) {
+                return Ok(None);
+            }
+            let power_state = host_power_state(&state.host_snapshot, services).await?;
+
+            // Host is not powered-off yet. Try again.
+            if power_state != libredfish::PowerState::Off {
+                tracing::error!(
+                    "Machine {} is still not power-off state. Turning off for host again.",
+                    state.host_snapshot.machine_id
+                );
+                host_power_control(
+                    &state.host_snapshot,
+                    services,
+                    SystemPowerControl::ForceOff,
+                    txn,
+                )
+                .await?;
+
                 return Ok(None);
             }
             host_power_control(&state.host_snapshot, services, SystemPowerControl::On, txn).await?;
@@ -471,7 +493,10 @@ async fn handle_dpu_reprovision(
             // dpu_agent sends heartbeat just before DPU goes down. A few microseconds
             // gap can cause host to restart before DPU comes up. This will fail Host
             // DHCP.
-            if wait(state, services.reachability_params.dpu_wait_time) {
+            if wait(
+                &state.host_snapshot.current.version.timestamp(),
+                services.reachability_params.dpu_wait_time,
+            ) {
                 return Ok(None);
             }
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
@@ -908,7 +933,29 @@ async fn trigger_reboot_if_needed(
             target.machine_id,
             host.machine_id,
         );
-        let action = SystemPowerControl::On;
+        let basetime = host
+            .last_reboot_requested
+            .as_ref()
+            .map(|x| x.time)
+            .unwrap_or(host.current.version.timestamp());
+
+        if wait(&basetime, services.reachability_params.power_down_wait) {
+            return Ok(false);
+        }
+        let power_state = host_power_state(host, services).await?;
+
+        // Host is not powered-off yet, try again. If state is powered-off, power-on now.
+        let action = if power_state == libredfish::PowerState::Off {
+            SystemPowerControl::On
+        } else {
+            tracing::error!(
+                "Machine {} is still not power-off state. Turning off for host: {} again.",
+                target.machine_id,
+                host.machine_id,
+            );
+            SystemPowerControl::ForceOff
+        };
+
         host_power_control(host, services, action, txn).await?;
         Machine::update_reboot_requested_time(&target.machine_id, txn, action.into()).await?;
         return Ok(false);
@@ -1133,7 +1180,10 @@ impl StateHandler for HostMachineStateHandler {
                             // Lets wait for some time before checking if DPU is up or not.
                             // Waiting is needed because DPU takes some time to go down. If we check DPU
                             // reachability before it goes down, it will give us wrong result.
-                            if !wait(state, ctx.services.reachability_params.dpu_wait_time) {
+                            if !wait(
+                                &state.host_snapshot.current.version.timestamp(),
+                                ctx.services.reachability_params.dpu_wait_time,
+                            ) {
                                 *controller_state.modify() = ManagedHostState::HostNotReady {
                                     machine_state: MachineState::WaitingForLockdown {
                                         lockdown_info: LockdownInfo {
@@ -1667,6 +1717,41 @@ async fn restart_machine(
     }
 
     Ok(())
+}
+
+async fn host_power_state(
+    host_snapshot: &MachineSnapshot,
+    services: &StateHandlerServices,
+) -> Result<libredfish::PowerState, StateHandlerError> {
+    let bmc_ip =
+        host_snapshot
+            .bmc_info
+            .ip
+            .as_deref()
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: host_snapshot.machine_id.to_string(),
+                missing: "bmc_info.ip",
+            })?;
+
+    let client = services
+        .redfish_client_pool
+        .create_client(
+            bmc_ip,
+            host_snapshot.bmc_info.port,
+            CredentialKey::Bmc {
+                machine_id: host_snapshot.machine_id.to_string(),
+                user_role: UserRoles::Administrator.to_string(),
+            },
+        )
+        .await?;
+
+    client
+        .get_power_state()
+        .await
+        .map_err(|e| StateHandlerError::RedfishError {
+            operation: "get_power_state",
+            error: e,
+        })
 }
 
 async fn host_power_control(
