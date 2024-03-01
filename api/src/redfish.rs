@@ -19,7 +19,8 @@ use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use http::StatusCode;
 use libredfish::{
-    model::task::Task, standard::RedfishStandard, Endpoint, Redfish, RedfishError, RoleId,
+    model::task::Task, standard::RedfishStandard, Endpoint, PowerState, Redfish, RedfishError,
+    RoleId,
 };
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
@@ -324,7 +325,9 @@ struct RedfishSimState {
 }
 
 #[derive(Debug, Default)]
-struct RedfishSimHostState {}
+struct RedfishSimHostState {
+    power: PowerState,
+}
 
 #[derive(Debug, Default)]
 pub struct RedfishSim {
@@ -333,7 +336,7 @@ pub struct RedfishSim {
 
 #[derive(Debug)]
 struct RedfishSimClient {
-    _state: Arc<Mutex<RedfishSimState>>,
+    state: Arc<Mutex<RedfishSimState>>,
     _credential_key: CredentialKey,
     _host: String,
     _port: Option<u16>,
@@ -342,15 +345,27 @@ struct RedfishSimClient {
 #[async_trait]
 impl Redfish for RedfishSimClient {
     async fn get_power_state(&self) -> Result<libredfish::PowerState, RedfishError> {
-        Ok(libredfish::PowerState::Off)
+        Ok(self.state.clone().lock().unwrap()._hosts[&self._host].power)
     }
 
     async fn get_power_metrics(&self) -> Result<libredfish::model::power::Power, RedfishError> {
         todo!()
     }
 
-    async fn power(&self, _action: libredfish::SystemPowerControl) -> Result<(), RedfishError> {
-        // TODO: Only return Ok if the machine is actually known
+    async fn power(&self, action: libredfish::SystemPowerControl) -> Result<(), RedfishError> {
+        let power_state = match action {
+            libredfish::SystemPowerControl::ForceOff
+            | libredfish::SystemPowerControl::GracefulShutdown => PowerState::Off,
+            _ => PowerState::On,
+        };
+        self.state
+            .clone()
+            .lock()
+            .unwrap()
+            ._hosts
+            .get_mut(&self._host)
+            .unwrap()
+            .power = power_state;
         Ok(())
     }
 
@@ -425,7 +440,7 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn change_password(&self, user: &str, new: &str) -> Result<(), RedfishError> {
-        let mut state = self._state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         if !state.users.contains_key(&user.to_string()) {
             return Err(RedfishError::UserNotFound(user.to_string()));
         }
@@ -582,7 +597,7 @@ impl Redfish for RedfishSimClient {
         password: &str,
         _role_id: libredfish::RoleId,
     ) -> Result<(), RedfishError> {
-        let mut state = self._state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         if state.users.contains_key(username) {
             return Err(RedfishError::HTTPErrorCode {
                 url: "AccountService/Accounts".to_string(),
@@ -663,8 +678,19 @@ impl RedfishClientPool for RedfishSim {
         port: Option<u16>,
         credential_key: CredentialKey,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        {
+            self.state
+                .clone()
+                .lock()
+                .unwrap()
+                ._hosts
+                .entry(host.to_string())
+                .or_insert(RedfishSimHostState {
+                    power: PowerState::On,
+                });
+        }
         Ok(Box::new(RedfishSimClient {
-            _state: self.state.clone(),
+            state: self.state.clone(),
             _credential_key: credential_key,
             _host: host.to_string(),
             _port: port,
@@ -702,14 +728,52 @@ impl RedfishClientPool for RedfishSim {
                     .change_password(username, password.as_str())
                     .await
                     .map_err(RedfishClientCreationError::RedfishError);
-            } else {
-                return Err(RedfishClientCreationError::RedfishError(e));
             }
+            return Err(RedfishClientCreationError::RedfishError(e));
         }
         Ok(())
     }
 
     async fn uefi_setup(&self, _client: &dyn Redfish) -> Result<(), RedfishClientCreationError> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_power_state() {
+        let sim = RedfishSim::default();
+        let client = sim
+            .create_client(
+                "localhost",
+                None,
+                CredentialKey::HostRedfish {
+                    credential_type: CredentialType::SiteDefault,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(PowerState::On, client.get_power_state().await.unwrap());
+        client
+            .power(libredfish::SystemPowerControl::ForceOff)
+            .await
+            .unwrap();
+
+        assert_eq!(PowerState::Off, client.get_power_state().await.unwrap());
+        let client = sim
+            .create_client(
+                "localhost",
+                None,
+                CredentialKey::HostRedfish {
+                    credential_type: CredentialType::SiteDefault,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(PowerState::Off, client.get_power_state().await.unwrap());
     }
 }
