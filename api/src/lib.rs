@@ -287,10 +287,9 @@ pub async fn run(
     logging_subscriber: Option<impl SubscriberInitExt>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
-    let (prometheus_registry, meter) =
-        setup_telemetry(debug, carbide_config.clone(), logging_subscriber)
-            .await
-            .wrap_err("setup_telemetry")?;
+    let (prometheus_registry, meter) = setup_telemetry(debug, logging_subscriber)
+        .await
+        .wrap_err("setup_telemetry")?;
 
     // Redact credentials before printing the config
     let print_config = {
