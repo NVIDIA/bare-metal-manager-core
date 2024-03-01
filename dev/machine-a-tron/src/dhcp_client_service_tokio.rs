@@ -285,9 +285,8 @@ async fn send_request_packet(udp_socket: &tokio::net::UdpSocket, request_info: D
         .insert(DhcpOption::ServerIdentifier(server_address));
     msg.opts_mut()
         .insert(DhcpOption::RequestedIpAddress(requested_address));
-    msg.opts_mut().insert(DhcpOption::ClassIdentifier(
-        "PXEClient".as_bytes().to_vec(),
-    ));
+    msg.opts_mut()
+        .insert(DhcpOption::ClassIdentifier("PXEClient".as_bytes().to_vec()));
     msg.opts_mut()
         .insert(DhcpOption::ClientIdentifier(uuid.into()));
 
@@ -343,9 +342,8 @@ async fn send_discovery_packet(
     msg.opts_mut().insert(DhcpOption::ClientSystemArchitecture(
         dhcproto::v4::Architecture::Unknown(0x07),
     ));
-    msg.opts_mut().insert(DhcpOption::ClassIdentifier(
-        "PXEClient".as_bytes().to_vec(),
-    ));
+    msg.opts_mut()
+        .insert(DhcpOption::ClassIdentifier("PXEClient".as_bytes().to_vec()));
 
     msg.opts_mut().insert(DhcpOption::ParameterRequestList(vec![
         OptionCode::SubnetMask,
