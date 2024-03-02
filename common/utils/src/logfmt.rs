@@ -169,11 +169,8 @@ where
     fn on_follows_from(&self, _id: &span::Id, _follows: &span::Id, _ctx: Context<S>) {}
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
-        // The first path is taken if the event is not a Span lifecycle event,
-        // but an actual event
-        let Some(current_span) = ctx.lookup_current() else {
-            return;
-        };
+        // If the event doesn't happen in the scope of a Span, we don't log some span data
+        let current_span = ctx.lookup_current();
 
         // A temporary format buffer is used because accessing stdout can be expensive
         let mut out = Vec::new();
@@ -182,25 +179,24 @@ where
         /// on write! results
         fn write_event_data<'a, R: LookupSpan<'a>>(
             event: &Event<'_>,
-            current_span: SpanRef<'a, R>,
+            current_span: Option<&SpanRef<'a, R>>,
             out: &mut Vec<u8>,
         ) -> Result<(), std::io::Error> {
             write!(out, "level={} ", event.metadata().level())?;
 
             // TODO: More metadata?
 
-            // Get the span_id to correlate the event with the actual span
-            let ext = current_span.extensions();
-            let data = ext
-                .get::<LogFmtData>()
-                .expect("Unable to find LogFmtData in extensions; this is a bug");
+            if let Some(current_span) = current_span {
+                // Get the span_id to correlate the event with the actual span
+                let ext = current_span.extensions();
+                let data = ext
+                    .get::<LogFmtData>()
+                    .expect("Unable to find LogFmtData in extensions; this is a bug");
 
-            if let Some(span_id) = data.attributes.get("span_id") {
-                write!(out, "{} ", kvp("span_id", span_id))?;
+                if let Some(span_id) = data.attributes.get("span_id") {
+                    write!(out, "{} ", kvp("span_id", span_id))?;
+                }
             }
-
-            // Release extension lock
-            drop(ext);
 
             let mut visitor = FieldVisitor {
                 message: None,
@@ -225,7 +221,7 @@ where
             Ok(())
         }
 
-        if let Ok(()) = write_event_data(event, current_span, &mut out) {
+        if let Ok(()) = write_event_data(event, current_span.as_ref(), &mut out) {
             let mut writer = (self.make_writer)();
             let _ = writer.write_all(&out);
         }
@@ -457,8 +453,8 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use tracing::Level;
-    use tracing_subscriber::prelude::*;
+    use tracing::{level_filters::LevelFilter, Level};
+    use tracing_subscriber::{prelude::*, EnvFilter};
 
     #[derive(Clone)]
     struct TestWriter {
@@ -583,6 +579,52 @@ mod tests {
     }
 
     #[test]
+    fn test_span_logs_are_emitted_according_to_log_level() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer().with_writer(Arc::new(move || Box::new(cloned_writer.clone())));
+
+        let env_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .parse_lossy("warn"); // Equals `RUST_LOG=warn`
+        let _subscriber = tracing_subscriber::registry()
+            .with(layer.with_filter(env_filter))
+            .set_default();
+
+        let span = tracing::span!(tracing::Level::INFO, "info_span", span_id = "s1234",);
+        let _entered = span.enter();
+        tracing::info!("info_event");
+        drop(_entered);
+        drop(span);
+
+        let span = tracing::span!(tracing::Level::WARN, "warn_span", span_id = "s1234",);
+        let _entered = span.enter();
+        tracing::warn!("warn_event");
+        drop(_entered);
+        drop(span);
+
+        // Check the written data
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        assert_eq!(
+            lines.len(),
+            2,
+            "Expected 2 lines, got {}: {:?}",
+            lines.len(),
+            lines
+        );
+        assert!(
+            lines[0].starts_with(r#"level=WARN span_id=s1234 msg=warn_event location="#),
+            "Line is: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1].starts_with(r#"level=SPAN span_id=s1234 span_name=warn_span timing_busy_ns="#),
+            "Line is: {}",
+            lines[1]
+        );
+    }
+
+    #[test]
     fn test_suppress_span_logs() {
         let writer = TestWriter::new();
         let cloned_writer = writer.clone();
@@ -626,7 +668,7 @@ mod tests {
         assert_eq!(
             lines.len(),
             3,
-            "Expected 2 lines, got {}: {:?}",
+            "Expected 3 lines, got {}: {:?}",
             lines.len(),
             lines
         );
@@ -676,6 +718,34 @@ mod tests {
         );
         assert!(
             lines[0].starts_with(r#"level=INFO span_id=s1234 msg=abc location=""#),
+            "Line is: {}",
+            lines[0]
+        );
+    }
+
+    #[test]
+    fn test_event_outside_of_span() {
+        let writer = TestWriter::new();
+        let cloned_writer = writer.clone();
+        let layer = layer().with_writer(Arc::new(move || Box::new(cloned_writer.clone())));
+
+        let _subscriber = tracing_subscriber::registry().with(layer).set_default();
+
+        tracing::warn!(a = 100, "outside_event!");
+
+        // Check the written data
+        let lines: Vec<String> = writer.text().lines().map(ToString::to_string).collect();
+        assert_eq!(
+            lines.len(),
+            1,
+            "Expected 1 lines, got {}: {:?}",
+            lines.len(),
+            lines
+        );
+        assert!(
+            lines[0].starts_with(
+                r#"level=WARN msg=outside_event! a=100 location="common/utils/src/logfmt.rs"#
+            ),
             "Line is: {}",
             lines[0]
         );
