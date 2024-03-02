@@ -291,6 +291,14 @@ impl StateHandler for MachineStateHandler {
                         )
                         .await?
                         {
+                            trigger_reboot_if_needed(
+                                &state.host_snapshot,
+                                &state.host_snapshot,
+                                None,
+                                ctx.services,
+                                txn,
+                            )
+                            .await?;
                             return Ok(());
                         }
 
