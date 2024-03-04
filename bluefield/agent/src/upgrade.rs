@@ -19,7 +19,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use data_encoding::BASE64;
 use eyre::WrapErr;
 use tokio::process::Command as TokioCommand;
@@ -174,9 +174,11 @@ async fn network_upgrade_check(
         binary_sha: binary_hash,
     };
 
-    let mut client = forge_tls_client::ForgeTlsClient::new(client_config)
-        .connect(forge_api)
-        .await?;
+    let mut client = forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+        forge_api,
+        client_config,
+    ))
+    .await?;
     let resp = client
         .dpu_agent_upgrade_check(tonic::Request::new(req))
         .await

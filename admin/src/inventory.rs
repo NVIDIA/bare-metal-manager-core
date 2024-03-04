@@ -14,10 +14,11 @@ use std::{
     fs,
 };
 
+use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{site_explorer::ExploredManagedHost, InstanceList, MachineList};
 use serde::{Deserialize, Serialize};
 
-use crate::{cfg::carbide_options::InventoryAction, rpc, CarbideCliResult, Config};
+use crate::{cfg::carbide_options::InventoryAction, rpc, CarbideCliResult};
 
 // Expected output
 // x86_host_bmcs:
@@ -189,7 +190,10 @@ fn get_bmc_info(
 }
 
 /// Main entry function which print inventory.
-pub async fn print_inventory(api_config: &Config, action: InventoryAction) -> CarbideCliResult<()> {
+pub async fn print_inventory(
+    api_config: &ApiConfig<'_>,
+    action: InventoryAction,
+) -> CarbideCliResult<()> {
     let all_machines = rpc::get_all_machines(api_config, None, false).await?;
     let all_instances = rpc::get_instances(api_config, None).await?;
 

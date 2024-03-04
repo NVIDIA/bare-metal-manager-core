@@ -3,7 +3,7 @@ use std::future::Future;
 
 use rpc::{
     forge::{MachineSearchConfig, MachineType},
-    forge_tls_client::{self, ForgeClientT},
+    forge_tls_client::{self, ApiConfig, ForgeClientT},
 };
 
 use crate::AppConfig;
@@ -26,8 +26,12 @@ pub async fn with_forge_client<T, F>(
 where
     F: Future<Output = ClientApiResult<T>>,
 {
-    let client = forge_tls_client::ForgeTlsClient::new(app_config.forge_client_config.clone())
-        .connect(app_config.carbide_api_url.clone())
+    let api_config = ApiConfig::new(
+        &app_config.carbide_api_url,
+        app_config.forge_client_config.clone(),
+    );
+
+    let client = forge_tls_client::ForgeTlsClient::new_and_connect(&api_config)
         .await
         .map_err(|err| ClientApiError::ConnectFailed(err.to_string()))?;
 

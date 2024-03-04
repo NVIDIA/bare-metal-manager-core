@@ -15,7 +15,7 @@ use std::primitive::u32;
 use std::ptr;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use ipnetwork::IpNetwork;
 use MachineArchitecture::*;
 
@@ -40,12 +40,10 @@ impl Machine {
         discovery: Discovery,
         carbide_api_url: &str,
         vendor_class: Option<VendorClass>,
-        forge_tls_config: ForgeClientConfig,
+        client_config: ForgeClientConfig,
     ) -> Result<Self, String> {
-        match forge_tls_client::ForgeTlsClient::new(forge_tls_config)
-            .connect(carbide_api_url)
-            .await
-        {
+        let api_config = ApiConfig::new(carbide_api_url, client_config);
+        match forge_tls_client::ForgeTlsClient::new_and_connect(&api_config).await {
             Ok(mut client) => {
                 let request = tonic::Request::new(rpc::DhcpDiscovery {
                     mac_address: discovery.mac_address.to_string(),

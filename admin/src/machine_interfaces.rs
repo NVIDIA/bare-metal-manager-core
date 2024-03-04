@@ -23,14 +23,14 @@ use super::CarbideCliResult;
 
 use super::rpc;
 use crate::default_uuid;
-use crate::Config;
 use ::rpc::forge as forgerpc;
+use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::Table;
 
 pub async fn handle_show(
     args: ShowMachineInterfaces,
     output_format: OutputFormat,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.all || args.interface_id.is_empty() {
@@ -51,7 +51,7 @@ pub async fn handle_show(
 async fn show_all_machine_interfaces(
     is_json: bool,
     has_more: bool,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     let machine_interfaces = rpc::get_all_machines_interfaces(api_config, None).await?;
 
@@ -71,7 +71,7 @@ async fn show_all_machine_interfaces(
 async fn show_machine_interfaces_information(
     id: String,
     is_json: bool,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     let interface_id = Some(Uuid { value: id });
     let machine_interfaces = rpc::get_all_machines_interfaces(api_config, interface_id).await?;

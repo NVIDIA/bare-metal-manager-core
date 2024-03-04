@@ -16,6 +16,9 @@ use tokio_rustls::rustls;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
 use tokio_rustls::rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore, ServerName};
 use tonic::body::BoxBody;
+
+use tryhard::backoff_strategies::FixedBackoff;
+use tryhard::{NoOnRetry, RetryFutureConfig};
 use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::forge_resolver;
@@ -216,6 +219,74 @@ impl ForgeClientConfig {
     }
 }
 
+// RetryConfig is intended to be a generic
+// set of parameters used for defining retries.
+// Since the use cases right now all seem to fit
+// into a fixed retry interval, this supports
+// as such. If this ends up evolving into
+// something where we also want exponential
+// backoff, we can add it.
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    retries: u32,
+    interval: Duration,
+}
+
+impl Default for RetryConfig {
+    // default returns the default retry configuration,
+    // which is 10 second intervals up to 60 times.
+    // The initial use case for this was connect failures,
+    // where if we're in a situation with connection
+    // failures, we don't want to be overly aggressive
+    // with retries (but probably want to be persistent).
+    fn default() -> Self {
+        Self {
+            retries: 60,
+            interval: Duration::from_secs(10),
+        }
+    }
+}
+
+// ApiConfig holds configuration used to connect
+// to a given Carbide API URL, including the client
+// configuration itself, as well as retry config.
+#[derive(Debug, Clone)]
+pub struct ApiConfig<'a> {
+    pub url: &'a str,
+    pub client_config: ForgeClientConfig,
+    pub retry_config: RetryConfig,
+}
+
+impl<'a> ApiConfig<'a> {
+    // new creates a new ApiConfig, for the given
+    // Carbide API URL and ForgeClientConfig, with
+    // a default retry configuration.
+    pub fn new(url: &'a str, client_config: ForgeClientConfig) -> Self {
+        Self {
+            url,
+            client_config,
+            retry_config: RetryConfig::default(),
+        }
+    }
+
+    // with_retry_config allows a caller to set their
+    // own RetryConfig beyond the default.
+    pub fn with_retry_config(&self, retry_config: RetryConfig) -> Self {
+        Self {
+            url: self.url,
+            client_config: self.client_config.clone(),
+            retry_config,
+        }
+    }
+
+    // retry_config converts the generic RetryConfig into the
+    // implementation-specific retry type, which as of now is
+    // a tryhard::RetryFutureConfig.
+    fn retry_config(&self) -> RetryFutureConfig<FixedBackoff, NoOnRetry> {
+        RetryFutureConfig::new(self.retry_config.retries).fixed_backoff(self.retry_config.interval)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ForgeTlsClient {
     forge_client_config: ForgeClientConfig,
@@ -225,6 +296,37 @@ impl ForgeTlsClient {
     pub fn new(forge_client_config: ForgeClientConfig) -> Self {
         Self {
             forge_client_config,
+        }
+    }
+
+    // new_and_connect creates a new ForgeTlsClient from
+    // the given API URL and ForgeClientConfig, then attempts to create
+    // and return a connected client, integrating retries into the
+    // connection attempts.
+    //
+    // Creating + connecting seems to be a common pattern across the codebase
+    // in general, so centralizing one here, which then makes it easier to
+    // integrate retries across the board.
+    pub async fn new_and_connect<'a>(
+        api_config: &ApiConfig<'a>,
+    ) -> ForgeTlsClientResult<ForgeClientT> {
+        // TODO(chet): Make this configurable. For now,
+        // hard-coding as 10 minutes worth of connect attempts..
+        let client = ForgeTlsClient::new(api_config.client_config.clone());
+        match tryhard::retry_fn(|| client.connect(api_config.url))
+            .with_config(api_config.retry_config())
+            .await
+        {
+            Ok(client) => Ok(client),
+            Err(err) => {
+                tracing::error!(
+                    "error connecting to forge api (url: {}, attempts: {}): {}",
+                    api_config.url,
+                    api_config.retry_config.retries,
+                    err
+                );
+                Err(ForgeTlsClientError::ConnectError(err.to_string()))
+            }
         }
     }
 
@@ -374,3 +476,11 @@ impl ForgeTlsClient {
         Ok(forge_client)
     }
 }
+
+#[derive(thiserror::Error, Debug)]
+pub enum ForgeTlsClientError {
+    #[error("ConnectError error: {0}")]
+    ConnectError(String),
+}
+
+pub type ForgeTlsClientResult<T> = Result<T, ForgeTlsClientError>;

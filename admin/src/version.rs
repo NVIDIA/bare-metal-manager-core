@@ -1,6 +1,7 @@
 use prettytable::{row, Cell, Row, Table};
 
-use crate::{cfg::carbide_options::Version, rpc, CarbideCliError, Config};
+use crate::{cfg::carbide_options::Version, rpc, CarbideCliError};
+use ::rpc::forge_tls_client::ApiConfig;
 
 macro_rules! r {
     ($table: ident, $value:ident, $field_name:ident) => {
@@ -22,7 +23,7 @@ macro_rules! rv {
 
 pub async fn handle_show_version(
     version: Version,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> Result<(), CarbideCliError> {
     let v = rpc::version(api_config, version.show_runtime_config).await?;
 

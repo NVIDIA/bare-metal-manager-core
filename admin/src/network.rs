@@ -18,7 +18,7 @@ use tracing::warn;
 
 use super::cfg::carbide_options::{OutputFormat, ShowNetwork};
 use super::{default_uuid, rpc, CarbideCliError, CarbideCliResult};
-use crate::Config;
+use ::rpc::forge_tls_client::ApiConfig;
 
 #[derive(Deserialize)]
 struct NetworkState {
@@ -27,7 +27,7 @@ struct NetworkState {
 
 async fn convert_network_to_nice_format(
     segment: &forgerpc::NetworkSegment,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
@@ -136,7 +136,7 @@ async fn convert_network_to_nice_format(
     Ok(lines)
 }
 
-async fn get_domain_name(domain_id: Option<forgerpc::Uuid>, api_config: &Config) -> String {
+async fn get_domain_name(domain_id: Option<forgerpc::Uuid>, api_config: &ApiConfig<'_>) -> String {
     match domain_id {
         Some(id) => match rpc::get_domains(Some(id), api_config).await {
             Ok(domain_list) => {
@@ -154,7 +154,7 @@ async fn get_domain_name(domain_id: Option<forgerpc::Uuid>, api_config: &Config)
 
 async fn convert_network_to_nice_table(
     segments: forgerpc::NetworkSegmentList,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> Box<Table> {
     let mut table = Table::new();
 
@@ -207,7 +207,7 @@ async fn convert_network_to_nice_table(
     table.into()
 }
 
-async fn show_all_segments(json: bool, api_config: &Config) -> CarbideCliResult<()> {
+async fn show_all_segments(json: bool, api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
     let segments = rpc::get_segments(None, api_config).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&segments).unwrap());
@@ -222,7 +222,7 @@ async fn show_all_segments(json: bool, api_config: &Config) -> CarbideCliResult<
 async fn show_network_information(
     id: String,
     json: bool,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     let segment = rpc::get_segments(
         Some(
@@ -254,7 +254,7 @@ async fn show_network_information(
 pub async fn handle_show(
     args: ShowNetwork,
     output_format: OutputFormat,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.all || args.network.is_empty() {

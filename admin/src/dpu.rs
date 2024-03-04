@@ -11,26 +11,24 @@
  */
 use std::collections::HashMap;
 
+use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{forge::MachineType, Machine, MachineId};
 use prettytable::{row, Row, Table};
 use serde::Serialize;
 
 use super::{rpc, CarbideCliResult};
-use crate::{
-    cfg::carbide_options::{AgentUpgradePolicyChoice, OutputFormat},
-    Config,
-};
+use crate::cfg::carbide_options::{AgentUpgradePolicyChoice, OutputFormat};
 
 pub async fn trigger_reprovisioning(
     id: String,
     set: bool,
     update_firmware: bool,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     rpc::trigger_dpu_reprovisioning(id, set, update_firmware, api_config).await
 }
 
-pub async fn list_dpus_pending(api_config: &Config) -> CarbideCliResult<()> {
+pub async fn list_dpus_pending(api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
     let response = rpc::list_dpu_pending_for_reprovisioning(api_config).await?;
     print_pending_dpus(response);
     Ok(())
@@ -74,7 +72,7 @@ fn print_pending_dpus(dpus: ::rpc::forge::DpuReprovisioningListResponse) {
 }
 
 pub async fn handle_agent_upgrade_policy(
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
     action: Option<::rpc::forge::AgentUpgradePolicy>,
 ) -> CarbideCliResult<()> {
     match action {
@@ -193,7 +191,7 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
 pub async fn handle_dpu_versions(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
     updates_only: bool,
 ) -> CarbideCliResult<()> {
     let expected_versions: HashMap<String, String> = if updates_only {

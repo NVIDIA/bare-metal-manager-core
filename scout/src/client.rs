@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use forge_tls::client_config::ClientCert;
 pub use scout::{CarbideClientError, CarbideClientResult};
 
@@ -19,16 +19,18 @@ use crate::Options;
 pub(crate) async fn create_forge_client(
     config: &Options,
 ) -> CarbideClientResult<forge_tls_client::ForgeClientT> {
-    let forge_client_config = ForgeClientConfig::new(
-        config.root_ca.clone(),
-        Some(ClientCert {
-            cert_path: config.client_cert.clone(),
-            key_path: config.client_key.clone(),
-        }),
+    let api_config = ApiConfig::new(
+        &config.api,
+        ForgeClientConfig::new(
+            config.root_ca.clone(),
+            Some(ClientCert {
+                cert_path: config.client_cert.clone(),
+                key_path: config.client_key.clone(),
+            }),
+        ),
     );
 
-    let client = forge_tls_client::ForgeTlsClient::new(forge_client_config)
-        .connect(&config.api)
+    let client = forge_tls_client::ForgeTlsClient::new_and_connect(&api_config)
         .await
         .map_err(|err| CarbideClientError::TransportError(err.to_string()))?;
     Ok(client)
