@@ -1,0 +1,79 @@
+Host sjc4jump 24.51.7.3
+  Hostname 24.51.7.3
+  Compression yes
+  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+
+Host renojump 155.130.12.194
+  Hostname 155.130.12.194
+  Compression yes
+  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+
+Host pdxjump 10.217.0.131
+  Hostname 10.217.0.131
+  Compression yes
+  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+
+# You can specify that the jump host is automatically applied for certain IPs
+# using sections like this.
+Host *.nsv.sjc4.nvmetal.net 10.150.* 10.181.20.* 10.181.21.*
+  ProxyJump sjc4jump
+
+Host 10.180.32.* 10.180.222.* 10.180.221.* 10.180.124.*
+  ProxyJump renojump
+
+Host renolp
+  Hostname 10.180.248.29
+  ProxyJump renojump
+
+Host qa2
+  Hostname 10.217.5.197
+  ProxyJump renojump
+
+Host dev3
+  Hostname 10.217.4.197
+  ProxyJump renojump
+
+Host dev4
+  Hostname 10.180.248.29
+  ProxyJump renojump
+
+Host pdx01
+  Hostname 10.217.6.197
+  ProxyJump pdxjump
+
+Host az01
+  Hostname 10.45.2.5
+  ProxyJump wus-jb-admin01
+
+Host az02
+  Hostname 10.45.42.5
+  ProxyJump wus-jb-admin01
+
+Host az03
+  Hostname 10.45.58.3
+  ProxyJump wus2-jb-admin01
+
+Host az06
+  Hostname 10.45.106.5
+  ProxyJump wus2-jb-admin01
+
+Host az20
+  Hostname 10.45.10.3
+  ProxyJump sdc-jb-admin01
+
+Host az21
+  Hostname 10.45.82.5
+  ProxyJump sdc-jb-admin01
+
+Host demo1
+  Hostname 10.217.5.193
+  ProxyJump renojump
+
+Host demo2
+  Hostname 10.217.5.195
+  ProxyJump renojump
+
+Host tpe01
+  Hostname 10.225.4.69
+  ProxyJump tpe01-jb
+
