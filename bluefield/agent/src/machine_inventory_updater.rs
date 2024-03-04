@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use tracing::{error, info, trace};
 
 use crate::containerd::container;
@@ -83,12 +83,14 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
 async fn update_agent_reported_inventory(
     inventory_report: rpc::DpuAgentInventoryReport,
-    forge_client_config: forge_tls_client::ForgeClientConfig,
+    client_config: forge_tls_client::ForgeClientConfig,
     forge_api: &str,
 ) -> eyre::Result<()> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
-        .connect(forge_api)
-        .await
+    let mut client = match forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+        forge_api,
+        client_config,
+    ))
+    .await
     {
         Ok(client) => client,
         Err(err) => {

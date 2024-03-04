@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use ::rpc::forge as rpc;
 use ::rpc::forge::VpcVirtualizationType;
 use ::rpc::forge_tls_client;
+use ::rpc::forge_tls_client::ApiConfig;
 use axum::Router;
 use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
@@ -449,13 +450,12 @@ pub async fn record_network_status(
     }
 }
 
-async fn renew_certificates(
-    forge_api: &str,
-    forge_client_config: forge_tls_client::ForgeClientConfig,
-) {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
-        .connect(forge_api)
-        .await
+async fn renew_certificates(forge_api: &str, client_config: forge_tls_client::ForgeClientConfig) {
+    let mut client = match forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+        forge_api,
+        client_config,
+    ))
+    .await
     {
         Ok(client) => client,
         Err(err) => {

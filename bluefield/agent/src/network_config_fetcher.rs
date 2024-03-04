@@ -16,7 +16,7 @@ use std::{
 };
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use arc_swap::ArcSwap;
 use tracing::{error, trace, warn};
 
@@ -152,15 +152,17 @@ async fn single_fetch(
 pub async fn fetch(
     dpu_machine_id: &str,
     forge_api: &str,
-    forge_client_config: ForgeClientConfig,
+    client_config: ForgeClientConfig,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
-        .connect(forge_api)
-        .await
+    let mut client = match forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+        forge_api,
+        client_config,
+    ))
+    .await
     {
         Ok(client) => client,
         Err(err) => {
-            return Err(err.wrap_err(format!(
+            return Err(eyre::Report::new(err).wrap_err(format!(
                 "Could not connect to Forge API server at {forge_api}"
             )));
         }

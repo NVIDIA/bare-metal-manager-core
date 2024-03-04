@@ -12,7 +12,7 @@
 use std::{env, fmt::Debug, fmt::Display};
 
 use ::rpc::forge;
-use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use clap::Parser;
 use forge_tls::client_config::ClientCert;
 use rocket::figment::Figment;
@@ -121,17 +121,18 @@ impl<'r> FromRequest<'r> for Machine {
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let mut client = match request.rocket().state::<RuntimeConfig>() {
             Some(runtime_config) => {
-                let forge_client_config = ForgeClientConfig::new(
-                    runtime_config.forge_root_ca_path.clone(),
-                    Some(ClientCert {
-                        cert_path: runtime_config.server_cert_path.clone(),
-                        key_path: runtime_config.server_key_path.clone(),
-                    }),
+                let api_config = ApiConfig::new(
+                    &runtime_config.internal_api_url,
+                    ForgeClientConfig::new(
+                        runtime_config.forge_root_ca_path.clone(),
+                        Some(ClientCert {
+                            cert_path: runtime_config.server_cert_path.clone(),
+                            key_path: runtime_config.server_key_path.clone(),
+                        }),
+                    ),
                 );
-                match forge_tls_client::ForgeTlsClient::new(forge_client_config)
-                    .connect(runtime_config.internal_api_url.clone())
-                    .await
-                {
+
+                match forge_tls_client::ForgeTlsClient::new_and_connect(&api_config).await {
                     Ok(client) => client,
                     Err(err) => {
                         eprintln!(

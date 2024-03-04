@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeClientT};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
 use eyre::Report;
 use forge_tls::client_config::ClientCert;
 use tokio::net::{TcpListener, UdpSocket};
@@ -49,8 +49,10 @@ impl RequestHandler for DnsServer {
         let mut response_header = Header::response_from_request(request.header());
 
         let message = MessageResponseBuilder::from_message_request(request);
-        let client = forge_tls_client::ForgeTlsClient::new(self.forge_client_config.clone())
-            .connect(self.url.clone())
+
+        let api_config = ApiConfig::new(&self.url, self.forge_client_config.clone());
+
+        let client = forge_tls_client::ForgeTlsClient::new_and_connect(&api_config)
             .await
             .unwrap_or_else(|err| {
                 panic!(

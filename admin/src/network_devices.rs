@@ -2,13 +2,14 @@ use std::fmt::Write;
 
 use crate::{
     cfg::carbide_options::{NetworkDeviceShow, OutputFormat},
-    CarbideCliResult, Config,
+    CarbideCliResult,
 };
+use ::rpc::forge_tls_client::ApiConfig;
 
 pub async fn show(
     output_format: OutputFormat,
     query: NetworkDeviceShow,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     let query_id: Option<String> = if query.all || query.id.is_empty() {
         None

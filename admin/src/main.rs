@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use ::rpc::forge::MachineType;
 use ::rpc::forge::{self as forgerpc};
-use ::rpc::forge_tls_client::ForgeClientConfig;
+use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::CredentialType;
 use ::rpc::MachineId;
 use ::rpc::Uuid;
@@ -61,12 +61,6 @@ mod redfish;
 mod resource_pool;
 mod rpc;
 mod version;
-
-#[derive(Debug, Clone)]
-pub struct Config {
-    carbide_api_url: String,
-    forge_client_config: ForgeClientConfig,
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideCliError {
@@ -160,7 +154,7 @@ async fn main() -> color_eyre::Result<()> {
         return redfish::action(ra).await;
     }
 
-    let carbide_api_url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
+    let url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
     let forge_client_cert = get_client_cert_info(
@@ -171,16 +165,12 @@ async fn main() -> color_eyre::Result<()> {
 
     let proxy = get_proxy_info()?;
 
-    let mut forge_client_config =
-        ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
-    forge_client_config.socks_proxy(proxy);
+    let mut client_config = ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
+    client_config.socks_proxy(proxy);
 
     // api_config is created here and subsequently
     // borrowed by all others.
-    let api_config = &Config {
-        carbide_api_url,
-        forge_client_config,
-    };
+    let api_config = &ApiConfig::new(&url, client_config);
 
     let command = match config.commands {
         None => {
@@ -582,7 +572,7 @@ async fn main() -> color_eyre::Result<()> {
     Ok(())
 }
 
-pub async fn migrate_vpc_vni(api_config: &Config) -> color_eyre::eyre::Result<()> {
+pub async fn migrate_vpc_vni(api_config: &ApiConfig<'_>) -> color_eyre::eyre::Result<()> {
     let result = crate::rpc::migrate_vpc_vni(api_config).await?;
     println!(
         "Added a VNI to {} of {} VPCs",

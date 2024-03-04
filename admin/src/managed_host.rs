@@ -21,7 +21,7 @@ use tracing::warn;
 
 use super::{rpc, CarbideCliResult};
 use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
-use crate::Config;
+use ::rpc::forge_tls_client::ApiConfig;
 
 const UNKNOWN: &str = "Unknown";
 
@@ -311,7 +311,7 @@ pub async fn handle_show(
     output: &mut dyn std::io::Write,
     args: ShowManagedHost,
     output_format: OutputFormat,
-    api_config: &Config,
+    api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     let site_report_managed_hosts = rpc::get_site_exploration_report(api_config)
         .await?

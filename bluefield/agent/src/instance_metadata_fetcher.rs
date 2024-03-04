@@ -20,7 +20,7 @@ use mockall::*;
 use tracing::{error, trace};
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ForgeClientConfig};
+use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use ::rpc::Instance;
 use ::rpc::Uuid as uuid;
 
@@ -164,12 +164,14 @@ async fn run_instance_metadata_fetcher(
 }
 
 async fn fetch_latest_ip_addresses(
-    forge_client_config: ForgeClientConfig,
+    client_config: ForgeClientConfig,
     state: &InstanceMetadataFetcherState,
 ) -> Result<InstanceMetadata, eyre::Error> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
-        .connect(state.config.forge_api.clone())
-        .await
+    let mut client = match forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+        &state.config.forge_api,
+        client_config,
+    ))
+    .await
     {
         Ok(client) => client,
         Err(err) => {
