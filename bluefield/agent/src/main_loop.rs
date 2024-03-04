@@ -195,7 +195,7 @@ pub async fn run(
                         tracing::warn!("Missing network_virtualization_type, defaulting");
                         super::DEFAULT_NETWORK_VIRTUALIZATION_TYPE
                     });
-                let mut tenant_peers = vec![];
+                let tenant_peers = ethernet_virtualization::tenant_peers(conf);
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {conf:?}");
 
@@ -237,7 +237,6 @@ pub async fn run(
                     match joined_result {
                         Ok(has_changed) => {
                             has_changed_configs = has_changed;
-                            tenant_peers = ethernet_virtualization::tenant_peers(conf);
                             if let Err(err) = mtu::ensure().await {
                                 tracing::error!(error = %err, "Error reading/setting MTU for p0 or p1");
                             }

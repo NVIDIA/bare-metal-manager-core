@@ -46,6 +46,7 @@ pub async fn health_check(
 ) -> HealthReport {
     let mut hr = HealthReport::new();
 
+    // Check whether HBN is up
     let container_id = match hbn::get_hbn_container_id().await {
         Ok(id) => id,
         Err(err) => {
@@ -54,20 +55,23 @@ pub async fn health_check(
         }
     };
     hr.passed(HealthCheck::ContainerExists);
-
     check_hbn_services_running(&mut hr, &container_id, &EXPECTED_SERVICES).await;
 
-    // At this point HBN is up so we can configure it
+    // We want these checks whether HBN is up or not
+    check_restricted_mode(&mut hr).await;
+    check_ipmi_device(&mut hr, process_started_at);
+    check_forge_admin_user(&mut hr).await;
 
+    // We only want these checks if HBN is up
+    if !hr.is_up() {
+        return hr;
+    }
     check_dhcp_relay_and_server(&mut hr, &container_id).await;
     check_ifreload(&mut hr, &container_id).await;
     let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
     check_bgp_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
     check_network_stats(&mut hr, &container_id, host_routes).await;
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
-    check_restricted_mode(&mut hr).await;
-    check_ipmi_device(&mut hr, process_started_at);
-    check_forge_admin_user(&mut hr).await;
 
     hr
 }
@@ -107,7 +111,7 @@ async fn check_hbn_services_running(
                 tracing::warn!("check_hbn_services_running {service}: {status}");
                 hr.failed(
                     HealthCheck::ServiceRunning(service.clone()),
-                    status.to_string(),
+                    format!("{service} is {status}, need {}", SctlState::Running),
                 );
             }
         }
