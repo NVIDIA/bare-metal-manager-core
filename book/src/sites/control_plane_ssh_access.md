@@ -50,35 +50,28 @@ list alias to access the `Forge-Prime-Provider` organization in the production
 environment. As of 2/12/2024 access to the staging environment is handled
 manually. Please reach out to Brandon Brown <brabrown@nvidia.com>.
 
-### Jump hosts required to access the Forge control plane servers
+### SSH config
 
-In order to ssh to a Forge control plane node, you will need to specify a jump
-host via the `ssh -J` parameter. The following jump hosts can be used by adding
-them to `.ssh/config`:
-
-#### NVIDIA Reno/SJC and PDX 
+The following section will need to be run locally and added to your `~/.ssh/config` file
+so that production environments can be accessed easily. For this document, assume both
+carbide and the mc-ssh-configs are checked out in the same parent directory `~/path/to/src/`.
+Please change that below to wherever your actual source code is on your machine.
 
 ```
-Host sjc4jump 24.51.7.3
-  Hostname 24.51.7.3
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+cd ~/path/to/src/
+git clone ssh://git@gitlab-master.nvidia.com:12051/nsvmc/mc-ssh-configs.git
+```
 
-Host renojump 155.130.12.194 
-  Hostname 155.130.12.194
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com  # This is only required if you are running the latest SSH. OpenSSH deprecated RSA a while ago
+Now edit your `~/.ssh/config` and add the following content.
 
-Host pdxjump 10.217.0.131
-  Hostname 10.217.0.131
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
+**Note:** On the final line, change the `user` to be your nvidia username
+**and remove the comment** or ssh will not like the config file contents.
 
-Host tpejump 198.100.173.0
-  Hostname 198.100.173.0
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
-  
+```
+Include ~/path/to/src/carbide/dev/production_ssh_configs
+Include ~/path/to/src/mc-ssh-configs/*admin.mc
+Include ~/path/to/src/mc-ssh-configs/tpe01.default.mc
+
 Host *
   StrictHostKeyChecking no
   ServerAliveInterval 30
@@ -86,23 +79,29 @@ Host *
   ForwardAgent yes
   LogLevel QUIET
   user # Insert your AD username here. Example: 'user apatten'
-
-# You can specify that the jump host is automatically applied for certain IPs
-# using sections like this.
-Host *.nsv.sjc4.nvmetal.net 10.150.* 10.181.20.* 10.181.21.*
-  ProxyJump sjc4jump
-
-Host 10.180.32.* 10.180.222.* 10.180.221.* 10.180.124.*
-  ProxyJump renojump
 ```
 
-All 3 jump hosts will work for all Nvidia owned Forge sites. However you might
-obtain better performance by specifying a jump host in the same datacenter as
-the Forge site.
+This should get you access to all of our environments. If you are looking for
+an environment not listed in the ssh configs, please see below for instructions
+and be sure to issue a MR with the updated ssh config so everyone benefits.
+
+### Legacy notes regarding environments and access
+
+***Note:*** the following sub sections are no longer applicable due to the ssh
+config being included in the repo.
+
 
 #### NVIDIA Colo jump hosts (OVX/TPE)
 
 [Mission Control Colo Jump Hosts](https://gitlab-master.nvidia.com/nsvmc/mc-ssh-configs)
+
+
+### Jump hosts required to access the Forge control plane servers
+
+In order to ssh to a Forge control plane node, you will need to specify a jump
+host via the `ssh -J` parameter. This can also be found in the sample ssh config.
+When new environments come online, someone should add to this production config so
+everyone can reap the rewards.
 
 ##### NVIDIA Colo jump host matrix
 
@@ -131,6 +130,7 @@ the Forge site.
 
 **Note**: Jump hosts no longer allow direct ssh access. They should be used as jump hosts only.<br>Example: `ssh -J <win_ad_user>@<dc_jumphost> <os_user>@<host_ip/host_fqdn>`
 
+
 ### Putting it all together
 
 After you obtained the IP for a Control Plane node and added jump hosts, you can
@@ -143,80 +143,9 @@ This will get you to the `pdx-dev3` environment.
 After you are on the control plane node, you will need to switch to the `root user` 
 by executing
 ```
-sudo su
+sudo -i
 ```
-No password should be required for this.
-
-### `~/.ssh/config` entries for commonly used dev sites
-
-If you want to avoid looking up the IPs for control plane nodes for each access,
-you can store them along a suitable host name in your ssh config file. E.g. add
-this to `~/.ssh/config`:
-
-```
-Host renolp
-  Hostname 10.180.248.29
-  ProxyJump renojump
-
-Host qa2
-  Hostname 10.217.5.197
-  ProxyJump renojump
-
-Host dev3
-  Hostname 10.217.4.197
-  ProxyJump renojump
-
-Host dev4
-  Hostname 10.180.248.29
-  ProxyJump renojump
-
-Host pdx01
-  Hostname 10.217.6.197
-  ProxyJump pdxjump
-
-Host az01
-  Hostname 10.45.2.5
-  ProxyJump wus-jb-admin01
-
-Host az02
-  Hostname 10.45.42.5
-  ProxyJump wus-jb-admin01
-
-Host az03
-  Hostname 10.45.58.3
-  ProxyJump uswest2
-
-Host az06
-  Hostname 10.45.106.5
-  ProxyJump uswest2
-
-Host az20
-  Hostname 10.45.10.3
-  ProxyJump sdc-jb-admin01
-
-Host az21
-  Hostname 10.45.82.5
-  ProxyJump sdc-jb-admin01
-
-Host demo1
-  Hostname 10.217.5.193
-  ProxyJump renojump
-
-Host demo2
-  Hostname 10.217.5.195
-  ProxyJump renojump
-
-Host tpe01
-  Hostname 10.225.4.69
-  ProxyJump tpejump
-```
-
-Then you can simply execute
-```
-ssh dev3
-```
-
-to reach the site. If the IP ever changes, you will need to update your config file.
+For the password, read the prompt, the required password is *in* the prompt asking you the question.
 
 ### Requirements for nvinit based ssh access
 
