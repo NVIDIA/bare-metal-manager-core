@@ -11,7 +11,6 @@
  */
 
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
 use ipnetwork::Ipv4Network;
 
@@ -40,11 +39,7 @@ pub fn build(conf: AclConfig) -> Result<String, eyre::Report> {
     let rules_file = RulesFile::new(iptables_rules);
 
     let mut file_contents = rules_file.to_string();
-
     append_arp_suppression_contents(&mut file_contents);
-
-    // eprintln!("{}", &file_contents);
-
     Ok(file_contents)
 }
 
@@ -56,17 +51,10 @@ fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
         acl_config
             .interfaces
             .iter()
-            .flat_map(|(if_name, if_rules)| {
-                let if_name: Rc<str> = Rc::from(if_name.as_str());
-                make_vpc_rules(if_name, if_rules.vpc_prefixes.as_slice())
-            }),
+            .flat_map(|(if_name, if_rules)| make_vpc_rules(if_name, &if_rules.vpc_prefixes)),
     );
 
-    let tenant_interfaces: Vec<_> = acl_config
-        .interfaces
-        .keys()
-        .map(|if_name| Rc::<str>::from(if_name.as_str()))
-        .collect();
+    let tenant_interfaces: Vec<_> = acl_config.interfaces.keys().collect();
 
     let deny_prefixes: Vec<Ipv4Network> = acl_config
         .deny_prefixes
@@ -74,23 +62,30 @@ fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
         .map(|prefix| prefix.parse().unwrap())
         .collect();
 
-    rules.extend(make_deny_prefix_rules(
-        tenant_interfaces.as_slice(),
-        deny_prefixes.as_slice(),
-    ));
+    rules.extend(make_deny_prefix_rules(&tenant_interfaces, &deny_prefixes));
+
+    rules.push(make_block_nvued_rule());
 
     IpTablesRuleset::new_with_rules(rules)
 }
 
+fn make_block_nvued_rule() -> IpTablesRule {
+    let mut r = IpTablesRule::new(chain::INPUT, target::DROP);
+    r.set_destination_port(8765);
+    r.set_protocol("tcp");
+    r.set_comment_before("Block access to nvued API".to_string());
+    r
+}
+
 // Generate rules allowing the instance on the other side of this interface to
 // send packets to the prefixes associated with its VPC.
-fn make_vpc_rules(interface_name: Rc<str>, vpc_prefixes: &[Ipv4Network]) -> Vec<IpTablesRule> {
+fn make_vpc_rules(interface_name: &str, vpc_prefixes: &[Ipv4Network]) -> Vec<IpTablesRule> {
     let vpc_base_rule = IpTablesRule::new(chain::FORWARD, target::ACCEPT);
     let mut rules: Vec<_> = vpc_prefixes
         .iter()
         .map(|prefix| {
             let mut rule = vpc_base_rule.clone();
-            rule.set_ingress_interface(interface_name.clone());
+            rule.set_ingress_interface(interface_name.to_string());
             rule.set_destination_prefix(prefix.to_owned());
             rule
         })
@@ -104,7 +99,7 @@ fn make_vpc_rules(interface_name: Rc<str>, vpc_prefixes: &[Ipv4Network]) -> Vec<
 }
 
 fn make_deny_prefix_rules(
-    tenant_interface_names: &[Rc<str>],
+    tenant_interface_names: &[&String],
     deny_prefixes: &[Ipv4Network],
 ) -> Vec<IpTablesRule> {
     let deny_base_rule = IpTablesRule::new(chain::FORWARD, target::DROP);
@@ -130,10 +125,10 @@ fn make_deny_prefix_rules(
 }
 
 fn append_arp_suppression_contents(file_buffer: &mut String) {
-    file_buffer.push_str(ARP_SUPPRESSION_RULES);
+    file_buffer.push_str(ARP_SUPPRESSION_RULE);
 }
 
-pub const ARP_SUPPRESSION_RULES: &str = r"
+pub const ARP_SUPPRESSION_RULE: &str = r"
 [ebtables]
 # Suppress ARP packets before they get encapsulated.
 -A OUTPUT -o vxlan5555 -p ARP -j DROP
