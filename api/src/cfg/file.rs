@@ -19,6 +19,7 @@ use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::state_controller::controller::IterationConfig;
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 
@@ -325,6 +326,16 @@ impl Default for StateControllerConfig {
             iteration_time: Self::iteration_time_default(),
             max_object_handling_time: Self::max_object_handling_time_default(),
             max_concurrency: Self::max_concurrency_default(),
+        }
+    }
+}
+
+impl From<&StateControllerConfig> for IterationConfig {
+    fn from(config: &StateControllerConfig) -> Self {
+        IterationConfig {
+            iteration_time: config.iteration_time,
+            max_object_handling_time: config.max_object_handling_time,
+            max_concurrency: config.max_concurrency,
         }
     }
 }
