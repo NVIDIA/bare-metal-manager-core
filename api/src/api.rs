@@ -47,6 +47,7 @@ use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipxe::PxeInstructions;
+use crate::logging::log_limiter::LogLimiter;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
@@ -113,6 +114,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     common_pools: Arc<CommonPools>,
     ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub(crate) runtime_config: Arc<CarbideConfig>,
+    dpu_health_log_limiter: LogLimiter<MachineId>,
 }
 
 #[tonic::async_trait]
@@ -1290,24 +1292,10 @@ where
         };
         log_machine_id(&dpu_machine_id);
 
-        if let Some(ref network_config_error) = request.network_config_error {
-            tracing::info!(machine_id = %dpu_machine_id, "Host failed applying network config: {network_config_error}");
-        }
-
         let hs = request
             .health
             .as_ref()
             .ok_or_else(|| CarbideError::MissingArgument("health_status"))?;
-        if hs.is_healthy {
-            tracing::trace!(machine_id = %dpu_machine_id, "Machine network is healthy");
-        } else {
-            tracing::debug!(
-                machine_id = %dpu_machine_id,
-                "Network failed checks {:?} because {}",
-                hs.failed,
-                hs.message.as_deref().unwrap_or_default()
-            );
-        }
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -1415,8 +1403,29 @@ where
             ))
         })?;
 
-        // If this all worked, we shouldn't emit a log line
-        tracing::Span::current().record("logfmt.suppress", true);
+        // If this all worked and the DPU is healthy, we shouldn't emit a log line
+        // If there is any error the report, the logging of the follow-up report is
+        // suppressed for a certain amount of time to reduce logging noise.
+        // The suppression is keyed by the type of errors that occur. If the set
+        // of errors changed, the log will be emitted again.
+        let suppress_log_key = match (&request.network_config_error, hs.is_healthy) {
+            (Some(error), true) => error.to_string(),
+            (Some(error), false) => {
+                format!("{}_{:?}_{}", error, hs.failed, hs.message())
+            }
+            (None, true) => String::new(),
+            (None, false) => {
+                format!("{:?}_{}", hs.failed, hs.message())
+            }
+        };
+
+        if suppress_log_key.is_empty()
+            || !self
+                .dpu_health_log_limiter
+                .should_log(&dpu_machine_id, &suppress_log_key)
+        {
+            tracing::Span::current().record("logfmt.suppress", true);
+        }
 
         Ok(Response::new(()))
     }
@@ -4620,6 +4629,10 @@ where
             common_pools,
             ib_fabric_manager,
             runtime_config: config,
+            dpu_health_log_limiter: LogLimiter::new(
+                std::time::Duration::from_secs(5 * 60),
+                std::time::Duration::from_secs(60 * 60),
+            ),
         }
     }
 

@@ -11,6 +11,7 @@
  */
 
 pub mod api_logs;
+pub mod log_limiter;
 pub mod metrics_endpoint;
 pub mod otel_stdout_exporter;
 pub mod service_health_metrics;

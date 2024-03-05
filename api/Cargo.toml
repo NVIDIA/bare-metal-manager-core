@@ -25,6 +25,7 @@ chrono = "0.4.19"
 clap = { workspace = true }
 console-subscriber = { git = "https://github.com/grahamking/console.git", branch = "main" }
 const_format = "0.2.26"
+dashmap = "5.5.3"
 data-encoding = "2.3.3"
 eyre = "*"
 figment = { version = "0.10.10", features = ["env", "toml"] }
