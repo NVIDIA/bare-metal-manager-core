@@ -11,13 +11,14 @@
  */
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::str::FromStr;
 
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use super::{network_segment::NetworkSegmentType, DatabaseError, UuidKeyedObjectFilter};
+use super::{
+    machine::DbMachineId, network_segment::NetworkSegmentType, DatabaseError, UuidKeyedObjectFilter,
+};
 use crate::model::machine::machine_id::MachineId;
 
 #[derive(Debug, FromRow, Clone)]
@@ -113,13 +114,10 @@ pub struct MachineInterfaceSearchResult {
 
 impl<'r> FromRow<'r, PgRow> for MachineInterfaceSearchResult {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let stable_string: String = row.try_get("machine_id")?;
-        let machine_id = MachineId::from_str(&stable_string)
-            .map(Some)
-            .unwrap_or_default();
+        let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
         Ok(MachineInterfaceSearchResult {
             interface_id: row.try_get("id")?,
-            machine_id,
+            machine_id: machine_id.map(|id| id.into_inner()),
             segment_name: row.try_get("name")?,
             segment_type: row.try_get("network_segment_type")?,
         })
