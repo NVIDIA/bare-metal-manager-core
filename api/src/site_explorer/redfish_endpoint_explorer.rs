@@ -49,6 +49,10 @@ impl RedfishEndpointExplorer {
         self.redfish_client_pool
             .change_root_password_to_site_default(*standard_client.clone())
             .await?;
+        tracing::info!(
+            address = %address,
+            "Changed password from factory default to site default"
+        );
         self.redfish_client_pool
             .create_client(
                 &address.to_string(),
