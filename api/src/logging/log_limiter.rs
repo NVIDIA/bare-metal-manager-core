@@ -56,7 +56,7 @@ impl<K: Hash + PartialEq + Eq + Clone> LogLimiter<K> {
     pub fn should_log(&self, key: &K, log_summary: &str) -> bool {
         let now = Instant::now();
 
-        // The main doe path will only insert and look up the current key inside the map.
+        // The main path will only insert and look up the passed `key` inside the map.
         // Keys that have been submitted by different callers would however not be
         // monitored and cleaned.
         // To avoid them from taking up infinite memory, the next section of code
