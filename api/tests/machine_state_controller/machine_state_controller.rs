@@ -24,7 +24,7 @@ use carbide::{
     model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
     redfish::RedfishSim,
     state_controller::{
-        controller::{ReachabilityParams, StateController},
+        controller::{IterationConfig, ReachabilityParams, StateController},
         machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
@@ -116,7 +116,10 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     for _ in 0..10 {
         handles.push(
             StateController::<MachineStateControllerIO>::builder()
-                .iteration_time(Duration::from_millis(100))
+                .iteration_config(IterationConfig {
+                    iteration_time: ITERATION_TIME,
+                    ..Default::default()
+                })
                 .database(pool.clone())
                 .redfish_client_pool(Arc::new(RedfishSim::default()))
                 .ib_fabric_manager(env.ib_fabric_manager.clone())

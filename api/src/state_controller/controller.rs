@@ -464,28 +464,48 @@ pub enum StateControllerBuildError {
     IOError(#[from] std::io::Error),
 }
 
-/// Default iteration time for the state controller
-const DEFAULT_ITERATION_TIME: Duration = Duration::from_secs(30);
-/// Default maximimum duration of the controller iteration for a single object
-///
-/// This is by default set rather high to make sure we usually run the operations
-/// in the state handlers to completion. The purpose of the timeout is just to
-/// prevent an indefinitely stuck state handler - e.g. to due to networking issues
-/// and missing sqlx timeouts
-const DEFAULT_MAX_OBJECT_HANDLING_TIME: Duration = Duration::from_secs(3 * 60);
-/// Default maximum concurrency for the state controller
-///
-/// The controller will act on this amount of instances in parallel
-const DEFAULT_MAX_CONCURRENCY: usize = 10;
+/// General settings for state controller iterations
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IterationConfig {
+    /// Configures the desired duration for one state controller iteration
+    ///
+    /// Lower iteration times will make the controller react faster to state changes.
+    /// However they will also increase the load on the system
+    pub iteration_time: Duration,
+
+    /// Configures the maximum time that the state handler will spend on evaluating
+    /// and advancing the state of a single object. If more time elapses during
+    /// state handling than this timeout allows for, state handling will fail with
+    /// a `TimeoutError`.
+    pub max_object_handling_time: Duration,
+
+    /// Configures the maximum amount of concurrency for the object state controller
+    ///
+    /// The controller will attempt to advance the state of this amount of instances
+    /// in parallel.
+    pub max_concurrency: usize,
+}
+
+impl Default for IterationConfig {
+    fn default() -> Self {
+        Self {
+            iteration_time: Duration::from_secs(30),
+            // This is by default set rather high to make sure we usually run the operations
+            // in the state handlers to completion. The purpose of the timeout is just to
+            // prevent an indefinitely stuck state handler - e.g. to due to networking issues
+            // and missing sqlx timeouts
+            max_object_handling_time: Duration::from_secs(3 * 60),
+            max_concurrency: 10,
+        }
+    }
+}
 
 /// A builder for `StateController`
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
     redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
     ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
-    iteration_time: Option<Duration>,
-    max_object_handling_time: Duration,
-    max_concurrency: usize,
+    iteration_config: IterationConfig,
     object_type_for_metrics: Option<String>,
     meter: Option<Meter>,
     state_handler: Arc<
@@ -530,15 +550,13 @@ impl<IO: StateControllerIO> Builder<IO> {
             database: None,
             redfish_client_pool: None,
             ib_fabric_manager: None,
-            iteration_time: None,
+            iteration_config: IterationConfig::default(),
             state_handler: Arc::new(NoopStateHandler::<
                 IO::ObjectId,
                 IO::State,
                 IO::ControllerState,
                 IO::ContextObjects,
             >::default()),
-            max_concurrency: DEFAULT_MAX_CONCURRENCY,
-            max_object_handling_time: DEFAULT_MAX_OBJECT_HANDLING_TIME,
             meter: None,
             object_type_for_metrics: None,
             forge_api: None,
@@ -586,16 +604,16 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         let (stop_sender, stop_receiver) = oneshot::channel();
 
-        if self.max_concurrency == 0 {
+        if self.iteration_config.max_concurrency == 0 {
             return Err(StateControllerBuildError::MissingArgument(
                 "max_concurrency",
             ));
         }
         let controller_name = object_type_for_metrics.unwrap_or_else(|| "undefined".to_string());
         let config = Config {
-            iteration_time: self.iteration_time.unwrap_or(DEFAULT_ITERATION_TIME),
-            max_object_handling_time: self.max_object_handling_time,
-            max_concurrency: self.max_concurrency,
+            iteration_time: self.iteration_config.iteration_time,
+            max_object_handling_time: self.iteration_config.max_object_handling_time,
+            max_concurrency: self.iteration_config.max_concurrency,
             object_type_for_metrics: controller_name.clone(),
         };
 
@@ -694,30 +712,9 @@ impl<IO: StateControllerIO> Builder<IO> {
         self
     }
 
-    /// Configures the desired duration for one state controller iteration
-    ///
-    /// Lower iteration times will make the controller react faster to state changes.
-    /// However they will also increase the load on the system
-    pub fn iteration_time(mut self, time: Duration) -> Self {
-        self.iteration_time = Some(time);
-        self
-    }
-
-    /// Configures the maximum time that the state handler will spend on evaluating
-    /// and advancing the state of a single object. If more time elapses during
-    /// state handling than this timeout allows for, state handling will fail with
-    /// a `TimeoutError`.
-    pub fn max_object_handling_time(mut self, time: Duration) -> Self {
-        self.max_object_handling_time = time;
-        self
-    }
-
-    /// Configures the maximum amount of concurrency for the object state controller
-    ///
-    /// The controller will attempt to advance the state of this amount of instances
-    /// in parallel.
-    pub fn max_concurrency(mut self, max_concurrency: usize) -> Self {
-        self.max_concurrency = max_concurrency;
+    /// Configures how the state controller performs iterations
+    pub fn iteration_config(mut self, config: IterationConfig) -> Self {
+        self.iteration_config = config;
         self
     }
 

@@ -313,24 +313,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         .redfish_client_pool(shared_redfish_pool.clone())
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone())
-        .iteration_time(
-            carbide_config
-                .machine_state_controller
-                .controller
-                .iteration_time,
-        )
-        .max_concurrency(
-            carbide_config
-                .machine_state_controller
-                .controller
-                .max_concurrency,
-        )
-        .max_object_handling_time(
-            carbide_config
-                .machine_state_controller
-                .controller
-                .max_object_handling_time,
-        )
+        .iteration_config((&carbide_config.machine_state_controller.controller).into())
         .state_handler(Arc::new(MachineStateHandler::new(
             carbide_config.machine_state_controller.dpu_up_threshold,
             carbide_config.dpu_nic_firmware_initial_update_enabled,
@@ -355,24 +338,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone());
     let _network_segment_controller_handle = ns_builder
-        .iteration_time(
-            carbide_config
-                .network_segment_state_controller
-                .controller
-                .iteration_time,
-        )
-        .max_concurrency(
-            carbide_config
-                .network_segment_state_controller
-                .controller
-                .max_concurrency,
-        )
-        .max_object_handling_time(
-            carbide_config
-                .network_segment_state_controller
-                .controller
-                .max_object_handling_time,
-        )
+        .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
         .state_handler(Arc::new(NetworkSegmentStateHandler::new(
             carbide_config
                 .network_segment_state_controller
@@ -394,24 +360,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             .pool_pkey(common_pools.infiniband.pool_pkey.clone())
             .reachability_params(ReachabilityParams::default())
             .forge_api(api_service.clone())
-            .iteration_time(
-                carbide_config
-                    .ib_partition_state_controller
-                    .controller
-                    .iteration_time,
-            )
-            .max_concurrency(
-                carbide_config
-                    .ib_partition_state_controller
-                    .controller
-                    .max_concurrency,
-            )
-            .max_object_handling_time(
-                carbide_config
-                    .ib_partition_state_controller
-                    .controller
-                    .max_object_handling_time,
-            )
+            .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
             .state_handler(Arc::new(IBPartitionStateHandler::default()))
             .ipmi_tool(ipmi_tool.clone())
             .build()
