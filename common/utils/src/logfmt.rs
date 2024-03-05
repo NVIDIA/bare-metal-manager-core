@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{any::TypeId, collections::BTreeMap, io::Write, marker::PhantomData, sync::Arc};
+use std::{
+    any::TypeId, cell::RefCell, collections::BTreeMap, io::Write, marker::PhantomData, sync::Arc,
+};
 use tracing::{
     field::{self, Field, Visit},
     span::{self, Attributes},
@@ -172,9 +174,6 @@ where
         // If the event doesn't happen in the scope of a Span, we don't log some span data
         let current_span = ctx.lookup_current();
 
-        // A temporary format buffer is used because accessing stdout can be expensive
-        let mut out = Vec::new();
-
         /// This formatting subfunction exists so that we can use the ? operator
         /// on write! results
         fn write_event_data<'a, R: LookupSpan<'a>>(
@@ -221,10 +220,16 @@ where
             Ok(())
         }
 
-        if let Ok(()) = write_event_data(event, current_span.as_ref(), &mut out) {
-            let mut writer = (self.make_writer)();
-            let _ = writer.write_all(&out);
-        }
+        // A temporary format buffer is used because accessing stdout can be expensive
+        // The format buffer is kept around as a threadlocal variable to reduce allocations
+        FORMAT_BUFFER.with(|fbuf| {
+            let format_buffer: &mut Vec<u8> = &mut fbuf.borrow_mut();
+            if let Ok(()) = write_event_data(event, current_span.as_ref(), format_buffer) {
+                let mut writer = (self.make_writer)();
+                let _ = writer.write_all(format_buffer);
+            }
+            clear_format_buffer(format_buffer);
+        });
     }
 
     fn on_close(&self, id: span::Id, ctx: Context<'_, S>) {
@@ -258,8 +263,6 @@ where
         );
 
         // Emit span attributes as event
-        // A temporary format buffer is used because accessing stdout can be expensive
-        let mut out = Vec::new();
 
         /// This formatting subfunction exists so that we can use the ? operator
         /// on write! results
@@ -287,10 +290,16 @@ where
             Ok(())
         }
 
-        if let Ok(()) = write_span_data(span.metadata(), data, &mut out) {
-            let mut writer = (self.make_writer)();
-            let _ = writer.write_all(&out);
-        }
+        // A temporary format buffer is used because accessing stdout can be expensive
+        // The format buffer is kept around as a threadlocal variable to reduce allocations
+        FORMAT_BUFFER.with(|fbuf| {
+            let format_buffer: &mut Vec<u8> = &mut fbuf.borrow_mut();
+            if let Ok(()) = write_span_data(span.metadata(), data, format_buffer) {
+                let mut writer = (self.make_writer)();
+                let _ = writer.write_all(format_buffer);
+            }
+            clear_format_buffer(format_buffer);
+        });
     }
 
     // SAFETY: this is safe because the `WithContext` function pointer is valid
@@ -445,6 +454,18 @@ impl Visit for FieldVisitor {
     }
     fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
         self.record_str(field, &value.to_string());
+    }
+}
+
+thread_local! {
+    static FORMAT_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+}
+
+fn clear_format_buffer(buf: &mut Vec<u8>) {
+    const MAX_FORMAT_BUFFER_CAPACITY: usize = 1024;
+    buf.clear();
+    if buf.capacity() > MAX_FORMAT_BUFFER_CAPACITY {
+        buf.shrink_to_fit();
     }
 }
 
