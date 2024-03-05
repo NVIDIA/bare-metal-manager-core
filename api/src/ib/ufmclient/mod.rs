@@ -66,7 +66,7 @@ pub struct Partition {
     pub qos: PartitionQoS,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct Port {
     pub guid: String,
     pub name: String,
@@ -92,28 +92,6 @@ struct Pkey {
 pub struct Filter {
     pub guids: Option<Vec<String>>,
     pub pkey: Option<PartitionKey>,
-}
-
-impl Filter {
-    fn valid(&self, p: &Port) -> bool {
-        // Check GUID filter
-        if let Some(guids) = &self.guids {
-            let mut found = false;
-            for id in guids {
-                if p.guid == *id {
-                    found = true;
-                    break;
-                }
-            }
-
-            if !found {
-                return false;
-            }
-        }
-
-        // All filters are passed, return true.
-        true
-    }
 }
 
 impl From<Vec<PortConfig>> for Filter {
@@ -385,21 +363,44 @@ impl Ufm {
         let path = String::from("/resources/ports?sys_type=Computer");
         let ports: Vec<Port> = self.client.list(&path).await?;
 
-        let mut f = filter.unwrap_or_default();
-        if let Some(pkey) = &f.pkey {
-            let mut ports = self.list_partition_ports(pkey).await?;
-            ports.extend(f.guids.unwrap_or_default());
-            f.guids = Some(ports);
-        }
+        let f = filter.unwrap_or_default();
+        let pkey_guids = match &f.pkey {
+            Some(pkey) => Some(self.list_partition_ports(pkey).await?),
+            None => None,
+        };
 
-        let mut res = Vec::new();
-        for port in ports {
-            if f.valid(&port) {
-                res.push(port);
-            }
-        }
+        Ok(Self::filter_ports(ports, pkey_guids, f.guids))
+    }
 
-        Ok(res)
+    fn filter_ports(
+        ports: Vec<Port>,
+        pkey_guids: Option<Vec<String>>,
+        guids: Option<Vec<String>>,
+    ) -> Vec<Port> {
+        let filter = match (pkey_guids, guids) {
+            // If both are None, means no filter, return all ports.
+            (None, None) => None,
+            // If just one is None, filter ports by the other guids set.
+            (Some(pkey_guids), None) => Some(pkey_guids),
+            (None, Some(guids)) => Some(guids),
+            // If both are Some, filter ports by the intersection.
+            (Some(pkey_guids), Some(guids)) => Some(
+                pkey_guids
+                    .into_iter()
+                    .filter(|g| guids.contains(g))
+                    .collect(),
+            ),
+        };
+
+        match filter {
+            // If no filter, return all ports;
+            None => ports,
+            // otherwise, filter ports accordingly.
+            Some(filter) => ports
+                .into_iter()
+                .filter(|p: &Port| filter.contains(&p.guid))
+                .collect(),
+        }
     }
 
     pub async fn version(&self) -> Result<String, UFMError> {
@@ -412,5 +413,82 @@ impl Ufm {
         let v: Version = self.client.get(&path).await?;
 
         Ok(v.ufm_release_version)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_filter_port() {
+        struct TestCase {
+            name: String,
+            ports: Vec<Port>,
+            pkey_guids: Option<Vec<String>>,
+            guids: Option<Vec<String>>,
+            expected: Vec<Port>,
+        }
+
+        let p1_id = String::from("p1");
+        let p1 = Port {
+            guid: p1_id.clone(),
+            ..Port::default()
+        };
+
+        let p2_id = String::from("p2");
+        let p2 = Port {
+            guid: p2_id.clone(),
+            ..Port::default()
+        };
+
+        let p3_id = String::from("p3");
+        let p3 = Port {
+            guid: p3_id.clone(),
+            ..Port::default()
+        };
+
+        let cases = vec![
+            TestCase {
+                name: String::from("no filter"),
+                ports: vec![p1.clone(), p2.clone(), p3.clone()],
+                pkey_guids: None,
+                guids: None,
+                expected: vec![p1.clone(), p2.clone(), p3.clone()],
+            },
+            TestCase {
+                name: String::from("filter by pkey guids"),
+                ports: vec![p1.clone(), p2.clone(), p3.clone()],
+                pkey_guids: Some(vec![p1_id.clone()]),
+                guids: None,
+                expected: vec![p1.clone()],
+            },
+            TestCase {
+                name: String::from("filter by guids"),
+                ports: vec![p1.clone(), p2.clone(), p3.clone()],
+                pkey_guids: None,
+                guids: Some(vec![p1_id.clone()]),
+                expected: vec![p1.clone()],
+            },
+            TestCase {
+                name: String::from("filter by guids (1) and pkey guids (1,2)"),
+                ports: vec![p1.clone(), p2.clone(), p3.clone()],
+                pkey_guids: Some(vec![p1_id.clone(), p2_id.clone()]),
+                guids: Some(vec![p1_id.clone()]),
+                expected: vec![p1.clone()],
+            },
+            TestCase {
+                name: String::from("filter by guids (2,3) and pkey guids (1,2)"),
+                ports: vec![p1.clone(), p2.clone(), p3.clone()],
+                pkey_guids: Some(vec![p1_id.clone(), p2_id.clone()]),
+                guids: Some(vec![p2_id.clone(), p3_id.clone()]),
+                expected: vec![p2.clone()],
+            },
+        ];
+
+        for c in cases {
+            let got = Ufm::filter_ports(c.ports, c.pkey_guids, c.guids);
+            assert_eq!(c.expected, got, "{}", c.name);
+        }
     }
 }
