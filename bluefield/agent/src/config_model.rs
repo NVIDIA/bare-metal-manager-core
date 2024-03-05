@@ -12,7 +12,6 @@
 
 pub mod acl {
     use std::fmt::Display;
-    use std::rc::Rc;
 
     use ipnetwork::Ipv4Network;
 
@@ -57,53 +56,52 @@ pub mod acl {
         }
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Default)]
     pub struct IpTablesRule {
         // INPUT, FORWARD, etc
-        chain: Rc<str>,
+        chain: &'static str,
 
         // ACCEPT, DROP, etc
-        jump_target: Rc<str>,
+        jump_target: &'static str,
 
-        ingress_interface: Option<Rc<str>>,
-        egress_interface: Option<Rc<str>>,
+        ingress_interface: Option<String>,
+        egress_interface: Option<String>,
 
         destination_prefix: Option<Ipv4Network>,
+        destination_port: Option<u32>,
+
+        protocol: Option<&'static str>,
 
         comment_before: Option<String>,
     }
 
     impl IpTablesRule {
-        pub fn new<T>(chain: T, jump_target: T) -> Self
-        where
-            T: Into<Rc<str>>,
-        {
-            let chain: Rc<str> = chain.into();
-            let jump_target = jump_target.into();
-            let ingress_interface = None;
-            let egress_interface = None;
-            let destination_prefix = None;
-            let comment_before = None;
+        pub fn new(chain: &'static str, jump_target: &'static str) -> Self {
             IpTablesRule {
                 chain,
                 jump_target,
-                ingress_interface,
-                egress_interface,
-                destination_prefix,
-                comment_before,
+                ..Default::default()
             }
         }
 
-        pub fn set_ingress_interface(&mut self, interface: Rc<str>) {
+        pub fn set_ingress_interface(&mut self, interface: String) {
             self.ingress_interface = Some(interface)
         }
 
-        pub fn set_egress_interface(&mut self, interface: Rc<str>) {
+        pub fn set_egress_interface(&mut self, interface: String) {
             self.egress_interface = Some(interface)
         }
 
         pub fn set_destination_prefix(&mut self, prefix: Ipv4Network) {
             self.destination_prefix = Some(prefix)
+        }
+
+        pub fn set_destination_port(&mut self, port: u32) {
+            self.destination_port = Some(port);
+        }
+
+        pub fn set_protocol(&mut self, protocol: &'static str) {
+            self.protocol = Some(protocol);
         }
 
         pub fn set_comment_before(&mut self, comment: String) {
@@ -127,8 +125,16 @@ pub mod acl {
                 write!(f, " -o {interface}")?;
             }
 
+            if let Some(protocol) = self.protocol {
+                write!(f, " -p {protocol}")?;
+            }
+
             if let Some(destination) = self.destination_prefix.as_ref() {
                 write!(f, " -d {destination}")?;
+            }
+
+            if let Some(dport) = self.destination_port {
+                write!(f, " --dport {dport}")?;
             }
 
             write!(f, " -j {}", self.jump_target)?;
@@ -137,10 +143,13 @@ pub mod acl {
         }
     }
 
+    // TODO: convert to enum
     pub mod chain {
         pub const FORWARD: &str = "FORWARD";
+        pub const INPUT: &str = "INPUT";
     }
 
+    // TODO: convert to enum
     pub mod target {
         pub const ACCEPT: &str = "ACCEPT";
         pub const DROP: &str = "DROP";
@@ -157,7 +166,7 @@ pub mod acl {
             let output = format!("{rule}");
             assert_eq!(output.as_str(), "-A FORWARD -j DROP");
 
-            rule.set_ingress_interface(Rc::from("in1"));
+            rule.set_ingress_interface("in1".to_string());
             let output = format!("{rule}");
             assert_eq!(output.as_str(), "-A FORWARD -i in1 -j DROP");
 
@@ -165,7 +174,7 @@ pub mod acl {
             let output = format!("{rule}");
             assert_eq!(output.as_str(), "-A FORWARD -i in1 -d 192.0.2.0/24 -j DROP");
 
-            rule.set_egress_interface(Rc::from("out1"));
+            rule.set_egress_interface("out1".to_string());
             let output = format!("{rule}");
             assert_eq!(
                 output.as_str(),

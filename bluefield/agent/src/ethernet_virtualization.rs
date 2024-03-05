@@ -37,6 +37,13 @@ const DPU_VIRTUAL_NETWORK_INTERFACE_IDENTIFIER: &str = "pf0vf";
 /// None of the files we deal with should be bigger than this
 const MAX_EXPECTED_SIZE: u64 = 16384; // 16 KiB
 
+/// ACL to prevent access to nvued's API
+const NVUED_BLOCK_RULE: &str = r"
+[iptables]
+# Block access to nvued API
+-A INPUT -p tcp --dport 8765 -j DROP
+";
+
 struct EthernetVirtualizerPaths {
     interfaces: PathBuf,
     frr: PathBuf,
@@ -179,12 +186,9 @@ pub async fn update_nvue(
 
     // Write the extra ACL config
     let path_acl = hbn_root.join(nvue::PATH_ACL);
-    match write(
-        acl_rules::ARP_SUPPRESSION_RULES.to_string(),
-        &path_acl,
-        "NVUE ACL",
-        Some(acl_rules::RELOAD_CMD),
-    ) {
+    let mut rules = NVUED_BLOCK_RULE.to_string();
+    rules.push_str(acl_rules::ARP_SUPPRESSION_RULE);
+    match write(rules, &path_acl, "NVUE ACL", Some(acl_rules::RELOAD_CMD)) {
         Ok(Some(post_action)) => {
             if !skip_post {
                 let cmd = post_action.cmd.unwrap_or("");
