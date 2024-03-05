@@ -182,9 +182,15 @@ pub async fn user_data(machine: Machine, config: RuntimeConfig) -> Template {
                 )),
             }
         }
-        (None, None) => print_and_generate_generic_error(
-            "The custom cloud init and discovery instructions were both None".to_string(),
-        ),
+        // discovery_instructions can not be None for a non-assigned machine.
+        // This means that the machine is assigned to tenant.
+        // custom_cloud_init None means user has not configured any user-data. Send a empty
+        // response.
+        (None, None) => {
+            let mut context: HashMap<String, String> = HashMap::new();
+            context.insert("user_data".to_string(), "{}".to_string());
+            ("user-data-assigned".to_string(), context)
+        }
     };
 
     Template::render(template, context)
