@@ -21,7 +21,7 @@ function curl_url() {
 	url=$1
 	auth=$2
 	file=$(basename $url)
-	curl --retry 5 -k -L $auth $url --output $file 2>&1 | tee $log_output
+	curl --retry 5 --retry-all-errors -k -L $auth $url --output $file 2>&1 | tee $log_output
 }
 
 function verify_sha() {
@@ -107,7 +107,7 @@ function get_distro_image() {
 		echo "Distro $distro_name not supported" | tee $log_output
 		exit 1;
 	fi
-	curl --retry 5 -k -L $shaurl --output shafile 2>&1 | tee $log_output
+	curl --retry 5 --retry-all-errors -k -L $shaurl --output shafile 2>&1 | tee $log_output
 	file=$(basename $image_url)
 	image_sha=$(grep -m 1 $file shafile)
 }
@@ -115,7 +115,7 @@ function get_distro_image() {
 function add_cloud_init() {
 	echo "fetching from cloud-init url: $cloud_init_url" | tee $log_output
 	if [ -d /mnt/etc/cloud/cloud.cfg.d ]; then
-		curl --retry 5 -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/user-data.cfg 2>&1 | tee $log_output
+		curl --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output /mnt/etc/cloud/cloud.cfg.d/user-data.cfg 2>&1 | tee $log_output
 		echo "verifying cloud-init user data written to /etc/cloud/cloud.cfg.d/user-data.cfg" | tee $log_output
 		chroot /mnt /bin/sh -c 'cloud-init schema --config-file /etc/cloud/cloud.cfg.d/user-data.cfg' 2>&1 | tee $log_output
 	fi
