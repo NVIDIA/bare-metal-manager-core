@@ -144,6 +144,8 @@ pub enum DpuAction {
     AgentUpgradePolicy(AgentUpgrade),
     #[clap(about = "View DPU firmware status")]
     Versions(DpuVersionOptions),
+    #[clap(about = "View DPU Status")]
+    Status,
 }
 
 #[derive(Parser, Debug)]
