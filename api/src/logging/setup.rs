@@ -16,7 +16,6 @@ use opentelemetry_semantic_conventions as semcov;
 use tracing_subscriber::{
     filter::EnvFilter, filter::LevelFilter, prelude::*, util::SubscriberInitExt,
 };
-use utils::logfmt;
 
 use crate::logging::sqlx_query_tracing;
 

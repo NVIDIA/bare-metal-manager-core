@@ -8,6 +8,7 @@ members = [
   "common/dsocket",
   "common/host-support",
   "common/http-connector",
+  "common/logfmt",
   "common/secrets",
   "common/tls",
   "common/utils",

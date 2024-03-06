@@ -32,6 +32,8 @@ use modes::{
 use serde::Deserialize;
 use tokio::net::UdpSocket;
 use tonic::async_trait;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{prelude::*, EnvFilter};
 use utils::models::dhcp::{DhcpConfig, HostConfig};
 
 pub struct Server {
@@ -40,11 +42,23 @@ pub struct Server {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let subscriber = tracing_subscriber::fmt()
-        .compact()
-        .with_ansi(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("tower=warn".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("tokio_util::codec=warn".parse().unwrap())
+        .add_directive("h2=warn".parse().unwrap())
+        .add_directive("hickory_resolver::error=info".parse().unwrap())
+        .add_directive("hickory_proto::xfer=info".parse().unwrap())
+        .add_directive("hickory_resolver::name_server=info".parse().unwrap())
+        .add_directive("hickory_proto=info".parse().unwrap());
+    let stdout_formatter = logfmt::layer();
+
+    tracing_subscriber::registry()
+        .with(stdout_formatter.with_filter(env_filter))
+        .try_init()?;
 
     let args = Args::load();
     let config = init(args.clone()).await?;

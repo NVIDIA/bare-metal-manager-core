@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -764,9 +764,7 @@ mod tests {
             lines
         );
         assert!(
-            lines[0].starts_with(
-                r#"level=WARN msg=outside_event! a=100 location="common/utils/src/logfmt.rs"#
-            ),
+            lines[0].starts_with(r#"level=WARN msg=outside_event! a=100 location=""#),
             "Line is: {}",
             lines[0]
         );

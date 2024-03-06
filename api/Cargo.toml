@@ -94,6 +94,7 @@ x509-parser = { version = "0.15.1", features = ["verify"] }
 forge-tls = { path = "../common/tls" }
 forge_secrets = { path = "../common/secrets" }
 forge-version = { path = "../common/version" }
+logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
 duration-str = "0.7.1"
