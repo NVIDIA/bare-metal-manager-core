@@ -234,7 +234,6 @@ pub async fn handle_dpu_versions(
     match output_format {
         OutputFormat::Json => {
             let json_output = generate_firmware_status_json(dpus)?;
-
             write!(output, "{}", json_output)?;
         }
         OutputFormat::Csv => {
@@ -252,4 +251,104 @@ pub async fn handle_dpu_versions(
         }
     }
     Ok(())
+}
+
+#[derive(Serialize)]
+struct DpuStatus {
+    id: Option<MachineId>,
+    dpu_type: Option<String>,
+    state: String,
+    healthy: String,
+}
+
+impl From<Machine> for DpuStatus {
+    fn from(machine: Machine) -> Self {
+        let state = match machine.state.split_once(' ') {
+            Some((state, _)) => state.to_owned(),
+            None => machine.state,
+        };
+
+        let dpu_type = machine
+            .discovery_info
+            .as_ref()
+            .and_then(|di| di.dmi_data.as_ref())
+            .map(|dmi_data| {
+                let dpu_type = dmi_data.product_name.clone();
+                let mut dpu_type = dpu_type.split(' ').collect::<Vec<&str>>();
+                dpu_type.truncate(2);
+                dpu_type.join(" ")
+            });
+
+        DpuStatus {
+            id: machine.id,
+            dpu_type,
+            state,
+            healthy: machine
+                .network_health
+                .map(|x| {
+                    if x.is_healthy {
+                        "Yes".to_string()
+                    } else {
+                        x.message.unwrap_or("No message found.".to_string())
+                    }
+                })
+                .unwrap_or("Unknown".to_string()),
+        }
+    }
+}
+
+impl From<DpuStatus> for Row {
+    fn from(value: DpuStatus) -> Self {
+        Row::from(vec![
+            value.id.unwrap_or_default().to_string(),
+            value.dpu_type.unwrap_or_default(),
+            value.state,
+            value.healthy,
+        ])
+    }
+}
+
+pub async fn handle_dpu_status(
+    output: &mut dyn std::io::Write,
+    output_format: OutputFormat,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    let dpus = rpc::get_all_machines(api_config, Some(MachineType::Dpu), false)
+        .await?
+        .machines;
+
+    match output_format {
+        OutputFormat::Json => {
+            let machines: Vec<DpuStatus> = dpus.into_iter().map(DpuStatus::from).collect();
+            write!(output, "{}", serde_json::to_string(&machines).unwrap())?;
+        }
+        OutputFormat::Csv => {
+            let result = generate_dpu_status_table(dpus);
+
+            if let Err(error) = result.to_csv(output) {
+                tracing::warn!("Error writing csv data: {}", error);
+            }
+        }
+        _ => {
+            let result = generate_dpu_status_table(dpus);
+            if let Err(error) = result.print(output) {
+                tracing::warn!("Error writing table data: {}", error);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn generate_dpu_status_table(machines: Vec<Machine>) -> Box<Table> {
+    let mut table = Table::new();
+
+    let headers = vec!["DPU Id", "DPU Type", "State", "Healthy"];
+
+    table.set_titles(Row::from(headers));
+
+    machines.into_iter().map(DpuStatus::from).for_each(|f| {
+        table.add_row(f.into());
+    });
+
+    Box::new(table)
 }
