@@ -94,6 +94,8 @@ pub struct Filter {
     pub pkey: Option<PartitionKey>,
 }
 
+const HEX_PRE: &str = "0x";
+
 impl From<Vec<PortConfig>> for Filter {
     fn from(guids: Vec<PortConfig>) -> Self {
         let mut v = Vec::new();
@@ -124,8 +126,12 @@ impl TryFrom<String> for PartitionKey {
     type Error = UFMError;
 
     fn try_from(pkey: String) -> Result<Self, Self::Error> {
-        let p = pkey.trim_start_matches("0x");
-        let k = i32::from_str_radix(p, 16);
+        let base = match pkey.starts_with(HEX_PRE) {
+            true => 16,
+            false => 10,
+        };
+        let p = pkey.trim_start_matches(HEX_PRE);
+        let k = i32::from_str_radix(p, base);
 
         match k {
             Ok(v) => Ok(PartitionKey(v)),
@@ -152,7 +158,7 @@ impl TryFrom<&str> for PartitionKey {
 
 impl ToString for PartitionKey {
     fn to_string(&self) -> String {
-        format!("0x{:x}", self.0)
+        format!("{}{:x}", HEX_PRE, self.0)
     }
 }
 
@@ -490,5 +496,16 @@ mod tests {
             let got = Ufm::filter_ports(c.ports, c.pkey_guids, c.guids);
             assert_eq!(c.expected, got, "{}", c.name);
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_partition_key() {
+        assert_eq!("0x67", PartitionKey(103).to_string());
+        assert_eq!("0x67", PartitionKey::try_from("103").unwrap().to_string());
     }
 }
