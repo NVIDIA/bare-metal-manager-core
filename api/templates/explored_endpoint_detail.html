@@ -85,6 +85,10 @@
 {% for chassis in report.chassis %}
 <table>
 	<tr><th>ID</th><td>{{ chassis.id }}</td></tr>
+	<tr><th>Manufacturer</th><td>{% match chassis.manufacturer %}{% when Some with (manufacturer) %} {{ manufacturer }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Model</th><td>{% match chassis.model %}{% when Some with (model) %} {{ model }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Serial Number</th><td>{% match chassis.serial_number %}{% when Some with (serial_number) %} {{ serial_number }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Part Number</th><td>{% match chassis.part_number %}{% when Some with (part_number) %} {{ part_number }} {% else %}{% endmatch %}</td></tr>
 	<tr><th>Network Adapters</th><td style="padding: 0;">
 		<table style="width: 100%;">
 			<thead>
