@@ -17,7 +17,7 @@ use std::io::Read;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use std::{fs, io, net::Ipv4Addr};
+use std::{fmt, fs, io, net::Ipv4Addr};
 
 use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
 use eyre::WrapErr;
@@ -45,34 +45,55 @@ const NVUED_BLOCK_RULE: &str = r"
 ";
 
 struct EthernetVirtualizerPaths {
-    interfaces: PathBuf,
-    frr: PathBuf,
-    daemons: PathBuf,
-    acl_rules: PathBuf,
+    interfaces: FPath,
+    frr: FPath,
+    daemons: FPath,
+    acl_rules: FPath,
+}
+
+impl EthernetVirtualizerPaths {
+    /// Delete old .TEST, .BAK and .TMP files
+    fn cleanup(&self) -> bool {
+        let mut did_delete = false;
+        for p in [&self.interfaces, &self.frr, &self.daemons, &self.acl_rules] {
+            did_delete = did_delete || p.cleanup();
+        }
+        did_delete
+    }
 }
 
 struct DhcpServerPaths {
-    server: PathBuf,
-    config: PathBuf,
-    host_config: PathBuf,
+    server: FPath,
+    config: FPath,
+    host_config: FPath,
+}
+
+impl DhcpServerPaths {
+    fn cleanup(&self) -> bool {
+        let mut did_delete = false;
+        for p in [&self.server, &self.config, &self.host_config] {
+            did_delete = did_delete || p.cleanup();
+        }
+        did_delete
+    }
 }
 
 /// How we tell HBN to notice the new file we wrote
 #[derive(Debug)]
 struct PostAction {
-    cmd: Option<&'static str>,
-    path: PathBuf,
-    path_bak: PathBuf,
-    path_tmp: PathBuf,
+    cmd: &'static str,
+    path: FPath,
 }
 
 fn paths(hbn_root: &Path) -> EthernetVirtualizerPaths {
-    EthernetVirtualizerPaths {
-        interfaces: hbn_root.join(interfaces::PATH),
-        frr: hbn_root.join(frr::PATH),
-        daemons: hbn_root.join(daemons::PATH),
-        acl_rules: hbn_root.join(acl_rules::PATH),
-    }
+    let ps = EthernetVirtualizerPaths {
+        interfaces: FPath(hbn_root.join(interfaces::PATH)),
+        frr: FPath(hbn_root.join(frr::PATH)),
+        daemons: FPath(hbn_root.join(daemons::PATH)),
+        acl_rules: FPath(hbn_root.join(acl_rules::PATH)),
+    };
+    ps.cleanup();
+    ps
 }
 
 // Update network config using nvue (`nv`). Return Ok(true) if the config change, Ok(false) if not.
@@ -184,37 +205,41 @@ pub async fn update_nvue(
         l3_domains: vec![],
     };
 
+    // Cleanup any left over non-NVUE temp files
+    let _ = paths(hbn_root);
+
     // Write the extra ACL config
-    let path_acl = hbn_root.join(nvue::PATH_ACL);
+    let path_acl = FPath(hbn_root.join(nvue::PATH_ACL));
+    path_acl.cleanup();
     let mut rules = NVUED_BLOCK_RULE.to_string();
     rules.push_str(acl_rules::ARP_SUPPRESSION_RULE);
-    match write(rules, &path_acl, "NVUE ACL", Some(acl_rules::RELOAD_CMD)) {
-        Ok(Some(post_action)) => {
+    match write(rules, &path_acl, "NVUE ACL") {
+        Ok(true) => {
             if !skip_post {
-                let cmd = post_action.cmd.unwrap_or("");
+                let cmd = acl_rules::RELOAD_CMD;
                 if let Err(err) = hbn::run_in_container_shell(cmd).await {
                     tracing::error!("running nvue extra acl post '{}': {err:#}", cmd);
                 }
+                path_acl.del("BAK");
             }
         }
         // ACLs didn't need changing, should be always this except on first boot
-        Ok(None) => {}
+        Ok(false) => {}
         // Log the error but continue so that we get network working
         Err(err) => tracing::error!("write nvue extra ACL: {err:#}"),
     }
 
     // Write startup.yaml
     let next_contents = nvue::build(conf)?;
-    let path = hbn_root.join(nvue::PATH);
-    let Some(post) = write(next_contents, &path, "NVUE", None)
-        .wrap_err(format!("NVUE config at {}", path.display()))?
-    else {
+    let path = FPath(hbn_root.join(nvue::PATH));
+    path.cleanup();
+    if !write(next_contents, &path, "NVUE").wrap_err(format!("NVUE config at {}", path))? {
         // config didn't change
         return Ok(false);
     };
 
     if !skip_post {
-        nvue::apply(hbn_root, &path, &post.path_bak, &post.path_tmp).await?;
+        nvue::apply(hbn_root, &path).await?;
     }
     Ok(true)
 }
@@ -227,36 +252,52 @@ pub async fn update_files(
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
 ) -> eyre::Result<bool> {
+    // Cleanup old NVUE files
+    FPath(hbn_root.join(nvue::PATH_ACL)).cleanup();
+    FPath(hbn_root.join(nvue::PATH)).cleanup();
+
     let paths = paths(hbn_root);
 
     let mut errs = vec![];
     let mut post_actions = vec![];
-    match write_interfaces(paths.interfaces, network_config) {
-        Ok(Some(post_action)) => {
-            post_actions.push(post_action);
+    match write_interfaces(&paths.interfaces, network_config) {
+        Ok(true) => {
+            post_actions.push(PostAction {
+                path: paths.interfaces.clone(),
+                cmd: interfaces::RELOAD_CMD,
+            });
         }
-        Ok(None) => {}
+        Ok(false) => {}
         Err(err) => errs.push(format!("write_interfaces: {err:#}")),
     }
-    match write_frr(paths.frr, network_config) {
-        Ok(Some(post_action)) => {
-            post_actions.push(post_action);
+    match write_frr(&paths.frr, network_config) {
+        Ok(true) => {
+            post_actions.push(PostAction {
+                path: paths.frr.clone(),
+                cmd: frr::RELOAD_CMD,
+            });
         }
-        Ok(None) => {}
+        Ok(false) => {}
         Err(err) => errs.push(format!("write_frr: {err:#}")),
     }
-    match write_daemons(paths.daemons) {
-        Ok(Some(post_action)) => {
-            post_actions.push(post_action);
+    match write_daemons(&paths.daemons) {
+        Ok(true) => {
+            post_actions.push(PostAction {
+                path: paths.daemons,
+                cmd: daemons::RESTART_CMD,
+            });
         }
-        Ok(None) => {}
+        Ok(false) => {}
         Err(err) => errs.push(format!("write_daemons: {err:#}")),
     }
-    match write_acl_rules(paths.acl_rules, network_config) {
-        Ok(Some(post_action)) => {
-            post_actions.push(post_action);
+    match write_acl_rules(&paths.acl_rules, network_config) {
+        Ok(true) => {
+            post_actions.push(PostAction {
+                path: paths.acl_rules,
+                cmd: acl_rules::RELOAD_CMD,
+            });
         }
-        Ok(None) => {}
+        Ok(false) => {}
         Err(err) => errs.push(format!("write_acl_rules: {err:#}")),
     }
 
@@ -271,37 +312,39 @@ async fn do_post(
     let has_changes = !post_actions.is_empty();
     if !skip_post {
         for post in post_actions {
-            let cmd = post.cmd.unwrap_or("");
-            match hbn::run_in_container_shell(cmd).await {
+            match hbn::run_in_container_shell(post.cmd).await {
                 Ok(_) => {
-                    if post.path_bak.exists() {
-                        if let Err(err) = fs::remove_file(&post.path_bak) {
+                    let path_bak = post.path.backup();
+                    if path_bak.exists() {
+                        if let Err(err) = fs::remove_file(&path_bak) {
                             errs.push(format!(
                                 "remove .BAK on success {}: {err:#}",
-                                post.path_bak.display()
+                                path_bak.display()
                             ));
                         }
                     }
                 }
                 Err(err) => {
-                    errs.push(format!("running reload cmd '{}': {err:#}", cmd));
+                    errs.push(format!("running reload cmd '{}': {err:#}", post.cmd));
 
                     // If reload failed we won't be using the new config. Move it out of the way..
-                    if let Err(err) = fs::rename(&post.path, &post.path_tmp) {
+                    let path_tmp = post.path.temp();
+                    if let Err(err) = fs::rename(&post.path, &path_tmp) {
                         errs.push(format!(
                             "rename {} to {} on error: {err:#}",
-                            post.path.display(),
-                            post.path_tmp.display()
+                            post.path,
+                            path_tmp.display()
                         ));
                     }
                     // .. and copy the old one back.
                     // This also ensures that we retry writing the config on subsequent runs.
-                    if post.path_bak.exists() {
-                        if let Err(err) = fs::rename(&post.path_bak, &post.path) {
+                    let path_bak = post.path.backup();
+                    if path_bak.exists() {
+                        if let Err(err) = fs::rename(&path_bak, &post.path) {
                             errs.push(format!(
                                 "rename {} to {}, reverting on error: {err:#}",
-                                post.path_bak.display(),
-                                post.path.display()
+                                path_bak.display(),
+                                post.path
                             ));
                         }
                     }
@@ -327,31 +370,45 @@ pub async fn update_dhcp(
     nameservers: Vec<IpAddr>,
     nvt: NetworkVirtualizationType,
 ) -> eyre::Result<bool> {
-    let path_dhcp_relay = hbn_root.join(dhcp::RELAY_PATH);
-    let path_dhcp_relay_nvue = hbn_root.join(dhcp::RELAY_PATH_NVUE);
+    let path_dhcp_relay = FPath(hbn_root.join(dhcp::RELAY_PATH));
+    let path_dhcp_relay_nvue = FPath(hbn_root.join(dhcp::RELAY_PATH_NVUE));
     let paths_dhcp_server = DhcpServerPaths {
-        server: hbn_root.join(dhcp::SERVER_PATH),
-        config: hbn_root.join(dhcp::SERVER_CONFIG_PATH),
-        host_config: hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH),
+        server: FPath(hbn_root.join(dhcp::SERVER_PATH)),
+        config: FPath(hbn_root.join(dhcp::SERVER_CONFIG_PATH)),
+        host_config: FPath(hbn_root.join(dhcp::SERVER_HOST_CONFIG_PATH)),
     };
+    let mut has_cleaned_dhcp_relay_config = path_dhcp_relay.cleanup();
+    has_cleaned_dhcp_relay_config = has_cleaned_dhcp_relay_config || path_dhcp_relay_nvue.cleanup();
+    let has_cleaned_dhcp_server_config = paths_dhcp_server.cleanup();
 
-    let (post_actions, errs) = if network_config.enable_dhcp {
+    let post_action = if network_config.enable_dhcp {
         // dhcp-server
 
         // Delete NVUE relay config in case we used that previously
         let _ = fs::remove_file(path_dhcp_relay_nvue);
         // Start DHCP Server in HBN.
         match write_dhcp_server_config(
-            path_dhcp_relay,
+            &path_dhcp_relay,
             &paths_dhcp_server,
             network_config,
             pxe_ip,
             ntp_ip,
             nameservers,
         ) {
-            Ok(Some((post_action, err))) => (post_action, err),
-            Ok(None) => {
-                return Ok(false);
+            Ok(true) => PostAction {
+                path: paths_dhcp_server.server,
+                cmd: dhcp::RELOAD_DHCP_SERVER,
+            },
+            Ok(false) => {
+                // If we deleted an old relay config we need to reload to stop the relay running
+                if has_cleaned_dhcp_relay_config {
+                    PostAction {
+                        path: paths_dhcp_server.server,
+                        cmd: dhcp::RELOAD_DHCP_SERVER,
+                    }
+                } else {
+                    return Ok(false);
+                }
             }
             Err(err) => eyre::bail!("write dhcp server config file: {err:#}"),
         }
@@ -362,16 +419,26 @@ pub async fn update_dhcp(
     } else {
         // dhcp-relay managed by us
         let _ = fs::remove_file(path_dhcp_relay_nvue);
-        match write_dhcp_relay_config(path_dhcp_relay, paths_dhcp_server.server, network_config) {
-            Ok(Some((post_action, err))) => (post_action, err),
-            Ok(None) => {
-                return Ok(false);
+        match write_dhcp_relay_config(&path_dhcp_relay, &paths_dhcp_server.server, network_config) {
+            Ok(true) => PostAction {
+                path: path_dhcp_relay,
+                cmd: dhcp::RELOAD_CMD,
+            },
+            Ok(false) => {
+                if has_cleaned_dhcp_server_config {
+                    PostAction {
+                        path: path_dhcp_relay,
+                        cmd: dhcp::RELOAD_CMD,
+                    }
+                } else {
+                    return Ok(false);
+                }
             }
             Err(err) => eyre::bail!("write_dhcp_relay_config: {err:#}"),
         }
     };
 
-    do_post(skip_post, post_actions, errs).await
+    do_post(skip_post, vec![post_action], vec![]).await
 }
 
 /// Interfaces to report back to server
@@ -457,56 +524,60 @@ pub async fn reset(
 ) {
     tracing::debug!("Setting network config to blank");
     let paths = paths(hbn_root);
-    dhcp::blank();
 
     let mut errs = vec![];
     let mut post_actions = vec![];
-    match write(
-        dhcp::blank(),
-        hbn_root.join(dhcp::RELAY_PATH),
-        "DHCP relay",
-        Some(dhcp::RELOAD_CMD),
-    ) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
+    let dhcp_relay_path = FPath(hbn_root.join(dhcp::RELAY_PATH));
+    match write(dhcp::blank(), &dhcp_relay_path, "DHCP relay") {
+        Ok(true) => post_actions.push(PostAction {
+            path: dhcp_relay_path,
+            cmd: dhcp::RELOAD_CMD,
+        }),
+        Ok(false) => {}
         Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
     }
-    match write(
-        dhcp::blank(),
-        hbn_root.join(dhcp::SERVER_PATH),
-        "DHCP server",
-        Some(dhcp::RELOAD_CMD),
-    ) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
+    let dhcp_server_path = FPath(hbn_root.join(dhcp::SERVER_PATH));
+    match write(dhcp::blank(), &dhcp_server_path, "DHCP server") {
+        Ok(true) => post_actions.push(PostAction {
+            path: dhcp_server_path,
+            cmd: dhcp::RELOAD_CMD,
+        }),
+        Ok(false) => {}
         Err(err) => errs.push(format!("Write blank DHCP server: {err:#}")),
     }
     match write(
         interfaces::blank(),
-        paths.interfaces,
+        &paths.interfaces,
         "/etc/network/interfaces",
-        Some(interfaces::RELOAD_CMD),
     ) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
+        Ok(true) => post_actions.push(PostAction {
+            path: paths.interfaces,
+            cmd: interfaces::RELOAD_CMD,
+        }),
+        Ok(false) => {}
         Err(err) => errs.push(format!("write blank interfaces: {err:#}")),
     }
-    match write(frr::blank(), paths.frr, "frr.conf", Some(frr::RELOAD_CMD)) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
+    match write(frr::blank(), &paths.frr, "frr.conf") {
+        Ok(true) => post_actions.push(PostAction {
+            path: paths.frr,
+            cmd: frr::RELOAD_CMD,
+        }),
+        Ok(false) => {}
         Err(err) => errs.push(format!("write blank frr: {err:#}")),
     }
-    match write_daemons(paths.daemons) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
+    match write_daemons(&paths.daemons) {
+        Ok(true) => post_actions.push(PostAction {
+            path: paths.daemons,
+            cmd: daemons::RESTART_CMD,
+        }),
+        Ok(false) => {}
         Err(err) => errs.push(format!("write_daemons: {err:#}")),
     }
 
     if !skip_post {
         for post in post_actions {
-            let cmd = post.cmd.unwrap_or("");
-            if let Err(err) = hbn::run_in_container_shell(cmd).await {
-                errs.push(format!("reload '{}': {err}", cmd))
+            if let Err(err) = hbn::run_in_container_shell(post.cmd).await {
+                errs.push(format!("reload '{}': {err}", post.cmd))
             }
         }
     }
@@ -530,27 +601,25 @@ fn dhcp_servers(nc: &rpc::ManagedHostNetworkConfigResponse) -> Vec<Ipv4Addr> {
     dhcp_servers
 }
 
-type WriteResult = Result<Option<(Vec<PostAction>, Vec<String>)>, eyre::Report>;
-
 // In case DHCP server has to be configured in HBN,
 // 1. stop dhcp-relay
 // 2. Copy dhcp_config file
 // 3. Copy host_config file
 // 4. Reload supervisord
-fn write_dhcp_server_config<P: AsRef<Path>>(
-    dhcp_relay_path: P,
+fn write_dhcp_server_config(
+    dhcp_relay_path: &FPath,
     dhcp_server_path: &DhcpServerPaths,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     pxe_ip: Ipv4Addr,
     ntp_ip: Option<Ipv4Addr>,
     nameservers: Vec<IpAddr>,
-) -> WriteResult {
-    let mut errs = vec![];
-    let mut post_actions = vec![];
-    match write(dhcp::blank(), dhcp_relay_path, "blank DHCP relay", None) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
-        Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
+) -> eyre::Result<bool> {
+    match write(dhcp::blank(), dhcp_relay_path, "blank DHCP relay") {
+        Ok(true) => {
+            dhcp_relay_path.del("BAK");
+        }
+        Ok(false) => {}
+        Err(err) => tracing::warn!("Write blank DHCP relay {dhcp_relay_path}: {err:#}"),
     }
 
     let vlan_ids = if nc.use_admin_network {
@@ -575,19 +644,6 @@ fn write_dhcp_server_config<P: AsRef<Path>>(
 
     let loopback_ip = mh_nc.loopback_ip.parse()?;
 
-    let next_contents =
-        dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig { vlan_ids })?;
-    match write(
-        next_contents,
-        dhcp_server_path.server.clone(),
-        "DHCP server",
-        None,
-    ) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
-        Err(err) => errs.push(format!("Write DHCP server: {err:#}")),
-    }
-
     let nameservers = nameservers
         .iter()
         .filter_map(|x| match x {
@@ -596,51 +652,70 @@ fn write_dhcp_server_config<P: AsRef<Path>>(
         })
         .collect::<Vec<Ipv4Addr>>();
 
+    let mut has_changes = false;
+
+    let next_contents =
+        dhcp::build_server_supervisord_config(dhcp::DhcpServerSupervisordConfig { vlan_ids })?;
+    match write(next_contents, &dhcp_server_path.server, "DHCP server") {
+        Ok(true) => {
+            has_changes = true;
+            dhcp_server_path.server.del("BAK");
+        }
+        Ok(false) => {}
+        Err(err) => tracing::error!("Write DHCP server {}: {err:#}", dhcp_server_path.server),
+    }
+
     let next_contents = dhcp::build_server_config(pxe_ip, ntp_ip, nameservers, loopback_ip)?;
     match write(
         next_contents,
-        dhcp_server_path.config.clone(),
+        &dhcp_server_path.config,
         "DHCP server config",
-        None,
     ) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
-        Err(err) => errs.push(format!("Write DHCP server config: {err:#}")),
+        Ok(true) => {
+            has_changes = true;
+            dhcp_server_path.config.del("BAK");
+        }
+        Ok(false) => {}
+        Err(err) => tracing::error!(
+            "Write DHCP server config {}: {err:#}",
+            dhcp_server_path.config
+        ),
     }
 
     let next_contents = dhcp::build_server_host_config(nc.clone())?;
     match write(
         next_contents,
-        dhcp_server_path.host_config.clone(),
+        &dhcp_server_path.host_config,
         "DHCP server host config",
-        None,
     ) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
-        Err(err) => errs.push(format!("Write DHCP server host config: {err:#}")),
+        Ok(true) => {
+            has_changes = true;
+            dhcp_server_path.host_config.del("BAK");
+        }
+        Ok(false) => {}
+        Err(err) => tracing::error!(
+            "Write DHCP server host config {}: {err:#}",
+            dhcp_server_path.host_config
+        ),
     }
 
-    // Reboot dhcp-server.
-    if let Some(val) = post_actions.last_mut() {
-        val.cmd = Some(dhcp::RELOAD_DHCP_SERVER);
-    }
-
-    Ok(Some((post_actions, errs)))
+    Ok(has_changes)
 }
 
-fn write_dhcp_relay_config<P: AsRef<Path>>(
-    path: P,
-    dhcp_server_path: P,
+fn write_dhcp_relay_config(
+    path: &FPath,
+    dhcp_server_path: &FPath,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-) -> WriteResult {
-    let mut errs = vec![];
-    let mut post_actions = vec![];
-
+) -> eyre::Result<bool> {
     // Stop dhcp server if running.
-    match write(dhcp::blank(), dhcp_server_path, "DHCP server blank", None) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
-        Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
+    match write(dhcp::blank(), dhcp_server_path, "DHCP server blank") {
+        Ok(true) => {
+            dhcp_server_path.del("BAK");
+        }
+        Ok(false) => {}
+        Err(err) => {
+            tracing::warn!("Write blank DHCP server: {err:#}");
+        }
     }
 
     let vlan_ids = if nc.use_admin_network {
@@ -659,24 +734,13 @@ fn write_dhcp_relay_config<P: AsRef<Path>>(
         remote_id: nc.remote_id.clone(),
     })?;
 
-    match write(next_contents, path, "DHCP relay", None) {
-        Ok(Some(post)) => post_actions.push(post),
-        Ok(None) => {}
-        Err(err) => errs.push(format!("Write blank DHCP relay: {err:#}")),
-    };
-
-    // Run supervisorctl reload only once.
-    if let Some(val) = post_actions.last_mut() {
-        val.cmd = Some(dhcp::RELOAD_CMD);
-    }
-
-    Ok(Some((post_actions, errs)))
+    write(next_contents, path, "DHCP relay")
 }
 
-fn write_interfaces<P: AsRef<Path>>(
-    path: P,
+fn write_interfaces(
+    path: &FPath,
     nc: &rpc::ManagedHostNetworkConfigResponse,
-) -> Result<Option<PostAction>, eyre::Report> {
+) -> eyre::Result<bool> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
             return Err(eyre::eyre!("Missing managed_host_config in response"));
@@ -738,18 +802,10 @@ fn write_interfaces<P: AsRef<Path>>(
         loopback_ip,
         networks,
     })?;
-    write(
-        next_contents,
-        path,
-        "/etc/network/interfaces",
-        Some(interfaces::RELOAD_CMD),
-    )
+    write(next_contents, path, "/etc/network/interfaces")
 }
 
-fn write_frr<P: AsRef<Path>>(
-    path: P,
-    nc: &rpc::ManagedHostNetworkConfigResponse,
-) -> Result<Option<PostAction>, eyre::Report> {
+fn write_frr(path: &FPath, nc: &rpc::ManagedHostNetworkConfigResponse) -> eyre::Result<bool> {
     let l_ip_str = match &nc.managed_host_config {
         None => {
             return Err(eyre::eyre!("Missing managed_host_config in response"));
@@ -794,23 +850,18 @@ fn write_frr<P: AsRef<Path>>(
         route_servers: nc.route_servers.clone(),
         use_admin_network: nc.use_admin_network,
     })?;
-    write(next_contents, path, "frr.conf", Some(frr::RELOAD_CMD))
+    write(next_contents, path, "frr.conf")
 }
 
 /// The etc/frr/daemons file has no templated parts
-fn write_daemons<P: AsRef<Path>>(path: P) -> Result<Option<PostAction>, eyre::Report> {
-    write(
-        daemons::build(),
-        path,
-        "etc/frr/daemons",
-        Some(daemons::RESTART_CMD),
-    )
+fn write_daemons(path: &FPath) -> eyre::Result<bool> {
+    write(daemons::build(), path, "etc/frr/daemons")
 }
 
-fn write_acl_rules<P: AsRef<Path>>(
-    path: P,
+fn write_acl_rules(
+    path: &FPath,
     dpu_network_config: &rpc::ManagedHostNetworkConfigResponse,
-) -> Result<Option<PostAction>, eyre::Report> {
+) -> eyre::Result<bool> {
     let rules_by_interface = instance_interface_acls_by_name(&dpu_network_config.tenant_interfaces);
     // let ingress_interfaces = instance_interface_names(&dpu_network_config.tenant_interfaces);
     let config = acl_rules::AclConfig {
@@ -818,12 +869,7 @@ fn write_acl_rules<P: AsRef<Path>>(
         deny_prefixes: dpu_network_config.deny_prefixes.clone(),
     };
     let contents = acl_rules::build(config)?;
-    write(
-        contents,
-        path,
-        "forge-acl.rules",
-        Some(acl_rules::RELOAD_CMD),
-    )
+    write(contents, path, "forge-acl.rules")
 }
 
 // Compute the interface names along with the specific ACL config for each
@@ -859,49 +905,37 @@ fn instance_interface_acls_by_name(
 
 // Update configuration file
 // Returns true if the file has changes, false otherwise.
-fn write<P: AsRef<Path>>(
+fn write(
     // What to write into the file
     next_contents: String,
     // The file to write to
-    path: P,
+    path: &FPath,
     // Human readable description of the file, for error messages
     file_type: &str,
-    // Reload or restart command to run after updating the file
-    post_cmd: Option<&'static str>,
-) -> Result<Option<PostAction>, eyre::Report> {
-    // later we will remove the tmp file on drop, but for now it may help with debugging
-    let mut path_tmp = path.as_ref().to_path_buf();
-    path_tmp.set_extension("TMP");
+) -> eyre::Result<bool> {
+    let path_tmp = path.temp();
     fs::write(&path_tmp, next_contents.clone())
         .wrap_err_with(|| format!("fs::write {}", path_tmp.display()))?;
 
-    let path = path.as_ref();
-    let has_changed = if path.exists() {
-        let current =
-            read_limited(path).wrap_err_with(|| format!("read_limited {}", path.display()))?;
+    let has_changed = if path.0.exists() {
+        let current = read_limited(path).wrap_err_with(|| format!("read_limited {path}"))?;
         current != next_contents
     } else {
         true
     };
     if !has_changed {
-        return Ok(None);
+        return Ok(false);
     }
     tracing::debug!("Applying new {file_type} config");
 
-    let mut path_bak = path.to_path_buf();
-    path_bak.set_extension("BAK");
-    if path.exists() {
-        fs::copy(path, path_bak.clone()).wrap_err("copying file to .BAK")?;
+    let path_bak = path.backup();
+    if path.0.exists() {
+        fs::copy(&path.0, path_bak).wrap_err("copying file to .BAK")?;
     }
 
-    fs::rename(path_tmp.clone(), path).wrap_err("rename")?;
+    fs::rename(&path_tmp, path).wrap_err("rename")?;
 
-    Ok(Some(PostAction {
-        cmd: post_cmd,
-        path: path.to_path_buf(),
-        path_bak,
-        path_tmp,
-    }))
+    Ok(true)
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -1046,6 +1080,74 @@ struct Hostname {
     search_domain: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct FPath(pub PathBuf);
+impl FPath {
+    /// The previous config, in case we need to revert
+    pub fn backup(&self) -> PathBuf {
+        self.with_ext("BAK")
+    }
+
+    /// The new config before we apply it
+    pub fn temp(&self) -> PathBuf {
+        self.with_ext("TMP")
+    }
+
+    /// `.TEST` is an old path that was used when migrating from Go VPC,
+    /// and briefly re-appears in Jan/Feb 2024. Clean it up.
+    ///
+    /// `.TMP` is the pending config before it is applied. It should be removed
+    /// on drop.
+    ///
+    /// `.BAK` is the backup so that we can rollback if the reload command fails.
+    /// It should either be removed (success) or renamed back to the main file (failure).
+    pub fn cleanup(&self) -> bool {
+        let mut has_deleted = self.del("TEST");
+        has_deleted = has_deleted || self.del("TMP");
+        has_deleted = has_deleted || self.del("BAK");
+        has_deleted
+    }
+
+    pub fn del(&self, ext: &'static str) -> bool {
+        let p = self.with_ext(ext);
+        if p.exists() {
+            match fs::remove_file(&p) {
+                Ok(_) => true,
+                Err(err) => {
+                    tracing::warn!("Failed removing {}: {err}.", p.display());
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    }
+
+    fn with_ext(&self, ext: &'static str) -> PathBuf {
+        let mut p = self.0.clone();
+        p.set_extension(ext);
+        p
+    }
+}
+
+impl AsRef<Path> for FPath {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
+
+impl Drop for FPath {
+    fn drop(&mut self) {
+        self.del("TMP");
+    }
+}
+
+impl fmt::Display for FPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0.display())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -1057,6 +1159,7 @@ mod tests {
     use rpc::forge as rpc;
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
+    use super::FPath;
     use crate::nvue;
 
     #[ctor::ctor]
@@ -1083,65 +1186,68 @@ mod tests {
         let network_config = netconf();
 
         let f = tempfile::NamedTempFile::new()?;
+        let fp = FPath(f.path().to_owned());
+
         let g = tempfile::NamedTempFile::new()?;
+        let gp = FPath(g.path().to_owned());
 
         // What we're testing
 
-        match super::write_dhcp_relay_config(&f, &g, &network_config) {
+        match super::write_dhcp_relay_config(&fp, &gp, &network_config) {
             Err(err) => {
                 panic!("write_dhcp_relay_config error: {err}");
             }
-            Ok(None) => {
+            Ok(false) => {
                 panic!("write_dhcp_relay_config says the config didn't change, that's wrong");
             }
-            Ok(Some(_)) => {
+            Ok(true) => {
                 // success
             }
         }
         let expected = include_str!("../templates/tests/tenant_dhcp-relay.conf");
-        compare(&f, expected)?;
+        compare(&fp, expected)?;
 
-        match super::write_interfaces(&f, &network_config) {
+        match super::write_interfaces(&fp, &network_config) {
             Err(err) => {
                 panic!("write_interfaces error: {err}");
             }
-            Ok(None) => {
+            Ok(false) => {
                 panic!("write_interfaces says the config didn't change, that's wrong");
             }
-            Ok(Some(_)) => {
+            Ok(true) => {
                 // success
             }
         }
         let expected = include_str!("../templates/tests/tenant_interfaces");
-        compare(&f, expected)?;
+        compare(&fp, expected)?;
 
-        match super::write_frr(&f, &network_config) {
+        match super::write_frr(&fp, &network_config) {
             Err(err) => {
                 panic!("write_frr error: {err}");
             }
-            Ok(None) => {
+            Ok(false) => {
                 panic!("write_frr says the config didn't change, that's wrong");
             }
-            Ok(Some(_)) => {
+            Ok(true) => {
                 // success
             }
         }
         let expected = include_str!("../templates/tests/tenant_frr.conf");
-        compare(&f, expected)?;
+        compare(&fp, expected)?;
 
-        match super::write_acl_rules(&f, &network_config) {
+        match super::write_acl_rules(&fp, &network_config) {
             Err(err) => {
                 panic!("write_acl_rules error: {err}");
             }
-            Ok(None) => {
+            Ok(false) => {
                 panic!("write_acl_rules says the config didn't change, that's wrong");
             }
-            Ok(Some(_)) => {
+            Ok(true) => {
                 // success
             }
         }
         let expected = include_str!("../templates/tests/tenant_acl_rules");
-        compare_diffed(&f, expected)?;
+        compare_diffed(&fp, expected)?;
 
         Ok(())
     }
@@ -1528,16 +1634,23 @@ mod tests {
         };
 
         let f = tempfile::NamedTempFile::new()?;
+        let fp = FPath(f.path().to_owned());
+
         let g = tempfile::NamedTempFile::new()?;
+        let gp = FPath(PathBuf::from(g.path()));
+
         let h = tempfile::NamedTempFile::new()?;
+        let hp = FPath(PathBuf::from(h.path()));
+
         let i = tempfile::NamedTempFile::new()?;
+        let ip = FPath(PathBuf::from(i.path()));
 
         match super::write_dhcp_server_config(
-            &f,
+            &fp,
             &super::DhcpServerPaths {
-                server: PathBuf::from(g.path()),
-                config: PathBuf::from(h.path()),
-                host_config: PathBuf::from(i.path()),
+                server: gp.clone(),
+                config: hp.clone(),
+                host_config: ip.clone(),
             },
             &network_config,
             Ipv4Addr::from([10, 0, 0, 1]),
@@ -1547,10 +1660,10 @@ mod tests {
             Err(err) => {
                 panic!("write_dhcp_server error: {err}");
             }
-            Ok(None) => {
+            Ok(false) => {
                 panic!("write_dhcp_server says the config didn't change, that's wrong");
             }
-            Ok(Some(_)) => {
+            Ok(true) => {
                 // success
             }
         }
@@ -1571,11 +1684,11 @@ mod tests {
         network_config.use_admin_network = false;
 
         match super::write_dhcp_server_config(
-            &f,
+            &fp,
             &super::DhcpServerPaths {
-                server: PathBuf::from(g.path()),
-                config: PathBuf::from(h.path()),
-                host_config: PathBuf::from(i.path()),
+                server: gp,
+                config: hp,
+                host_config: ip,
             },
             &network_config,
             Ipv4Addr::from([10, 0, 0, 1]),
@@ -1585,10 +1698,10 @@ mod tests {
             Err(err) => {
                 panic!("write_dhcp_server error: {err}");
             }
-            Ok(None) => {
+            Ok(false) => {
                 panic!("write_dhcp_server says the config didn't change, that's wrong");
             }
-            Ok(Some(_)) => {
+            Ok(true) => {
                 // success
             }
         }

@@ -101,40 +101,31 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
 }
 
 // Apply the config at `config_path`.
-pub async fn apply(
-    hbn_root: &Path,
-    config_path: &Path,
-    path_bak: &Path,
-    path_tmp: &Path,
-) -> eyre::Result<()> {
-    match run_apply(hbn_root, config_path).await {
+pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<()> {
+    match run_apply(hbn_root, &config_path.0).await {
         Ok(_) => {
-            if path_bak.exists() {
-                if let Err(err) = fs::remove_file(path_bak) {
-                    eyre::bail!("remove .BAK on success {}: {err:#}", path_bak.display());
-                }
-            }
+            config_path.del("BAK");
             Ok(())
         }
         Err(err) => {
             tracing::error!("update_nvue post command failed: {err:#}");
 
             // If apply failed we won't be using the new config. Move it out of the way..
-            if let Err(err) = fs::rename(config_path, path_tmp) {
+            let path_tmp = config_path.temp();
+            if let Err(err) = fs::rename(config_path, &path_tmp) {
                 eyre::bail!(
-                    "rename {} to {} on error: {err:#}",
-                    config_path.display(),
+                    "rename {config_path} to {} on error: {err:#}",
                     path_tmp.display()
                 );
             }
             // .. and copy the old one back.
             // This also ensures that we retry writing the config on subsequent runs.
+            let path_bak = config_path.backup();
             if path_bak.exists() {
-                if let Err(err) = fs::rename(path_bak, config_path) {
+                if let Err(err) = fs::rename(&path_bak, config_path) {
                     eyre::bail!(
-                        "rename {} to {}, reverting on error: {err:#}",
+                        "rename {} to {config_path}, reverting on error: {err:#}",
                         path_bak.display(),
-                        config_path.display()
                     );
                 }
             }

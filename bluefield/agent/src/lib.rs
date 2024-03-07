@@ -36,6 +36,7 @@ pub mod containerd;
 mod daemons;
 mod dhcp;
 mod ethernet_virtualization;
+pub use ethernet_virtualization::FPath;
 mod frr;
 mod hbn;
 mod health;
