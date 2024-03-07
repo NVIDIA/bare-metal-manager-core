@@ -15,7 +15,7 @@
 	{% if !network_config.is_empty() %}
 	<tr>
 		<th>Network config (sent to forge-dpu-agent)</th>
-		<td style="height: 10em"><div style="height: 100%; overflow: auto; margin: 0; padding: 0;">{{ network_config|safe }}</div></td>
+		<td style="height: 10em"><div style="height: 100%; overflow: auto; margin: 0; padding: 0;"><pre><code>{{ network_config }}</code></pre></div></td>
 	</tr>
 	{% endif %}
 	<tr><th>Sys Vendor</th><td>{{ sys_vendor }}</td></tr>
