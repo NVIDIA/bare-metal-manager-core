@@ -10,9 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::path::{Path, PathBuf};
+
 use forge_tls::default as tls_default;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 
 /// HBN container root
 const HBN_DEFAULT_ROOT: &str = "/var/lib/hbn";
@@ -194,7 +195,7 @@ impl Default for IterationTime {
             main_loop_idle_secs: 30,
             main_loop_active_secs: 10,
             network_config_fetch_secs: 30,
-            version_check_secs: 1800, // 30 minutes
+            version_check_secs: 600, // 10 minutes
             inventory_update_secs: default_inventory_update_secs(),
             discovery_retry_secs: default_discovery_retry_secs(),
             discovery_retries_max: default_discovery_retries_max(),
@@ -204,8 +205,9 @@ impl Default for IterationTime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
+    use super::*;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test");
 
@@ -254,7 +256,7 @@ skip-reload = true
 main-loop-active-secs = 10
 main-loop-idle-secs = 30
 network-config-fetch-secs = 20
-version-check-secs = 1800
+version-check-secs = 600
 inventory-update-secs = 3600
 discovery-retry-secs = 1
 discovery-retries-max = 1000
