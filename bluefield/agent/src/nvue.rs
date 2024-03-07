@@ -18,6 +18,7 @@ use gtmpl_derive::Gtmpl;
 use serde::Deserialize;
 
 pub const PATH: &str = "var/support/nvue_startup.yaml";
+pub const SAVE_PATH: &str = "etc/nvue.d/startup.yaml";
 pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 
 const TMPL_ETV: &str = include_str!("../templates/nvue_startup_etv.conf");
@@ -179,16 +180,6 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
         super::hbn::run_in_container(&container_id, &["nv", "config", "apply", "-y"], true).await?;
     if !stdout.is_empty() {
         tracing::info!("nv config apply: {stdout}");
-    }
-
-    // Persist the config to disk
-    //
-    // - Writes the config to /etc/nvue.d/startup.yaml - location is not configurable
-    // - Erases *everything else* in /etc/nvue.d/
-    let stdout =
-        super::hbn::run_in_container(&container_id, &["nv", "config", "save"], true).await?;
-    if !stdout.is_empty() {
-        tracing::info!("nv config save: {stdout}");
     }
 
     Ok(())
