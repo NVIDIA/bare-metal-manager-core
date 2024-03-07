@@ -229,7 +229,19 @@ pub async fn update_nvue(
         Err(err) => tracing::error!("write nvue extra ACL: {err:#}"),
     }
 
-    // Write startup.yaml
+    // nvue can save a copy of the config here. If that exists nvue uses it on boot.
+    // We always want to use the most recent `nv config apply`, so ensure this doesn't exist.
+    let saved_config = hbn_root.join(nvue::SAVE_PATH);
+    if saved_config.exists() {
+        if let Err(err) = fs::remove_file(&saved_config) {
+            tracing::warn!(
+                "Failed removing old startup.yaml at {}: {err:#}",
+                saved_config.display()
+            );
+        }
+    }
+
+    // Write the config we're going to apply
     let next_contents = nvue::build(conf)?;
     let path = FPath(hbn_root.join(nvue::PATH));
     path.cleanup();
@@ -239,6 +251,7 @@ pub async fn update_nvue(
     };
 
     if !skip_post {
+        // Make it so
         nvue::apply(hbn_root, &path).await?;
     }
     Ok(true)
