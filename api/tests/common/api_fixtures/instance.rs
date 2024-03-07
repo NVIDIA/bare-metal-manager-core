@@ -73,6 +73,7 @@ pub fn default_tenant_config() -> rpc::TenantConfig {
         tenant_organization_id: "Tenant1".to_string(),
         tenant_keyset_ids: vec![],
         always_boot_with_custom_ipxe: false,
+        phone_home_enabled: false,
     }
 }
 

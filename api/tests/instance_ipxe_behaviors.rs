@@ -14,7 +14,6 @@ use carbide::{db::machine_interface::MachineInterface, model::machine::machine_i
 use common::api_fixtures::{create_test_env, TestEnv};
 use rpc::forge::{forge_server::Forge, PxeInstructions};
 
-pub mod common;
 use crate::common::api_fixtures::{
     create_managed_host,
     instance::{
@@ -22,6 +21,8 @@ use crate::common::api_fixtures::{
     },
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
+
+pub mod common;
 
 #[ctor::ctor]
 fn setup() {

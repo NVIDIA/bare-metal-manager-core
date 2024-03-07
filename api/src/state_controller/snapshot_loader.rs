@@ -250,6 +250,7 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
             observations: InstanceStatusObservations {
                 network: instance.network_status_observation,
                 infiniband: instance.ib_status_observation,
+                phone_home_last_contact: instance.phone_home_last_contact,
             },
             delete_requested: instance.deleted.is_some(),
         };
