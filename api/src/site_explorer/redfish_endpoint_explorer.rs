@@ -12,7 +12,7 @@
 
 use std::{net::IpAddr, sync::Arc};
 
-use forge_secrets::credentials::CredentialType;
+use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::{Redfish, RedfishError};
 use regex::Regex;
 
@@ -38,17 +38,74 @@ impl RedfishEndpointExplorer {
         }
     }
 
+    async fn try_get_client_with_hardware_cred(
+        &self,
+        address: &IpAddr,
+        credential_key: CredentialKey,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        let client = self
+            .redfish_client_pool
+            .create_client(&address.to_string(), None, credential_key)
+            .await?;
+
+        Ok(client)
+    }
+
+    async fn try_change_root_password_to_site_default(
+        &self,
+        address: &IpAddr,
+    ) -> Result<(), RedfishClientCreationError> {
+        let credential_key = CredentialKey::DpuRedfish {
+            credential_type: CredentialType::HardwareDefault,
+        };
+
+        let client = match self
+            .try_get_client_with_hardware_cred(address, credential_key)
+            .await
+        {
+            Ok(c) => c,
+            Err(_) => {
+                let credential_key = CredentialKey::HostRedfish {
+                    credential_type: CredentialType::HardwareDefault,
+                };
+                self.try_get_client_with_hardware_cred(address, credential_key)
+                    .await?
+            }
+        };
+
+        let systems = client
+            .get_systems()
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        let new_cred = if systems
+            .first()
+            .map(|x| x.to_lowercase().contains("bluefield"))
+            .unwrap_or(false)
+        {
+            CredentialKey::DpuRedfish {
+                credential_type: CredentialType::SiteDefault,
+            }
+        } else {
+            CredentialKey::HostRedfish {
+                credential_type: CredentialType::SiteDefault,
+            }
+        };
+
+        self.redfish_client_pool
+            .change_root_password_to_site_default(client, new_cred)
+            .await?;
+
+        Ok(())
+    }
+
     async fn try_hardware_default_creds(
         &self,
         address: &IpAddr,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let standard_client = self
-            .redfish_client_pool
-            .create_standard_client(&address.to_string(), None)
+        self.try_change_root_password_to_site_default(address)
             .await?;
-        self.redfish_client_pool
-            .change_root_password_to_site_default(*standard_client.clone())
-            .await?;
+
         tracing::info!(
             address = %address,
             "Changed password from factory default to site default"
@@ -74,7 +131,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client;
-        // TODO: try DpuRedfish and HostRedfish credentials.
+        // Try DpuRedfish and HostRedfish credentials.
         let client_result = self
             .redfish_client_pool
             .create_client(
@@ -89,10 +146,26 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         match client_result {
             Ok(c) => client = c,
             Err(RedfishClientCreationError::RedfishError(e)) if e.is_unauthorized() => {
-                client = self
-                    .try_hardware_default_creds(address)
+                match self
+                    .redfish_client_pool
+                    .create_client(
+                        &address.to_string(),
+                        None,
+                        forge_secrets::credentials::CredentialKey::HostRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                    )
                     .await
-                    .map_err(map_redfish_client_creation_error)?
+                {
+                    Ok(c) => client = c,
+                    Err(RedfishClientCreationError::RedfishError(e)) if e.is_unauthorized() => {
+                        client = self
+                            .try_hardware_default_creds(address)
+                            .await
+                            .map_err(map_redfish_client_creation_error)?
+                    }
+                    Err(err) => return Err(map_redfish_client_creation_error(err)),
+                }
             }
             Err(err) => return Err(map_redfish_client_creation_error(err)),
         };
