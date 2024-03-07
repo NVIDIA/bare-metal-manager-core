@@ -11,6 +11,7 @@
  */
 use std::collections::HashMap;
 
+use ::rpc::forge::BuildInfo;
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{forge::MachineType, Machine, MachineId};
 use prettytable::{row, Row, Table};
@@ -259,13 +260,14 @@ struct DpuStatus {
     dpu_type: Option<String>,
     state: String,
     healthy: String,
+    version_status: Option<String>,
 }
 
 impl From<Machine> for DpuStatus {
     fn from(machine: Machine) -> Self {
         let state = match machine.state.split_once(' ') {
             Some((state, _)) => state.to_owned(),
-            None => machine.state,
+            None => machine.state.clone(),
         };
 
         let dpu_type = machine
@@ -293,6 +295,7 @@ impl From<Machine> for DpuStatus {
                     }
                 })
                 .unwrap_or("Unknown".to_string()),
+            version_status: None,
         }
     }
 }
@@ -304,7 +307,69 @@ impl From<DpuStatus> for Row {
             value.dpu_type.unwrap_or_default(),
             value.state,
             value.healthy,
+            value.version_status.unwrap_or_default(),
         ])
+    }
+}
+
+pub async fn get_dpu_version_status(
+    build_info: &BuildInfo,
+    machine: &Machine,
+) -> CarbideCliResult<String> {
+    let mut version_statuses = Vec::default();
+
+    let Some(runtime_config) = build_info.runtime_config.as_ref() else {
+        return Ok("No runtime config".to_owned());
+    };
+
+    let expected_agent_version = &build_info.build_version;
+    if machine.dpu_agent_version() != expected_agent_version {
+        version_statuses.push("Agent update needed");
+    }
+
+    let expected_nic_versions = &runtime_config.dpu_nic_firmware_update_version;
+
+    let product_name = machine
+        .discovery_info
+        .as_ref()
+        .and_then(|di| di.dmi_data.as_ref())
+        .map(|dmi_data| dmi_data.product_name.clone())
+        .unwrap_or_default();
+
+    if let Some(expected_version) = expected_nic_versions.get(&product_name) {
+        if expected_version
+            != machine
+                .discovery_info
+                .as_ref()
+                .and_then(|di| di.dpu_info.as_ref())
+                .map(|dpu| dpu.firmware_version.as_str())
+                .unwrap_or("")
+        {
+            version_statuses.push("NIC Firmware update needed");
+        }
+    }
+
+    /* TODO add bmc version check when available
+    let expected_bmc_versions: HashMap<String, String> = HashMap::default();
+    let bmc_version = machine.bmc_info.as_ref().map(|bi| bi.firmware_version.clone().unwrap_or_default());
+
+    if let Some(bmc_version) = bmc_version {
+        if let Some(expected_bmc_version) = expected_bmc_versions.get(&product_name) {
+            if expected_bmc_version != &bmc_version {
+                version_statuses.push("BMC Firmware update needed");
+            }
+        } else {
+            version_statuses.push("Unknown expected BMC Firmware version");
+        }
+    } else {
+        version_statuses.push("Unknown BMC Firmware version");
+    }
+    */
+
+    if version_statuses.is_empty() {
+        Ok("Up to date".to_owned())
+    } else {
+        Ok(version_statuses.join("\n"))
     }
 }
 
@@ -323,14 +388,14 @@ pub async fn handle_dpu_status(
             write!(output, "{}", serde_json::to_string(&machines).unwrap())?;
         }
         OutputFormat::Csv => {
-            let result = generate_dpu_status_table(dpus);
+            let result = generate_dpu_status_table(api_config, dpus).await?;
 
             if let Err(error) = result.to_csv(output) {
                 tracing::warn!("Error writing csv data: {}", error);
             }
         }
         _ => {
-            let result = generate_dpu_status_table(dpus);
+            let result = generate_dpu_status_table(api_config, dpus).await?;
             if let Err(error) = result.print(output) {
                 tracing::warn!("Error writing table data: {}", error);
             }
@@ -339,16 +404,23 @@ pub async fn handle_dpu_status(
     Ok(())
 }
 
-pub fn generate_dpu_status_table(machines: Vec<Machine>) -> Box<Table> {
+pub async fn generate_dpu_status_table(
+    api_config: &ApiConfig<'_>,
+    machines: Vec<Machine>,
+) -> CarbideCliResult<Box<Table>> {
     let mut table = Table::new();
+    let build_info = rpc::version(api_config, true).await?;
 
-    let headers = vec!["DPU Id", "DPU Type", "State", "Healthy"];
+    let headers = vec!["DPU Id", "DPU Type", "State", "Healthy", "Version Status"];
 
     table.set_titles(Row::from(headers));
 
-    machines.into_iter().map(DpuStatus::from).for_each(|f| {
-        table.add_row(f.into());
-    });
+    for machine in machines {
+        let version_status = get_dpu_version_status(&build_info, &machine).await?;
+        let mut dpu_status = DpuStatus::from(machine);
+        dpu_status.version_status = Some(version_status);
+        table.add_row(dpu_status.into());
+    }
 
-    Box::new(table)
+    Ok(Box::new(table))
 }
