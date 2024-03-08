@@ -295,8 +295,10 @@ case "$1" in
             sleep 5 # The real `nv` takes a while here, it bounces daemons etc
           ;;
           "save" )
+            # No longer called
             cp ${NVUE_STARTUP_TMP} ${HBN_ROOT}/etc/nvue.d/startup.yaml
             echo "nv: Saved active config to ${HBN_ROOT}/etc/nvue.d/startup.yaml"
+          ;;
         esac
 				;;
 			# crictl exec -it <container-id> bridge -j fdb show vlan 21
@@ -307,5 +309,7 @@ case "$1" in
 			"*" )
 				echo "Unexpected argments to crictl: $@"
 				exit 1
+        ;;
 		esac
+    ;;
 esac

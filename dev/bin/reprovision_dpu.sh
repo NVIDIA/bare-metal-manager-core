@@ -111,13 +111,16 @@ if [[ $i -ge "$MAX_RETRY" ]]; then
 	exit 1
 fi
 
+echo "HBN files are in ${HBN_ROOT}"
+
 # Reboot indication from DPU and wait for state change.
 grpcurl -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" -insecure "$API_SERVER" forge.Forge/ForgeAgentControl
-# 1. First run writes the new config, ask HBN to reload
-cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id "${DPU_MACHINE_ID}"
-echo "HBN files are in ${HBN_ROOT}"
-# 2. Second run detects healthy network and reports it
-cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id "${DPU_MACHINE_ID}"
+
+# Start the agent in the background to apply the networking configuration
+# Put our fake binaries from dev/bin first on the path so that health check succeeds
+export PREV_PATH=$PATH
+export PATH=${REPO_ROOT}/dev/bin:$PATH
+cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
 
 if [[ "$INSTANCE_ID" == "null" ]]; then # No instance is configured
 	# Next state is Discovered.
@@ -134,6 +137,8 @@ if [[ "$INSTANCE_ID" == "null" ]]; then # No instance is configured
 	done
 	if [[ $i -ge "$MAX_RETRY" ]]; then
 		echo "Even after $MAX_RETRY retries, Host did not come in discovered state."
+    kill $(pidof forge-dpu-agent)
+    export PATH=${PREV_PATH}
 		exit 1
 	fi
 
@@ -153,6 +158,10 @@ while [[ $i -lt $MAX_RETRY ]]; do
 	echo "Checking machine state. Waiting for it to be in ready state. Current: $MACHINE_STATE"
 	i=$((i + 1))
 done
+
+kill $(pidof forge-dpu-agent)
+export PATH=${PREV_PATH}
+
 if [[ $i -ge "$MAX_RETRY" ]]; then
 	echo "Even after $MAX_RETRY retries, Host did not come in ready state."
 	exit 1

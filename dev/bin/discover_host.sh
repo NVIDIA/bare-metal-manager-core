@@ -104,7 +104,11 @@ MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search
 echo "State: ${MACHINE_STATE}"
 
 # Run forge-dpu-agent to report an observation, which shows that DPU has now rebooted
-cd ${REPO_ROOT} && cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
+# Start the agent in the background to apply the networking configuration
+# Put our fake binaries from dev/bin first on the path so that health check succeeds
+export PREV_PATH=$PATH
+export PATH=${REPO_ROOT}/dev/bin:$PATH
+cd ${REPO_ROOT} && cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
 
 # Wait until host reaches discovered state.
 i=0
@@ -119,6 +123,8 @@ done
 
 if [[ $i -ge "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in Host/Discovered state."
+  kill $(pidof forge-dpu-agent)
+  export PATH=${PREV_PATH}
   exit 1
 fi
 
@@ -133,6 +139,9 @@ while [[ $MACHINE_STATE != "Ready" && $i -lt $MAX_RETRY ]]; do
   echo "Checking machine state. Waiting for it to be in Ready state. Current: $MACHINE_STATE"
   i=$((i+1))
 done
+
+kill $(pidof forge-dpu-agent)
+export PATH=${PREV_PATH}
 
 if [[ $i -ge "$MAX_RETRY" ]]; then
   echo "Even after $MAX_RETRY retries, Host did not come in Ready state."
