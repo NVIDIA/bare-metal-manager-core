@@ -277,7 +277,6 @@ case "$1" in
 				;;
 			# crictl exec <container-id> nv config replace /var/suport/nvue_startup.yaml
 			# crictl exec <container-id> nv config apply -y
-			# crictl exec <container-id> nv config save
 			"nv" )
         # $4 is "config"
         case "$5" in
@@ -293,11 +292,6 @@ case "$1" in
             printf "$ENI" > ${HBN_ROOT}/etc/network/interfaces
             printf "$DHCP_SERVER" > ${HBN_ROOT}/etc/supervisor/conf.d/default-forge-dhcp-server.conf
             sleep 5 # The real `nv` takes a while here, it bounces daemons etc
-          ;;
-          "save" )
-            # No longer called
-            cp ${NVUE_STARTUP_TMP} ${HBN_ROOT}/etc/nvue.d/startup.yaml
-            echo "nv: Saved active config to ${HBN_ROOT}/etc/nvue.d/startup.yaml"
           ;;
         esac
 				;;
