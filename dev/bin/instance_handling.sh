@@ -54,6 +54,10 @@ if [[ $i == "$MAX_RETRY" ]]; then
 	exit 3
 fi
 
+# Put our fake binaries from dev/bin first on the path so that forge-dpu-agent health check succeeds
+export PREV_PATH=$PATH
+export PATH=${REPO_ROOT}/dev/bin:$PATH
+
 if [[ "$1" == "test" || "$1" == "create" ]]; then
 	# Create Instance
 	echo "Creating instance with machine: $HOST_MACHINE_ID, with network segment: $SEGMENT_ID"
@@ -76,10 +80,8 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
 		exit 3
 	fi
 
-	# First run applies the config
-	cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
-	# Second run marks network as healthy, now that HBN has had time to apply config
-	cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
+  # Start the agent in the background to apply the networking configuration
+  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
 fi
 
 # Check Instance state
@@ -103,6 +105,9 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
 		i=$((i + 1))
 	done
 
+  kill $(pidof forge-dpu-agent)
+  export PATH=${PREV_PATH}
+
 	if [[ $i == "$MAX_RETRY" ]]; then
 		echo "Even after $MAX_RETRY retries, instance did not come in READY state."
 		exit 1
@@ -114,8 +119,6 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
 	fi
 fi
 
-# You probably need to run `forge-dpu-agent netconf` at various points for state transitions to happen
-# See "Apply the networking configuration" above
 if [[ "$1" == "test" || "$1" == "delete" ]]; then
 	echo "Deleting instance now. Triggers a reboot."
 	grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure ${API_SERVER} forge.Forge/ReleaseInstance
@@ -152,10 +155,8 @@ if [[ "$1" == "test" || "$1" == "delete" ]]; then
 		exit 3
 	fi
 
-	# First run applies the config
-	cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
-	# Second run marks network as healthy, now that HBN has had time to apply config
-	cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID}
+  # Start the agent in the background to apply the networking configuration
+  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
 
 	# Boot host up with discovery image on admin network.
 	echo "Machine comes up, forge-scout tells API that we're back"
@@ -173,6 +174,8 @@ if [[ "$1" == "test" || "$1" == "delete" ]]; then
 
 	if [[ $i == "$MAX_RETRY" ]]; then
 		echo "Even after $MAX_RETRY retries, instance is not deleted."
+    kill $(pidof forge-dpu-agent)
+    export PATH=${PREV_PATH}
 		exit 2
 	fi
 
@@ -185,6 +188,9 @@ if [[ "$1" == "test" || "$1" == "delete" ]]; then
 		i=$((i + 1))
 		sleep 10
 	done
+
+  kill $(pidof forge-dpu-agent)
+  export PATH=${PREV_PATH}
 
 	if [[ $i == "$MAX_RETRY" ]]; then
 		echo "Even after $MAX_RETRY retries, machine did not reach in WaitingForCleanup state."

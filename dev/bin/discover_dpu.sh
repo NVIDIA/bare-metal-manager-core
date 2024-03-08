@@ -144,13 +144,15 @@ echo "State: ${MACHINE_STATE}"
 rm -rf /tmp/forge-hbn-chroot-*
 
 # Make a directory to put the HBN files
-export HBN_ROOT=/tmp/forge-hbn-chroot-${RANDOM} # export so that instance_handle.sh can use it
+# `export` so that instance_handle.sh can use it
+# Must match dev/bin/crictl 's HBN_ROOT
+export HBN_ROOT=/tmp/forge-hbn-chroot-integration
 echo "$HBN_ROOT" > /tmp/hbn_root
 mkdir -p ${HBN_ROOT}/etc/frr
 mkdir -p ${HBN_ROOT}/etc/network
 mkdir -p ${HBN_ROOT}/etc/supervisor/conf.d
 mkdir -p ${HBN_ROOT}/etc/cumulus/acl/policy.d
-mkdir -p ${HBN_ROOT}/var/support
+mkdir -p ${HBN_ROOT}/var/support/forge-dhcp/conf
 
 if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
 	# The one we got from kubectl earlier
@@ -169,22 +171,20 @@ root-ca = "${ROOT_CA}"
 interface-id = "$MACHINE_INTERFACE_ID"
 mac-address = "11:22:33:44:55:66"
 hostname = "abc.forge.com"
+is-fake-dpu = true
 
 [hbn]
 root-dir = "$HBN_ROOT"
-skip-reload = true
+skip-reload = false
 !
 
-# Apply the networking configuration
-#
-# TODO: This rebuilds everything locally. Instead put forge-dpu-agent in a container, then
-# API_CONTAINER=$(docker ps | grep carbide-api | awk -F" " '{print $NF}')
-# docker exec -ti ${API_CONTAINER} /opt/forge-dpu-agent netconf --dpu-machine-id ${DPU_MACHINE_ID}
-# 1. First run writes the new config, ask HBN to reload
-cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --override-network-virtualization-type etv-nvue
 echo "HBN files are in ${HBN_ROOT}"
-# 2. Second run detects healthy network and reports it
-cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" netconf --dpu-machine-id ${DPU_MACHINE_ID} --override-network-virtualization-type etv-nvue
+
+# Start the agent in the background to apply the networking configuration
+# Put our fake binaries from dev/bin first on the path so that health check succeeds
+export PREV_PATH=$PATH
+export PATH=${REPO_ROOT}/dev/bin:$PATH
+cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
 
 # Wait until DPU becomes ready
 MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
@@ -198,3 +198,5 @@ echo "simulating third boot"
 simulate_boot
 
 echo "DPU is up now."
+kill $(pidof forge-dpu-agent)
+export PATH=${PREV_PATH}

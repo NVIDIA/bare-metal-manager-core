@@ -42,30 +42,8 @@ pub enum AgentCommand {
     #[clap(about = "One-off health check")]
     Health,
 
-    #[clap(
-        about = "One-off fetch network configuration from API, write relevant files, and report back observation"
-    )]
-    Netconf(NetconfParams),
-
     #[clap(about = "Write a templated config file", subcommand)]
     Write(WriteTarget),
-}
-
-#[derive(Parser, Debug)]
-pub struct NetconfParams {
-    #[clap(long, short, help = "machine id of the DPU to configure")]
-    pub dpu_machine_id: String,
-    #[clap(
-        long,
-        default_value = "11:22:33:44:55:66",
-        help = "Factory MAC address - pf interface"
-    )]
-    pub mac_address: String,
-    #[clap(
-        long,
-        help = "Use this network_virtualization_type for both service network and all instances."
-    )]
-    pub override_network_virtualization_type: Option<NetworkVirtualizationType>,
 }
 
 #[derive(Parser, Debug)]

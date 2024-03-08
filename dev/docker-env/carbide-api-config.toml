@@ -7,6 +7,8 @@ enable_route_servers = true
 dpu_impi_tool_impl = "test"
 initial_domain_name = "forge.local"
 initial_dpu_agent_upgrade_policy = "off"
+dpu_dhcp_server_enabled = true
+nvue_enabled = true
 
 [tls]
 identity_pemfile_path = "/app/code/dev/certs/server_identity.pem"

@@ -10,22 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::{IpAddr, Ipv4Addr};
 use std::process::Command;
 use std::time::Instant;
 
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
-use ::rpc::{forge as rpc, DiscoveryInfo};
+use ::rpc::DiscoveryInfo;
 use command_line::NetworkVirtualizationType;
-pub use command_line::{AgentCommand, NetconfParams, Options, RunOptions, WriteTarget};
+pub use command_line::{AgentCommand, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_host_support::{
     agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
     registration::register_machine,
 };
 use forge_tls::client_config::ClientCert;
-use util::UrlResolver;
 
 use crate::frr::FrrVlanConfig;
 
@@ -137,149 +135,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             let health_report =
                 health::health_check(&agent.hbn.root_dir, &[], Instant::now()).await;
             println!("{health_report}");
-        }
-
-        // One-off configure network and report back the observation.
-        // Pretend network is healthy.
-        // Development / testing only.
-        Some(AgentCommand::Netconf(params)) => {
-            let forge_api = agent.forge_system.api_server.clone();
-            let conf = network_config_fetcher::fetch(
-                &params.dpu_machine_id,
-                &forge_api,
-                forge_client_config.clone(),
-            )
-            .await?;
-            let mut status_out = rpc::DpuNetworkStatus {
-                dpu_machine_id: Some(params.dpu_machine_id.into()),
-                dpu_agent_version: Some(forge_version::v!(build_version).to_string()),
-                observed_at: None, // None makes carbide-api set it on receipt
-                health: None,
-                network_config_version: None,
-                instance_config_version: None,
-                interfaces: vec![],
-                network_config_error: None,
-                instance_id: None,
-                client_certificate_expiry_unix_epoch_secs: None,
-            };
-            let mut has_changed_configs = false;
-
-            let (pxe_ip, ntp_ip, nameservers) = if !agent.machine.is_fake_dpu {
-                let mut url_resolver = UrlResolver::try_new()?;
-
-                const DEFAULT_PXE_SERVER: &str = "carbide-pxe.forge";
-                let pxe_hostname = match agent.forge_system.pxe_server {
-                    None => DEFAULT_PXE_SERVER.to_string(),
-                    Some(full_url) => match url::Url::parse(&full_url) {
-                        Ok(u) => u.host_str().unwrap_or(DEFAULT_PXE_SERVER).to_string(),
-                        Err(err) => {
-                            tracing::error!(
-                                "Config file pxe_server is invalid url: {full_url}. {err:#}"
-                            );
-                            DEFAULT_PXE_SERVER.to_string()
-                        }
-                    },
-                };
-                let pxe_ip = *url_resolver
-                    .resolve(&pxe_hostname)
-                    .await
-                    .wrap_err("netconf DNS resolver for carbide-pxe")?
-                    .first()
-                    .ok_or_else(|| eyre::eyre!("No pxe ip returned by resolver"))?;
-
-                // This log should be removed after some time.
-                tracing::info!("Pxe server resolved as: {:?}", pxe_ip);
-
-                let ntp_ip = match url_resolver.resolve("carbide-ntp.forge").await {
-                    Ok(x) => {
-                        let ntp_server_ip = x.first();
-                        // This log should be removed after some time.
-                        tracing::info!("Ntp server resolved as: {:?}", ntp_server_ip);
-                        ntp_server_ip.cloned()
-                    }
-                    Err(e) => {
-                        tracing::error!("NTP server couldn't be resolved. Dhcp-server won't send NTP server IP in dhcpoffer/ack. Error: {}", e);
-                        None
-                    }
-                };
-
-                let nameservers = url_resolver.nameservers();
-                (pxe_ip, ntp_ip, nameservers)
-            } else {
-                (
-                    Ipv4Addr::from([127, 0, 0, 1]),
-                    None,
-                    vec![IpAddr::from([127, 0, 0, 1])],
-                )
-            };
-
-            let mut update_result = match params.override_network_virtualization_type {
-                Some(NetworkVirtualizationType::EtvNvue) => {
-                    ethernet_virtualization::update_nvue(
-                        &agent.hbn.root_dir,
-                        &conf,
-                        agent.hbn.skip_reload,
-                    )
-                    .await
-                }
-                _ => {
-                    ethernet_virtualization::update_files(
-                        &agent.hbn.root_dir,
-                        &conf,
-                        agent.hbn.skip_reload,
-                    )
-                    .await
-                }
-            };
-            if let Ok(has_changes) = update_result {
-                let dhcp_result = ethernet_virtualization::update_dhcp(
-                    &agent.hbn.root_dir,
-                    &conf,
-                    agent.hbn.skip_reload,
-                    pxe_ip,
-                    ntp_ip,
-                    nameservers.clone(),
-                    params
-                        .override_network_virtualization_type
-                        .unwrap_or(NetworkVirtualizationType::Etv),
-                )
-                .await;
-                update_result = match dhcp_result {
-                    Ok(dhcp_has_changes) => Ok(has_changes || dhcp_has_changes),
-                    Err(errs) => Err(errs),
-                };
-            }
-
-            match update_result {
-                Ok(has_changed) => {
-                    status_out.network_config_version =
-                        Some(conf.managed_host_config_version.clone());
-                    status_out.instance_id = conf.instance_id.clone();
-                    if !conf.instance_config_version.is_empty() {
-                        status_out.instance_config_version =
-                            Some(conf.instance_config_version.clone());
-                    }
-                    has_changed_configs = has_changed;
-                }
-                Err(err) => {
-                    tracing::error!("netconf error: {err:#}");
-                    status_out.network_config_error = Some(err.to_string());
-                }
-            }
-            match ethernet_virtualization::interfaces(&conf, &params.mac_address).await {
-                Ok(interfaces) => status_out.interfaces = interfaces,
-                Err(err) => status_out.network_config_error = Some(err.to_string()),
-            }
-            if let Some(v) = status_out.network_config_version.as_ref() {
-                tracing::info!("Applied: {v}");
-            }
-            status_out.health = Some(rpc::NetworkHealth {
-                // Simulate what main forge-dpu-agent does, which is
-                // report network as unhealthy to give HBN/BGP time to apply the config.
-                is_healthy: !has_changed_configs,
-                ..Default::default()
-            });
-            main_loop::record_network_status(status_out, &forge_api, forge_client_config).await;
         }
 
         // Output a templated file
