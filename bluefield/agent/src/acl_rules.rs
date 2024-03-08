@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 
 use ipnetwork::Ipv4Network;
 
-use crate::config_model::acl::{chain, target};
-use crate::config_model::acl::{IpTablesRule, IpTablesRuleset, RulesFile};
+use crate::acl::{Chain, Target};
+use crate::acl::{IpTablesRule, IpTablesRuleset, RulesFile};
 
 pub const PATH: &str = "etc/cumulus/acl/policy.d/60-forge.rules";
 pub const RELOAD_CMD: &str = "cl-acltool -i";
@@ -70,7 +70,7 @@ fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
 }
 
 fn make_block_nvued_rule() -> IpTablesRule {
-    let mut r = IpTablesRule::new(chain::INPUT, target::DROP);
+    let mut r = IpTablesRule::new(Chain::Input, Target::Drop);
     r.set_destination_port(8765);
     r.set_protocol("tcp");
     r.set_comment_before("Block access to nvued API".to_string());
@@ -80,7 +80,7 @@ fn make_block_nvued_rule() -> IpTablesRule {
 // Generate rules allowing the instance on the other side of this interface to
 // send packets to the prefixes associated with its VPC.
 fn make_vpc_rules(interface_name: &str, vpc_prefixes: &[Ipv4Network]) -> Vec<IpTablesRule> {
-    let vpc_base_rule = IpTablesRule::new(chain::FORWARD, target::ACCEPT);
+    let vpc_base_rule = IpTablesRule::new(Chain::Forward, Target::Accept);
     let mut rules: Vec<_> = vpc_prefixes
         .iter()
         .map(|prefix| {
@@ -102,7 +102,7 @@ fn make_deny_prefix_rules(
     tenant_interface_names: &[&String],
     deny_prefixes: &[Ipv4Network],
 ) -> Vec<IpTablesRule> {
-    let deny_base_rule = IpTablesRule::new(chain::FORWARD, target::DROP);
+    let deny_base_rule = IpTablesRule::new(Chain::Forward, Target::Drop);
     let mut rules: Vec<_> = deny_prefixes
         .iter()
         .flat_map(|prefix| {

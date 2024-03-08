@@ -27,9 +27,9 @@ use forge_tls::client_config::ClientCert;
 
 use crate::frr::FrrVlanConfig;
 
+pub mod acl;
 mod acl_rules;
 mod command_line;
-pub mod config_model;
 pub mod containerd;
 mod daemons;
 mod dhcp;
