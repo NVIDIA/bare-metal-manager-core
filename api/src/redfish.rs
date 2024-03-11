@@ -58,7 +58,8 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 
     async fn change_root_password_to_site_default(
         &self,
-        standard_client: RedfishStandard,
+        client: Box<dyn Redfish>,
+        new_credential_key: CredentialKey,
     ) -> Result<(), RedfishClientCreationError>;
 
     async fn create_forge_admin_user(
@@ -226,13 +227,12 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
 
     async fn change_root_password_to_site_default(
         &self,
-        standard_client: RedfishStandard,
+        client: Box<dyn Redfish>,
+        new_credential_key: CredentialKey,
     ) -> Result<(), RedfishClientCreationError> {
         let credentials = self
             .credential_provider
-            .get_credentials(CredentialKey::DpuRedfish {
-                credential_type: CredentialType::SiteDefault,
-            })
+            .get_credentials(new_credential_key.clone())
             .await
             .map_err(RedfishClientCreationError::MissingCredentials)?;
 
@@ -240,7 +240,27 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        standard_client
+        let username = if let CredentialKey::HostRedfish { .. } = new_credential_key {
+            let service_root = client
+                .get_service_root()
+                .await
+                .map_err(RedfishClientCreationError::RedfishError)?;
+
+            if service_root
+                .vendor()
+                .is_some_and(|x| x.to_uppercase() == "AMI")
+            {
+                AMI_USERNAME.to_string()
+            } else {
+                username
+            }
+        } else {
+            username
+        };
+
+        tracing::info!("Using {username} user while updating root password to site default.");
+
+        client
             .change_password(username.as_str(), password.as_str())
             .await
             .map_err(RedfishClientCreationError::RedfishError)
@@ -707,7 +727,8 @@ impl RedfishClientPool for RedfishSim {
 
     async fn change_root_password_to_site_default(
         &self,
-        _standard_client: RedfishStandard,
+        _client: Box<dyn Redfish>,
+        _new_credential_key: CredentialKey,
     ) -> Result<(), RedfishClientCreationError> {
         Err(RedfishClientCreationError::NotImplemented)
     }
