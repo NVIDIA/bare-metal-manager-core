@@ -14,8 +14,8 @@ use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 
+use ::rpc::forge as forgerpc;
 use ::rpc::forge::MachineType;
-use ::rpc::forge::{self as forgerpc};
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::CredentialType;
 use ::rpc::MachineId;
@@ -58,6 +58,7 @@ mod machine_interfaces;
 mod managed_host;
 mod network;
 mod network_devices;
+mod ping;
 mod redfish;
 mod resource_pool;
 mod rpc;
@@ -135,6 +136,7 @@ async fn main() -> color_eyre::Result<()> {
         .from_env_lossy()
         .add_directive("tower=warn".parse()?)
         .add_directive("rustls=warn".parse()?)
+        .add_directive("hyper=info".parse()?)
         .add_directive("h2=warn".parse()?);
     if config.debug != 0 {
         env_filter = env_filter.add_directive(
@@ -582,6 +584,7 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         }
+        CarbideCommand::Ping(opts) => ping::ping(api_config, opts).await?,
     }
 
     Ok(())

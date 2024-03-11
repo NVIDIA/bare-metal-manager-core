@@ -122,6 +122,10 @@ pub enum CarbideCommand {
         about = "Generate shell autocomplete. Source the output of this command: `source <(forge-admin-cli generate-shell-complete bash)`"
     )]
     GenerateShellComplete(ShellCompleteAction),
+    #[clap(
+        about = "Query the Version gRPC endpoint repeatedly printing how long it took and any failures."
+    )]
+    Ping(PingOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -962,4 +966,15 @@ pub enum Shell {
     Bash,
     Fish,
     Zsh,
+}
+
+#[derive(Parser, Debug)]
+pub struct PingOptions {
+    #[clap(
+        short,
+        long,
+        default_value("1.0"),
+        help = "Wait interval seconds between sending each request. Real number allowed with dot as a decimal separator."
+    )]
+    pub interval: f32,
 }
