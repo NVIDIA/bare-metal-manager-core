@@ -154,7 +154,7 @@ pub async fn fetch(
     forge_api: &str,
     client_config: ForgeClientConfig,
 ) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+    let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
         forge_api,
         client_config,
     ))

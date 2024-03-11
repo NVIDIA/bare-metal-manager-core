@@ -131,7 +131,7 @@ impl<'r> FromRequest<'r> for Machine {
                     ),
                 );
 
-                match forge_tls_client::ForgeTlsClient::new_and_connect(&api_config).await {
+                match forge_tls_client::ForgeTlsClient::retry_build(&api_config).await {
                     Ok(client) => client,
                     Err(err) => {
                         eprintln!(

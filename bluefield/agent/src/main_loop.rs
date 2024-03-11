@@ -427,7 +427,7 @@ pub async fn record_network_status(
     forge_client_config: forge_tls_client::ForgeClientConfig,
 ) {
     let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
-        .connect(forge_api)
+        .build(forge_api)
         .await
     {
         Ok(client) => client,
@@ -450,7 +450,7 @@ pub async fn record_network_status(
 }
 
 async fn renew_certificates(forge_api: &str, client_config: forge_tls_client::ForgeClientConfig) {
-    let mut client = match forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+    let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
         forge_api,
         client_config,
     ))
@@ -616,7 +616,7 @@ async fn create_forge_admin_user(
 ) -> eyre::Result<()> {
     let ipmi_user = forge_host_support::ipmi::set_ipmi_creds()?;
 
-    let mut client = forge_tls_client::ForgeTlsClient::new(forge_client_config).connect(forge_api).await
+    let mut client = forge_tls_client::ForgeTlsClient::new(forge_client_config).build(forge_api).await
         .map_err(|err|
             eyre::eyre!("create_forge_admin_user: Could not connect to Forge API server at {forge_api}. {err}")
         )?;

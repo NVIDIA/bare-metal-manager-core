@@ -31,7 +31,7 @@ pub async fn with_forge_client<'a, T, F>(
 where
     F: Future<Output = CarbideCliResult<T>>,
 {
-    let client = forge_tls_client::ForgeTlsClient::new_and_connect(api_config)
+    let client = forge_tls_client::ForgeTlsClient::retry_build(api_config)
         .await
         .map_err(|err| CarbideCliError::ApiConnectFailed(err.to_string()))?;
 

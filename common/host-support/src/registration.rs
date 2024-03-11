@@ -88,7 +88,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
 
         // Create a new connection off of the ForgeTlsClient.
         let mut connection = client
-            .connect(self.api_url.to_string())
+            .build(self.api_url.to_string())
             .await
             .map_err(|err| RegistrationError::TransportError(err.to_string()))?;
         tracing::debug!("register_machine client connection {:?}", connection);
