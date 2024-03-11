@@ -1,7 +1,18 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Cell, Row, Table};
 
 use crate::{cfg::carbide_options::Version, rpc, CarbideCliError};
-use ::rpc::forge_tls_client::ApiConfig;
 
 macro_rules! r {
     ($table: ident, $value:ident, $field_name:ident) => {
