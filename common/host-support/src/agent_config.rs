@@ -18,26 +18,38 @@ use serde::{Deserialize, Serialize};
 /// HBN container root
 const HBN_DEFAULT_ROOT: &str = "/var/lib/hbn";
 
+// TODO we need to figure out the addresses on which those services should run
+const INSTANCE_METADATA_SERVICE_ADDRESS: &str = "0.0.0.0:7777";
+const TELEMETRY_METRICS_SERVICE_ADDRESS: &str = "0.0.0.0:8888";
+
+/// The sub-part of the agent config that PXE server sets
+///
+/// This is what we WRITE to /etc/forge/config.toml
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConfigFromPxe {
+    #[serde(rename = "forge-system")]
+    pub forge_system: ForgeSystemConfig,
+    pub machine: MachineConfig,
+}
+
 /// Describes the format of the configuration files that is used by Forge agents
 /// that run on the DPU and host
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// This is what we READ from /etc/forge/config.toml. In prod most of the fields will default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     #[serde(rename = "forge-system")]
     pub forge_system: ForgeSystemConfig,
     pub machine: MachineConfig,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "metadata-service"
-    )]
-    pub metadata_service: Option<MetadataServiceConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub telemetry: Option<TelemetryConfig>,
+    #[serde(default, rename = "metadata-service")]
+    pub metadata_service: MetadataServiceConfig,
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
     #[serde(default)]
     pub hbn: HBNConfig,
     #[serde(default)]
     pub period: IterationTime,
-    #[serde(default, skip_serializing_if = "UpdateConfig::is_default")]
+    #[serde(default)]
     pub updates: UpdateConfig,
 }
 
@@ -95,10 +107,26 @@ pub struct MetadataServiceConfig {
     pub address: String,
 }
 
+impl Default for MetadataServiceConfig {
+    fn default() -> Self {
+        Self {
+            address: INSTANCE_METADATA_SERVICE_ADDRESS.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct TelemetryConfig {
     pub metrics_address: String,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            metrics_address: TELEMETRY_METRICS_SERVICE_ADDRESS.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,8 +291,8 @@ override-upgrade-cmd = "update"
         );
         assert!(config.machine.is_fake_dpu);
 
-        assert_eq!(config.metadata_service.unwrap().address, "0.0.0.0:7777");
-        assert_eq!(config.telemetry.unwrap().metrics_address, "0.0.0.0:8888");
+        assert_eq!(config.metadata_service.address, "0.0.0.0:7777");
+        assert_eq!(config.telemetry.metrics_address, "0.0.0.0:8888");
 
         assert_eq!(config.hbn.root_dir, PathBuf::from("/tmp/hbn-root"));
         assert!(config.hbn.skip_reload);
@@ -294,8 +322,8 @@ interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
         );
         assert!(!config.machine.is_fake_dpu);
 
-        assert_eq!(config.metadata_service, None);
-        assert_eq!(config.telemetry, None);
+        assert_eq!(config.metadata_service, MetadataServiceConfig::default());
+        assert_eq!(config.telemetry, TelemetryConfig::default());
 
         assert_eq!(config.hbn.root_dir, PathBuf::from(HBN_DEFAULT_ROOT));
         assert!(!config.hbn.skip_reload);

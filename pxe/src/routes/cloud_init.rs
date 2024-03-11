@@ -77,11 +77,7 @@ fn generate_forge_agent_config(machine_interface_id: &rpc::Uuid, config: &Runtim
 
     let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
 
-    // TODO we need to figure out the addresses on which those services should run
-    let instance_metadata_service_address = "0.0.0.0:7777";
-    let telemetry_metrics_service_address = "0.0.0.0:8888";
-
-    let config = agent_config::AgentConfig {
+    let config = agent_config::AgentConfigFromPxe {
         forge_system: agent_config::ForgeSystemConfig {
             api_server: api_url,
             // TODO: These should *probably* just inherit from
@@ -99,24 +95,6 @@ fn generate_forge_agent_config(machine_interface_id: &rpc::Uuid, config: &Runtim
             // as part of the default value being excluded.
             is_fake_dpu: false,
         },
-
-        metadata_service: Some(agent_config::MetadataServiceConfig {
-            address: instance_metadata_service_address.to_string(),
-        }),
-
-        telemetry: Some(agent_config::TelemetryConfig {
-            metrics_address: telemetry_metrics_service_address.to_string(),
-        }),
-
-        updates: agent_config::UpdateConfig::default(),
-
-        // TODO: In the original implementation of how we'd
-        // build a string for this config, these were excluded
-        // entirely. Now they're being passed w/ their default
-        // values. Good? Or should we do some work to skip
-        // serialization here?
-        hbn: agent_config::HBNConfig::default(),
-        period: agent_config::IterationTime::default(),
     };
 
     toml::to_string(&config).unwrap()
@@ -296,25 +274,5 @@ mod tests {
             None => true,
         };
         assert!(skipped);
-
-        assert_eq!(
-            data.get("metadata-service")
-                .unwrap()
-                .get("address")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "0.0.0.0:7777"
-        );
-
-        assert_eq!(
-            data.get("telemetry")
-                .unwrap()
-                .get("metrics-address")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "0.0.0.0:8888"
-        );
     }
 }

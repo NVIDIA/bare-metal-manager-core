@@ -57,20 +57,14 @@ pub async fn run(
     let mut hup_signal = signal(SignalKind::hangup())?;
 
     if options.enable_metadata_service {
-        if let (Some(metadata_service_config), Some(telemetry_config)) =
-            (&agent.metadata_service, &agent.telemetry)
-        {
-            if let Err(e) = spawn_metadata_service(
-                machine_id,
-                forge_client_config.clone(),
-                &agent,
-                metadata_service_config.address.clone(),
-                telemetry_config.metrics_address.clone(),
-            ) {
-                return Err(eyre::eyre!("Failed to run metadata service: {:#}", e));
-            }
-        } else {
-            tracing::error!("metadata-service and telemetry configs are not present. Can't run metadata service");
+        if let Err(e) = spawn_metadata_service(
+            machine_id,
+            forge_client_config.clone(),
+            &agent,
+            agent.metadata_service.address.clone(),
+            agent.telemetry.metrics_address.clone(),
+        ) {
+            return Err(eyre::eyre!("Failed to run metadata service: {:#}", e));
         }
     }
 
