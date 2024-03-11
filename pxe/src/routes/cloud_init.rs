@@ -33,8 +33,7 @@ fn user_data_handler(
     domain: forge::Domain,
     config: RuntimeConfig,
 ) -> (String, HashMap<String, String>) {
-    let forge_agent_config =
-        generate_forge_agent_config(&machine_interface_id, &machine_interface, &domain, &config);
+    let forge_agent_config = generate_forge_agent_config(&machine_interface_id, &config);
 
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine_interface.mac_address);
@@ -53,7 +52,6 @@ fn user_data_handler(
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
     context.insert("api_url".to_string(), config.client_facing_api_url);
     context.insert("pxe_url".to_string(), config.pxe_url);
-    context.insert("ntp_server".to_string(), config.ntp_server);
     context.insert(
         "forge_agent_config_b64".to_string(),
         BASE64_STANDARD.encode(forge_agent_config),
@@ -74,19 +72,10 @@ fn user_data_handler(
 }
 
 /// Generates the content of the /etc/forge/config.toml file
-fn generate_forge_agent_config(
-    machine_interface_id: &rpc::Uuid,
-    machine_interface: &forge::MachineInterface,
-    domain: &forge::Domain,
-    config: &RuntimeConfig,
-) -> String {
+fn generate_forge_agent_config(machine_interface_id: &rpc::Uuid, config: &RuntimeConfig) -> String {
     let api_url = config.client_facing_api_url.clone();
-    let pxe_url = config.pxe_url.clone();
-    let ntp_server = config.ntp_server.clone();
 
     let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
-    let mac_address = machine_interface.mac_address.clone();
-    let hostname = format!("{}.{}", machine_interface.hostname, domain.name);
 
     // TODO we need to figure out the addresses on which those services should run
     let instance_metadata_service_address = "0.0.0.0:7777";
@@ -95,8 +84,6 @@ fn generate_forge_agent_config(
     let config = agent_config::AgentConfig {
         forge_system: agent_config::ForgeSystemConfig {
             api_server: api_url,
-            pxe_server: Some(pxe_url),
-            ntp_server: Some(ntp_server),
             // TODO: These should *probably* just inherit from
             // RuntimeConfig, but for whatever reason these have
             // historically been ignored here, so leaving as-is
@@ -108,8 +95,6 @@ fn generate_forge_agent_config(
 
         machine: agent_config::MachineConfig {
             interface_id,
-            mac_address: Some(mac_address),
-            hostname: Some(hostname),
             // This will get stripped from the serialized config
             // as part of the default value being excluded.
             is_fake_dpu: false,
@@ -259,19 +244,10 @@ mod tests {
             vendor: Some("xyz".to_string()),
         };
 
-        let domain = rpc::Domain {
-            id: None,
-            name: "myforge.com".to_string(),
-            created: None,
-            updated: None,
-            deleted: None,
-        };
-
         let runtime_config = RuntimeConfig {
             internal_api_url: "https://127.0.0.1:8001".to_string(),
             client_facing_api_url: "https://127.0.0.1:8001".to_string(),
             pxe_url: "http://127.0.0.1:8080".to_string(),
-            ntp_server: "127.0.0.2".to_string(),
             forge_root_ca_path: tls_default::ROOT_CA.to_string(),
             server_cert_path: tls_default::CLIENT_CERT.to_string(),
             server_key_path: tls_default::CLIENT_KEY.to_string(),
@@ -279,8 +255,7 @@ mod tests {
 
         let interface_id: rpc::Uuid = interface.id.clone().unwrap();
 
-        let config =
-            generate_forge_agent_config(&interface_id, &interface, &domain, &runtime_config);
+        let config = generate_forge_agent_config(&interface_id, &runtime_config);
 
         // The intent here is to actually test what the written
         // configuration file looks like, so we can visualize to
@@ -303,24 +278,6 @@ mod tests {
                 .unwrap(),
             "https://127.0.0.1:8001"
         );
-        assert_eq!(
-            data.get("forge-system")
-                .unwrap()
-                .get("pxe-server")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "http://127.0.0.1:8080"
-        );
-        assert_eq!(
-            data.get("forge-system")
-                .unwrap()
-                .get("ntp-server")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "127.0.0.2"
-        );
 
         assert_eq!(
             data.get("machine")
@@ -330,24 +287,6 @@ mod tests {
                 .as_str()
                 .unwrap(),
             "91609f10-c91d-470d-a260-6293ea0c1234"
-        );
-        assert_eq!(
-            data.get("machine")
-                .unwrap()
-                .get("mac-address")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "01:02:03:AA:BB:CC"
-        );
-        assert_eq!(
-            data.get("machine")
-                .unwrap()
-                .get("hostname")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "abc.myforge.com"
         );
 
         // Check to make sure is_fake_dpu gets skipped

@@ -164,13 +164,10 @@ fi
 cat <<!> $DPU_CONFIG_FILE
 [forge-system]
 api-server = "https://$API_SERVER_HOST:$API_SERVER_PORT"
-pxe-server = "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT"
 root-ca = "${ROOT_CA}"
 
 [machine]
 interface-id = "$MACHINE_INTERFACE_ID"
-mac-address = "11:22:33:44:55:66"
-hostname = "abc.forge.com"
 is-fake-dpu = true
 
 [hbn]

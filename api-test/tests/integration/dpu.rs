@@ -26,14 +26,11 @@ use crate::{
 const DPU_CONFIG: &str = r#"
 [forge-system]
 api-server = "https://$API_SERVER"
-pxe-server = "http://127.0.0.1:8080"
 root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
 
 [machine]
 is-fake-dpu = true
 interface-id = "$MACHINE_INTERFACE_ID"
-mac-address = "11:22:33:44:55:66"
-hostname = "abc.forge.example.com"
 
 [updates]
 override-upgrade-cmd = "echo 'apt-get install --yes --only-upgrade --reinstall forge-dpu' > $UPGRADE_INDICATOR"

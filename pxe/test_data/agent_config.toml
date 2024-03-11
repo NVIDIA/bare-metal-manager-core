@@ -1,15 +1,11 @@
 [forge-system]
 api-server = "https://127.0.0.1:8001"
-pxe-server = "http://127.0.0.1:8080"
-ntp-server = "127.0.0.2"
 root-ca = "/opt/forge/forge_root.pem"
 client-cert = "/opt/forge/machine_cert.pem"
 client-key = "/opt/forge/machine_cert.key"
 
 [machine]
 interface-id = "91609f10-c91d-470d-a260-6293ea0c1234"
-mac-address = "01:02:03:AA:BB:CC"
-hostname = "abc.myforge.com"
 
 [metadata-service]
 address = "0.0.0.0:7777"
