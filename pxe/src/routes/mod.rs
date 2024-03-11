@@ -29,7 +29,7 @@ impl RpcContext {
             retry_config: RetryConfig::default(),
             client_config,
         };
-        let mut client = forge_tls_client::ForgeTlsClient::new_and_connect(&api_config)
+        let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| err.to_string())?;
         let interface_id = Some(rpc::Uuid {

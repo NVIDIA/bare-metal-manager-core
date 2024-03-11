@@ -135,7 +135,7 @@ async fn create_forge_client(
         ),
     );
 
-    let client = forge_tls_client::ForgeTlsClient::new_and_connect(&api_config)
+    let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
         .await
         .map_err(|err| HealthError::ApiConnectFailed(err.to_string()))?;
     Ok(client)

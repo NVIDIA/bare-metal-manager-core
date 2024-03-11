@@ -174,11 +174,9 @@ async fn network_upgrade_check(
         binary_sha: binary_hash,
     };
 
-    let mut client = forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
-        forge_api,
-        client_config,
-    ))
-    .await?;
+    let mut client =
+        forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(forge_api, client_config))
+            .await?;
     let resp = client
         .dpu_agent_upgrade_check(tonic::Request::new(req))
         .await

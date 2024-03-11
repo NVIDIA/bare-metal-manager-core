@@ -167,7 +167,7 @@ async fn fetch_latest_ip_addresses(
     client_config: ForgeClientConfig,
     state: &InstanceMetadataFetcherState,
 ) -> Result<InstanceMetadata, eyre::Error> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+    let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
         &state.config.forge_api,
         client_config,
     ))

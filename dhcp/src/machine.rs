@@ -43,7 +43,7 @@ impl Machine {
         client_config: ForgeClientConfig,
     ) -> Result<Self, String> {
         let api_config = ApiConfig::new(carbide_api_url, client_config);
-        match forge_tls_client::ForgeTlsClient::new_and_connect(&api_config).await {
+        match forge_tls_client::ForgeTlsClient::retry_build(&api_config).await {
             Ok(mut client) => {
                 let request = tonic::Request::new(rpc::DhcpDiscovery {
                     mac_address: discovery.mac_address.to_string(),

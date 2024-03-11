@@ -52,7 +52,7 @@ impl RequestHandler for DnsServer {
 
         let api_config = ApiConfig::new(&self.url, self.forge_client_config.clone());
 
-        let client = forge_tls_client::ForgeTlsClient::new_and_connect(&api_config)
+        let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .unwrap_or_else(|err| {
                 panic!(

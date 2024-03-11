@@ -21,7 +21,7 @@ use crate::cfg::carbide_options::PingOptions;
 use crate::CarbideCliError;
 
 pub async fn ping(api_config: &ApiConfig<'_>, opts: PingOptions) -> color_eyre::Result<()> {
-    let mut client = ForgeTlsClient::new_and_connect(api_config)
+    let mut client = ForgeTlsClient::retry_build(api_config)
         .await
         .map_err(|err| CarbideCliError::ApiConnectFailed(err.to_string()))?;
     let interval = Duration::from_secs_f32(opts.interval);

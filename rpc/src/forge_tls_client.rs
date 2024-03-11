@@ -299,28 +299,22 @@ impl ForgeTlsClient {
         }
     }
 
-    // new_and_connect creates a new ForgeTlsClient from
-    // the given API URL and ForgeClientConfig, then attempts to create
-    // and return a connected client, integrating retries into the
-    // connection attempts.
-    //
-    // Creating + connecting seems to be a common pattern across the codebase
-    // in general, so centralizing one here, which then makes it easier to
-    // integrate retries across the board.
-    pub async fn new_and_connect<'a>(
-        api_config: &ApiConfig<'a>,
-    ) -> ForgeTlsClientResult<ForgeClientT> {
+    /// retry_build creates a new ForgeTlsClient from
+    /// the given API URL and ForgeClientConfig, then attempts to build
+    /// and return a client, integrating retries into the
+    /// building attempts.
+    pub async fn retry_build<'a>(api_config: &ApiConfig<'a>) -> ForgeTlsClientResult<ForgeClientT> {
         // TODO(chet): Make this configurable. For now,
         // hard-coding as 10 minutes worth of connect attempts..
         let client = ForgeTlsClient::new(api_config.client_config.clone());
-        match tryhard::retry_fn(|| client.connect(api_config.url))
+        match tryhard::retry_fn(|| client.build(api_config.url))
             .with_config(api_config.retry_config())
             .await
         {
             Ok(client) => Ok(client),
             Err(err) => {
                 tracing::error!(
-                    "error connecting to forge api (url: {}, attempts: {}): {}",
+                    "error building client to forge api (url: {}, attempts: {}): {}",
                     api_config.url,
                     api_config.retry_config.retries,
                     err
@@ -330,7 +324,17 @@ impl ForgeTlsClient {
         }
     }
 
-    pub async fn connect<S: AsRef<str>>(&self, url: S) -> Result<ForgeClientT, eyre::Report> {
+    /// Builds a new Client for for the Forge API which uses a HTTPS/TLS connector
+    /// and appropriate certificates for connecting to the API server.
+    ///
+    /// Note that calling this API will not establish any connection.
+    /// The connection attempt happens lazily at the first request.
+    /// Note also that if TLS certificates would not change, only a single client
+    /// would be required for the whole application - since hyper already manages
+    /// connection establishment internally.
+    /// However using a fresh client could avoid getting a stale connection from
+    /// a pool.
+    pub async fn build<S: AsRef<str>>(&self, url: S) -> Result<ForgeClientT, eyre::Report> {
         let mut roots = RootCertStore::empty();
         let uri = Uri::from_str(url.as_ref())?;
 

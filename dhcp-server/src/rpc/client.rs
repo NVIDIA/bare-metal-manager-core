@@ -27,7 +27,7 @@ pub async fn discover_dhcp(
         ),
     );
 
-    let mut client = ForgeTlsClient::new_and_connect(&api_config)
+    let mut client = ForgeTlsClient::retry_build(&api_config)
         .await
         .map_err(|x| DhcpError::GenericError(x.to_string()))?;
 

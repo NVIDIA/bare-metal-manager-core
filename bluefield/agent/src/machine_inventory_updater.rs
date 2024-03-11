@@ -86,7 +86,7 @@ async fn update_agent_reported_inventory(
     client_config: forge_tls_client::ForgeClientConfig,
     forge_api: &str,
 ) -> eyre::Result<()> {
-    let mut client = match forge_tls_client::ForgeTlsClient::new_and_connect(&ApiConfig::new(
+    let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
         forge_api,
         client_config,
     ))
