@@ -59,10 +59,6 @@ impl AgentConfig {
 #[serde(rename_all = "kebab-case")]
 pub struct ForgeSystemConfig {
     pub api_server: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pxe_server: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ntp_server: Option<String>,
     #[serde(default = "default_root_ca")]
     pub root_ca: String,
     #[serde(default = "default_client_cert")]
@@ -87,10 +83,6 @@ pub fn default_client_key() -> String {
 #[serde(rename_all = "kebab-case")]
 pub struct MachineConfig {
     pub interface_id: uuid::Uuid,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mac_address: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hostname: Option<String>,
     /// Local dev only. Pretend to be a DPU for discovery.
     /// If it's set to false, don't even serialize it out
     /// to config.
@@ -233,14 +225,11 @@ mod tests {
     fn test_load_forge_agent_config_full() {
         let config = r#"[forge-system]
 api-server = "https://127.0.0.1:1234"
-pxe-server = "http://127.0.0.1:8080"
 root-ca = "/opt/forge/forge_root.pem"
 
 [machine]
 is-fake-dpu = true
 interface-id = "91609f10-c91d-470d-a260-6293ea0c1200"
-mac-address = "11:22:33:44:55:66"
-hostname = "abc.forge.com"
 
 [metadata-service]
 address = "0.0.0.0:7777"
@@ -269,19 +258,9 @@ override-upgrade-cmd = "update"
 
         assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
         assert_eq!(
-            config.forge_system.pxe_server.as_deref(),
-            Some("http://127.0.0.1:8080")
-        );
-        assert_eq!(config.forge_system.ntp_server, None);
-        assert_eq!(
             config.machine.interface_id,
             uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200")
         );
-        assert_eq!(
-            config.machine.mac_address.as_deref(),
-            Some("11:22:33:44:55:66")
-        );
-        assert_eq!(config.machine.hostname.as_deref(), Some("abc.forge.com"));
         assert!(config.machine.is_fake_dpu);
 
         assert_eq!(config.metadata_service.unwrap().address, "0.0.0.0:7777");
@@ -300,32 +279,19 @@ override-upgrade-cmd = "update"
     fn test_load_forge_agent_config_without_services() {
         let config = "[forge-system]
 api-server = \"https://127.0.0.1:1234\"
-pxe-server = \"http://127.0.0.1:8080\"
 root-ca = \"/opt/forge/forge_root.pem\"
 
 [machine]
 interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
-mac-address = \"11:22:33:44:55:66\"
-hostname = \"abc.forge.com\"
 ";
 
         let config: AgentConfig = toml::from_str(config).unwrap();
 
         assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
         assert_eq!(
-            config.forge_system.pxe_server.as_deref(),
-            Some("http://127.0.0.1:8080")
-        );
-        assert_eq!(config.forge_system.ntp_server, None);
-        assert_eq!(
             config.machine.interface_id,
             uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200")
         );
-        assert_eq!(
-            config.machine.mac_address.as_deref(),
-            Some("11:22:33:44:55:66")
-        );
-        assert_eq!(config.machine.hostname.as_deref(), Some("abc.forge.com"));
         assert!(!config.machine.is_fake_dpu);
 
         assert_eq!(config.metadata_service, None);
