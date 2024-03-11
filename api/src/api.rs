@@ -3209,7 +3209,15 @@ where
                         },
                     ..
                 } => Action::Discovery,
-                ManagedHostState::WaitingForCleanup { .. } => Action::Reset,
+                ManagedHostState::WaitingForCleanup { .. }
+                | ManagedHostState::Failed {
+                    details:
+                        FailureDetails {
+                            cause: FailureCause::NVMECleanFailed { .. },
+                            ..
+                        },
+                    ..
+                } => Action::Reset,
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     tracing::info!(
