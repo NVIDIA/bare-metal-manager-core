@@ -199,6 +199,14 @@ exit ||
                     },
                 ..
             }
+            | ManagedHostState::Failed {
+                details:
+                    FailureDetails {
+                        cause: FailureCause::NVMECleanFailed { .. },
+                        ..
+                    },
+                ..
+            }
             | ManagedHostState::WaitingForCleanup { .. } => {
                 Self::get_pxe_instruction_for_arch(arch, interface_id, mac, console)
             }
