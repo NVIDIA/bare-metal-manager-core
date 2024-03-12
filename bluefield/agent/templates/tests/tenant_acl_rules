@@ -4,13 +4,14 @@
 # Allow associated VPC prefixes for tenant interface pf0hpf_sf
 -A FORWARD -i pf0hpf_sf -d 10.217.5.160/30 -j ACCEPT
 -A FORWARD -i pf0hpf_sf -d 10.217.5.168/29 -j ACCEPT
+# Drop traffic to deny_prefix list for tenant interface pf0hpf_sf
+-A FORWARD -i pf0hpf_sf -d 192.0.2.0/24 -j DROP
+-A FORWARD -i pf0hpf_sf -d 198.51.100.0/24 -j DROP
 # Allow associated VPC prefixes for tenant interface pf0vf0_sf
 -A FORWARD -i pf0vf0_sf -d 10.217.5.160/30 -j ACCEPT
 -A FORWARD -i pf0vf0_sf -d 10.217.5.168/29 -j ACCEPT
-# Drop traffic to deny_prefix list
--A FORWARD -i pf0hpf_sf -d 192.0.2.0/24 -j DROP
+# Drop traffic to deny_prefix list for tenant interface pf0vf0_sf
 -A FORWARD -i pf0vf0_sf -d 192.0.2.0/24 -j DROP
--A FORWARD -i pf0hpf_sf -d 198.51.100.0/24 -j DROP
 -A FORWARD -i pf0vf0_sf -d 198.51.100.0/24 -j DROP
 # Block access to nvued API
 -A INPUT -p tcp --dport 8765 -j DROP
