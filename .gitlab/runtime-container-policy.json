@@ -1,23 +1,27 @@
 {
-	"blacklisted_images": [],
-	"comment": "Forge (Carbide) Container Scan Policy",
+	"denylisted_images": [],
+	"description": "Forge (Carbide) Container Scan Policy",
 	"id": "carbide-policy-bundle",
 	"mappings": [
 		{
+			"id": "default",
+			"name": "default-mapping",
 			"image": {
 				"type": "tag",
 				"value": "*"
 			},
-			"policy_id": "carbide-policy",
+			"rule_set_ids": [
+				"carbide-policy"
+			],
 			"registry": "*",
 			"repository": "*",
-			"whitelist_ids": [ ]
+			"allowlist_ids": [ ]
 		}
 	],
 	"name": "Carbide Policy Bundle",
-	"policies": [
+	"rule_sets": [
 		{
-			"comment": "Carbide policy for a basic severity check in vulnerabilities.",
+			"description": "Carbide policy for a basic severity check in vulnerabilities.",
 			"id": "carbide-policy",
 			"name": "Base Policy",
 			"rules": [
@@ -71,13 +75,13 @@
 							"value": "EPL-1.0,GPL-3.0,GPL-2.0,MPL-2.0,CDDL-1.0,AGPL,LGPL"
 						}
 					],
-					"trigger": "blacklist_exact_match"
+					"trigger": "denylist_exact_match"
 				}
 			],
 			"version": "1_0"
 		}
 	],
-	"version": "1_0",
-	"whitelisted_images": [],
-	"whitelists": [ ]
+	"version": "V2",
+	"allowlisted_images": [],
+	"allowlists": [ ]
 }
