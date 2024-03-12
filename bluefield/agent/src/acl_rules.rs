@@ -46,27 +46,45 @@ pub fn build(conf: AclConfig) -> Result<String, eyre::Report> {
 fn make_forge_rules(acl_config: AclConfig) -> IpTablesRuleset {
     let mut rules: Vec<IpTablesRule> = Vec::new();
 
-    // Add VPC allow rules.
-    rules.extend(
-        acl_config
-            .interfaces
-            .iter()
-            .flat_map(|(if_name, if_rules)| make_vpc_rules(if_name, &if_rules.vpc_prefixes)),
-    );
-
-    let tenant_interfaces: Vec<_> = acl_config.interfaces.keys().collect();
-
     let deny_prefixes: Vec<Ipv4Network> = acl_config
         .deny_prefixes
         .iter()
         .map(|prefix| prefix.parse().unwrap())
         .collect();
 
-    rules.extend(make_deny_prefix_rules(&tenant_interfaces, &deny_prefixes));
+    // Generate the rules for each tenant interface.
+    rules.extend(
+        acl_config
+            .interfaces
+            .iter()
+            .flat_map(|(if_name, if_rules)| {
+                make_forge_interface_rules(
+                    if_name,
+                    if_rules.vpc_prefixes.as_slice(),
+                    deny_prefixes.as_slice(),
+                )
+            }),
+    );
 
     rules.push(make_block_nvued_rule());
 
     IpTablesRuleset::new_with_rules(rules)
+}
+
+// Create the Forge ruleset for a specific tenant-facing interface.
+fn make_forge_interface_rules(
+    interface_name: &str,
+    vpc_prefixes: &[Ipv4Network],
+    deny_prefixes: &[Ipv4Network],
+) -> Vec<IpTablesRule> {
+    let mut rules = Vec::new();
+    rules.extend(make_vpc_rules(interface_name, vpc_prefixes));
+    rules.extend(make_deny_prefix_rules(
+        interface_name,
+        deny_prefixes,
+        vpc_prefixes,
+    ));
+    rules
 }
 
 fn make_block_nvued_rule() -> IpTablesRule {
@@ -98,27 +116,34 @@ fn make_vpc_rules(interface_name: &str, vpc_prefixes: &[Ipv4Network]) -> Vec<IpT
     rules
 }
 
+// Generate rules denying traffic to the deny_prefixes list. We also check the
+// vpc_prefixes list for this interface so that we can skip denying a prefix if
+// it has already been allowed in its entirety (this avoids an HBN 1.5 bug).
 fn make_deny_prefix_rules(
-    tenant_interface_names: &[&String],
+    interface_name: &str,
     deny_prefixes: &[Ipv4Network],
+    vpc_prefixes: &[Ipv4Network],
 ) -> Vec<IpTablesRule> {
     let deny_base_rule = IpTablesRule::new(Chain::Forward, Target::Drop);
     let mut rules: Vec<_> = deny_prefixes
         .iter()
-        .flat_map(|prefix| {
-            tenant_interface_names
-                .iter()
-                .cloned()
-                .map(|interface_name| {
-                    let mut rule = deny_base_rule.clone();
-                    rule.set_ingress_interface(interface_name.clone());
-                    rule.set_destination_prefix(prefix.to_owned());
-                    rule
-                })
+        .filter_map(|deny_prefix| {
+            let is_not_vpc_prefix = !vpc_prefixes.contains(deny_prefix);
+            // We will only emit a drop rule if this prefix has not been
+            // used in a VPC network segment already (which would correspond
+            // to an earlier ACCEPT rule). If we emit the same prefix as both
+            // an ACCEPT and DROP, HBN 1.5 may process them in the wrong order.
+            is_not_vpc_prefix.then(|| {
+                let mut rule = deny_base_rule.clone();
+                rule.set_ingress_interface(interface_name.to_owned());
+                rule.set_destination_prefix(deny_prefix.to_owned());
+                rule
+            })
         })
         .collect();
     if let Some(first_rule) = rules.first_mut() {
-        let comment = String::from("Drop traffic to deny_prefix list");
+        let comment =
+            format!("Drop traffic to deny_prefix list for tenant interface {interface_name}");
         first_rule.set_comment_before(comment);
     }
     rules
