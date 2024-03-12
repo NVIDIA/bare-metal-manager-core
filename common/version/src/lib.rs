@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::path::Path;
 use std::process::Command;
 
 /// Set build script environment variables. Call this from a build script.
@@ -45,12 +46,23 @@ pub fn build() {
     println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
 
     // Only re-calculate all of this when there's a new commit
-    // CARGO_MANIFEST_DIR points to version, so to get to the repository root we need ..
-    let git_head = concat!(env!("CARGO_MANIFEST_DIR"), "/../../.git/HEAD");
+    let git_query_head =
+        run("git", &["rev-parse", "--path-format=absolute", "--git-dir"]) + "/HEAD";
+    let git_head = if Path::new(&git_query_head).exists() {
+        // dev
+        git_query_head
+    } else {
+        // CI
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../.git/HEAD").to_string()
+    };
+
     // Check that this file is still relative to the repository root where we expect.
     // If it isn't, then rerun-if-changed is wrong - and we will rebuilt the version
     // crate and all dependents on each `cargo build`
-    assert!(std::path::PathBuf::from(git_head).exists(), "Git HEAD is not at the expected position relative to Cargo.toml\nAdjust location to avoid double compilation");
+    assert!(
+        std::path::Path::new(&git_head).exists(),
+        "Git HEAD not found at {git_head}. Adjust location to avoid double compilation"
+    );
     println!("cargo:rerun-if-changed={}", git_head);
 }
 
