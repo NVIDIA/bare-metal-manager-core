@@ -18,27 +18,36 @@ use serde::{Deserialize, Serialize};
 /// HBN container root
 const HBN_DEFAULT_ROOT: &str = "/var/lib/hbn";
 
-// TODO we need to figure out the addresses on which those services should run
+/// Where DPU agent will try to connect to carbide-api
+/// Unbound should define this in all environments
+const DEFAULT_API_SERVER: &str = "https://carbide-api.forge";
+
+// TODO(ianderson) we need to figure out the addresses on which those services should run
 const INSTANCE_METADATA_SERVICE_ADDRESS: &str = "0.0.0.0:7777";
 const TELEMETRY_METRICS_SERVICE_ADDRESS: &str = "0.0.0.0:8888";
 
 /// The sub-part of the agent config that PXE server sets
 ///
 /// This is what we WRITE to /etc/forge/config.toml
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AgentConfigFromPxe {
-    #[serde(rename = "forge-system")]
-    pub forge_system: ForgeSystemConfig,
-    pub machine: MachineConfig,
+    pub machine: MachineConfigFromPxe,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct MachineConfigFromPxe {
+    pub interface_id: uuid::Uuid,
 }
 
 /// Describes the format of the configuration files that is used by Forge agents
 /// that run on the DPU and host
 ///
 /// This is what we READ from /etc/forge/config.toml. In prod most of the fields will default.
+/// We only implement Serialize for unit tests.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
-    #[serde(rename = "forge-system")]
+    #[serde(default, rename = "forge-system")]
     pub forge_system: ForgeSystemConfig,
     pub machine: MachineConfig,
     #[serde(default, rename = "metadata-service")]
@@ -70,6 +79,7 @@ impl AgentConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ForgeSystemConfig {
+    #[serde(default = "default_api_server")]
     pub api_server: String,
     #[serde(default = "default_root_ca")]
     pub root_ca: String,
@@ -77,6 +87,23 @@ pub struct ForgeSystemConfig {
     pub client_cert: String,
     #[serde(default = "default_client_key")]
     pub client_key: String,
+}
+
+// Called if no `[forge-system]` is provided at all.
+// The serde defaults above are called if one or more fields are missing.
+impl Default for ForgeSystemConfig {
+    fn default() -> Self {
+        Self {
+            api_server: default_api_server(),
+            root_ca: default_root_ca(),
+            client_cert: default_client_cert(),
+            client_key: default_client_key(),
+        }
+    }
+}
+
+pub fn default_api_server() -> String {
+    DEFAULT_API_SERVER.to_string()
 }
 
 pub fn default_root_ca() -> String {
