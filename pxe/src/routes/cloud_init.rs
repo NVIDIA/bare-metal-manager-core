@@ -33,7 +33,7 @@ fn user_data_handler(
     domain: forge::Domain,
     config: RuntimeConfig,
 ) -> (String, HashMap<String, String>) {
-    let forge_agent_config = generate_forge_agent_config(&machine_interface_id, &config);
+    let forge_agent_config = generate_forge_agent_config(&machine_interface_id);
 
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine_interface.mac_address);
@@ -72,29 +72,10 @@ fn user_data_handler(
 }
 
 /// Generates the content of the /etc/forge/config.toml file
-fn generate_forge_agent_config(machine_interface_id: &rpc::Uuid, config: &RuntimeConfig) -> String {
-    let api_url = config.client_facing_api_url.clone();
-
+fn generate_forge_agent_config(machine_interface_id: &rpc::Uuid) -> String {
     let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
-
     let config = agent_config::AgentConfigFromPxe {
-        forge_system: agent_config::ForgeSystemConfig {
-            api_server: api_url,
-            // TODO: These should *probably* just inherit from
-            // RuntimeConfig, but for whatever reason these have
-            // historically been ignored here, so leaving as-is
-            // for the time being.
-            root_ca: agent_config::default_root_ca(),
-            client_cert: agent_config::default_client_cert(),
-            client_key: agent_config::default_client_key(),
-        },
-
-        machine: agent_config::MachineConfig {
-            interface_id,
-            // This will get stripped from the serialized config
-            // as part of the default value being excluded.
-            is_fake_dpu: false,
-        },
+        machine: agent_config::MachineConfigFromPxe { interface_id },
     };
 
     toml::to_string(&config).unwrap()
@@ -222,18 +203,8 @@ mod tests {
             vendor: Some("xyz".to_string()),
         };
 
-        let runtime_config = RuntimeConfig {
-            internal_api_url: "https://127.0.0.1:8001".to_string(),
-            client_facing_api_url: "https://127.0.0.1:8001".to_string(),
-            pxe_url: "http://127.0.0.1:8080".to_string(),
-            forge_root_ca_path: tls_default::ROOT_CA.to_string(),
-            server_cert_path: tls_default::CLIENT_CERT.to_string(),
-            server_key_path: tls_default::CLIENT_KEY.to_string(),
-        };
-
         let interface_id: rpc::Uuid = interface.id.clone().unwrap();
-
-        let config = generate_forge_agent_config(&interface_id, &runtime_config);
+        let config = generate_forge_agent_config(&interface_id);
 
         // The intent here is to actually test what the written
         // configuration file looks like, so we can visualize to
@@ -246,16 +217,6 @@ mod tests {
         assert_eq!(config, test_config);
 
         let data: toml::Value = config.parse().unwrap();
-
-        assert_eq!(
-            data.get("forge-system")
-                .unwrap()
-                .get("api-server")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "https://127.0.0.1:8001"
-        );
 
         assert_eq!(
             data.get("machine")
