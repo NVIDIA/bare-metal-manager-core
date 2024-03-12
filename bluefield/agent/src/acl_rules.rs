@@ -161,6 +161,7 @@ pub const ARP_SUPPRESSION_RULE: &str = r"
 
 #[cfg(test)]
 mod tests {
+    use super::BTreeMap;
     use super::Ipv4Network;
     use super::{build, AclConfig, InterfaceRules};
 
@@ -188,6 +189,36 @@ mod tests {
         };
         let output = build(params)?;
         let expected = include_str!("../templates/tests/acl_rules.expected");
+        let r = crate::util::compare_lines(output.as_str(), expected, None);
+        eprint!("Diff output:\n{}", r.report());
+        assert!(r.is_identical());
+
+        Ok(())
+    }
+
+    #[test]
+    // Check that when an entire site prefix is used in one network segment, we
+    // don't emit both an ACCEPT and DROP rule.
+    fn test_whole_site_prefix_in_single_segment() -> Result<(), Box<dyn std::error::Error>> {
+        let interface = String::from("net1");
+        let site_prefix: Ipv4Network = "192.0.2.0/24".parse().unwrap();
+        let deny_prefixes = vec![
+            site_prefix.to_string(),
+            "198.51.100.0/24".into(),
+            "203.0.113.0/24".into(),
+        ];
+        let interface_rules = InterfaceRules {
+            vpc_prefixes: vec![site_prefix],
+        };
+        let interfaces = BTreeMap::from([(interface, interface_rules)]);
+        let params = AclConfig {
+            interfaces,
+            deny_prefixes,
+        };
+        let output = build(params)?;
+        let expected = include_str!(
+            "../templates/tests/acl_rules_whole_site_prefix_in_single_segment.expected"
+        );
         let r = crate::util::compare_lines(output.as_str(), expected, None);
         eprint!("Diff output:\n{}", r.report());
         assert!(r.is_identical());
