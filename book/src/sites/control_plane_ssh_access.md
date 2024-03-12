@@ -62,15 +62,17 @@ cd ~/path/to/src/
 git clone ssh://git@gitlab-master.nvidia.com:12051/nsvmc/mc-ssh-configs.git
 ```
 
+(Both repos should be kept up-to-date locally to reflect any config changes.)
+
 Now edit your `~/.ssh/config` and add the following content.
 
-**Note:** On the final line, change the `user` to be your nvidia username
-**and remove the comment** or ssh will not like the config file contents.
+**Note:** On the final line, replace <your-AD-username> with your NVIDIA username.
 
 ```
 Include ~/path/to/src/carbide/dev/production_ssh_configs
 Include ~/path/to/src/mc-ssh-configs/*admin.mc
 Include ~/path/to/src/mc-ssh-configs/tpe01.default.mc
+Include ~/path/to/src/mc-ssh-configs/pdx01.default.mc
 
 Host *
   StrictHostKeyChecking no
@@ -78,7 +80,7 @@ Host *
   ServerAliveCountMax 2
   ForwardAgent yes
   LogLevel QUIET
-  user # Insert your AD username here. Example: 'user apatten'
+  user <your-AD-username>
 ```
 
 This should get you access to all of our environments. If you are looking for

@@ -8,17 +8,12 @@ Host renojump 155.130.12.194
   Compression yes
   PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
 
-Host pdxjump 10.217.0.131
-  Hostname 10.217.0.131
-  Compression yes
-  PubkeyAcceptedKeyTypes=+ssh-rsa-cert-v01@openssh.com
-
 # You can specify that the jump host is automatically applied for certain IPs
 # using sections like this.
 Host *.nsv.sjc4.nvmetal.net 10.150.* 10.181.20.* 10.181.21.*
   ProxyJump sjc4jump
 
-Host 10.180.32.* 10.180.222.* 10.180.221.* 10.180.124.*
+Host 10.180.32.* 10.180.222.* 10.180.221.* 10.180.124.* 10.180.125.*
   ProxyJump renojump
 
 Host renolp
@@ -39,7 +34,7 @@ Host dev4
 
 Host pdx01
   Hostname 10.217.6.197
-  ProxyJump pdxjump
+  ProxyJump pdx01-jb
 
 Host az01
   Hostname 10.45.2.5
