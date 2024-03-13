@@ -143,6 +143,7 @@ impl TestEnv {
             dpu_oob_mac_address: mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL.allocate(),
             host_bmc_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
             host_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
+            host_source_ip: "10.0.7.14".to_string(),
             host_tpm_ek_cert: TpmEkCertificate::from(host_cert_data.to_vec()),
         };
 

@@ -14,8 +14,6 @@
 
 use std::net::IpAddr;
 
-use tonic::Request;
-
 use carbide::{
     db::{
         machine::{Machine, MachineSearchConfig},
@@ -38,6 +36,7 @@ use rpc::{
     },
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
+use tonic::Request;
 
 use crate::common::api_fixtures::{
     discovery_completed, managed_host::ManagedHostConfig, network_configured, update_bmc_metadata,
@@ -301,6 +300,7 @@ pub async fn dpu_discover_machine(
             discovery_data: Some(DiscoveryData::Info(
                 DiscoveryInfo::try_from(create_dpu_hardware_info(host_config)).unwrap(),
             )),
+            source_ip: String::new(),
         }))
         .await
         .unwrap()
