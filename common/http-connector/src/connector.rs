@@ -1,12 +1,14 @@
+use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fmt, io};
 
 use futures_util::future::Either;
@@ -18,12 +20,183 @@ use hyper::service::Service;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Sleep;
 use tokio_socks::tcp::Socks5Stream;
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
+use tryhard::RetryFutureConfig;
 
 use crate::resolver;
 use crate::resolver::ForgeResolver;
 
 type ConnectResult = Result<TcpStream, ConnectError>;
+
+/// ConnectorMetrics is intended as an ever-evolving metrics
+/// container of sorts, to allow a caller to collect connection
+/// level metrics for a ForgeClient. Since the underlying data
+/// gets passed all over the place (and gets buried deep inside
+/// of a hyper client), there were some considerations made here
+/// in the underlying "inner" data being wrapped in Arcs, with
+/// some being AtomicU32, and another case for <Arc<Mutex>> with
+/// some HashMaps.
+///
+/// All said, it gets wrapped together with some getters, and at
+/// the end of the day you just need to call metrics.clone() to
+/// get another metrics instance with Arc::cloned references in
+/// it.
+#[derive(Clone, Debug, Default)]
+pub struct ConnectorMetrics {
+    inner: ConnectorMetricsInner,
+}
+
+impl ConnectorMetrics {
+    // connect_success is called when the underlying TCP
+    // connection attempt was successful, updating both
+    // overall and addr-specific metrics.
+    fn connect_success(&mut self, addr: SocketAddr, connect_start: Instant) {
+        self.inner.connect_success(addr, connect_start);
+    }
+
+    // connect_error is called when the underlying TCP
+    // connection attempt fails, updating both overall
+    // and addr-specific metrics.
+    fn connect_error(&mut self, addr: SocketAddr, connect_start: Instant, e: &ConnectError) {
+        self.inner.connect_error(addr, connect_start, e);
+    }
+
+    pub fn get_total_attempts(&mut self) -> u32 {
+        self.inner.total_attempts.load(Ordering::SeqCst)
+    }
+
+    pub fn get_total_successes(&mut self) -> u32 {
+        self.inner.total_successes.load(Ordering::SeqCst)
+    }
+
+    pub fn get_total_errors(&mut self) -> u32 {
+        self.inner.total_errors.load(Ordering::SeqCst)
+    }
+
+    pub fn get_attempts_for_addr(&mut self, addr: &SocketAddr) -> Option<u32> {
+        self.inner
+            .addr_maps
+            .lock()
+            .unwrap()
+            .attempts_by_addr
+            .get(addr)
+            .copied()
+    }
+
+    pub fn get_successes_for_addr(&mut self, addr: &SocketAddr) -> Option<u32> {
+        self.inner
+            .addr_maps
+            .lock()
+            .unwrap()
+            .successes_by_addr
+            .get(addr)
+            .copied()
+    }
+
+    pub fn get_errors_for_addr(&mut self, addr: &SocketAddr) -> Option<u32> {
+        self.inner
+            .addr_maps
+            .lock()
+            .unwrap()
+            .errors_by_addr
+            .get(addr)
+            .copied()
+    }
+}
+
+/// ConnectorMetricsInner is the "inner" data for
+/// a ConnectorMetrics instance, containing Arc-wrapped
+/// data for easily passing around wherever it ends
+/// up going. Uses of mutexes are limited to places where
+/// it is needed, such as HashMaps, which are stored in
+/// their own struct. Integer types are just stored within
+/// AtomicUsize and/or equivalents.
+#[derive(Clone, Debug, Default)]
+pub struct ConnectorMetricsInner {
+    pub total_attempts: Arc<AtomicU32>,
+    pub total_successes: Arc<AtomicU32>,
+    pub total_errors: Arc<AtomicU32>,
+    pub addr_maps: Arc<Mutex<ConnectorMetricsInnerMaps>>,
+}
+
+impl ConnectorMetricsInner {
+    // connect_attempt is called any time there is a connection attempt,
+    // whether success or fail, and as such, is simply called by
+    // connect_success and connect_fail. This logs basic metrics that an
+    // attempt was made, along with latency data.
+    fn connect_attempt(&mut self, addr: SocketAddr, connect_start: Instant) {
+        self.addr_maps
+            .lock()
+            .unwrap()
+            .add_attempt_by_addr(addr, connect_start);
+        self.total_attempts.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // connect_success is the "inner" function for handling a
+    // connect_success call. See the outer ConnectorMetrics::connect_success
+    // for more details of what this does.
+    fn connect_success(&mut self, addr: SocketAddr, connect_start: Instant) {
+        self.connect_attempt(addr, connect_start);
+        self.total_successes.fetch_add(1, Ordering::SeqCst);
+        self.addr_maps.lock().unwrap().add_success_by_addr(addr);
+        debug!("connected to {}", addr);
+    }
+
+    // connect_error is the "inner" function for handling a
+    // connect_error call. See the outer ConnectorMetrics::connect_error
+    // for more details of what this does.
+    fn connect_error(&mut self, addr: SocketAddr, connect_start: Instant, e: &ConnectError) {
+        self.connect_attempt(addr, connect_start);
+        self.total_errors.fetch_add(1, Ordering::SeqCst);
+        self.addr_maps.lock().unwrap().add_error_by_addr(addr);
+        info!("connect error for {}: {:?}", addr, e);
+    }
+}
+
+/// ConnectorMetricsInnerMaps are the internal
+/// "by addr" maps for tracking metrics, and are
+/// wrapped together in an <Arc<Mutex>>, since
+/// generally > 1 map needs to be updated for a
+/// single operation (and also because they need
+/// to be mutated within the Arc as well).
+#[derive(Clone, Debug, Default)]
+pub struct ConnectorMetricsInnerMaps {
+    pub attempts_by_addr: HashMap<SocketAddr, u32>,
+    pub successes_by_addr: HashMap<SocketAddr, u32>,
+    pub errors_by_addr: HashMap<SocketAddr, u32>,
+    // XXX: This currently grows infinitely. If for some
+    // reason this ended up having millions and millions
+    // of connection attempts, it would get big. Maybe
+    // switch to an average or something.
+    pub latency_by_addr: HashMap<SocketAddr, Vec<Duration>>,
+}
+
+impl ConnectorMetricsInnerMaps {
+    // add_attempt_by_addr logs a single connection attempt (with
+    // latency data), for a given SocketAddr.
+    pub fn add_attempt_by_addr(&mut self, addr: SocketAddr, connect_start: Instant) {
+        let connect_end = Instant::now();
+        let connect_elapsed = connect_end.saturating_duration_since(connect_start);
+        let attempts_for_addr = self.attempts_by_addr.entry(addr).or_default();
+        let latency_for_addr = self.latency_by_addr.entry(addr).or_default();
+        *attempts_for_addr += 1;
+        latency_for_addr.push(connect_elapsed);
+    }
+
+    // add_success_by_addr logs a single connection success
+    // for a given SocketAddr.
+    pub fn add_success_by_addr(&mut self, addr: SocketAddr) {
+        let successes_for_addr = self.successes_by_addr.entry(addr).or_insert(0);
+        *successes_for_addr += 1;
+    }
+
+    // add_error_by_addr logs a single connection failure
+    // for a given SocketAddr.
+    pub fn add_error_by_addr(&mut self, addr: SocketAddr) {
+        let errors_for_addr = self.errors_by_addr.entry(addr).or_insert(0);
+        *errors_for_addr += 1;
+    }
+}
 
 pub struct ConnectError {
     msg: Box<str>,
@@ -44,15 +217,21 @@ struct ConnectingTcpFallback {
 struct ConnectingTcpRemote {
     addrs: resolver::SocketAddrs,
     connect_timeout: Option<Duration>,
+    metrics: ConnectorMetrics,
 }
 
 impl ConnectingTcpRemote {
-    fn new(addrs: crate::resolver::SocketAddrs, connect_timeout: Option<Duration>) -> Self {
+    fn new(
+        addrs: resolver::SocketAddrs,
+        connect_timeout: Option<Duration>,
+        metrics: ConnectorMetrics,
+    ) -> Self {
         let connect_timeout = connect_timeout.map(|t| t / addrs.len() as u32);
 
         Self {
             addrs,
             connect_timeout,
+            metrics,
         }
     }
 }
@@ -60,12 +239,11 @@ impl ConnectingTcpRemote {
 impl ConnectingTcpRemote {
     async fn connect(&mut self, config: &Config) -> Result<TcpStream, ConnectError> {
         let mut err = None;
-
         for addr in &mut self.addrs {
             if let Some(proxy) = config.socks5_proxy.as_deref() {
                 let proxy_addr = SocketAddr::from_str(proxy)
                     .map_err(|e| ConnectError::new("Invalid proxy setting", e))?;
-
+                let connect_start = Instant::now();
                 match connect_with_socks_proxy(
                     proxy_addr,
                     addr,
@@ -75,19 +253,23 @@ impl ConnectingTcpRemote {
                 .await
                 {
                     Ok(tcp) => {
+                        self.metrics.connect_success(proxy_addr, connect_start);
                         return Ok(tcp);
                     }
                     Err(e) => {
+                        self.metrics.connect_error(proxy_addr, connect_start, &e);
                         err = Some(e);
                     }
                 }
             } else {
+                let connect_start = Instant::now();
                 match connect(&addr, config, self.connect_timeout)?.await {
                     Ok(tcp) => {
+                        self.metrics.connect_success(addr, connect_start);
                         return Ok(tcp);
                     }
                     Err(e) => {
-                        info!("connect error for {}: {:?}", addr, e);
+                        self.metrics.connect_error(addr, connect_start, &e);
                         err = Some(e);
                     }
                 }
@@ -266,7 +448,11 @@ fn connect_with_socks_proxy(
 }
 
 impl<'a> ConnectingTcp<'a> {
-    fn new(remote_addrs: resolver::SocketAddrs, config: &'a Config) -> Self {
+    fn new(
+        remote_addrs: resolver::SocketAddrs,
+        config: &'a Config,
+        metrics: ConnectorMetrics,
+    ) -> Self {
         trace!("ConnectingTcp config: {:?}", config);
 
         if let Some(fallback_timeout) = config.happy_eyeballs_timeout {
@@ -274,23 +460,39 @@ impl<'a> ConnectingTcp<'a> {
                 .split_by_preference(config.local_address_ipv4, config.local_address_ipv6);
             if fallback_addrs.is_empty() {
                 return ConnectingTcp {
-                    preferred: ConnectingTcpRemote::new(preferred_addrs, config.connect_timeout),
+                    preferred: ConnectingTcpRemote::new(
+                        preferred_addrs,
+                        config.connect_timeout,
+                        metrics.clone(),
+                    ),
                     fallback: None,
                     config,
                 };
             }
 
             ConnectingTcp {
-                preferred: ConnectingTcpRemote::new(preferred_addrs, config.connect_timeout),
+                preferred: ConnectingTcpRemote::new(
+                    preferred_addrs,
+                    config.connect_timeout,
+                    metrics.clone(),
+                ),
                 fallback: Some(ConnectingTcpFallback {
                     delay: tokio::time::sleep(fallback_timeout),
-                    remote: ConnectingTcpRemote::new(fallback_addrs, config.connect_timeout),
+                    remote: ConnectingTcpRemote::new(
+                        fallback_addrs,
+                        config.connect_timeout,
+                        metrics.clone(),
+                    ),
                 }),
                 config,
             }
         } else {
             ConnectingTcp {
-                preferred: ConnectingTcpRemote::new(remote_addrs, config.connect_timeout),
+                preferred: ConnectingTcpRemote::new(
+                    remote_addrs,
+                    config.connect_timeout,
+                    metrics.clone(),
+                ),
                 fallback: None,
                 config,
             }
@@ -400,6 +602,15 @@ impl StdError for ConnectError {
 pub struct ForgeHttpConnector {
     config: Arc<Config>,
     resolver: ForgeResolver,
+
+    // Since the ForgeHttpConnector gets buried
+    // deep inside a tower service connector inside
+    // a hyper client inside a gRPC client, being
+    // able to get at metrics data (and pass it
+    // around, and mutate it across connection handling
+    // mechanisms), metrics needs to be within a Mutex
+    // within an Arc.
+    metrics: ConnectorMetrics,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -420,6 +631,8 @@ struct Config {
     #[cfg(target_os = "linux")]
     interface: Option<String>,
     socks5_proxy: Option<String>,
+    connect_retries_max: Option<u32>,
+    connect_retries_interval: Option<Duration>,
 }
 
 impl ForgeHttpConnector {
@@ -428,8 +641,10 @@ impl ForgeHttpConnector {
         ForgeHttpConnector {
             config: Arc::new(Config::default()),
             resolver,
+            metrics: ConnectorMetrics::default(),
         }
     }
+
     /// Option to enforce all `Uri`s have the `http` scheme.
     ///
     /// Enabled by default.
@@ -550,6 +765,29 @@ impl ForgeHttpConnector {
         self
     }
 
+    /// Set the maximum number of connection retries before failing.
+    ///
+    /// The default is no retries.
+    #[inline]
+    pub fn set_connect_retries_max(&mut self, max: Option<u32>) -> &mut Self {
+        self.config_mut().connect_retries_max = max;
+        self
+    }
+
+    /// Set the connection retry interval, which is more than
+    /// likely going to be a Duration::from_secs(<u64>).
+    ///
+    /// The default is no interval.
+    #[inline]
+    pub fn set_connect_retries_interval(&mut self, interval: Option<Duration>) -> &mut Self {
+        self.config_mut().connect_retries_interval = interval;
+        self
+    }
+
+    pub fn set_metrics(&mut self, metrics: ConnectorMetrics) {
+        self.metrics = metrics;
+    }
+
     /// Set the socks5 proxy to use for connections
     ///
     /// Default is `None`.
@@ -577,6 +815,7 @@ impl ForgeHttpConnector {
         self.config_mut().interface = Some(interface.into());
         self
     }
+
     #[cfg(not(target_os = "linux"))]
     pub fn set_interface<S: Into<String>>(&mut self, _interface: S) -> &mut Self {
         self
@@ -677,7 +916,7 @@ impl ForgeHttpConnector {
         let (host, port) = get_host_port(config, &dst)?;
         let host = host.trim_start_matches('[').trim_end_matches(']');
 
-        let addrs = if let Some(addrs) = crate::resolver::SocketAddrs::try_parse(host, port) {
+        let addrs = if let Some(addrs) = resolver::SocketAddrs::try_parse(host, port) {
             addrs
         } else {
             let dns_name: Name = host.parse().map_err(ConnectError::dns)?;
@@ -696,7 +935,19 @@ impl ForgeHttpConnector {
             resolver::SocketAddrs::new(addrs)
         };
 
-        let c = ConnectingTcp::new(addrs, config);
-        c.connect().await
+        let retry_config = RetryFutureConfig::new(self.config.connect_retries_max.unwrap_or(0))
+            .fixed_backoff(
+                self.config
+                    .connect_retries_interval
+                    .unwrap_or(Duration::from_secs(0)),
+            );
+
+        tryhard::retry_fn(|| {
+            debug!("establishing new tcp connection for {}", dst.to_string());
+            let c = ConnectingTcp::new(addrs.clone(), config, self.metrics.clone());
+            c.connect()
+        })
+        .with_config(retry_config)
+        .await
     }
 }
