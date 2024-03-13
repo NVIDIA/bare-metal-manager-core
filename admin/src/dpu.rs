@@ -384,7 +384,7 @@ pub async fn handle_dpu_status(
 
     match output_format {
         OutputFormat::Json => {
-            let machines: Vec<DpuStatus> = dpus.into_iter().map(DpuStatus::from).collect();
+            let machines: Vec<DpuStatus> = generate_dpu_status_data(api_config, dpus).await?;
             write!(output, "{}", serde_json::to_string(&machines).unwrap())?;
         }
         OutputFormat::Csv => {
@@ -404,23 +404,38 @@ pub async fn handle_dpu_status(
     Ok(())
 }
 
+async fn generate_dpu_status_data(
+    api_config: &ApiConfig<'_>,
+    machines: Vec<Machine>,
+) -> CarbideCliResult<Vec<DpuStatus>> {
+    let mut dpu_status = Vec::new();
+    let build_info = rpc::version(api_config, true).await?;
+    for machine in machines {
+        let version_status = get_dpu_version_status(&build_info, &machine).await?;
+        let mut status = DpuStatus::from(machine);
+        status.version_status = Some(version_status);
+        dpu_status.push(status);
+    }
+
+    Ok(dpu_status)
+}
+
 pub async fn generate_dpu_status_table(
     api_config: &ApiConfig<'_>,
     machines: Vec<Machine>,
 ) -> CarbideCliResult<Box<Table>> {
     let mut table = Table::new();
-    let build_info = rpc::version(api_config, true).await?;
 
     let headers = vec!["DPU Id", "DPU Type", "State", "Healthy", "Version Status"];
 
     table.set_titles(Row::from(headers));
 
-    for machine in machines {
-        let version_status = get_dpu_version_status(&build_info, &machine).await?;
-        let mut dpu_status = DpuStatus::from(machine);
-        dpu_status.version_status = Some(version_status);
-        table.add_row(dpu_status.into());
-    }
+    generate_dpu_status_data(api_config, machines)
+        .await?
+        .into_iter()
+        .for_each(|status| {
+            table.add_row(status.into());
+        });
 
     Ok(Box::new(table))
 }
