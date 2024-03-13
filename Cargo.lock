@@ -2088,6 +2088,7 @@ dependencies = [
  "tower",
  "tower-service",
  "tracing",
+ "tryhard",
 ]
 
 [[package]]

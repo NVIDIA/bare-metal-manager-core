@@ -72,6 +72,8 @@ pub struct ForgeClientConfig {
     pub use_mgmt_vrf: bool,
     pub max_decoding_message_size: Option<usize>,
     pub socks_proxy: Option<String>,
+    pub connect_retries_max: Option<u32>,
+    pub connect_retries_interval: Option<Duration>,
 }
 
 impl ForgeClientConfig {
@@ -88,6 +90,23 @@ impl ForgeClientConfig {
             use_mgmt_vrf: false,
             max_decoding_message_size,
             socks_proxy: None,
+
+            // Default connect retry configuration to start.
+            // We can change this if needed, or just make it
+            // easier to set at initialization time (callers
+            // can also call set_connect_retries_max and
+            // set_connect_retries_interval on the ForgeHttpConnector
+            // to override).
+            //
+            // TODO(chet): Really, what would be nice here is,
+            // when I go and clean up the previous retry_build
+            // stuff, to leverage the prevalance of ApiConfig
+            // across the codebase (which has a RetryConfig), and
+            // leverage that as the driver for this config, which
+            // was the point anyway. It'l be cleaner as a separate
+            // MR though, I think.
+            connect_retries_max: Some(3),
+            connect_retries_interval: Some(Duration::from_secs(20)),
         }
     }
 
@@ -228,8 +247,8 @@ impl ForgeClientConfig {
 // backoff, we can add it.
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
-    retries: u32,
-    interval: Duration,
+    pub retries: u32,
+    pub interval: Duration,
 }
 
 impl Default for RetryConfig {
@@ -443,6 +462,9 @@ impl ForgeTlsClient {
         http.set_keepalive_interval(Some(Duration::from_secs(4)));
         http.set_keepalive_retries(Some(3)); // initial probe at 20s, then 24s, 28s and 32s
 
+        http.set_connect_retries_max(self.forge_client_config.connect_retries_max);
+        http.set_connect_retries_interval(self.forge_client_config.connect_retries_interval);
+
         let connector = tower::ServiceBuilder::new()
             .layer_fn(move |s| {
                 let tls = tls.clone();
@@ -488,3 +510,115 @@ pub enum ForgeTlsClientError {
 }
 
 pub type ForgeTlsClientResult<T> = Result<T, ForgeTlsClientError>;
+
+#[cfg(test)]
+mod tests {
+    use super::DummyTlsVerifier;
+    use crate::forge_resolver;
+    use forge_http_connector::connector::{ConnectorMetrics, ForgeHttpConnector};
+    use forge_http_connector::resolver::ForgeResolver;
+    use forge_http_connector::resolver::ForgeResolverOpts;
+    use hickory_resolver::config::ResolverConfig;
+    use hyper::Uri;
+    use hyper_rustls::HttpsConnector;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
+    use std::time::Duration;
+    use tokio_rustls::rustls::ClientConfig;
+
+    #[tokio::test]
+    // test_max_retries builds up an instance of hyper client using
+    // the ForgeHttpConnector, which is the same configuration used
+    // for creating a ForgeTlsClient. In this case, it is NOT
+    // used to create a ForgeTlsClient, but instead is used directly
+    // to make an HTTP call (so we maintain access to the underlying
+    // connector for querying retry count.
+    async fn test_max_retries() {
+        let max_retries = 3; // 4 total attempts
+
+        // Set up all of the resolver config stuff
+        // to pass to the ForgeHttpConnector.
+        let forge_resolv_config =
+            forge_resolver::resolver::ForgeResolveConf::with_system_resolv_conf().unwrap();
+        let forge_resolver_config = forge_resolver::resolver::into_forge_resolver_config(
+            forge_resolv_config.parsed_configuration(),
+        )
+        .unwrap();
+
+        let resolver_config = ResolverConfig::from_parts(
+            forge_resolver_config.0.domain,
+            forge_resolver_config.0.search_domain,
+            forge_resolver_config.0.inner.into_inner(),
+        );
+
+        let resolver_opts = ForgeResolverOpts::default().timeout(Duration::from_secs(5));
+        let resolver = ForgeResolver::with_config_and_options(resolver_config, resolver_opts);
+
+        // Create the ConnectorMetrics instance used for
+        // collecting some stats for connections that go
+        // through the ForgeHttpConnector.
+        let mut metrics = ConnectorMetrics::default();
+
+        // Now create the ForgeHttpConnector, setting our
+        // test-specific `max_retries` with a 1 second interval,
+        // and passing it our Connectormetrics.
+        let mut http = ForgeHttpConnector::new_with_resolver(resolver);
+        http.set_connect_retries_max(Some(max_retries));
+        http.set_connect_retries_interval(Some(Duration::from_secs(1)));
+        http.set_metrics(metrics.clone());
+
+        // And now make our new connector, which is an
+        // implementation of tower_service::Service.
+        let connector = tower::ServiceBuilder::new()
+            .layer_fn(move |s| {
+                let tls = ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
+                    .with_no_client_auth();
+
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_tls_config(tls)
+                    .https_or_http()
+                    .enable_http2()
+                    .wrap_connector(s)
+            })
+            .service(http);
+
+        // And then create a new hyper HTTP client with the connector.
+        let hyper_client: hyper::Client<HttpsConnector<ForgeHttpConnector>> =
+            hyper::client::Client::builder().build(connector);
+
+        // We're finally here. Fire off an HTTP request. Behind he scenes,
+        // the ForgeHttpConnector is going to attempt to connect, fail, and
+        // subsequently fire off 3 retries. This assumes you don't have
+        // anything listening on :12345. If you do, this test will obviously
+        // fail, because the connection will be successful. :P
+        let uri = "http://localhost:12345".parse::<Uri>().unwrap();
+        let _ = hyper_client.get(uri).await;
+
+        // If you're curious to see what metrics are collected,
+        // uncomment this when you run the test with --nocapture.
+        // println!("{:?}", metrics.lock(unwrapped.attempts_by_addr.get).unwrap());
+
+        // Make sure attempts, errors, and successes are all as expected.
+        assert_eq!(metrics.get_total_attempts(), max_retries + 1);
+        assert_eq!(metrics.get_total_errors(), max_retries + 1);
+        assert_eq!(metrics.get_total_successes(), 0);
+
+        // And make sure by_addr metrics are working as well. This
+        // assumes localhost resolves to 127.0.0.1.
+        let addr = SocketAddr::from_str("127.0.0.1:12345").unwrap();
+        let attempts_for_addr = metrics.get_attempts_for_addr(&addr);
+        let successes_for_addr = metrics.get_successes_for_addr(&addr);
+        let errors_for_addr = metrics.get_errors_for_addr(&addr);
+
+        assert!(attempts_for_addr.is_some());
+        assert!(errors_for_addr.is_some());
+
+        // This one *is* none!
+        assert!(successes_for_addr.is_none());
+
+        assert_eq!(attempts_for_addr.unwrap(), max_retries + 1);
+        assert_eq!(errors_for_addr.unwrap(), max_retries + 1);
+    }
+}

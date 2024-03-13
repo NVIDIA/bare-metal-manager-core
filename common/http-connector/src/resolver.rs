@@ -152,6 +152,7 @@ pub struct HickoryResolver<C: ConnectionProvider> {
 }
 
 /// Iterator over DNS lookup results.
+#[derive(Clone)]
 pub struct SocketAddrs {
     iter: vec::IntoIter<SocketAddr>,
 }
