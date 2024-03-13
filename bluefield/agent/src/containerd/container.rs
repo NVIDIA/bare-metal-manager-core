@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use serde;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use tracing::log::error;
 
 use crate::containerd::image::{Image, ImageNameComponent};
@@ -191,7 +189,6 @@ const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dev/dock
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::containerd::image::ImageNameComponent;
 
     #[tokio::test]
     async fn test_container_images() {

@@ -11,7 +11,6 @@
  */
 use std::ffi::{c_char, CStr};
 use std::net::{IpAddr, Ipv4Addr};
-use std::primitive::u32;
 
 use derive_builder::Builder;
 use mac_address::MacAddress;
@@ -417,10 +416,8 @@ mod tests {
     use std::ptr::null_mut;
     use std::thread;
 
-    use crate::mock_api_server;
-    use crate::CarbideDhcpContext;
-
     use super::*;
+    use crate::mock_api_server;
 
     // Basic test passing null pointers
     #[test]

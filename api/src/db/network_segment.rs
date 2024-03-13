@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;

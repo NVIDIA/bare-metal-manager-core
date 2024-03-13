@@ -11,7 +11,6 @@
  */
 use std::ffi::CString;
 use std::net::{IpAddr, Ipv4Addr};
-use std::primitive::u32;
 use std::ptr;
 
 use ::rpc::forge as rpc;

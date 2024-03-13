@@ -11,7 +11,6 @@
  */
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;

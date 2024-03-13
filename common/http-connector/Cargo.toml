@@ -15,19 +15,15 @@ tracing = "0.1.40"
 socket2 = "0.5.5"
 hyper = { version = "0.14.27", default-features = false, features = ["client", "runtime", "tcp"] }
 hyper-rustls = { version = "0.24", default-features = false, optional = true}
-tokio-rustls = { version = "0.24.0", features = ["dangerous_configuration"]}
 pin-project-lite = "0.2.11"
 futures-util = "0.3.28"
 http = { version = "0.2.9", features = [] }
 tower-service = "0.3.2"
-tower = "0.4.13"
 tokio-socks = "0.5.1"
 
 # [local-dependencies]
 dsocket = { path = "../dsocket" }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["async_tokio"] }
 hyper = { version = "0.14.27", default-features = false, features = ["client", "tcp", "http1", "http2"] }
-hyper-rustls = { version = "0.24", default-features = false, features = ["tokio-runtime", "webpki-tokio", "http1", "http2"] }
 tokio = { workspace=true, features = ["rt", "macros"] }

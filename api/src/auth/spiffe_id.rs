@@ -4,7 +4,6 @@
 
 //! SPIFFE-ID and TrustDomain types compliant with the SPIFFE standard.
 
-use std::convert::TryFrom;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -364,8 +363,6 @@ fn is_valid_trust_domain_char(c: char) -> bool {
 
 #[cfg(test)]
 mod spiffe_id_tests {
-    use std::str::FromStr;
-
     use super::*;
 
     pub(crate) const TD_CHARS: &[char] = &[
@@ -604,8 +601,6 @@ mod spiffe_id_tests {
 
 #[cfg(test)]
 mod trust_domain_tests {
-
-    use std::str::FromStr;
 
     use super::spiffe_id_tests::TD_CHARS;
     use super::*;

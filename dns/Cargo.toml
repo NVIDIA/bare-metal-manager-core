@@ -15,7 +15,6 @@ async-trait = "0.1.43"
 clap = { workspace = true }
 eyre = "*"
 futures = "0.3"
-itertools = "*"
 thiserror = "1.0"
 tokio = { workspace = true }
 tonic = { workspace = true }
