@@ -20,6 +20,7 @@ pub struct ManagedHostConfig {
     pub dpu_bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub host_bmc_mac_address: MacAddress,
+    pub host_source_ip: String,
     pub host_tpm_ek_cert: TpmEkCertificate,
 }
 

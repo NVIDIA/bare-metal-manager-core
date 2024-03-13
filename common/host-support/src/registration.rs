@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::time::Duration;
+
 use ::rpc::forge::MachineCertificate;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
 use ::rpc::{forge as rpc, MachineDiscoveryInfo};
 use forge_tls::default as tls_default;
-use std::time::Duration;
 use tryhard::RetryFutureConfig;
 
 #[derive(thiserror::Error, Debug)]
@@ -156,6 +157,7 @@ pub async fn register_machine(
         discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
             hardware_info,
         )),
+        source_ip: String::new(),
     };
     tracing::debug!("register_machine discovery_info {:?}", info);
 

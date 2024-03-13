@@ -2034,12 +2034,19 @@ where
 
         let machine_discovery_info = request.into_inner();
 
-        let interface_id = match &machine_discovery_info.machine_interface_id {
-            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
-            None => {
-                return Err(Status::invalid_argument("An interface UUID is required"));
-            }
+        // Use `is_empty()` to see if the message is missing so that the protobuf doesn't have to
+        // be 'optional', because it will soon be required.
+        let srcip = &machine_discovery_info.source_ip;
+        let source_ip = if !srcip.is_empty() {
+            Some(srcip.parse().map_err(|err| {
+                CarbideError::InvalidArgument(format!("Failed parsing source IP '{srcip}': {err}"))
+            })?)
+        } else {
+            None
         };
+        let interface_id = &machine_discovery_info
+            .machine_interface_id
+            .and_then(|id| Uuid::try_from(id).ok());
 
         let discovery_data = machine_discovery_info
             .discovery_data
@@ -2052,15 +2059,14 @@ where
         // Generate a stable Machine ID based on the hardware information
         let stable_machine_id = MachineId::from_hardware_info(&hardware_info).map_err(|e| {
             CarbideError::InvalidArgument(
-                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {}: {e}", interface_id),
+                format!("Insufficient HardwareInfo to derive a stable machine ID for machine on interface_id {interface_id:?} / src IP {source_ip:?}: {e}"),
             )
         })?;
         log_machine_id(&stable_machine_id);
 
         if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_none() {
             return Err(CarbideError::InvalidArgument(format!(
-                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {}",
-                interface_id
+                "Ignoring DiscoverMachine request for non-TPM enabled host with interface_id {interface_id:?} / src IP {source_ip:?}",
             ))
             .into());
         }
@@ -2074,7 +2080,25 @@ where
             ))
         })?;
 
-        let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
+        // Client can register with either source IP (oob_net0's address) or machine interface ID
+        // they get from pxe / cloud-init.
+        let interface = match (source_ip, interface_id) {
+            (Some(ip), _) => MachineInterface::find_by_ip(&mut txn, ip)
+                .await
+                .map_err(CarbideError::from)?
+                .ok_or_else(|| {
+                    CarbideError::GenericError(format!(
+                        "No machine interface with IP {ip} was found"
+                    ))
+                })?,
+            (_, Some(iface_id)) => MachineInterface::find_one(&mut txn, *iface_id).await?,
+            (None, None) => {
+                return Err(Status::invalid_argument(
+                    "An interface UUID or source IP is required",
+                ));
+            }
+        };
+
         let machine = if hardware_info.is_dpu() {
             let (db_machine, is_new) =
                 Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?;

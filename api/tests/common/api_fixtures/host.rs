@@ -29,12 +29,11 @@ use rpc::{
 };
 use tonic::Request;
 
+use super::FIXTURE_DHCP_RELAY_ADDRESS;
 use crate::common::api_fixtures::{
     discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
     TestEnv,
 };
-
-use super::FIXTURE_DHCP_RELAY_ADDRESS;
 
 const TEST_DATA_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -123,6 +122,7 @@ pub async fn host_discover_machine(
             discovery_data: Some(DiscoveryData::Info(
                 DiscoveryInfo::try_from(create_host_hardware_info(host_config)).unwrap(),
             )),
+            source_ip: String::new(),
         }))
         .await
         .unwrap()
