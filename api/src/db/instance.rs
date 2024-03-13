@@ -10,10 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    convert::{TryFrom, TryInto},
-    net::IpAddr,
-};
+use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
@@ -431,7 +428,7 @@ impl<'a> NewInstance<'a> {
                         ib_config_version,
                         ib_status_observation,
                         keyset_ids,
-                        phone_home_enabled  
+                        phone_home_enabled
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, $7::text[], true, $8::json, $9, $10::json, $11::json, $12, $13::json, $14, $15)
                     RETURNING *";

@@ -1,6 +1,7 @@
-use socket2::Socket;
 use std::io;
 use std::os::fd::{FromRawFd, IntoRawFd};
+
+use socket2::Socket;
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 use tracing::trace;
@@ -154,7 +155,7 @@ impl Dsocket {
     ///
     /// # Errors
     ///
-    /// Returns an `io::Error` if unable to create a new socket  
+    /// Returns an `io::Error` if unable to create a new socket
     pub fn new_ipv4_tcp() -> Result<Dsocket, io::Error> {
         Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)
             .map(|socket| Dsocket { inner: socket })
@@ -164,7 +165,7 @@ impl Dsocket {
     ///
     /// # Errors
     ///
-    /// Returns an `io::Error` if unable to create a new socket  
+    /// Returns an `io::Error` if unable to create a new socket
     pub fn new_ipv4_udp() -> Result<Dsocket, io::Error> {
         Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)
             .map(|socket| Dsocket { inner: socket })
@@ -173,10 +174,10 @@ impl Dsocket {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tokio::io::{Interest, Ready};
-    use tokio::net::TcpStream;
     use tokio::runtime;
+
+    use super::*;
 
     #[test]
     fn into_inner() {

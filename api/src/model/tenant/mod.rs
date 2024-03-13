@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::convert::TryFrom;
 use std::fmt::Display;
 use std::str::FromStr;
 

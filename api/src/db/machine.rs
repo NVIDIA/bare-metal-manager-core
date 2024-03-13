@@ -13,7 +13,6 @@
 //! Machine - represents a database-backed Machine object
 //!
 use std::collections::HashMap;
-use std::convert::From;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 

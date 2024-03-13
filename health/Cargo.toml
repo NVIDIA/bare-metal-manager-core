@@ -35,7 +35,6 @@ tonic = { workspace = true }
 rpc = { path = "../rpc" }
 forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
-utils = { path = "../common/utils" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }

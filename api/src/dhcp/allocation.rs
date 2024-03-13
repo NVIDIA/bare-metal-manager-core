@@ -13,7 +13,7 @@ use std::net::IpAddr;
 
 use ipnetwork::IpNetwork;
 use patricia_tree::PatriciaMap;
-use sqlx::{self, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 
 use crate::{
     db::{

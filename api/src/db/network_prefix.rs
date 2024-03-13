@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::convert::TryFrom;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;

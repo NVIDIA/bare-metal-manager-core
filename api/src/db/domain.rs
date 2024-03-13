@@ -9,11 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::convert::TryFrom;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
-use sqlx::types::uuid;
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 

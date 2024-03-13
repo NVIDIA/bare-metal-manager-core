@@ -15,8 +15,6 @@
 //! interact with the API Service
 //!
 
-use std::convert::From;
-use std::convert::TryFrom;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;

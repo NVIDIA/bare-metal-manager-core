@@ -2,7 +2,6 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 use regex::Regex;
-use serde;
 use serde::{Deserialize, Serialize};
 use tracing::log::trace;
 

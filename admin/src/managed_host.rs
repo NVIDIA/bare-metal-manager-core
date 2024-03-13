@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::convert::From;
 use std::fmt::Write;
 
+use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::site_explorer::ExploredManagedHost;
 use ::rpc::Machine;
 use prettytable::{Cell, Row, Table};
@@ -21,7 +21,6 @@ use tracing::warn;
 
 use super::{rpc, CarbideCliResult};
 use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
-use ::rpc::forge_tls_client::ApiConfig;
 
 const UNKNOWN: &str = "Unknown";
 

@@ -13,9 +13,6 @@ path = "src/main.rs"
 [dependencies]
 base64 = "0.21.5"
 clap = { workspace = true }
-eui48 = { version = "1", default-features = false } # disable feature rustc-serialize
-ip_network = { version = "0.4.0", features = ["postgres", "serde"] }
-itertools = "*"
 rocket = { version = "= 0.5.0-rc.1", features = ["uuid"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
@@ -34,7 +31,6 @@ forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
 
 [build-dependencies]
-tonic-build = "0.10.2"
 forge-version = { path = "../common/version" }
 
 [dev-dependencies]
