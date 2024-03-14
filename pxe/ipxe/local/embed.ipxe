@@ -10,7 +10,7 @@ set white ${esc:string}[37m
 #cpair --foreground 7 --background 9 0
 
 :start
-echo ${bold}${white}Forge${boldoff} - v${version}
+echo ${bold}${white}Forge${boldoff} - ${version}
 prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open forge menu... && goto forge_menu || goto carbide
 
 :whoami
