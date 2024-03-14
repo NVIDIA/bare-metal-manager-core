@@ -11,12 +11,13 @@ use forge_tls::client_config::ClientCert;
 use hickory_resolver::config::ResolverConfig;
 use hyper::http::uri::Scheme;
 use hyper::Uri;
-use hyper_rustls::HttpsConnector;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
 use tokio_rustls::rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore, ServerName};
 use tonic::body::BoxBody;
 
+use tower::util::BoxService;
+use tower::ServiceExt;
 use tryhard::backoff_strategies::FixedBackoff;
 use tryhard::{NoOnRetry, RetryFutureConfig};
 use x509_parser::prelude::{FromDer, X509Certificate};
@@ -24,7 +25,8 @@ use x509_parser::prelude::{FromDer, X509Certificate};
 use crate::forge_resolver;
 use crate::protos::forge::forge_client::ForgeClient;
 
-pub type ForgeClientT = ForgeClient<hyper::Client<HttpsConnector<ForgeHttpConnector>, BoxBody>>;
+pub type ForgeClientT =
+    ForgeClient<BoxService<hyper::Request<BoxBody>, hyper::Response<hyper::Body>, hyper::Error>>;
 
 //this code was copy and pasted from the implementation of the same struct in sqlx::core,
 //and is only necessary for as long as we're optionally validating TLS
@@ -468,7 +470,8 @@ impl ForgeTlsClient {
             // How many connections will be kept open, per host.
             // We never make more than a single connection to carbide at a time.
             .pool_max_idle_per_host(2)
-            .build(connector);
+            .build(connector)
+            .boxed();
 
         let mut forge_client = ForgeClient::with_origin(hyper_client, uri);
 
