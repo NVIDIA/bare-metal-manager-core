@@ -813,7 +813,6 @@ async fn test_site_explorer_creates_managed_host(
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interfaces[0].id.into()),
             discovery_data: Some(DiscoveryData::Info(discovery_info)),
-            source_ip: String::new(),
         }))
         .await
         .unwrap()

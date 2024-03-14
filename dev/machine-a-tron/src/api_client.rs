@@ -1,6 +1,6 @@
+use base64::prelude::*;
 use std::future::Future;
 
-use base64::prelude::*;
 use rpc::{
     forge::{MachineSearchConfig, MachineType},
     forge_tls_client::{self, ApiConfig, ForgeClientT},
@@ -129,7 +129,6 @@ pub async fn discover_machine(
         discovery_data: Some(rpc::forge::machine_discovery_info::DiscoveryData::Info(
             discovery_data,
         )),
-        source_ip: String::new(),
     };
 
     with_forge_client(app_config, |mut client| async move {
