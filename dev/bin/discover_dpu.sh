@@ -157,14 +157,21 @@ mkdir -p ${HBN_ROOT}/var/support/forge-dhcp/conf
 if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
 	# The one we got from kubectl earlier
 	export ROOT_CA="${CERT_PATH}/ca.crt"
+	export CLIENT_CERT="${CERT_PATH}/tls.crt"
+	export CLIENT_KEY="${CERT_PATH}/tls.key"
 else
 	export ROOT_CA="./dev/certs/forge_developer_local_only_root_cert_pem"
+	export CLIENT_CERT="./dev/certs/server_identity.pem"
+	export CLIENT_KEY="./dev/certs/server_identity.key"
+
 fi
 
 cat <<!> $DPU_CONFIG_FILE
 [forge-system]
 api-server = "https://$API_SERVER_HOST:$API_SERVER_PORT"
 root-ca = "${ROOT_CA}"
+client-cert = "${CLIENT_CERT}"
+client-key = "${CLIENT_KEY}"
 
 [machine]
 interface-id = "$MACHINE_INTERFACE_ID"
