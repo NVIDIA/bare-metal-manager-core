@@ -148,8 +148,6 @@ impl SiteExplorer {
                 tracing::Level::INFO,
                 "explore_site",
                 span_id,
-                start_time = format!("{:?}", chrono::Utc::now()),
-                elapsed_us = tracing::field::Empty,
                 otel.status_code = tracing::field::Empty,
                 otel.status_message = tracing::field::Empty,
                 identified_managed_hosts = tracing::field::Empty,
@@ -163,8 +161,6 @@ impl SiteExplorer {
                 .explore_site(&mut metrics)
                 .instrument(explore_site_span.clone())
                 .await;
-            let elapsed = metrics.start_time.elapsed();
-            explore_site_span.record("elapsed_us", elapsed.as_micros());
             explore_site_span.record(
                 "identified_managed_hosts",
                 metrics.exploration_identified_managed_hosts,

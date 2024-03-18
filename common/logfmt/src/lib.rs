@@ -72,6 +72,7 @@ where
 }
 
 struct Timing {
+    start_time: chrono::DateTime<chrono::Utc>,
     busy_ns: i64,
     idle_ns: i64,
     last: std::time::Instant,
@@ -83,6 +84,7 @@ impl Timing {
             busy_ns: 0,
             idle_ns: 0,
             last: std::time::Instant::now(),
+            start_time: chrono::Utc::now(),
         }
     }
 }
@@ -253,6 +255,15 @@ where
             return;
         }
 
+        data.attributes.insert(
+            "timing_start_time".to_string(),
+            format!("{:?}", data.timing.start_time),
+        );
+        let elapsed = chrono::Utc::now().signed_duration_since(data.timing.start_time);
+        data.attributes.insert(
+            "timing_elapsed_us".to_string(),
+            elapsed.num_microseconds().unwrap_or_default().to_string(),
+        );
         data.attributes.insert(
             "timing_busy_ns".to_string(),
             data.timing.busy_ns.to_string(),
@@ -578,7 +589,9 @@ mod tests {
         );
 
         // Write the span event
+        std::thread::sleep(std::time::Duration::from_millis(100));
         drop(_entered);
+
         drop(span);
 
         // Check the written data
@@ -596,7 +609,16 @@ mod tests {
             "Line is: {}",
             lines[1]
         );
-        assert!(lines[2].starts_with(r#"level=SPAN span_id=s1234 span_name=test_span bval_inital=false bval_unset=true bval_updated=true dval_initial=1s dval_unset=2s dval_updated=3s eval_initial=ab eval_unset=bb eval_updated=cc fval_initial=1 fval_unset=2.2 fval_updated=3.3 ival_initial=0 ival_unset=9 ival_updated=3 sval_inital=a sval_unset=c sval_updated="d e" timing_busy_ns="#), "Line is: {}", lines[2]);
+        assert!(lines[2].starts_with(r#"level=SPAN span_id=s1234 span_name=test_span bval_inital=false bval_unset=true bval_updated=true dval_initial=1s dval_unset=2s dval_updated=3s eval_initial=ab eval_unset=bb eval_updated=cc fval_initial=1 fval_unset=2.2 fval_updated=3.3 ival_initial=0 ival_unset=9 ival_updated=3 sval_inital=a sval_unset=c sval_updated="d e" timing_"#), "Line is: {}", lines[2]);
+        let elapsed_str_idx = lines[2].find("timing_elapsed_us=").unwrap();
+        let elapsed_str = lines[2][elapsed_str_idx..].trim_start_matches("timing_elapsed_us=");
+        let elapsed_str_end_idx = elapsed_str.find(' ').unwrap();
+        let elapsed_str = &elapsed_str[..elapsed_str_end_idx];
+        let elapsed_us: u64 = elapsed_str.parse().unwrap();
+        assert!(
+            (100_000..1_000_000).contains(&elapsed_us),
+            "Elapsed duration is {elapsed_us}us"
+        );
     }
 
     #[test]
@@ -639,7 +661,7 @@ mod tests {
             lines[0]
         );
         assert!(
-            lines[1].starts_with(r#"level=SPAN span_id=s1234 span_name=warn_span timing_busy_ns="#),
+            lines[1].starts_with(r#"level=SPAN span_id=s1234 span_name=warn_span timing_"#),
             "Line is: {}",
             lines[1]
         );

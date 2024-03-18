@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 byte-unit = "4.0.19"
-chrono = "0.4.26"
+chrono = "0.4.34"
 clap = { workspace = true }
 clap_complete = "*"
 color-eyre = "*"
