@@ -87,6 +87,7 @@ service Forge {
   // DEPRECATED: use FindMachineIds and FindMachinesByIds instead
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
+  rpc DeleteInterface(InterfaceDeleteQuery) returns (google.protobuf.Empty);
   rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
   rpc FindMachineIds(MachineSearchConfig) returns (MachineIdList);
   rpc FindMachinesByIds(MachineIdList) returns (MachineList);
@@ -994,6 +995,10 @@ message MachineList {
   repeated Machine machines = 1;
 }
 
+message InterfaceDeleteQuery {
+  UUID id = 1;
+}
+
 message InterfaceSearchQuery {
   optional UUID id = 1;
   optional string ip = 2;
@@ -1356,6 +1361,13 @@ message DpuAgentUpgradePolicyResponse {
 message AdminForceDeleteMachineRequest {
     // UUID, IP address, host name or MAC address of either the host or DPU to force delete
     string host_query = 1;
+
+    // Should we delete oob_net0 and host interfaces?
+    bool delete_interfaces = 2;
+
+    // Should we delete BMC interfaces? Please note, this will depend on if BMC interfaces 
+    // are associated with machine.
+    bool delete_bmc_interfaces = 3;
 }
 
 // Response to AdminForceDeleteMachine call
@@ -1383,6 +1395,20 @@ message AdminForceDeleteMachineResponse {
     string initial_lockdown_state = 41;
     // Whether the Machine had been unlocked as part of this action
     bool machine_unlocked = 42;
+
+    // Whether the machine interfaces are deleted.
+    bool host_interfaces_deleted = 43;
+    bool dpu_interfaces_deleted = 44;
+
+    // Whether the BMC interfaces are found.
+    bool host_bmc_interface_associated = 45;
+    bool dpu_bmc_interface_associated = 46;
+
+    // Whether the BMC interfaces are deleted.
+    bool host_bmc_interface_deleted = 47;
+    bool dpu_bmc_interface_deleted = 48;
+
+
 }
 
 // Must provide either machine_id or user/password pair

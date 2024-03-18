@@ -691,6 +691,34 @@ impl MachineInterface {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+
+    pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
+        let query = "DELETE FROM machine_interfaces WHERE id=$1";
+        MachineInterfaceAddress::delete(txn, self.id).await?;
+        DhcpEntry::delete(txn, self.id()).await?;
+        sqlx::query(query)
+            .bind(self.id)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn delete_by_ip(
+        txn: &mut Transaction<'_, Postgres>,
+        ip: IpAddr,
+    ) -> Result<Option<()>, DatabaseError> {
+        let interface = Self::find_by_ip(txn, ip).await?;
+
+        let Some(interface) = interface else {
+            return Ok(None);
+        };
+
+        interface.delete(txn).await?;
+
+        Ok(Some(()))
+    }
 }
 
 #[async_trait::async_trait]

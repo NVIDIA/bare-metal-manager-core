@@ -2596,6 +2596,74 @@ where
         response.map(Response::new)
     }
 
+    async fn delete_interface(
+        &self,
+        request: Request<rpc::InterfaceDeleteQuery>,
+    ) -> Result<Response<()>, Status> {
+        log_request_data(&request);
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_interfaces",
+                e,
+            ))
+        })?;
+
+        let rpc::InterfaceDeleteQuery { id } = request.into_inner();
+        let Some(id) = id else {
+            return Err(CarbideError::MissingArgument("delete interface.interface_id").into());
+        };
+
+        let interface = match Uuid::try_from(id) {
+            Ok(uuid) => MachineInterface::find_one(&mut txn, uuid).await?,
+            Err(_) => {
+                return Err(CarbideError::GenericError(
+                    "Could not marshall an ID from the request".to_string(),
+                )
+                .into())
+            }
+        };
+
+        // There should not be any machine associated with this interface.
+        if let Some(machine_id) = interface.machine_id {
+            return Err(Status::invalid_argument(format!(
+                "Already a machine {machine_id} is attached to this interface. Delete that first."
+            )));
+        }
+
+        // There should not be any BMC information associated with any machine.
+        for address in interface.addresses() {
+            let machine_id =
+                MachineTopology::find_machine_id_by_bmc_ip(&mut txn, &address.address.to_string())
+                    .await
+                    .map_err(CarbideError::from)?;
+
+            if let Some(machine_id) = machine_id {
+                return Err(Status::invalid_argument(
+                    format!("This looks like a BMC interface and attached with machine: {machine_id}. Delete that first."),
+                ));
+            }
+        }
+
+        interface
+            .delete(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit delete interface",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(()))
+    }
+
     // Fetch the DPU admin SSH password from Vault.
     // "host_id" can be any of:
     //  - UUID (primary key)
@@ -3271,7 +3339,8 @@ where
     ) -> Result<Response<rpc::AdminForceDeleteMachineResponse>, Status> {
         log_request_data(&request);
 
-        let query = request.into_inner().host_query;
+        let request = request.into_inner();
+        let query = request.host_query;
 
         let mut response = rpc::AdminForceDeleteMachineResponse {
             all_done: true,
@@ -3511,9 +3580,33 @@ where
         }
 
         if let Some(machine) = &host_machine {
+            if request.delete_bmc_interfaces {
+                if let Some(bmc_ip) = &machine.bmc_info().ip {
+                    response.host_bmc_interface_associated = true;
+                    if let Ok(ip_addr) = IpAddr::from_str(bmc_ip) {
+                        if MachineInterface::delete_by_ip(&mut txn, ip_addr)
+                            .await
+                            .map_err(CarbideError::from)?
+                            .is_some()
+                        {
+                            response.host_bmc_interface_deleted = true;
+                        }
+                    }
+                }
+            }
             Machine::force_cleanup(&mut txn, machine.id())
                 .await
                 .map_err(CarbideError::from)?;
+
+            if request.delete_interfaces {
+                for interface in machine.interfaces() {
+                    interface
+                        .delete(&mut txn)
+                        .await
+                        .map_err(CarbideError::from)?;
+                }
+                response.host_interfaces_deleted = true;
+            }
         }
 
         txn.commit().await.map_err(|e| {
@@ -3547,10 +3640,34 @@ where
                 .await
                 .map_err(CarbideError::from)?;
 
+            if request.delete_bmc_interfaces {
+                if let Some(bmc_ip) = &dpu_machine.bmc_info().ip {
+                    response.dpu_bmc_interface_associated = true;
+                    if let Ok(ip_addr) = IpAddr::from_str(bmc_ip) {
+                        if MachineInterface::delete_by_ip(&mut txn, ip_addr)
+                            .await
+                            .map_err(CarbideError::from)?
+                            .is_some()
+                        {
+                            response.dpu_bmc_interface_deleted = true;
+                        }
+                    }
+                }
+            }
+
             Machine::force_cleanup(&mut txn, dpu_machine.id())
                 .await
                 .map_err(CarbideError::from)?;
 
+            if request.delete_interfaces {
+                for interface in dpu_machine.interfaces() {
+                    interface
+                        .delete(&mut txn)
+                        .await
+                        .map_err(CarbideError::from)?;
+                }
+                response.dpu_interfaces_deleted = true;
+            }
             txn.commit().await.map_err(|e| {
                 CarbideError::from(DatabaseError::new(
                     file!(),
