@@ -114,8 +114,6 @@ impl<IO: StateControllerIO> StateController<IO> {
                 tracing::Level::INFO,
                 "state_controller_iteration",
                 span_id,
-                start_time = format!("{:?}", chrono::Utc::now()),
-                elapsed_us = tracing::field::Empty,
                 controller = IO::LOG_SPAN_CONTROLLER_NAME,
                 otel.status_code = tracing::field::Empty,
                 otel.status_message = tracing::field::Empty,
@@ -141,7 +139,6 @@ impl<IO: StateControllerIO> StateController<IO> {
                 .await;
             let elapsed = metrics.elapsed();
 
-            controller_span.record("elapsed_us", elapsed.as_micros());
             controller_span.record("otel.status_code", if res.is_ok() { "ok" } else { "error" });
 
             let db_query_metrics = {

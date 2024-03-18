@@ -62,7 +62,7 @@ utils = { path = "../../common/utils" }
 forge-version = { path = "../../common/version" }
 
 [dev-dependencies]
-chrono = "0.4.26"
+chrono = "0.4.34"
 ctor = "0.1"
 tempfile = "3"
 axum-server = { version = "0.4.4", features = ["tls-rustls"] }

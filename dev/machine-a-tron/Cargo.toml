@@ -19,7 +19,7 @@ tokio = { workspace=true}
 tonic = {workspace=true}
 socket2 = "0.5.5"
 base64 = "0.21.7"
-chrono = "0.4.33"
+chrono = "0.4.34"
 thiserror = "1"
 
 # [local-dependencies]

@@ -6,7 +6,7 @@ license-file.workspace = true
 authors.workspace = true
 
 [dependencies]
-chrono = { version = "0.4.19", features = ["serde"] }
+chrono = { version = "0.4.34", features = ["serde"] }
 eyre = "0.6"
 hyper = { version = "0.14.27", features = ["full"]}
 hyper-rustls = { version = "0.24", features = ["http1", "http2"] }

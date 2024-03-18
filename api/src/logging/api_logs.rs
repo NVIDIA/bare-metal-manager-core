@@ -135,8 +135,6 @@ where
                 tracing::Level::INFO,
                 "request",
                 span_id,
-                start_time = format!("{:?}", chrono::Utc::now()),
-                elapsed_us = tracing::field::Empty,
                 http.url = %request.uri(),
                 http.response.status_code = tracing::field::Empty,
                 request = tracing::field::Empty,
@@ -268,7 +266,6 @@ where
                 }
             }
 
-            request_span.record("elapsed_us", elapsed.as_micros());
             request_span.record(
                 "otel.status_code",
                 if outcome.is_ok() { "ok" } else { "error" },
