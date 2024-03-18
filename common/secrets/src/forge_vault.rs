@@ -375,7 +375,10 @@ impl VaultTask<Credentials> for GetCredentialsHelper {
             vault_metrics
                 .vault_requests_failed_counter
                 .add(1, &[KeyValue::new("request_type", "get_credentials")]);
-            tracing::error!("Error getting credentials. Error: {err:?}");
+            tracing::error!(
+                "Error getting credentials ({}). Error: {err:?}",
+                self.key.to_key_str().as_str()
+            );
             err
         })?;
 
