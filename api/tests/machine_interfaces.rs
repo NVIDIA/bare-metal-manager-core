@@ -427,3 +427,35 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     Ok(())
 }
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let interface = MachineInterface::create(
+        &mut txn,
+        &network_segment,
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        "hostname".to_string(),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await
+    .unwrap();
+
+    // By remote IP
+    let remote_ip = Some(interface.addresses()[0].address);
+    let interface_id = None;
+    let iface = MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    assert_eq!(iface.id, interface.id);
+
+    // By interface ID
+    let remote_ip = None;
+    let interface_id = Some(iface.id);
+    let iface = MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    assert_eq!(iface.id, interface.id);
+
+    Ok(())
+}

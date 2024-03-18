@@ -483,6 +483,36 @@ impl MachineInterface {
         }
     }
 
+    // Support dpu-agent/scout transition from machine_interface_id to source IP.
+    // Allow either for now.
+    pub async fn find_by_ip_or_id(
+        txn: &mut Transaction<'_, Postgres>,
+        remote_ip: Option<IpAddr>,
+        interface_id: Option<uuid::Uuid>,
+    ) -> Result<MachineInterface, CarbideError> {
+        if let Some(remote_ip) = remote_ip {
+            if let Some(interface) = MachineInterface::find_by_ip(txn, remote_ip)
+                .await
+                .map_err(CarbideError::from)?
+            {
+                // remove debug message by Apr 2024
+                tracing::debug!(
+                    interface_id = %interface.id,
+                    %remote_ip,
+                    "Loaded interface by remote IP"
+                );
+                return Ok(interface);
+            }
+        }
+        match interface_id {
+            Some(interface_id) => MachineInterface::find_one(txn, interface_id).await,
+            None => Err(CarbideError::NotFoundError {
+                kind: "machine_interface",
+                id: format!("remote_ip={remote_ip:?},interface_id={interface_id:?}"),
+            }),
+        }
+    }
+
     async fn find_by<'a>(
         txn: &mut Transaction<'_, Postgres>,
         filter: ObjectFilter<'_, String>,

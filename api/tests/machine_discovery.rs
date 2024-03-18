@@ -29,8 +29,11 @@ use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
 use rpc::forge::forge_server::Forge;
+use tonic::Request;
 
-use crate::common::api_fixtures::dpu::create_dpu_machine_with_discovery_error;
+use crate::common::api_fixtures::dpu::{
+    create_dpu_hardware_info, create_dpu_machine_with_discovery_error,
+};
 
 #[ctor::ctor]
 fn setup() {
@@ -130,10 +133,9 @@ async fn test_reject_host_machine_with_disabled_tpm(
         }))
         .await;
     let err = response.expect_err("Expected DiscoverMachine request to fail");
-    assert!(err.to_string().contains(&format!(
-        "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {}",
-        host_machine_interface_id
-    )));
+    assert!(err
+        .to_string()
+        .contains("Ignoring DiscoverMachine request for non-tpm enabled host"));
 
     // We shouldn't have created any machine
     let machines = env.find_machines(None, None, false).await;
@@ -207,6 +209,42 @@ async fn test_discover_2_managed_hosts(
 
     let machines = env.find_machines(None, None, true).await.machines;
     assert_eq!(machines.len(), 4);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_discover_dpu_by_source_ip(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+
+    let dhcp_response = env
+        .api
+        .discover_dhcp(Request::new(rpc::forge::DhcpDiscovery {
+            mac_address: host_sim.config.dpu_oob_mac_address.to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+            vendor_string: None,
+            link_address: None,
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let mut req = Request::new(rpc::MachineDiscoveryInfo {
+        machine_interface_id: None,
+        discovery_data: Some(rpc::DiscoveryData::Info(
+            rpc::DiscoveryInfo::try_from(create_dpu_hardware_info(&host_sim.config)).unwrap(),
+        )),
+    });
+    req.metadata_mut()
+        .insert("x-forwarded-for", dhcp_response.address.parse().unwrap());
+    let response = env.api.discover_machine(req).await.unwrap().into_inner();
+
+    assert!(response.machine_id.is_some());
 
     Ok(())
 }
