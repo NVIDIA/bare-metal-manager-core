@@ -46,27 +46,19 @@ simulate_boot() {
   MACHINE_INTERFACE_ID=$(echo $RESULT | jq ".machineInterfaceId.value" | tr -d '"')
   echo "Created Machine Interface with ID $MACHINE_INTERFACE_ID"
 
-  #HACK work-around for k8s NAT of outside network traffic
   REAL_IP=$(${REPO_ROOT}/dev/bin/psql.sh "select address from machine_interface_addresses where interface_id='${MACHINE_INTERFACE_ID}';" | tr -d '[:space:]"')
   echo "Machines real IP: ${REAL_IP}"
-  if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-    ${REPO_ROOT}/dev/bin/psql.sh "UPDATE machine_interface_addresses SET address='10.244.0.1';"
-  fi
 
   echo "Sending pxe boot request"
-  curl "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/pxe/boot?uuid=${MACHINE_INTERFACE_ID}&buildarch=arm64"
+  curl -H "X-Forwarded-For: ${REAL_IP}" "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/pxe/boot?uuid=${MACHINE_INTERFACE_ID}&buildarch=arm64"
 
   echo "Sending cloud-init request"
-  if [ "$FORGE_BOOTSTRAP_KIND" == "docker" ]; then
-	curl -H "X-Forwarded-For: ${REAL_IP}" "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/user-data"
-  else # kube
-	curl "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/user-data"
-  fi
+  curl -H "X-Forwarded-For: ${REAL_IP}" "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/user-data"
 
   echo "Sending DiscoverMachine"
   # Simulate the Machine discovery request of a DPU
   DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "${DATA_DIR}/dpu_machine_discovery.json")
-  RESULT=$(echo $DISCOVER_MACHINE_REQUEST | ${GRPCURL} -d @ $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverMachine)
+  RESULT=$(echo $DISCOVER_MACHINE_REQUEST | ${GRPCURL} -H "X-Forwarded-For: ${REAL_IP}" -d @ $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverMachine)
   DPU_MACHINE_ID=$(echo $RESULT | jq ".machineId.id" | tr -d '"')
   echo "DPU_MACHINE_ID: ${DPU_MACHINE_ID}"
 
@@ -78,10 +70,6 @@ simulate_boot() {
   echo "Sending DiscoveryComplete"
   RESULT=$(${GRPCURL} -d "{\"machine_id\": {\"id\": \"$DPU_MACHINE_ID\"}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoveryCompleted)
   echo "DPU discovery completed. Waiting for it reached in Host/WaitingForDiscovery state."
-
-  if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-	${REPO_ROOT}/dev/bin/psql.sh "UPDATE machine_interface_addresses SET address='${REAL_IP}';"
-  fi
 
   MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$DPU_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}" $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   echo "Created DPU Machine with ID $DPU_MACHINE_ID (state: ${MACHINE_STATE})"

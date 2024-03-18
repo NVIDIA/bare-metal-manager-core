@@ -2032,14 +2032,26 @@ where
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
         // We don't log_request_data(&request); here because the hardware info is huge
 
-        let machine_discovery_info = request.into_inner();
-
-        let interface_id = match &machine_discovery_info.machine_interface_id {
-            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+        let remote_ip: Option<IpAddr> = match request.metadata().get("X-Forwarded-For") {
             None => {
-                return Err(Status::invalid_argument("An interface UUID is required"));
+                // Normal production case.
+                // This is set in api/src/listener.rs::listen_and_serve when we `accept` the connection
+                request
+                    .extensions()
+                    .get::<Arc<crate::listener::ConnectionAttributes>>()
+                    .map(|conn_attrs| conn_attrs.peer_address().ip())
+            }
+            Some(ip_str) => {
+                // Development case, we override the remote IP with HTTP header
+                ip_str.to_str().ok().and_then(|s| s.parse().ok())
             }
         };
+
+        let machine_discovery_info = request.into_inner();
+
+        let interface_id = machine_discovery_info
+            .machine_interface_id
+            .and_then(|id| Uuid::try_from(id).ok());
 
         let discovery_data = machine_discovery_info
             .discovery_data
@@ -2052,14 +2064,14 @@ where
         // Generate a stable Machine ID based on the hardware information
         let stable_machine_id = MachineId::from_hardware_info(&hardware_info).map_err(|e| {
             CarbideError::InvalidArgument(
-                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {}: {e}", interface_id),
+                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {:?}: {e}", interface_id),
             )
         })?;
         log_machine_id(&stable_machine_id);
 
         if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_none() {
             return Err(CarbideError::InvalidArgument(format!(
-                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {}",
+                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {:?}",
                 interface_id
             ))
             .into());
@@ -2074,7 +2086,13 @@ where
             ))
         })?;
 
-        let interface = MachineInterface::find_one(&mut txn, interface_id).await?;
+        tracing::debug!(
+            ?remote_ip,
+            ?interface_id,
+            "discover_machine loading interface"
+        );
+        let interface =
+            MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
             let (db_machine, is_new) =
                 Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?;
