@@ -17,6 +17,10 @@ casbin_policy_file = "/patched/path/to/policy"
 type = "ipv4"
 prefix = "10.180.63.0/26"
 
+[ib_fabric_monitor]
+enabled = true
+run_interval = "102s"
+
 [site_explorer]
 enabled = true
 concurrent_explorations = 10

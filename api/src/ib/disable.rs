@@ -14,7 +14,7 @@ use async_trait::async_trait;
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort};
-use super::IBFabric;
+use super::{IBFabric, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct DisableIBFabric {}
@@ -57,6 +57,13 @@ impl IBFabric for DisableIBFabric {
 
     /// Delete IBPort
     async fn unbind_ib_ports(&self, _: i32, _: Vec<String>) -> Result<(), CarbideError> {
+        Err(CarbideError::IBFabricError(
+            "ib fabric is disabled".to_string(),
+        ))
+    }
+
+    /// Returns IB fabric related versions
+    async fn versions(&self) -> Result<IBFabricVersions, CarbideError> {
         Err(CarbideError::IBFabricError(
             "ib fabric is disabled".to_string(),
         ))

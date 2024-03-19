@@ -1529,7 +1529,7 @@ async fn record_infiniband_status_observation(
 
     let ib_fabric = services
         .ib_fabric_manager
-        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .connect(DEFAULT_IB_FABRIC_NAME)
         .await
         .map_err(|x| {
             StateHandlerError::IBFabricError(format!("Failed to connect to fabric manager: {x}"))
@@ -1611,7 +1611,7 @@ async fn bind_ib_ports(
 
     let ib_fabric = services
         .ib_fabric_manager
-        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .connect(DEFAULT_IB_FABRIC_NAME)
         .await
         .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
 
@@ -1663,7 +1663,7 @@ async fn unbind_ib_ports(
 
     let ib_fabric = services
         .ib_fabric_manager
-        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .connect(DEFAULT_IB_FABRIC_NAME)
         .await
         .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
 

@@ -3411,7 +3411,7 @@ where
 
             let ib_fabric = self
                 .ib_fabric_manager
-                .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+                .connect(DEFAULT_IB_FABRIC_NAME)
                 .await?;
 
             // Collect the ib partition and ib ports information about this machine

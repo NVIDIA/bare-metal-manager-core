@@ -22,8 +22,8 @@ use std::{
 use carbide::{
     api::Api,
     cfg::{
-        CarbideConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
-        NetworkSegmentStateControllerConfig, StateControllerConfig,
+        CarbideConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
+        MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
     },
     db::machine::Machine,
     ethernet_virtualization::EthVirtData,
@@ -66,6 +66,7 @@ use crate::common::{
     mac_address_pool,
     test_certificates::TestCertificateProvider,
     test_credentials::TestCredentialProvider,
+    test_meter::TestMeter,
 };
 
 pub mod dpu;
@@ -92,6 +93,7 @@ pub const FIXTURE_X86_MACHINE_ID: &str =
 
 pub struct TestEnv {
     pub api: TestApi,
+    pub config: Arc<CarbideConfig>,
     pub credential_provider: Arc<TestCredentialProvider>,
     pub certificate_provider: Arc<TestCertificateProvider>,
     pub common_pools: Arc<CommonPools>,
@@ -103,6 +105,7 @@ pub struct TestEnv {
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
     pub ib_partition_state_controller_io: IBPartitionStateControllerIO,
+    pub test_meter: TestMeter,
 }
 
 impl TestEnv {
@@ -343,6 +346,10 @@ fn get_config() -> CarbideConfig {
         ib_partition_state_controller: IbPartitionStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
+        ib_fabric_monitor: IbFabricMonitorConfig {
+            enabled: true,
+            run_interval: std::time::Duration::from_secs(10),
+        },
     }
 }
 
@@ -387,7 +394,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let config = Arc::new(get_config());
 
     let api = Api::new(
-        config,
+        config.clone(),
         credential_provider.clone(),
         certificate_provider.clone(),
         db_pool.clone(),
@@ -399,6 +406,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     TestEnv {
         api,
         common_pools,
+        config,
         credential_provider,
         certificate_provider,
         eth_virt_data,
@@ -413,6 +421,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
             failure_retry_time: Duration::seconds(0),
         },
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
+        test_meter: TestMeter::default(),
     }
 }
 

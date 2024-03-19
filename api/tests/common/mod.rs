@@ -20,3 +20,4 @@ pub mod network_segment;
 pub mod test_certificates;
 pub mod test_credentials;
 pub mod test_logging;
+pub mod test_meter;

@@ -35,6 +35,7 @@ use crate::{
     db::DatabaseError,
     db_init, ethernet_virtualization,
     ib::{self, IBFabricManager},
+    ib_fabric_monitor::IbFabricMonitor,
     ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl},
     listener,
     logging::service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
@@ -365,6 +366,13 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             .ipmi_tool(ipmi_tool.clone())
             .build()
             .expect("Unable to build IBPartitionStateController");
+
+    let ib_fabric_monitor = IbFabricMonitor::new(
+        carbide_config.ib_fabric_monitor.clone(),
+        meter.clone(),
+        ib_fabric_manager.clone(),
+    );
+    let _ib_fabric_monitor_handle = ib_fabric_monitor.start()?;
 
     let site_explorer = SiteExplorer::new(
         db_pool.clone(),

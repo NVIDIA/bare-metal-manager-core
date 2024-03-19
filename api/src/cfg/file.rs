@@ -117,6 +117,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub dpu_nic_firmware_reprovision_update_enabled: bool,
 
+    /// IbFabricMonitor related confipguration
+    #[serde(default)]
+    pub ib_fabric_monitor: IbFabricMonitorConfig,
+
     /// The maximum number of machines that have in-progress updates running.  This prevents
     /// too many machines from being put into maintenance at any given time.
     pub max_concurrent_machine_updates: Option<i32>,
@@ -421,6 +425,37 @@ impl SiteExplorerConfig {
     }
 }
 
+/// IbFabricMonitorConfig related configuration
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct IbFabricMonitorConfig {
+    #[serde(default)]
+    /// Whether IbFabricMonitor is enabled
+    pub enabled: bool,
+    /// The interval at which ib fabric monitor runs in seconds.
+    /// Defaults to 1 Minute if not specified.
+    #[serde(
+        default = "IbFabricMonitorConfig::default_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval: std::time::Duration,
+}
+
+impl Default for IbFabricMonitorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            run_interval: Self::default_run_interval(),
+        }
+    }
+}
+
+impl IbFabricMonitorConfig {
+    const fn default_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+}
+
 /// TLS related configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TlsConfig {
@@ -687,6 +722,12 @@ mod tests {
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
         assert!(config.pools.is_none());
+        assert_eq!(config.ib_fabric_monitor, {
+            IbFabricMonitorConfig {
+                enabled: false,
+                run_interval: IbFabricMonitorConfig::default_run_interval(),
+            }
+        });
         assert!(config.site_explorer.is_none());
         assert_eq!(
             config.machine_state_controller,
@@ -743,6 +784,13 @@ mod tests {
             }
         );
         assert!(pools.get("pkey").is_none());
+        assert_eq!(
+            config.ib_fabric_monitor,
+            IbFabricMonitorConfig {
+                enabled: true,
+                run_interval: std::time::Duration::from_secs(102),
+            }
+        );
         assert_eq!(
             config.site_explorer.as_ref().unwrap(),
             &SiteExplorerConfig {
@@ -853,6 +901,13 @@ mod tests {
                 }],
                 prefix: None,
                 pool_type: resource_pool::ResourcePoolType::Integer
+            }
+        );
+        assert_eq!(
+            config.ib_fabric_monitor,
+            IbFabricMonitorConfig {
+                enabled: false,
+                run_interval: std::time::Duration::from_secs(101),
             }
         );
         assert_eq!(
@@ -967,6 +1022,13 @@ mod tests {
                 }],
                 prefix: None,
                 pool_type: resource_pool::ResourcePoolType::Integer
+            }
+        );
+        assert_eq!(
+            config.ib_fabric_monitor,
+            IbFabricMonitorConfig {
+                enabled: true,
+                run_interval: std::time::Duration::from_secs(102),
             }
         );
         assert_eq!(

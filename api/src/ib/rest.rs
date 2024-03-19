@@ -13,7 +13,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tracing::info;
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBNETWORK_DEFAULT_INDEX0, IBNETWORK_DEFAULT_MEMBERSHIP};
@@ -21,7 +20,7 @@ use super::ufmclient::{
     self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, UFMConfig,
     UFMError, Ufm,
 };
-use super::IBFabric;
+use super::{IBFabric, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct RestIBFabric {
@@ -40,9 +39,6 @@ pub async fn connect(addr: &str, token: &str) -> Result<Arc<dyn IBFabric>, Carbi
     };
 
     let ufm = ufmclient::connect(conf).map_err(CarbideError::from)?;
-
-    let version = ufm.version().await.map_err(CarbideError::from)?;
-    info!("The UFM version is {version}");
 
     Ok(Arc::new(RestIBFabric { ufm }))
 }
@@ -108,6 +104,13 @@ impl IBFabric for RestIBFabric {
             .await
             .map(|p| p.iter().map(IBPort::from).collect())
             .map_err(CarbideError::from)
+    }
+
+    /// Returns IB fabric related versions
+    async fn versions(&self) -> Result<IBFabricVersions, CarbideError> {
+        let ufm_version = self.ufm.version().await?;
+
+        Ok(IBFabricVersions { ufm_version })
     }
 }
 

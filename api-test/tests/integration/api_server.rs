@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use carbide::cfg::{
-    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig,
+    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig, IbFabricMonitorConfig,
     IbPartitionStateControllerConfig, MachineStateControllerConfig,
     NetworkSegmentStateControllerConfig, StateControllerConfig, TlsConfig,
 };
@@ -46,6 +46,10 @@ pub async fn start(
         enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
+        ib_fabric_monitor: IbFabricMonitorConfig {
+            enabled: true,
+            run_interval: std::time::Duration::from_secs(10),
+        },
         initial_domain_name: Some(DOMAIN_NAME.to_string()),
         initial_dpu_agent_upgrade_policy: Some(AgentUpgradePolicyChoice::Off),
         tls: Some(TlsConfig {
