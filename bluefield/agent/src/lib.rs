@@ -227,6 +227,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             // --l3-domain 4096,10.0.0.1,svi  # repeat for multiple
             // --ct-external-access 4096  # comma separated list
             // --ct-port-config '{"interface_name": "if1", "vlan": 123, "vni": 456, "gateway_cidr": "10.0.0.100/32"}' # repeated for multiple
+            // --hbn_version 1.5.0-doca2.2.0
             WriteTarget::Nvue(opts) => {
                 let mut port_configs = Vec::with_capacity(opts.ct_port_config.len());
                 for net_json in opts.ct_port_config {
@@ -247,8 +248,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                         }
                     })
                     .collect();
+
                 let conf = nvue::NvueConfig {
                     is_fnn: opts.is_fnn,
+                    hbn_version: opts.hbn_version,
                     use_admin_network: true,
                     loopback_ip: opts.loopback_ip.to_string(),
                     asn: opts.asn,

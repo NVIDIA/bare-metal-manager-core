@@ -55,7 +55,7 @@ pub enum WriteTarget {
     #[clap(about = "Write /etc/supervisor/conf.d/default-isc-dhcp-relay.conf")]
     Dhcp(DhcpOptions),
     #[clap(about = "Write NVUE startup.yaml")]
-    Nvue(NvueOptions),
+    Nvue(Box<NvueOptions>),
 }
 
 #[derive(Parser, Debug)]
@@ -107,6 +107,9 @@ pub struct NvueOptions {
 
     #[clap(long, use_value_delimiter = true, help = "Comma separated")]
     pub ct_external_access: Vec<String>,
+
+    #[clap(long, help = "What version of hbn in format: 1.5.0-doca2.2.0")]
+    pub hbn_version: Option<String>,
 }
 
 #[derive(Parser, Debug)]
