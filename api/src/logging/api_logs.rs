@@ -145,7 +145,7 @@ where
                 rpc.grpc.status_code = tracing::field::Empty,
                 rpc.grpc.status_description = tracing::field::Empty,
                 forge.machine_id = tracing::field::Empty,
-                client.address = client_address.ip().to_string(),
+                client.address = client_address.ip().to_canonical().to_string(),
                 client.port = client_address.port() as u64,
                 client.num_certs = client_certs as u64,
                 logfmt.suppress = tracing::field::Empty,

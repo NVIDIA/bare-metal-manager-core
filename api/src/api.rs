@@ -2036,14 +2036,19 @@ where
             None => {
                 // Normal production case.
                 // This is set in api/src/listener.rs::listen_and_serve when we `accept` the connection
+                // The IP is usually an IPv4-mapped IPv6 addresses (e.g. `::ffff:10.217.133.10`) so
+                // we use to_canonical() to convert it to IPv4.
                 request
                     .extensions()
                     .get::<Arc<crate::listener::ConnectionAttributes>>()
-                    .map(|conn_attrs| conn_attrs.peer_address().ip())
+                    .map(|conn_attrs| conn_attrs.peer_address().ip().to_canonical())
             }
             Some(ip_str) => {
                 // Development case, we override the remote IP with HTTP header
-                ip_str.to_str().ok().and_then(|s| s.parse().ok())
+                ip_str
+                    .to_str()
+                    .ok()
+                    .and_then(|s| s.parse().map(|ip: IpAddr| ip.to_canonical()).ok())
             }
         };
 
