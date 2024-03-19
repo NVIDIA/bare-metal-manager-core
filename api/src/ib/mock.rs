@@ -17,7 +17,7 @@ use async_trait::async_trait;
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBPortState};
-use super::IBFabric;
+use super::{IBFabric, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct MockIBFabric {
@@ -152,5 +152,12 @@ impl IBFabric for MockIBFabric {
         }
 
         Ok(())
+    }
+
+    /// Returns IB fabric related versions
+    async fn versions(&self) -> Result<IBFabricVersions, CarbideError> {
+        let ufm_version = "mock_ufm_1.0".to_string();
+
+        Ok(IBFabricVersions { ufm_version })
     }
 }

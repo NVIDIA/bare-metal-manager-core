@@ -15,7 +15,7 @@ mod file;
 
 pub use command_line::{Command, Daemon, Options};
 pub use file::{
-    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig,
+    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig, IbFabricMonitorConfig,
     IbPartitionStateControllerConfig, MachineStateControllerConfig,
     NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };

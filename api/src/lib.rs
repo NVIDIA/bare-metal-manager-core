@@ -44,6 +44,7 @@ mod dhcp;
 pub mod ethernet_virtualization;
 mod human_hash;
 pub mod ib;
+pub mod ib_fabric_monitor;
 pub mod instance;
 mod ip_finder;
 pub mod ipmitool;

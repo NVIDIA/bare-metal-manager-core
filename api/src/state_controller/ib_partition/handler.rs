@@ -47,7 +47,7 @@ impl StateHandler for IBPartitionStateHandler {
         let ib_fabric = ctx
             .services
             .ib_fabric_manager
-            .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+            .connect(DEFAULT_IB_FABRIC_NAME)
             .await
             .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
 

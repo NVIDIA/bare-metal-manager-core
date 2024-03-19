@@ -337,7 +337,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
 
     let ib_fabric = env
         .ib_fabric_manager
-        .connect(DEFAULT_IB_FABRIC_NAME.to_string())
+        .connect(DEFAULT_IB_FABRIC_NAME)
         .await
         .unwrap();
 

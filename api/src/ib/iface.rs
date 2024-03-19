@@ -23,9 +23,14 @@ pub struct Filter {
     pub pkey: Option<i32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IBFabricVersions {
+    pub ufm_version: String,
+}
+
 #[async_trait]
 pub trait IBFabricManager: Send + Sync {
-    async fn connect(&self, fabric_name: String) -> Result<Arc<dyn IBFabric>, CarbideError>;
+    async fn connect(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError>;
     fn get_config(&self) -> IBFabricManagerConfig;
 }
 
@@ -52,4 +57,7 @@ pub trait IBFabric: Send + Sync {
 
     /// Find IBPort
     async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError>;
+
+    /// Returns IB fabric related versions
+    async fn versions(&self) -> Result<IBFabricVersions, CarbideError>;
 }

@@ -60,6 +60,10 @@ gateway = "172.99.0.1"
 mtu = 1500
 reserve_first = 5
 
+[ib_fabric_monitor]
+enabled = false
+run_interval = "101s"
+
 [site_explorer]
 enabled = false
 run_interval = 100

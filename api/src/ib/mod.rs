@@ -19,6 +19,7 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials}
 pub use self::iface::Filter;
 pub use self::iface::IBFabric;
 pub use self::iface::IBFabricManager;
+pub use self::iface::IBFabricVersions;
 use crate::cfg;
 use crate::CarbideError;
 
@@ -32,7 +33,7 @@ pub mod types;
 
 pub const DEFAULT_IB_FABRIC_NAME: &str = "ib_default";
 
-#[derive(Clone, Default)]
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
 pub enum IBFabricManagerType {
     #[default]
     Disable,
@@ -87,7 +88,7 @@ impl<C: CredentialProvider + 'static> IBFabricManager for IBFabricManagerImpl<C>
         self.config.clone()
     }
 
-    async fn connect(&self, fabric_name: String) -> Result<Arc<dyn IBFabric>, CarbideError> {
+    async fn connect(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
         match self.config.manager_type {
             IBFabricManagerType::Disable => Ok(self.disable_fabric.clone()),
             IBFabricManagerType::Mock => Ok(self.mock_fabric.clone()),
@@ -95,14 +96,14 @@ impl<C: CredentialProvider + 'static> IBFabricManager for IBFabricManagerImpl<C>
                 let credentials = self
                     .credential_provider
                     .get_credentials(CredentialKey::UfmAuth {
-                        fabric: fabric_name.clone(),
+                        fabric: fabric_name.to_string(),
                     })
                     .await
                     .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
                         Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
                             CarbideError::GenericError(format!(
                                 "Vault key not found: ufm/{}/token",
-                                fabric_name.clone()
+                                fabric_name
                             ))
                         }
                         Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
