@@ -57,8 +57,7 @@ simulate_boot() {
 
   echo "Sending DiscoverMachine"
   # Simulate the Machine discovery request of a DPU
-  DISCOVER_MACHINE_REQUEST=$(jq --arg machine_interface_id "$MACHINE_INTERFACE_ID" '.machine_interface_id.value = $machine_interface_id' "${DATA_DIR}/dpu_machine_discovery.json")
-  RESULT=$(echo $DISCOVER_MACHINE_REQUEST | ${GRPCURL} -H "X-Forwarded-For: ${REAL_IP}" -d @ $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverMachine)
+  RESULT=$(cat "${DATA_DIR}/dpu_machine_discovery.json" | ${GRPCURL} -H "X-Forwarded-For: ${REAL_IP}" -d @ $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/DiscoverMachine)
   DPU_MACHINE_ID=$(echo $RESULT | jq ".machineId.id" | tr -d '"')
   echo "DPU_MACHINE_ID: ${DPU_MACHINE_ID}"
 
@@ -162,7 +161,6 @@ client-cert = "${CLIENT_CERT}"
 client-key = "${CLIENT_KEY}"
 
 [machine]
-interface-id = "$MACHINE_INTERFACE_ID"
 is-fake-dpu = true
 
 [hbn]

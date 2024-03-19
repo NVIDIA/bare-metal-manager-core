@@ -19,6 +19,15 @@ pub fn grpcurl<T: ToString>(
     endpoint: &str,
     data: Option<T>,
 ) -> eyre::Result<String> {
+    grpcurl_for(addr, endpoint, data, None)
+}
+
+pub fn grpcurl_for<T: ToString>(
+    addr: SocketAddr,
+    endpoint: &str,
+    data: Option<T>,
+    for_ip: Option<&str>,
+) -> eyre::Result<String> {
     let address = addr.to_string();
     let grpc_endpoint = format!("forge.Forge/{endpoint}");
     let mut args = vec![
@@ -29,6 +38,12 @@ pub fn grpcurl<T: ToString>(
         &address,
         &grpc_endpoint,
     ];
+    let header;
+    if let Some(for_ip) = for_ip {
+        args.insert(0, "-H");
+        header = format!("x-forwarded-for: {for_ip}");
+        args.insert(1, &header);
+    }
     let post_data;
     if let Some(d) = data {
         post_data = d.to_string();

@@ -411,7 +411,7 @@ impl MachineInterface {
             (segment_id, mac_address, hostname, domain_id, primary_interface)
             VALUES
             ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id";
-        let interface_id: (Uuid,) = sqlx::query_as(query)
+        let (interface_id,): (Uuid,) = sqlx::query_as(query)
             .bind(segment.id())
             .bind(macaddr)
             .bind(hostname)
@@ -432,10 +432,11 @@ impl MachineInterface {
             })?;
 
         let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
-        for (_prefix_id, address) in allocated_addresses {
+        for (_prefix_id, maybe_address) in allocated_addresses {
+            let address = maybe_address?;
             sqlx::query(query)
-                .bind(interface_id.0)
-                .bind(address?)
+                .bind(interface_id)
+                .bind(address)
                 .fetch_all(&mut *inner_txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -447,7 +448,7 @@ impl MachineInterface {
             .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
 
         Ok(
-            MachineInterface::find_by(txn, ObjectFilter::One(interface_id.0.to_string()), "id")
+            MachineInterface::find_by(txn, ObjectFilter::One(interface_id.to_string()), "id")
                 .await?
                 .remove(0),
         )

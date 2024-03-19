@@ -45,7 +45,7 @@ pub struct MachineConfigFromPxe {
 ///
 /// This is what we READ from /etc/forge/config.toml. In prod most of the fields will default.
 /// We only implement Serialize for unit tests.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     #[serde(default, rename = "forge-system")]
     pub forge_system: ForgeSystemConfig,
@@ -118,10 +118,10 @@ pub fn default_client_key() -> String {
     tls_default::default_client_key().to_string()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct MachineConfig {
-    pub interface_id: uuid::Uuid,
+    pub interface_id: Option<uuid::Uuid>,
     /// Local dev only. Pretend to be a DPU for discovery.
     /// If it's set to false, don't even serialize it out
     /// to config.
@@ -314,7 +314,7 @@ override-upgrade-cmd = "update"
         assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
         assert_eq!(
             config.machine.interface_id,
-            uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200")
+            Some(uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200"))
         );
         assert!(config.machine.is_fake_dpu);
 
@@ -345,7 +345,7 @@ interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
         assert_eq!(config.forge_system.api_server, "https://127.0.0.1:1234");
         assert_eq!(
             config.machine.interface_id,
-            uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200")
+            Some(uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200"))
         );
         assert!(!config.machine.is_fake_dpu);
 
