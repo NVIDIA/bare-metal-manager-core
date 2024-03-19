@@ -159,7 +159,7 @@ async fn test_integration() -> eyre::Result<()> {
     // An upgraded dpu-agent exits so that systemd can start the new version. Be systemd.
     tokio::spawn(agent::start(agent::Options {
         version: false,
-        config_path: agent_config_file.path().to_path_buf(),
+        config_path: Some(agent_config_file.path().to_path_buf()),
         cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
             enable_metadata_service: false,
             override_machine_id: Some(dpu_info.machine_id.clone()),

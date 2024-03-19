@@ -186,7 +186,7 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
     fs::write(agent_config_file.path(), cfg)?;
     let opts = agent::Options {
         version: false,
-        config_path: agent_config_file.path().to_path_buf(),
+        config_path: Some(agent_config_file.path().to_path_buf()),
         cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
             enable_metadata_service: TEST_METADATA_SERVICE,
             override_machine_id: None,

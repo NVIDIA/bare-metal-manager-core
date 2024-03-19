@@ -30,7 +30,7 @@ pub async fn run(
     let registration_data = register_machine(
         forge_api,
         root_ca,
-        machine_interface_id,
+        Some(machine_interface_id),
         hardware_info,
         false,
         discovery_retry_secs,

@@ -19,10 +19,10 @@ pub struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
 
-    /// The path to the forge agent configuration file
-    /// This file will hold data in the `AgentConfig` format
-    #[clap(long, default_value = "/etc/forge/config.toml")]
-    pub config_path: PathBuf,
+    /// The path to the forge agent configuration file development overrides.
+    /// This file will hold data in the `AgentConfig` format.
+    #[clap(long)]
+    pub config_path: Option<PathBuf>,
 
     #[clap(subcommand)]
     pub cmd: Option<AgentCommand>,

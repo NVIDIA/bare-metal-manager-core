@@ -79,7 +79,7 @@ pub fn release(addr: SocketAddr, host_machine_id: &str, instance_id: &str) -> ey
     let resp = grpcurl(addr, "FindMachines", Some(data))?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;
     let machine_json = &response["machines"][0];
-    let host_machine_interface_id = machine_json["interfaces"][0]["id"]["value"]
+    let ip_address = machine_json["interfaces"][0]["address"][0]
         .as_str()
         .unwrap()
         .to_string();
@@ -95,8 +95,8 @@ pub fn release(addr: SocketAddr, host_machine_id: &str, instance_id: &str) -> ey
     wait_for_instance_state(addr, instance_id, "TERMINATING")?;
     wait_for_state(addr, host_machine_id, "Assigned/BootingWithDiscoveryImage")?;
 
-    tracing::info!("Instance with ID {instance_id} is terminating");
-    discover_machine(addr, &host_machine_interface_id)?;
+    tracing::info!("Instance with ID {instance_id} at {ip_address} is terminating");
+    discover_machine(addr, &ip_address)?;
 
     wait_for_state(addr, host_machine_id, "WaitingForCleanup/HostCleanup")?;
     let data = serde_json::json!({

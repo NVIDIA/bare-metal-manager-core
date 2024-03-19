@@ -30,7 +30,6 @@ root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
 
 [machine]
 is-fake-dpu = true
-interface-id = "$MACHINE_INTERFACE_ID"
 
 [updates]
 override-upgrade-cmd = "echo 'apt-get install --yes --only-upgrade --reinstall forge-dpu' > $UPGRADE_INDICATOR"
@@ -115,14 +114,13 @@ pub async fn bootstrap(
         upgrade_indicator_path,
         carbide_api_addr,
         root_dir,
-        &interface_id,
     )?;
 
     // Start forge-dpu-agent
     let dmi = dpu_machine_id.clone();
     tokio::spawn(agent::start(agent::Options {
         version: false,
-        config_path: dpu_config_path.to_path_buf(),
+        config_path: Some(dpu_config_path.to_path_buf()),
         cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
             enable_metadata_service: false,
             override_machine_id: Some(dmi.to_string()),
@@ -153,7 +151,7 @@ fn discover(
 ) -> eyre::Result<(String, String, Ipv4Addr)> {
     let (interface_id, ip_address) = discover_dhcp(addr)?;
     tracing::info!("Created Machine Interface with ID {interface_id}");
-    let dpu_machine_id = discover_dpu(addr, &interface_id, dpu_version)?;
+    let dpu_machine_id = discover_dpu(addr, dpu_version)?;
     tracing::info!("Created DPU Machine with ID {dpu_machine_id}");
     grpcurl(
         addr,
@@ -193,11 +191,9 @@ fn write_config(
     upgrade_indicator_path: &path::Path,
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
-    machine_interface_id: &str,
     hbn_root: &path::Path,
 ) -> io::Result<()> {
     let cfg = DPU_CONFIG
-        .replace("$MACHINE_INTERFACE_ID", machine_interface_id)
         .replace("$HBN_ROOT", &hbn_root.display().to_string())
         .replace("$ROOT_DIR", &root_dir.display().to_string())
         .replace(
@@ -213,7 +209,6 @@ fn make_dpu_filesystem(
     upgrade_indicator_path: &path::Path,
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
-    machine_interface_id: &str,
 ) -> eyre::Result<path::PathBuf> {
     let hbn_root = path::PathBuf::from("/tmp/forge-hbn-chroot-integration");
     if hbn_root.exists() {
@@ -233,24 +228,17 @@ fn make_dpu_filesystem(
         upgrade_indicator_path,
         carbide_api_addr,
         root_dir,
-        machine_interface_id,
         &hbn_root,
     )?;
     Ok(hbn_root)
 }
 
-fn discover_dpu(
-    addr: SocketAddr,
-    interface_id: &str,
-    dpu_version: Option<String>,
-) -> eyre::Result<String> {
-    let data = include_str!("../../../dev/docker-env/dpu_machine_discovery.json")
-        .replace("$MACHINE_INTERFACE_ID", interface_id);
+fn discover_dpu(addr: SocketAddr, dpu_version: Option<String>) -> eyre::Result<String> {
+    let data = include_str!("../../../dev/docker-env/dpu_machine_discovery.json").to_string();
 
     let data = dpu_version
         .as_ref()
         .map_or(data.clone(), |dv| data.replace("24.35.2000", dv));
-    println!("data: {}", data);
     let response = grpcurl(addr, "DiscoverMachine", Some(data))?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
     let dpu_machine_id = resp["machineId"]["id"].as_str().unwrap().to_string();

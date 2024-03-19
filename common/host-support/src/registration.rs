@@ -10,12 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::time::Duration;
+
 use ::rpc::forge::MachineCertificate;
 use ::rpc::forge_tls_client::{self, ForgeClientConfig, ForgeTlsClient};
 use ::rpc::machine_discovery as rpc_discovery;
 use ::rpc::{forge as rpc, MachineDiscoveryInfo};
 use forge_tls::default as tls_default;
-use std::time::Duration;
 use tryhard::RetryFutureConfig;
 
 #[derive(thiserror::Error, Debug)]
@@ -24,8 +25,8 @@ pub enum RegistrationError {
     TransportError(String),
     #[error("Tonic status error {0}")]
     TonicStatusError(#[from] tonic::Status),
-    #[error("Missing or invalid machine id in API server response for machine interface ID {0}")]
-    InvalidMachineId(uuid::Uuid),
+    #[error("Missing machine id in API server response. Should be impossible")]
+    MissingMachineId,
 }
 
 /// Data that is retrieved from the Forge API server during registration
@@ -145,14 +146,14 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
 pub async fn register_machine(
     forge_api: &str,
     root_ca: String,
-    machine_interface_id: uuid::Uuid,
+    machine_interface_id: Option<uuid::Uuid>,
     hardware_info: rpc_discovery::DiscoveryInfo,
     use_mgmt_vrf: bool,
     discovery_retry_secs: u64,
     discovery_retries_max: u32,
 ) -> Result<RegistrationData, RegistrationError> {
     let info = rpc::MachineDiscoveryInfo {
-        machine_interface_id: Some(machine_interface_id.into()),
+        machine_interface_id: machine_interface_id.map(|mid| mid.into()),
         discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
             hardware_info,
         )),
@@ -171,20 +172,16 @@ pub async fn register_machine(
         secs: discovery_retry_secs,
         max: discovery_retries_max,
     };
-
     let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
         .discover_machine(info)
         .await?;
-    tracing::info!("Successfully called discover_machine");
-
     write_certs(response.machine_certificate).await;
 
     let machine_id: String = response
         .machine_id
-        .ok_or(RegistrationError::InvalidMachineId(machine_interface_id))?
+        .ok_or(RegistrationError::MissingMachineId)?
         .id;
-
-    tracing::info!("Registered machine with ID {machine_id} for interface {machine_interface_id} at Forge API server");
+    tracing::info!(machine_id, "Registered");
 
     Ok(RegistrationData { machine_id })
 }

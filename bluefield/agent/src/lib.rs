@@ -65,19 +65,20 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         return Ok(());
     }
 
-    let agent = match AgentConfig::load_from(&cmdline.config_path) {
-        Ok(cfg) => {
-            tracing::info!("Successfully loaded agent configuration {:?}", cfg);
-            cfg
-        }
-        Err(e) => {
-            return Err(eyre::eyre!(
-                "Error loading agent configuration from {}: {:?}",
-                cmdline.config_path.display(),
-                e
-            ));
-        }
+    let (agent, path) = match cmdline.config_path {
+        // normal production case
+        None => (AgentConfig::default(), "default".to_string()),
+        // development overrides
+        Some(config_path) => (
+            AgentConfig::load_from(&config_path).wrap_err(format!(
+                "Error loading agent configuration from {}",
+                config_path.display()
+            ))?,
+            config_path.display().to_string(),
+        ),
     };
+    tracing::info!("Using configuration from {path}: {agent:?}");
+
     if agent.machine.is_fake_dpu {
         tracing::warn!("Pretending local host is a DPU. Dev only.");
     }
@@ -92,7 +93,6 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     .use_mgmt_vrf()?;
 
     match cmdline.cmd {
-        // Until Oct 2023 forge-dpu-agent in prod used this to mean 'run'.
         None => {
             tracing::error!("Missing cmd. Try `forge-dpu-agent --help`");
         }
@@ -284,7 +284,6 @@ struct Registration {
 /// Discover hardware, register DPU with carbide-api, and return machine id
 async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
     let mut hardware_info = enumerate_hardware().wrap_err("enumerate_hardware failed")?;
-    tracing::debug!("Successfully enumerated DPU hardware");
 
     // Pretend to be a bluefield DPU for local dev.
     // see model/hardware_info.rs::is_dpu
@@ -293,7 +292,6 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
         tracing::debug!("Successfully injected fake DPU data");
     }
 
-    let interface_id = agent.machine.interface_id;
     let factory_mac_address = match hardware_info.dpu_info.as_ref() {
         Some(dpu_info) => dpu_info.factory_mac_address.clone(),
         None => eyre::bail!("Missing DPU info, should be impossible"),
@@ -302,7 +300,7 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
     let registration_data = register_machine(
         &agent.forge_system.api_server,
         agent.forge_system.root_ca.clone(),
-        interface_id,
+        agent.machine.interface_id,
         hardware_info,
         true,
         agent.period.discovery_retry_secs,
@@ -311,7 +309,7 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
     .await?;
 
     let machine_id = registration_data.machine_id;
-    tracing::info!(%machine_id, %interface_id, %factory_mac_address, "Successfully discovered machine");
+    tracing::info!(%machine_id, %factory_mac_address, "Successfully discovered machine");
 
     Ok(Registration {
         machine_id,
