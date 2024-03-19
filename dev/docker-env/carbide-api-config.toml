@@ -48,10 +48,10 @@ reserve_first = 5
 
 [networks.DEV1-C09-IPMI-01]
 type = "underlay"
-prefix = "172.99.0.0/26"
-gateway = "172.99.0.1"
-mtu = 1500
-reserve_first = 5
+prefix = "127.0.0.0/8"
+gateway = "127.0.0.10"
+mtu = 1490
+reserve_first = 0
 
 [machine_state_controller]
 dpu_wait_time = "1s"
