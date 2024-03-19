@@ -123,6 +123,21 @@ impl Containers {
             .map_err(|e| eyre::eyre!(e))?
             .containers;
 
+        let images = Images::list().await?;
+
+        let containers: Vec<_> = containers
+            .into_iter()
+            .map(|mut c| {
+                c.image_ref = images
+                    .images
+                    .iter()
+                    .filter(|i| i.id == c.image.id)
+                    .flat_map(|i| i.names.clone())
+                    .collect();
+                c
+            })
+            .collect();
+
         Ok(Containers { containers })
     }
 

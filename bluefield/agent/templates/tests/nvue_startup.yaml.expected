@@ -22,6 +22,10 @@
           address:
             10.217.5.39/32: {}
         type: loopback
+      pf0dpu1_sf:
+        ip:
+          address:
+            169.254.169.253/30: {}
       p0_sf:
         type: swp
       p1_sf:

@@ -77,6 +77,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             })
             .collect(),
         Infrastructure: infra,
+        HbnVersion: conf.hbn_version,
         ComputeTENANTs: vec![TmplComputeTenant {
             Name: conf.ct_name,
             L3VNI: conf.ct_l3_vni,
@@ -193,6 +194,7 @@ pub struct NvueConfig {
     pub asn: u32,
     pub dpu_hostname: String,
     pub dpu_search_domain: String,
+    pub hbn_version: Option<String>,
     pub uplinks: Vec<String>,
     pub route_servers: Vec<String>,
     pub dhcp_servers: Vec<String>,
@@ -255,6 +257,8 @@ struct TmplNvue {
 
     /// Format: CIDR of the infastructure prefixes to block. Origin is carbide-api config file.
     DenyPrefixes: Vec<Prefix>,
+
+    HbnVersion: Option<String>,
 
     // A structure to hold infra wide information to be used in the configuration. It would need
     // to hold multiple levels.
