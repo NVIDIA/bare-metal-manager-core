@@ -49,7 +49,7 @@ script = '''
   mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/conf"
   mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
   cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
-  cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/debug/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
+  cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
   cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
   cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
   cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
