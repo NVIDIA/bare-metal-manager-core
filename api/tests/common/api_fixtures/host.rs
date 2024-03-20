@@ -12,6 +12,9 @@
 
 //! Contains host related fixtures
 
+use carbide::db::machine::Machine;
+use carbide::db::network_prefix::NetworkPrefix;
+use carbide::db::UuidKeyedObjectFilter;
 use carbide::{
     db::machine_interface::MachineInterface,
     model::{
@@ -91,13 +94,26 @@ pub async fn host_discover_dhcp(
 ) -> rpc::Uuid {
     let mut txn = env.pool.begin().await.unwrap();
     let loopback_ip = super::dpu::loopback_ip(&mut txn, dpu_machine_id).await;
+    let predicted_host = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let prefix = NetworkPrefix::find_by_segment(
+        &mut txn,
+        UuidKeyedObjectFilter::One(predicted_host.interfaces()[0].segment_id()),
+    )
+    .await
+    .unwrap()
+    .remove(0);
+
     let response = env
         .api
         .discover_dhcp(Request::new(DhcpDiscovery {
             mac_address: host_config.host_mac_address.to_string(),
             relay_address: loopback_ip.to_string(),
             vendor_string: None,
-            link_address: None,
+            link_address: Some(prefix.gateway.unwrap().to_string()),
             circuit_id: None,
             remote_id: None,
         }))
