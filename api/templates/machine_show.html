@@ -26,7 +26,7 @@
 		<tr>
 			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
 			<td>{{ m.id|machine_id_link|safe }}</td>
-			<td>{{ m.state }}</td>
+			<td>{{ m.state }} {% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}</td>
 			<td>{% if m.is_host %}
 				{{ m.associated_dpu_id|machine_id_link|safe }}
 				{% else %}
