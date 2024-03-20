@@ -10,19 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::env;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
-use std::collections::HashMap;
 use uuid::Uuid;
 
-use serde::{Deserialize, Serialize};
-
+use super::machine::Machine;
 use crate::ib::IBFabricManagerConfig;
 use crate::model::hardware_info::InfinibandInterface;
 use crate::model::instance::config::{
@@ -38,8 +38,6 @@ use crate::{
     model::tenant::TenantOrganizationId,
     CarbideError, CarbideResult,
 };
-
-use super::machine::Machine;
 
 #[derive(Debug, Clone, Copy, FromRow)]
 pub struct IBPartitionId(uuid::Uuid);
@@ -465,7 +463,7 @@ impl IBPartition {
         &self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<IBPartition, DatabaseError> {
-        let query = "UPDATE ib_partitions SET name=$1, organization_id=$2::uuid, status=$3::json, updated=NOW() WHERE id=$4::uuid RETURNING *";
+        let query = "UPDATE ib_partitions SET name=$1, organization_id=$2, status=$3::json, updated=NOW() WHERE id=$4::uuid RETURNING *";
 
         let segment: IBPartition = sqlx::query_as(query)
             .bind(&self.config.name)
