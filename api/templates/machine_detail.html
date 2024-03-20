@@ -68,6 +68,26 @@
 </table>
 {% endif %}
 
+<h3>Inventory</h3>
+<table>
+	<thead>
+		<tr>
+			<th>Name</th>
+			<th>Version</th>
+			<th>URL</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for item in inventory %}
+		<tr>
+			<td>{{ item.name }}</td>
+			<td>{{ item.version }}</td>
+			<td>{{ item.url }}</td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+
 <h3>History</h3>
 <table>
 	<thead>

@@ -20,8 +20,8 @@ use chrono::{TimeDelta, Utc};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
-use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent};
 
 use super::filters;
 use crate::api::Api;
@@ -257,6 +257,7 @@ struct MachineDetail {
     sys_vendor: String,
     interfaces: Vec<MachineInterfaceDisplay>,
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
+    inventory: Vec<MachineInventorySoftwareComponent>,
 }
 
 struct MachineHistoryDisplay {
@@ -335,6 +336,7 @@ impl From<forgerpc::Machine> for MachineDetail {
         let mut chassis_serial = String::new();
         let mut sys_vendor = String::new();
         let mut ib_interfaces = Vec::new();
+        let mut inventory = Vec::new();
         if let Some(di) = m.discovery_info.as_ref() {
             if let Some(dmi) = di.dmi_data.as_ref() {
                 product_name = dmi.product_name.clone();
@@ -359,6 +361,9 @@ impl From<forgerpc::Machine> for MachineDetail {
                 ib_interfaces.push(iface_display);
             }
         }
+        if let Some(inv) = m.inventory.as_ref() {
+            inventory.extend(inv.components.iter().cloned());
+        }
 
         let machine_id = m.id.unwrap_or_default().id;
         MachineDetail {
@@ -378,8 +383,9 @@ impl From<forgerpc::Machine> for MachineDetail {
             board_serial,
             sys_vendor,
             product_name,
-            interfaces,
             ib_interfaces,
+            interfaces,
+            inventory,
             host_id: m
                 .associated_host_machine_id
                 .map_or_else(String::default, |id| id.to_string()),
