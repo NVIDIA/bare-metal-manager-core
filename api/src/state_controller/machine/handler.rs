@@ -296,6 +296,7 @@ impl StateHandler for MachineStateHandler {
                                 &state.host_snapshot,
                                 None,
                                 ctx.services,
+                                None,
                                 txn,
                             )
                             .await?;
@@ -379,6 +380,7 @@ impl StateHandler for MachineStateHandler {
                             &state.host_snapshot,
                             Some(*retry_count as i64),
                             ctx.services,
+                            None,
                             txn,
                         )
                         .await?
@@ -441,6 +443,7 @@ async fn handle_dpu_reprovision(
                     &state.host_snapshot,
                     None,
                     services,
+                    None,
                     txn,
                 )
                 .await?;
@@ -451,6 +454,7 @@ async fn handle_dpu_reprovision(
                 &state.host_snapshot,
                 services,
                 SystemPowerControl::ForceOff,
+                None,
                 txn,
             )
             .await?;
@@ -480,13 +484,21 @@ async fn handle_dpu_reprovision(
                     &state.host_snapshot,
                     services,
                     SystemPowerControl::ForceOff,
+                    None,
                     txn,
                 )
                 .await?;
 
                 return Ok(None);
             }
-            host_power_control(&state.host_snapshot, services, SystemPowerControl::On, txn).await?;
+            host_power_control(
+                &state.host_snapshot,
+                services,
+                SystemPowerControl::On,
+                None,
+                txn,
+            )
+            .await?;
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
         }
         ReprovisionState::WaitingForNetworkInstall => {
@@ -522,6 +534,7 @@ async fn handle_dpu_reprovision(
                 &state.host_snapshot,
                 services,
                 SystemPowerControl::ForceRestart,
+                None,
                 txn,
             )
             .await?;
@@ -553,6 +566,7 @@ async fn try_wait_for_dpu_discovery_and_reboot(
             &state.host_snapshot,
             None,
             services,
+            None,
             txn,
         )
         .await?;
@@ -864,6 +878,7 @@ impl StateHandler for DpuMachineStateHandler {
                         &state.host_snapshot,
                         None,
                         ctx.services,
+                        None,
                         txn,
                     )
                     .await?;
@@ -882,6 +897,21 @@ impl StateHandler for DpuMachineStateHandler {
             } => {
                 if !is_network_ready(&state.dpu_snapshot) {
                     return Ok(());
+                }
+
+                let key = CredentialKey::HostRedfish {
+                    credential_type: CredentialType::SiteDefault,
+                };
+                if let Err(e) = host_power_control(
+                    &state.host_snapshot,
+                    ctx.services,
+                    SystemPowerControl::ForceRestart,
+                    Some(key),
+                    txn,
+                )
+                .await
+                {
+                    tracing::error!("Error while rebooting host with site default password. {e}");
                 }
 
                 *controller_state.modify() = ManagedHostState::HostNotReady {
@@ -929,6 +959,7 @@ async fn trigger_reboot_if_needed(
     host: &MachineSnapshot,
     retry_count: Option<i64>,
     services: &StateHandlerServices,
+    key: Option<CredentialKey>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<bool, StateHandlerError> {
     let Some(last_reboot_requested) = &target.last_reboot_requested else {
@@ -964,7 +995,7 @@ async fn trigger_reboot_if_needed(
             SystemPowerControl::ForceOff
         };
 
-        host_power_control(host, services, action, txn).await?;
+        host_power_control(host, services, action, key, txn).await?;
         Machine::update_reboot_requested_time(&target.machine_id, txn, action.into()).await?;
         return Ok(false);
     }
@@ -1010,7 +1041,7 @@ async fn trigger_reboot_if_needed(
                     host.machine_id,
                 );
                 let action = SystemPowerControl::ForceOff;
-                host_power_control(host, services, action, txn).await?;
+                host_power_control(host, services, action, key, txn).await?;
                 // Update target machine also. In case of DPU, target machine is DPU. In case of
                 // Host stuck, target machine is host. In case of host, this field will be updated
                 // twice. Well, it should not harm much.
@@ -1155,6 +1186,9 @@ impl StateHandler for HostMachineStateHandler {
                             &state.host_snapshot,
                             None,
                             ctx.services,
+                            Some(CredentialKey::HostRedfish {
+                                credential_type: CredentialType::SiteDefault,
+                            }),
                             txn,
                         )
                         .await?;
@@ -1173,6 +1207,7 @@ impl StateHandler for HostMachineStateHandler {
                             &state.host_snapshot,
                             None,
                             ctx.services,
+                            None,
                             txn,
                         )
                         .await?;
@@ -1376,6 +1411,7 @@ impl StateHandler for InstanceStateHandler {
                             // can't send 0. 0 will force power-off as cycle calculator.
                             Some(retry.count as i64 + 1),
                             ctx.services,
+                            None,
                             txn,
                         )
                         .await?
@@ -1719,6 +1755,7 @@ async fn restart_machine(
             machine_snapshot,
             services,
             SystemPowerControl::ForceRestart,
+            None,
             txn,
         )
         .await?;
@@ -1766,6 +1803,7 @@ async fn host_power_control(
     machine_snapshot: &MachineSnapshot,
     services: &StateHandlerServices,
     action: SystemPowerControl,
+    key: Option<CredentialKey>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
     let bmc_ip =
@@ -1778,16 +1816,14 @@ async fn host_power_control(
                 missing: "bmc_info.ip",
             })?;
 
+    let key = key.unwrap_or(CredentialKey::Bmc {
+        machine_id: machine_snapshot.machine_id.to_string(),
+        user_role: UserRoles::Administrator.to_string(),
+    });
+
     let client = services
         .redfish_client_pool
-        .create_client(
-            bmc_ip,
-            machine_snapshot.bmc_info.port,
-            CredentialKey::Bmc {
-                machine_id: machine_snapshot.machine_id.to_string(),
-                user_role: UserRoles::Administrator.to_string(),
-            },
-        )
+        .create_client(bmc_ip, machine_snapshot.bmc_info.port, key)
         .await?;
 
     if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
@@ -1896,6 +1932,7 @@ async fn lockdown_host(
         machine_snapshot,
         services,
         SystemPowerControl::ForceRestart,
+        None,
         txn,
     )
     .await?;
