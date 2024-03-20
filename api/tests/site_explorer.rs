@@ -215,7 +215,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         enabled: true,
         explorations_per_run: 2,
         concurrent_explorations: 1,
-        run_interval: 1,
+        run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
     };
     let endpoint_explorer = Arc::new(FakeEndpointExplorer {

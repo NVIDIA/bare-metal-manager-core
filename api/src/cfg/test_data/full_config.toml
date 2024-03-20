@@ -66,7 +66,7 @@ run_interval = "101s"
 
 [site_explorer]
 enabled = false
-run_interval = 100
+run_interval = "100s"
 explorations_per_run = 11
 create_machines = true
 
