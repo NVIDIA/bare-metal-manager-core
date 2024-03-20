@@ -364,8 +364,14 @@ impl MachineInterface {
                 let mac = existing_mac.remove(0);
                 // Ensure the relay segment exists before blindly giving the mac address back out
                 match NetworkSegment::for_relay(txn, relay).await? {
+                    Some(ifc) if ifc.id == mac.segment_id => Ok(mac),
+                    Some(ifc) => Err(CarbideError::GenericError(format!(
+                        "Network segment mismatch for existing mac address: {0} expected: {1} actual from network switch: {2}",
+                        mac.mac_address,
+                        mac.segment_id,
+                        ifc.id,
+                    ))),
                     None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
-                    Some(_) => Ok(mac),
                 }
             }
             _ => {

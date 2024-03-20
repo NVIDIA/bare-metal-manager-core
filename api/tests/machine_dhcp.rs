@@ -15,6 +15,7 @@ use std::str::FromStr;
 use carbide::db::{
     dhcp_entry::DhcpEntry, machine_interface::MachineInterface, UuidKeyedObjectFilter,
 };
+use carbide::CarbideError;
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 
@@ -44,6 +45,46 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
         test_gateway_address,
     )
     .await?;
+
+    txn.commit().await.unwrap();
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_machine_dhcp_from_wrong_vlan_fails(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
+    let test_gateway_address = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+
+    MachineInterface::validate_existing_mac_and_create(
+        &mut txn,
+        test_mac_address,
+        test_gateway_address,
+    )
+    .await?;
+
+    // Test a second time after initial creation on the same segment should not cause issues
+    MachineInterface::validate_existing_mac_and_create(
+        &mut txn,
+        test_mac_address,
+        test_gateway_address,
+    )
+    .await?;
+
+    // expect this to error out
+    let output = MachineInterface::validate_existing_mac_and_create(
+        &mut txn,
+        test_mac_address,
+        "192.0.3.1".parse().unwrap(),
+    )
+    .await;
+    assert!(
+        matches!(output, Err(CarbideError::GenericError(x)) if x.starts_with("Network segment mismatch for existing mac address"))
+    );
 
     txn.commit().await.unwrap();
 
