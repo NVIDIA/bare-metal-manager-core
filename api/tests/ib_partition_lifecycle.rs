@@ -11,7 +11,14 @@
  */
 
 use carbide::{
-    api::rpc::IbPartitionConfig, api::rpc::IbPartitionSearchConfig, cfg::IBFabricConfig,
+    api::rpc::IbPartitionConfig,
+    api::rpc::IbPartitionSearchConfig,
+    cfg::IBFabricConfig,
+    db::ib_partition::{IBPartitionConfig, IBPartitionStatus, NewIBPartition},
+    ib::{
+        types::{IBNetwork, IBPortMembership},
+        IBFabricManagerConfig, IBFabricManagerType,
+    },
     state_controller::ib_partition::handler::IBPartitionStateHandler,
 };
 
@@ -207,5 +214,51 @@ async fn create_ib_partition_with_api_with_id(
         .into_inner();
 
     assert_eq!(partition.id.unwrap().value, id.to_string());
+    Ok(())
+}
+
+#[sqlx::test]
+async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let id = uuid::Uuid::new_v4();
+    let new_partition = NewIBPartition {
+        id,
+        config: IBPartitionConfig {
+            name: "partition1".to_string(),
+            pkey: Some(42),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string().try_into().unwrap(),
+            mtu: 2000,
+            rate_limit: 300,
+            service_level: 0,
+        },
+    };
+    let mut txn = pool.begin().await?;
+    let mut partition = new_partition
+        .create(
+            &mut txn,
+            &IBFabricManagerConfig {
+                manager_type: IBFabricManagerType::Disable,
+                max_partition_per_tenant: 10,
+            },
+        )
+        .await?;
+    txn.commit().await?;
+
+    let ibnetwork = IBNetwork {
+        pkey: 42,
+        name: "x".to_string(),
+        enable_sharp: false,
+        mtu: 2000,
+        ipoib: false,
+        service_level: 0,
+        membership: IBPortMembership::Full,
+        index0: false,
+        rate_limit: 300.0,
+    };
+    partition.status = Some(IBPartitionStatus::from(&ibnetwork));
+
+    // What we're testing
+    let mut txn = pool.begin().await?;
+    partition.update(&mut txn).await?;
+
     Ok(())
 }
