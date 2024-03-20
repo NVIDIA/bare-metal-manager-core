@@ -39,10 +39,12 @@ use carbide::{
     redfish::RedfishSim,
     resource_pool::{self, common::CommonPools},
     state_controller::{
-        controller::ReachabilityParams,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         io::StateControllerIO,
-        machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
+        machine::{
+            handler::{MachineStateHandler, ReachabilityParams},
+            io::MachineStateControllerIO,
+        },
         metrics::{IterationMetrics, ObjectHandlerMetrics},
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
@@ -131,7 +133,6 @@ impl TestEnv {
             ib_fabric_manager: self.ib_fabric_manager.clone(),
             forge_api,
             meter: None,
-            reachability_params: self.reachability_params.clone(),
             pool_pkey: Some(self.common_pools.infiniband.pool_pkey.clone()),
             ipmi_tool: Arc::new(IPMIToolTestImpl {}),
         }

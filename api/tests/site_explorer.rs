@@ -678,6 +678,7 @@ async fn test_site_explorer_creates_managed_host(
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();

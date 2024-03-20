@@ -172,6 +172,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
@@ -521,6 +522,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let services = Arc::new(env.state_handler_services());
 
@@ -743,6 +745,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
@@ -1092,6 +1095,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
@@ -1453,6 +1457,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();

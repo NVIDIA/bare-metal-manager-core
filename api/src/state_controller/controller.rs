@@ -515,26 +515,7 @@ pub struct Builder<IO: StateControllerIO> {
     >,
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
     pool_pkey: Option<Arc<DbResourcePool<i16>>>,
-    reachability_params: Option<ReachabilityParams>,
     ipmi_tool: Option<Arc<dyn IPMITool>>,
-}
-
-#[derive(Clone)]
-pub struct ReachabilityParams {
-    pub dpu_wait_time: chrono::Duration,
-    pub power_down_wait: chrono::Duration,
-    pub failure_retry_time: chrono::Duration,
-}
-
-impl Default for ReachabilityParams {
-    // Some dummy values for other controller except MachineState Controller.
-    fn default() -> Self {
-        Self {
-            dpu_wait_time: chrono::Duration::seconds(1),
-            power_down_wait: chrono::Duration::seconds(1),
-            failure_retry_time: chrono::Duration::seconds(1),
-        }
-    }
 }
 
 impl<IO: StateControllerIO> Builder<IO> {
@@ -557,7 +538,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             meter: None,
             object_type_for_metrics: None,
             forge_api: None,
-            reachability_params: None,
             pool_pkey: None,
             ipmi_tool: None,
         }
@@ -584,13 +564,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             .forge_api
             .take()
             .ok_or(StateControllerBuildError::MissingArgument("forge_api"))?;
-
-        let reachability_params =
-            self.reachability_params
-                .take()
-                .ok_or(StateControllerBuildError::MissingArgument(
-                    "reachability_params",
-                ))?;
 
         let ib_fabric_manager =
             self.ib_fabric_manager
@@ -624,7 +597,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             ib_fabric_manager,
             redfish_client_pool,
             forge_api,
-            reachability_params,
             meter: meter.clone(),
             pool_pkey: self.pool_pkey.take(),
             ipmi_tool,
@@ -712,12 +684,6 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures how the state controller performs iterations
     pub fn iteration_config(mut self, config: IterationConfig) -> Self {
         self.iteration_config = config;
-        self
-    }
-
-    /// Configures the parameters used to check DPU's reachability.
-    pub fn reachability_params(mut self, reachability_params: ReachabilityParams) -> Self {
-        self.reachability_params = Some(reachability_params);
         self
     }
 

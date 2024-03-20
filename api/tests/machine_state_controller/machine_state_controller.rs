@@ -24,7 +24,7 @@ use carbide::{
     model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
     redfish::RedfishSim,
     state_controller::{
-        controller::{IterationConfig, ReachabilityParams, StateController},
+        controller::{IterationConfig, StateController},
         machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
@@ -125,11 +125,6 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 .ib_fabric_manager(env.ib_fabric_manager.clone())
                 .forge_api(test_api.clone())
                 .state_handler(machine_handler.clone())
-                .reachability_params(ReachabilityParams {
-                    dpu_wait_time: chrono::Duration::seconds(0),
-                    power_down_wait: chrono::Duration::seconds(0),
-                    failure_retry_time: chrono::Duration::seconds(0),
-                })
                 .ipmi_tool(Arc::new(IPMIToolTestImpl {}))
                 .build()
                 .unwrap(),

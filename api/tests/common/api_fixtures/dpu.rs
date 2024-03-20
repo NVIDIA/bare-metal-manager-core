@@ -66,6 +66,7 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
 
     let (dpu_machine_id, host_machine_id) =
@@ -140,6 +141,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
 
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
@@ -402,6 +404,7 @@ pub async fn create_dpu_machine_with_discovery_error(
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
 
     let dpu_machine_id = try_parse_machine_id(&dpu_machine_id).unwrap();

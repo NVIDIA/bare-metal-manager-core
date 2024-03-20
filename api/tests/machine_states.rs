@@ -76,6 +76,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
@@ -121,6 +122,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
@@ -178,6 +180,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
