@@ -10,7 +10,7 @@
 	{% if !is_host %}
 		<tr><th>Host ID</th><td><a href="/admin/managed-host/{{ host_id }}">{{ host_id }}</a></td></tr>
 	{% endif %}
-	<tr><th>State</th><td>{{ state }}</td></tr>
+	<tr><th>State</th><td>{{ state }} for {{ time_in_state }}</td></tr>
 	<tr><th>State Version</th><td>{{ state_version }}</td></tr>
 	{% if !network_config.is_empty() %}
 	<tr>

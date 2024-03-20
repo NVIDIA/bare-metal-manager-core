@@ -22,6 +22,7 @@ if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
     export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
 else
     export DISABLE_TLS_ENFORCEMENT=true
+    export NO_DPU_CONTAINERS=true
     export GRPCURL="grpcurl -insecure"
 fi
 

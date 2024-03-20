@@ -10,6 +10,7 @@ if [ $# -ne 3 ]; then
 fi
 
 export DISABLE_TLS_ENFORCEMENT=true
+export NO_DPU_CONTAINERS=true
 MAX_RETRY=10
 API_SERVER=$2:$3
 DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
