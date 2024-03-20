@@ -13,6 +13,7 @@ pub mod common;
 
 use std::sync::Arc;
 
+use carbide::cfg::DpuFwUpdateConfig;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
 use carbide::state_controller::machine::handler::MachineStateHandler;
@@ -70,7 +71,12 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
 
     // let state machine check the failure condition.
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(
@@ -110,7 +116,12 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     assert!(matches!(dpu_machine.has_healthy_network(), Ok(true)));
 
     // Tell state handler to mark DPU as unhealthy after 1 second
-    let handler = MachineStateHandler::new(chrono::Duration::seconds(1), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::seconds(1),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Run the state state handler
@@ -162,7 +173,12 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     // let state machine check the failure condition.
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
     let services = Arc::new(env.state_handler_services());
     let mut iteration_metrics = IterationMetrics::default();
     run_state_controller_iteration(

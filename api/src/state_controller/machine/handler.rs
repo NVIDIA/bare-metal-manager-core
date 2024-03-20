@@ -17,9 +17,11 @@ use std::{collections::HashMap, task::Poll};
 use chrono::{DateTime, Duration, Utc};
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialType};
-use libredfish::SystemPowerControl;
+use libredfish::{model::task::TaskState, Redfish, SystemPowerControl};
+use tokio::fs::File;
 
 use crate::{
+    cfg::DpuFwUpdateConfig,
     db::{
         bmc_metadata::UserRoles,
         ib_partition,
@@ -40,14 +42,16 @@ use crate::{
         machine::{
             machine_id::MachineId,
             network::HealthStatus,
-            CleanupState, DpuDiscoveringState, FailureCause, FailureDetails, FailureSource,
-            InstanceNextStateResolver, InstanceState, LockdownInfo,
+            BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, FailureCause,
+            FailureDetails, FailureSource, FirmwareType, InstanceNextStateResolver, InstanceState,
+            LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
             MachineSnapshot, MachineState, ManagedHostState, ManagedHostStateSnapshot,
             NextReprovisionState, ReprovisionRequest, ReprovisionState, RetryInfo,
         },
     },
+    redfish::RedfishClientCreationError,
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
@@ -61,7 +65,7 @@ use crate::{
 #[derive(Debug)]
 pub struct MachineStateHandler {
     host_handler: HostMachineStateHandler,
-    dpu_handler: DpuMachineStateHandler,
+    pub dpu_handler: DpuMachineStateHandler,
     instance_handler: InstanceStateHandler,
     dpu_up_threshold: chrono::Duration,
 }
@@ -71,11 +75,15 @@ impl MachineStateHandler {
         dpu_up_threshold: chrono::Duration,
         dpu_nic_firmware_initial_update_enabled: bool,
         dpu_nic_firmware_reprovision_update_enabled: bool,
+        dpu_fw_update_config: DpuFwUpdateConfig,
     ) -> Self {
         MachineStateHandler {
             dpu_up_threshold,
             host_handler: Default::default(),
-            dpu_handler: DpuMachineStateHandler::new(dpu_nic_firmware_initial_update_enabled),
+            dpu_handler: DpuMachineStateHandler::new(
+                dpu_nic_firmware_initial_update_enabled,
+                dpu_fw_update_config,
+            ),
             instance_handler: InstanceStateHandler::new(
                 dpu_nic_firmware_reprovision_update_enabled,
             ),
@@ -86,7 +94,12 @@ impl MachineStateHandler {
 /// Convenience function for the tests
 impl Default for MachineStateHandler {
     fn default() -> Self {
-        Self::new(chrono::Duration::minutes(5), false, false)
+        Self::new(
+            chrono::Duration::minutes(5),
+            false,
+            false,
+            DpuFwUpdateConfig::default(),
+        )
     }
 }
 
@@ -611,13 +624,101 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 #[derive(Debug, Default)]
 pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
+    dpu_firmware_update_config: DpuFwUpdateConfig,
 }
 
+// Minimal supported DPU BMC FW version, that is capable to do BMC FW update
+const MIN_SUPPORTED_BMC_FW: &str = "23.07";
+
 impl DpuMachineStateHandler {
-    pub fn new(dpu_nic_firmware_initial_update_enabled: bool) -> Self {
+    pub fn new(
+        dpu_nic_firmware_initial_update_enabled: bool,
+        dpu_firmware_update_config: DpuFwUpdateConfig,
+    ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
+            dpu_firmware_update_config,
         }
+    }
+
+    async fn redfish_check_fw_update_needed(
+        &self,
+        redfish: &dyn Redfish,
+        firmware_type: &str,
+        minimal_supported_version: Option<&str>,
+        latest_available_version: &str,
+    ) -> Result<bool, StateHandlerError> {
+        // For BF2 BMC FW inventory has different name
+        let inventories = redfish.get_software_inventories().await.map_err(|e| {
+            StateHandlerError::RedfishError {
+                operation: "get_software_inventories",
+                error: e,
+            }
+        })?;
+        let inventory_id = inventories
+            .iter()
+            .find(|i| i.contains(firmware_type))
+            .ok_or(StateHandlerError::FirmwareUpdateError(eyre!(
+                "No inventory found that matches: {}",
+                firmware_type
+            )))?;
+        let inventory = match redfish.get_firmware(inventory_id).await {
+            Ok(inventory) => inventory,
+            Err(e) => {
+                tracing::error!("redfish command get_firmware error {}", e.to_string());
+                return Err(StateHandlerError::RedfishError {
+                    operation: "get_firmware",
+                    error: e,
+                });
+            }
+        };
+
+        match inventory.version {
+            Some(version_str) => {
+                let version = version_str.to_uppercase().replace("BF-", "");
+
+                if minimal_supported_version.is_some_and(|minimal_supported_version| {
+                    version_compare::compare(version.as_str(), minimal_supported_version)
+                        .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                }) {
+                    let msg = format!(
+                        "Current {} FW version: {}, minimal supported version: {}",
+                        firmware_type,
+                        version.as_str(),
+                        minimal_supported_version.unwrap(),
+                    );
+                    tracing::error!(msg);
+                    return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
+                }
+                tracing::debug!(
+                    "Version: {}, latest available_version: {}",
+                    version,
+                    latest_available_version
+                );
+                Ok(version_compare::compare(version, latest_available_version)
+                    .is_ok_and(|c| c == version_compare::Cmp::Lt))
+            }
+            None => {
+                let msg = format!("Unknown {} FW version", firmware_type);
+                tracing::error!(msg);
+                Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)))
+            }
+        }
+    }
+
+    async fn get_firmware_file(
+        &self,
+        bf_version: i32,
+        fw_type: &str,
+    ) -> Result<File, StateHandlerError> {
+        let fw_location = self.dpu_firmware_update_config.firmware_location.clone();
+        let fw_file: String = format!("{}/bf{}-{}.fwpkg", fw_location, bf_version, fw_type);
+        File::open(fw_file).await.map_err(|e| {
+            StateHandlerError::FirmwareUpdateError(eyre!(
+                "Failed to read BMC FW file: {}",
+                e.to_string()
+            ))
+        })
     }
 
     fn get_discovery_failure(&self, msg: String, machine_id: &MachineId) -> ManagedHostState {
@@ -635,6 +736,7 @@ impl DpuMachineStateHandler {
         }
     }
 }
+
 #[async_trait::async_trait]
 impl StateHandler for DpuMachineStateHandler {
     type State = ManagedHostStateSnapshot;
@@ -650,11 +752,12 @@ impl StateHandler for DpuMachineStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<(), StateHandlerError> {
+        let dpu_machine_id = &state.dpu_snapshot.machine_id.clone();
         match &state.managed_state {
             ManagedHostState::DpuDiscoveringState {
                 discovering_state: DpuDiscoveringState::Initializing,
             } => {
-                let mut client;
+                let client;
                 let client_result = ctx
                     .services
                     .redfish_client_pool
@@ -678,82 +781,157 @@ impl StateHandler for DpuMachineStateHandler {
                 if let Err(e) = ctx
                     .services
                     .redfish_client_pool
-                    .create_forge_admin_user(client, host_machine_id.to_string())
+                    .create_forge_admin_user(client, dpu_machine_id.to_string())
                     .await
                 {
                     let msg = format!("Failed to create forge_admin user: {}", e);
-                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                    *controller_state.modify() = self.get_discovery_failure(msg, dpu_machine_id);
                     return Ok(());
-                }
-
-                let client_result = ctx
-                    .services
-                    .redfish_client_pool
-                    .create_client(
-                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
-                        state.dpu_snapshot.bmc_info.port,
-                        CredentialKey::DpuRedfish {
-                            credential_type: CredentialType::Machine {
-                                machine_id: host_machine_id.to_string(),
-                            },
-                        },
-                    )
-                    .await;
-
-                client = match client_result {
-                    Ok(redfish_client) => redfish_client,
-                    Err(e) => {
-                        let msg = format!(
-                            "Failed to instantiate redfish client (forge-admin user): {}",
-                            e
-                        );
-                        *controller_state.modify() =
-                            self.get_discovery_failure(msg, host_machine_id);
-                        return Ok(());
-                    }
-                };
-
-                let bmc_inventory = match client.get_firmware("BMC_Firmware").await {
-                    Ok(inventory) => inventory,
-                    Err(e) => {
-                        let msg = format!("Failed to get BMC version: {}", e);
-                        *controller_state.modify() =
-                            self.get_discovery_failure(msg, host_machine_id);
-                        return Ok(());
-                    }
-                };
-
-                match bmc_inventory.version {
-                    Some(version_str) => {
-                        // example of returned result: "BF-23.07-3"
-                        let version = version_str.replace("BF-", "");
-                        let minimal_supported_version = "23.04";
-                        if let Ok(version_compare::Cmp::Lt) =
-                            version_compare::compare(version.as_str(), minimal_supported_version)
-                        {
-                            let msg = format!(
-                                "Current BMC FW version: {}, minimal supported version: {}",
-                                version.as_str(),
-                                minimal_supported_version
-                            );
-                            *controller_state.modify() =
-                                self.get_discovery_failure(msg, host_machine_id);
-                            return Ok(());
-                        }
-
-                        // TODO: Update FW version here
-                    }
-                    None => {
-                        let msg = "Unknown BMC FW version".to_string();
-                        *controller_state.modify() =
-                            self.get_discovery_failure(msg, host_machine_id);
-                        return Ok(());
-                    }
                 }
 
                 *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
                     discovering_state: DpuDiscoveringState::Configuring,
                 }
+            }
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state:
+                    DpuDiscoveringState::BmcFirmwareUpdate {
+                        substate:
+                            BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                                firmware_type,
+                                task_id,
+                            },
+                    },
+            } => {
+                let client = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client(
+                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
+                        None,
+                        CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::Machine {
+                                machine_id: dpu_machine_id.to_string(),
+                            },
+                        },
+                    )
+                    .await
+                    .map_err(StateHandlerError::RedfishClientCreationError)?;
+
+                let task = client.get_task(task_id).await.map_err(|e| {
+                    StateHandlerError::RedfishError {
+                        operation: "get_task",
+                        error: e,
+                    }
+                })?;
+
+                tracing::info!("{} FW update task: {:#?}", firmware_type, task);
+
+                match task.task_state {
+                    Some(TaskState::Completed) => {
+                        if *firmware_type == FirmwareType::Cec {
+                            // For Cec firmware update need also to reboot a host
+                            let bmc_ip =
+                                state.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
+                                    StateHandlerError::RedfishClientCreationError(
+                                        RedfishClientCreationError::MissingCredentials(eyre!(
+                                            "No host BMC IP"
+                                        )),
+                                    )
+                                })?;
+
+                            // Use host client with site-default credentials.
+                            // TODO: modify host_power_control to use site-default credentials and use that method.
+                            let host_client = ctx
+                                .services
+                                .redfish_client_pool
+                                .create_client(
+                                    bmc_ip.as_str(),
+                                    None,
+                                    CredentialKey::HostRedfish {
+                                        credential_type: CredentialType::SiteDefault,
+                                    },
+                                )
+                                .await
+                                .map_err(StateHandlerError::RedfishClientCreationError)?;
+                            host_client
+                                .power(SystemPowerControl::ForceRestart)
+                                .await
+                                .map_err(|e| StateHandlerError::RedfishError {
+                                    operation: "host_reboot",
+                                    error: e,
+                                })?;
+                        }
+                        client
+                            .bmc_reset()
+                            .await
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "bmc_reset",
+                                error: e,
+                            })?;
+                        *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
+                            },
+                        };
+
+                        return Ok(());
+                    }
+                    Some(TaskState::Exception) => {
+                        let msg = format!(
+                            "Failed to update FW:  {:#?}",
+                            task.messages
+                                .last()
+                                .map_or("".to_string(), |m| m.message.clone())
+                        );
+                        *controller_state.modify() =
+                            self.get_discovery_failure(msg, dpu_machine_id);
+                        return Ok(());
+                    }
+                    Some(_) => {}
+                    None => {
+                        return Err(StateHandlerError::GenericError(eyre!(
+                            "No task state field in task: {:#?}",
+                            task
+                        )));
+                    }
+                }
+            }
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state:
+                    DpuDiscoveringState::BmcFirmwareUpdate {
+                        substate: BmcFirmwareUpdateSubstate::Reboot { count },
+                    },
+            } => {
+                match ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client(
+                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
+                        None,
+                        CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::Machine {
+                                machine_id: dpu_machine_id.to_string(),
+                            },
+                        },
+                    )
+                    .await
+                {
+                    Ok(_client) => {
+                        *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::Configuring {},
+                        };
+                    }
+                    Err(_e) => {
+                        *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                substate: BmcFirmwareUpdateSubstate::Reboot { count: count + 1 },
+                            },
+                        };
+                    }
+                };
+
+                return Ok(());
             }
             ManagedHostState::DpuDiscoveringState {
                 discovering_state: DpuDiscoveringState::Configuring,
@@ -766,7 +944,9 @@ impl StateHandler for DpuMachineStateHandler {
                         state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
                         state.dpu_snapshot.bmc_info.port,
                         CredentialKey::DpuRedfish {
-                            credential_type: CredentialType::SiteDefault,
+                            credential_type: CredentialType::Machine {
+                                machine_id: dpu_machine_id.to_string(),
+                            },
                         },
                     )
                     .await;
@@ -776,7 +956,103 @@ impl StateHandler for DpuMachineStateHandler {
                     Err(e) => {
                         let msg = format!("Failed to instantiate redfish client: {}", e);
                         *controller_state.modify() =
-                            self.get_discovery_failure(msg, host_machine_id);
+                            self.get_discovery_failure(msg, dpu_machine_id);
+                        return Ok(());
+                    }
+                }
+
+                let model_description = state
+                    .dpu_snapshot
+                    .hardware_info
+                    .as_ref()
+                    .and_then(|hi| {
+                        hi.dpu_info
+                            .as_ref()
+                            .map(|di| di.part_description.to_lowercase())
+                    })
+                    .unwrap_or("bluefield 3".to_string());
+
+                let bf_version = if model_description.contains("bluefield 3") {
+                    3
+                } else {
+                    2
+                };
+
+                let fw_update_version = if bf_version == 2 {
+                    &self
+                        .dpu_firmware_update_config
+                        .dpu_bf2_bmc_firmware_update_version
+                } else {
+                    &self
+                        .dpu_firmware_update_config
+                        .dpu_bf3_bmc_firmware_update_version
+                };
+
+                if !fw_update_version.is_empty() {
+                    let bmc_inventory = FirmwareType::Bmc.get_inventory_name();
+
+                    let latest_bmc_fw_version = fw_update_version.get(bmc_inventory);
+
+                    // Check and update Bmc FW
+                    if latest_bmc_fw_version.is_some()
+                        && self
+                            .redfish_check_fw_update_needed(
+                                &*client,
+                                bmc_inventory,
+                                Some(MIN_SUPPORTED_BMC_FW),
+                                latest_bmc_fw_version.unwrap(),
+                            )
+                            .await?
+                    {
+                        let firmware_file = self.get_firmware_file(bf_version, "bmc").await?;
+
+                        // TODO: Change to an error state or do some retries
+                        let task = client.update_firmware(firmware_file).await.map_err(|e| {
+                            StateHandlerError::RedfishError {
+                                operation: "update_firmware",
+                                error: e,
+                            }
+                        })?;
+                        *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                substate: BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                                    firmware_type: FirmwareType::Bmc,
+                                    task_id: task.id,
+                                },
+                            },
+                        };
+                        return Ok(());
+                    }
+
+                    let cec_inventory = FirmwareType::Cec.get_inventory_name();
+                    let latest_cec_fw_version = fw_update_version.get(cec_inventory);
+
+                    // Check and update Cec FW
+                    if latest_cec_fw_version.is_some()
+                        && self
+                            .redfish_check_fw_update_needed(
+                                &*client,
+                                cec_inventory,
+                                None,
+                                latest_cec_fw_version.unwrap(),
+                            )
+                            .await?
+                    {
+                        let firmware_file = self.get_firmware_file(bf_version, "cec").await?;
+                        let task = client.update_firmware(firmware_file).await.map_err(|e| {
+                            StateHandlerError::RedfishError {
+                                operation: "update_firmware",
+                                error: e,
+                            }
+                        })?;
+                        *controller_state.modify() = ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                substate: BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                                    firmware_type: FirmwareType::Cec,
+                                    task_id: task.id,
+                                },
+                            },
+                        };
                         return Ok(());
                     }
                 }
@@ -788,19 +1064,19 @@ impl StateHandler for DpuMachineStateHandler {
                     .await
                 {
                     let msg = format!("Failed to run uefi_setup call: {}", e);
-                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                    *controller_state.modify() = self.get_discovery_failure(msg, dpu_machine_id);
                     return Ok(());
                 }
 
                 if let Err(e) = client.forge_setup().await {
                     let msg = format!("Failed to run forge_setup call: {}", e);
-                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                    *controller_state.modify() = self.get_discovery_failure(msg, dpu_machine_id);
                     return Ok(());
                 }
 
                 if let Err(e) = client.power(SystemPowerControl::GracefulRestart).await {
                     let msg = format!("Failed to reboot a DPU: {}", e);
-                    *controller_state.modify() = self.get_discovery_failure(msg, host_machine_id);
+                    *controller_state.modify() = self.get_discovery_failure(msg, dpu_machine_id);
                     return Ok(());
                 }
 

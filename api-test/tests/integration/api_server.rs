@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use carbide::cfg::{
-    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig, IbFabricMonitorConfig,
-    IbPartitionStateControllerConfig, MachineStateControllerConfig,
+    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuFwUpdateConfig, IBFabricConfig,
+    IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
     NetworkSegmentStateControllerConfig, StateControllerConfig, TlsConfig,
 };
 use carbide::logging::sqlx_query_tracing;
@@ -33,6 +33,9 @@ pub async fn start(
 ) -> eyre::Result<()> {
     let mut dpu_nic_firmware_update_versions = HashMap::new();
     dpu_nic_firmware_update_versions.insert("product_x".to_owned(), "v1".to_owned());
+
+    let mut dpu_bmc_firmware_update_versions = HashMap::new();
+    dpu_bmc_firmware_update_versions.insert("BMC_Firmware".to_owned(), "23.10-5".to_owned());
 
     let carbide_config = CarbideConfig {
         listen: addr,
@@ -143,6 +146,7 @@ pub async fn start(
         ])),
         dpu_impi_tool_impl: Some("test".to_owned()),
         dpu_ipmi_reboot_attempts: None,
+        dpu_fw_update_config: DpuFwUpdateConfig::default(),
         dpu_nic_firmware_update_version: Some(dpu_nic_firmware_update_versions),
         dpu_nic_firmware_initial_update_enabled: false,
         dpu_nic_firmware_reprovision_update_enabled: false,

@@ -32,6 +32,7 @@ build:
         infer:
           - "carbide-api"
           - api/casbin-policy.csv
+          - pxe/static/*
     - image: registry.minikube/carbide-dhcp
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.dhcp.localdev

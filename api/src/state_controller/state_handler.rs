@@ -200,6 +200,9 @@ pub enum StateHandlerError {
         operation: &'static str,
         error: RedfishError,
     },
+
+    #[error("Failed to update firmware: {0}")]
+    FirmwareUpdateError(eyre::Report),
 }
 
 impl StateHandlerError {
@@ -212,6 +215,7 @@ impl StateHandlerError {
             StateHandlerError::LoadSnapshotError(_) => "load_snapshot_error",
             StateHandlerError::TransactionError(_) => "transaction_error",
             StateHandlerError::GenericError(_) => "generic_error",
+            StateHandlerError::FirmwareUpdateError(_) => "firware_update_error",
             StateHandlerError::MissingData { .. } => "missing_data",
             StateHandlerError::DBError(_) => "db_error",
             StateHandlerError::Timeout { .. } => "timeout",

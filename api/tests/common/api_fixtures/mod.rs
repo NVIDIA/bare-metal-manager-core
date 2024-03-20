@@ -22,7 +22,7 @@ use std::{
 use carbide::{
     api::Api,
     cfg::{
-        CarbideConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
+        CarbideConfig, DpuFwUpdateConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
         MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
     },
     db::machine::Machine,
@@ -323,6 +323,7 @@ fn get_config() -> CarbideConfig {
         dpu_ipmi_reboot_attempts: Some(0),
         initial_domain_name: Some("test.com".to_string()),
         initial_dpu_agent_upgrade_policy: None,
+        dpu_fw_update_config: DpuFwUpdateConfig::default(),
         dpu_nic_firmware_update_version: None,
         dpu_nic_firmware_initial_update_enabled: true,
         dpu_nic_firmware_reprovision_update_enabled: true,

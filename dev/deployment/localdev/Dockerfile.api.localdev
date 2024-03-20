@@ -14,5 +14,6 @@ FROM registry.minikube/runtime-container:latest as carbide
 WORKDIR ./carbide
 COPY .skaffold/target/carbide-api/debug/carbide-api /opt/carbide/
 COPY .skaffold/target/admin/debug/forge-admin-cli /opt/carbide/
+COPY pxe/static/blobs/internal/firmware/nvidia/dpu/* /forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/
 COPY api/casbin-policy.csv /opt/carbide/
 ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv

@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide::cfg::DpuFwUpdateConfig;
 use carbide::model::machine::machine_id::MachineId;
 use carbide::model::machine::CleanupState;
 use carbide::model::machine::MachineState;
@@ -127,7 +128,12 @@ pub async fn advance_created_instance_into_ready_state(
     host_machine_id: &MachineId,
     instance_id: uuid::Uuid,
 ) -> rpc::Instance {
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
 
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration(host_machine_id.clone(), &handler)
@@ -198,7 +204,12 @@ pub async fn delete_instance(
         rpc::TenantState::Terminating
     );
 
-    let handler = MachineStateHandler::new(chrono::Duration::minutes(5), true, true);
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     let mut iteration_metrics = IterationMetrics::default();
