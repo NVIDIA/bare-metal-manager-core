@@ -18,10 +18,11 @@ if [ $# -ne 4 ]; then
 fi
 
 if [ "$FORGE_BOOTSTRAP_KIND" == "kube" ]; then
-	export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
+    export CERT_PATH=${CERT_PATH:=/tmp/localdev-certs}
+    export GRPCURL="grpcurl --key ${CERT_PATH}/tls.key --cacert ${CERT_PATH}/ca.crt --cert ${CERT_PATH}/tls.crt"
 else
-	export DISABLE_TLS_ENFORCEMENT=true
-	export GRPCURL="grpcurl -insecure"
+    export DISABLE_TLS_ENFORCEMENT=true
+    export GRPCURL="grpcurl -insecure"
 fi
 
 API_SERVER_HOST=$1
@@ -90,7 +91,7 @@ while [[ $i -lt $MAX_RETRY ]]; do
 
   MACHINE_STATE=$(${GRPCURL} -d "{\"id\": {\"id\": \"$HOST_MACHINE_ID\"}, \"search_config\": {\"include_dpus\": true}}"  $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindMachines | jq ".machines[0].state" | tr -d '"')
   if [[ "$MACHINE_STATE" == *WaitForDPUUp* ]]; then
-	  break
+      break
   fi
   echo "Checking machine state. Waiting for it to be in WaitForDPUUp state. Current: $MACHINE_STATE"
   i=$((i+1))
