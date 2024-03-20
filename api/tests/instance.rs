@@ -1121,6 +1121,7 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
 
     let mut txn = env.pool.begin().await.unwrap();

@@ -175,6 +175,7 @@ pub async fn create_host_machine(
         true,
         true,
         DpuFwUpdateConfig::default(),
+        env.reachability_params,
     );
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();

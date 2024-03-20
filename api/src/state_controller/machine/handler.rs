@@ -61,6 +61,14 @@ use crate::{
     },
 };
 
+/// Reachability params to check if DPU is up or not.
+#[derive(Copy, Clone, Debug)]
+pub struct ReachabilityParams {
+    pub dpu_wait_time: chrono::Duration,
+    pub power_down_wait: chrono::Duration,
+    pub failure_retry_time: chrono::Duration,
+}
+
 /// The actual Machine State handler
 #[derive(Debug)]
 pub struct MachineStateHandler {
@@ -68,6 +76,8 @@ pub struct MachineStateHandler {
     pub dpu_handler: DpuMachineStateHandler,
     instance_handler: InstanceStateHandler,
     dpu_up_threshold: chrono::Duration,
+    /// Reachability params to check if DPU is up or not
+    reachability_params: ReachabilityParams,
 }
 
 impl MachineStateHandler {
@@ -76,30 +86,22 @@ impl MachineStateHandler {
         dpu_nic_firmware_initial_update_enabled: bool,
         dpu_nic_firmware_reprovision_update_enabled: bool,
         dpu_fw_update_config: DpuFwUpdateConfig,
+        reachability_params: ReachabilityParams,
     ) -> Self {
         MachineStateHandler {
             dpu_up_threshold,
-            host_handler: Default::default(),
+            host_handler: HostMachineStateHandler::new(reachability_params),
             dpu_handler: DpuMachineStateHandler::new(
                 dpu_nic_firmware_initial_update_enabled,
                 dpu_fw_update_config,
+                reachability_params,
             ),
             instance_handler: InstanceStateHandler::new(
                 dpu_nic_firmware_reprovision_update_enabled,
+                reachability_params,
             ),
+            reachability_params,
         }
-    }
-}
-
-/// Convenience function for the tests
-impl Default for MachineStateHandler {
-    fn default() -> Self {
-        Self::new(
-            chrono::Duration::minutes(5),
-            false,
-            false,
-            DpuFwUpdateConfig::default(),
-        )
     }
 }
 
@@ -308,6 +310,7 @@ impl StateHandler for MachineStateHandler {
                                 &state.host_snapshot,
                                 &state.host_snapshot,
                                 None,
+                                &self.reachability_params,
                                 ctx.services,
                                 None,
                                 txn,
@@ -392,6 +395,7 @@ impl StateHandler for MachineStateHandler {
                             &state.host_snapshot,
                             &state.host_snapshot,
                             Some(*retry_count as i64),
+                            &self.reachability_params,
                             ctx.services,
                             None,
                             txn,
@@ -424,6 +428,7 @@ impl StateHandler for MachineStateHandler {
                 if let Some(new_state) = handle_dpu_reprovision(
                     reprovision_state,
                     state,
+                    &self.reachability_params,
                     ctx.services,
                     txn,
                     &MachineNextStateResolver,
@@ -443,6 +448,7 @@ impl StateHandler for MachineStateHandler {
 async fn handle_dpu_reprovision(
     reprovision_state: &ReprovisionState,
     state: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     next_state_resolver: &impl NextReprovisionState,
@@ -455,6 +461,7 @@ async fn handle_dpu_reprovision(
                     &state.dpu_snapshot,
                     &state.host_snapshot,
                     None,
+                    reachability_params,
                     services,
                     None,
                     txn,
@@ -482,7 +489,7 @@ async fn handle_dpu_reprovision(
                 .map(|x| x.time)
                 .unwrap_or(state.host_snapshot.current.version.timestamp());
 
-            if wait(&basetime, services.reachability_params.power_down_wait) {
+            if wait(&basetime, reachability_params.power_down_wait) {
                 return Ok(None);
             }
             let power_state = host_power_state(&state.host_snapshot, services).await?;
@@ -515,7 +522,10 @@ async fn handle_dpu_reprovision(
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
         }
         ReprovisionState::WaitingForNetworkInstall => {
-            if (try_wait_for_dpu_discovery_and_reboot(state, services, txn).await?).is_pending() {
+            if (try_wait_for_dpu_discovery_and_reboot(state, reachability_params, services, txn)
+                .await?)
+                .is_pending()
+            {
                 return Ok(None);
             }
 
@@ -528,7 +538,7 @@ async fn handle_dpu_reprovision(
             // DHCP.
             if wait(
                 &state.host_snapshot.current.version.timestamp(),
-                services.reachability_params.dpu_wait_time,
+                reachability_params.dpu_wait_time,
             ) {
                 return Ok(None);
             }
@@ -562,6 +572,7 @@ async fn handle_dpu_reprovision(
 /// This function waits for DPU to finish discovery and reboots it.
 async fn try_wait_for_dpu_discovery_and_reboot(
     state: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Poll<()>, StateHandlerError> {
@@ -578,6 +589,7 @@ async fn try_wait_for_dpu_discovery_and_reboot(
             &state.dpu_snapshot,
             &state.host_snapshot,
             None,
+            reachability_params,
             services,
             None,
             txn,
@@ -621,10 +633,11 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 }
 
 /// A `StateHandler` implementation for DPU machines
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
     dpu_firmware_update_config: DpuFwUpdateConfig,
+    reachability_params: ReachabilityParams,
 }
 
 // Minimal supported DPU BMC FW version, that is capable to do BMC FW update
@@ -634,10 +647,12 @@ impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
         dpu_firmware_update_config: DpuFwUpdateConfig,
+        reachability_params: ReachabilityParams,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
             dpu_firmware_update_config,
+            reachability_params,
         }
     }
 
@@ -1114,7 +1129,13 @@ impl StateHandler for DpuMachineStateHandler {
                 machine_state: MachineState::Init,
             } => {
                 // initial restart, firmware update and scout is run, first reboot of dpu discovery
-                if (try_wait_for_dpu_discovery_and_reboot(state, ctx.services, txn).await?)
+                if (try_wait_for_dpu_discovery_and_reboot(
+                    state,
+                    &self.reachability_params,
+                    ctx.services,
+                    txn,
+                )
+                .await?)
                     .is_pending()
                 {
                     return Ok(());
@@ -1153,6 +1174,7 @@ impl StateHandler for DpuMachineStateHandler {
                         &state.dpu_snapshot,
                         &state.host_snapshot,
                         None,
+                        &self.reachability_params,
                         ctx.services,
                         None,
                         txn,
@@ -1234,6 +1256,7 @@ async fn trigger_reboot_if_needed(
     target: &MachineSnapshot,
     host: &MachineSnapshot,
     retry_count: Option<i64>,
+    reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
     key: Option<CredentialKey>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -1254,7 +1277,7 @@ async fn trigger_reboot_if_needed(
             .map(|x| x.time)
             .unwrap_or(host.current.version.timestamp());
 
-        if wait(&basetime, services.reachability_params.power_down_wait) {
+        if wait(&basetime, reachability_params.power_down_wait) {
             return Ok(false);
         }
         let power_state = host_power_state(host, services).await?;
@@ -1276,8 +1299,7 @@ async fn trigger_reboot_if_needed(
         return Ok(false);
     }
 
-    let wait_period = services
-        .reachability_params
+    let wait_period = reachability_params
         .failure_retry_time
         .max(Duration::minutes(1));
 
@@ -1380,8 +1402,18 @@ pub async fn cleanedup_after_state_transition(
 }
 
 /// A `StateHandler` implementation for host machines
-#[derive(Debug, Default)]
-pub struct HostMachineStateHandler {}
+#[derive(Debug)]
+pub struct HostMachineStateHandler {
+    reachability_params: ReachabilityParams,
+}
+
+impl HostMachineStateHandler {
+    pub fn new(reachability_params: ReachabilityParams) -> Self {
+        Self {
+            reachability_params,
+        }
+    }
+}
 
 /// 1. Has the network config version that the host wants been applied by DPU?
 /// 2. Is HBN reporting the network is healthy?
@@ -1461,6 +1493,7 @@ impl StateHandler for HostMachineStateHandler {
                             &state.host_snapshot,
                             &state.host_snapshot,
                             None,
+                            &self.reachability_params,
                             ctx.services,
                             Some(CredentialKey::HostRedfish {
                                 credential_type: CredentialType::SiteDefault,
@@ -1482,6 +1515,7 @@ impl StateHandler for HostMachineStateHandler {
                             &state.host_snapshot,
                             &state.host_snapshot,
                             None,
+                            &self.reachability_params,
                             ctx.services,
                             None,
                             txn,
@@ -1501,7 +1535,7 @@ impl StateHandler for HostMachineStateHandler {
                             // reachability before it goes down, it will give us wrong result.
                             if !wait(
                                 &state.host_snapshot.current.version.timestamp(),
-                                ctx.services.reachability_params.dpu_wait_time,
+                                self.reachability_params.dpu_wait_time,
                             ) {
                                 *controller_state.modify() = ManagedHostState::HostNotReady {
                                     machine_state: MachineState::WaitingForLockdown {
@@ -1545,15 +1579,20 @@ impl StateHandler for HostMachineStateHandler {
 }
 
 /// A `StateHandler` implementation for instances
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct InstanceStateHandler {
     dpu_nic_firmware_reprovision_update_enabled: bool,
+    reachability_params: ReachabilityParams,
 }
 
 impl InstanceStateHandler {
-    pub fn new(dpu_nic_firmware_reprovision_update_enabled: bool) -> Self {
+    pub fn new(
+        dpu_nic_firmware_reprovision_update_enabled: bool,
+        reachability_params: ReachabilityParams,
+    ) -> Self {
         InstanceStateHandler {
             dpu_nic_firmware_reprovision_update_enabled,
+            reachability_params,
         }
     }
 }
@@ -1686,6 +1725,7 @@ impl StateHandler for InstanceStateHandler {
                             &state.host_snapshot,
                             // can't send 0. 0 will force power-off as cycle calculator.
                             Some(retry.count as i64 + 1),
+                            &self.reachability_params,
                             ctx.services,
                             None,
                             txn,
@@ -1794,6 +1834,7 @@ impl StateHandler for InstanceStateHandler {
                     if let Some(new_state) = handle_dpu_reprovision(
                         reprovision_state,
                         state,
+                        &self.reachability_params,
                         ctx.services,
                         txn,
                         &InstanceNextStateResolver,

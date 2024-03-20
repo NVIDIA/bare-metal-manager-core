@@ -164,6 +164,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             ]),
             firmware_location: ".".to_string(),
         },
+        env.reachability_params,
     );
 
     let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())

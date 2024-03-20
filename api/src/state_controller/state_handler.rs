@@ -22,7 +22,7 @@ use crate::{
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::{RedfishClientCreationError, RedfishClientPool},
     resource_pool::{DbResourcePool, ResourcePoolError},
-    state_controller::{controller::ReachabilityParams, snapshot_loader::SnapshotLoaderError},
+    state_controller::snapshot_loader::SnapshotLoaderError,
 };
 
 /// Services that are accessible to the `StateHandler`
@@ -35,9 +35,6 @@ pub struct StateHandlerServices {
 
     /// API for interaction with Libredfish
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
-
-    // Reachability params to check if DPU is up or not.
-    pub reachability_params: ReachabilityParams,
 
     /// Meter for emitting metrics
     pub meter: Option<Meter>,

@@ -44,9 +44,12 @@ use crate::{
     resource_pool::{self, common::CommonPools},
     site_explorer::{RedfishEndpointExplorer, SiteExplorer},
     state_controller::{
-        controller::{ReachabilityParams, StateController},
+        controller::StateController,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
-        machine::{handler::MachineStateHandler, io::MachineStateControllerIO},
+        machine::{
+            handler::{MachineStateHandler, ReachabilityParams},
+            io::MachineStateControllerIO,
+        },
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
         },
@@ -320,12 +323,12 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             carbide_config.dpu_nic_firmware_initial_update_enabled,
             carbide_config.dpu_nic_firmware_reprovision_update_enabled,
             carbide_config.dpu_fw_update_config.clone(),
+            ReachabilityParams {
+                dpu_wait_time: carbide_config.machine_state_controller.dpu_wait_time,
+                power_down_wait: carbide_config.machine_state_controller.power_down_wait,
+                failure_retry_time: carbide_config.machine_state_controller.failure_retry_time,
+            },
         )))
-        .reachability_params(ReachabilityParams {
-            dpu_wait_time: carbide_config.machine_state_controller.dpu_wait_time,
-            power_down_wait: carbide_config.machine_state_controller.power_down_wait,
-            failure_retry_time: carbide_config.machine_state_controller.failure_retry_time,
-        })
         .ipmi_tool(ipmi_tool.clone())
         .build()
         .expect("Unable to build MachineStateController");
@@ -348,7 +351,6 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             sc_pool_vlan_id,
             sc_pool_vni,
         )))
-        .reachability_params(ReachabilityParams::default())
         .ipmi_tool(ipmi_tool.clone())
         .build()
         .expect("Unable to build NetworkSegmentController");
@@ -360,7 +362,6 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             .redfish_client_pool(shared_redfish_pool.clone())
             .ib_fabric_manager(ib_fabric_manager.clone())
             .pool_pkey(common_pools.infiniband.pool_pkey.clone())
-            .reachability_params(ReachabilityParams::default())
             .forge_api(api_service.clone())
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
             .state_handler(Arc::new(IBPartitionStateHandler::default()))
