@@ -82,10 +82,10 @@ impl SiteExplorer {
 
         let explorer_config = config.cloned().unwrap_or(SiteExplorerConfig {
             enabled: false,
-            run_interval: 0,
+            run_interval: Duration::from_secs(0),
             concurrent_explorations: 0,
             explorations_per_run: 0,
-            create_machines: true,
+            create_machines: false,
         });
         SiteExplorer {
             database_connection,
@@ -116,7 +116,7 @@ impl SiteExplorer {
             }
 
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(self.config.run_interval)) => {},
+                _ = tokio::time::sleep(self.config.run_interval) => {},
                 _ = &mut stop_receiver => {
                     tracing::info!("SiteExplorer stop was requested");
                     return;

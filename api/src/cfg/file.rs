@@ -387,10 +387,14 @@ pub struct SiteExplorerConfig {
     #[serde(default)]
     /// Whether SiteExplorer is enabled
     pub enabled: bool,
-    /// The interval at which site explorer runs in seconds.
+    /// The interval at which site explorer runs.
     /// Defaults to 5 Minutes if not specified.
-    #[serde(default = "SiteExplorerConfig::default_run_interval_s")]
-    pub run_interval: u64,
+    #[serde(
+        default = "SiteExplorerConfig::default_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval: std::time::Duration,
     /// The maximum amount of nodes that are explored concurrently.
     /// Default is 5.
     #[serde(default = "SiteExplorerConfig::default_concurrent_explorations")]
@@ -412,8 +416,8 @@ pub struct SiteExplorerConfig {
 }
 
 impl SiteExplorerConfig {
-    const fn default_run_interval_s() -> u64 {
-        300
+    const fn default_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(5 * 60)
     }
 
     const fn default_concurrent_explorations() -> u64 {
@@ -795,7 +799,7 @@ mod tests {
             config.site_explorer.as_ref().unwrap(),
             &SiteExplorerConfig {
                 enabled: true,
-                run_interval: 300,
+                run_interval: std::time::Duration::from_secs(300),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: true,
@@ -914,7 +918,7 @@ mod tests {
             config.site_explorer.as_ref().unwrap(),
             &SiteExplorerConfig {
                 enabled: false,
-                run_interval: 100,
+                run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 5,
                 explorations_per_run: 11,
                 create_machines: true
@@ -1035,7 +1039,7 @@ mod tests {
             config.site_explorer.as_ref().unwrap(),
             &SiteExplorerConfig {
                 enabled: true,
-                run_interval: 100,
+                run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: true,
