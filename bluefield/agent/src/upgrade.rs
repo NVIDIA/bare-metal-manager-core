@@ -38,13 +38,24 @@ pub async fn upgrade(
 ) -> eyre::Result<bool> {
     let resp = match upgrade_check(forge_api, client_config, machine_id).await {
         Ok(r) => r,
-        Err(err) => {
-            tracing::error!("Failed upgrade check, forcing upgrade: {err:#}");
-            UpgradeCheckResult {
-                should_upgrade: true,
-                ..Default::default()
+        Err(err) => match err.downcast_ref::<tonic::Status>() {
+            Some(grpc_status) if grpc_status.code() == tonic::Code::Internal => {
+                // If something is wrong on the server wait for that to be fixed
+                tracing::error!("Internal server error, will not upgrade. {err:#}");
+                UpgradeCheckResult {
+                    should_upgrade: false,
+                    ..Default::default()
+                }
             }
-        }
+            _ => {
+                // If something is broken in dpu-agent we need to replace it
+                tracing::error!("Failed upgrade check, forcing upgrade: {err:#}");
+                UpgradeCheckResult {
+                    should_upgrade: true,
+                    ..Default::default()
+                }
+            }
+        },
     };
     if !resp.should_upgrade {
         tracing::trace!("forge-dpu-agent is up to date");

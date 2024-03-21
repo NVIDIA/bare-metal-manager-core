@@ -52,7 +52,7 @@ use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
-use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
+use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, InstanceState, ManagedHostState, ReprovisionState,
 };
@@ -4200,6 +4200,8 @@ where
         // We usually want these two to match
         let agent_version = req.current_agent_version;
         let server_version = forge_version::v!(build_version);
+        BuildVersion::try_from(server_version)
+            .map_err(|_| Status::internal("Invalid server version, cannot check for upgrade"))?;
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(

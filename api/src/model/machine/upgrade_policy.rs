@@ -129,7 +129,7 @@ impl From<crate::cfg::AgentUpgradePolicyChoice> for AgentUpgradePolicy {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct BuildVersion<'a> {
+pub struct BuildVersion<'a> {
     date: &'a str,
     rc: &'a str,
     commits: usize,
@@ -156,6 +156,12 @@ impl<'a> TryFrom<&'a str> for BuildVersion<'a> {
     type Error = eyre::Report;
 
     fn try_from(s: &str) -> Result<BuildVersion, Self::Error> {
+        if s.is_empty() {
+            eyre::bail!("Build version is empty");
+        }
+        if !s.starts_with('v') {
+            eyre::bail!("Build version should start with a 'v'");
+        }
         let parts = s[1..].split('-').collect::<Vec<&str>>();
         if parts.is_empty() || !parts[0].starts_with("20") {
             eyre::bail!("Build version should have at least a date");
