@@ -47,9 +47,12 @@ mod common;
 use common::api_fixtures::TestEnv;
 use tonic::Request;
 
-use crate::common::api_fixtures::{
-    network_segment::{create_admin_network_segment, create_underlay_network_segment},
-    run_state_controller_iteration,
+use crate::common::{
+    api_fixtures::{
+        network_segment::{create_admin_network_segment, create_underlay_network_segment},
+        run_state_controller_iteration,
+    },
+    test_meter::TestMeter,
 };
 
 #[ctor::ctor]
@@ -252,11 +255,11 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         );
     }
 
-    let meter = opentelemetry::global::meter("test");
+    let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         pool.clone(),
         Some(&explorer_config),
-        meter,
+        test_meter.meter(),
         endpoint_explorer.clone(),
     );
 
@@ -293,6 +296,36 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let report = fetch_exploration_report(&env).await;
     assert!(report.managed_hosts.is_empty());
 
+    // We should also have metric entries
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_endpoint_explorations_count")
+            .unwrap(),
+        "2"
+    );
+    assert!(test_meter
+        .formatted_metric("forge_endpoint_exploration_success_count")
+        .is_some());
+    // The failure metric is not emitted if no failure happened
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_endpoint_exploration_duration_milliseconds_count")
+            .unwrap(),
+        "2"
+    );
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_site_exploration_identified_managed_hosts_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_site_explorer_created_machines_count")
+            .unwrap(),
+        "0"
+    );
+
     // Running again should yield all 3 entries
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
@@ -328,6 +361,34 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     // Retrieve the report via gRPC
     let report = fetch_exploration_report(&env).await;
     assert!(report.managed_hosts.is_empty());
+
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_endpoint_explorations_count")
+            .unwrap(),
+        "2"
+    );
+    assert!(test_meter
+        .formatted_metric("forge_endpoint_exploration_success_count")
+        .is_some());
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_endpoint_exploration_duration_milliseconds_count")
+            .unwrap(),
+        "4"
+    );
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_site_exploration_identified_managed_hosts_count")
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_site_explorer_created_machines_count")
+            .unwrap(),
+        "0"
+    );
 
     // Now make 1 previously existing endpoint unreachable and 1 previously unreachable
     // endpoint reachable and show the managed host.
@@ -481,6 +542,12 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             dpu_bmc_ip: machines[0].ip.clone(),
             host_pf_mac_address: Some("B8:3F:D2:90:97:A4".to_string()),
         }
+    );
+    assert_eq!(
+        test_meter
+            .formatted_metric("forge_site_exploration_identified_managed_hosts_count")
+            .unwrap(),
+        "1"
     );
 
     Ok(())
