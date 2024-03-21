@@ -62,7 +62,7 @@ pub struct SiteExplorer {
     database_connection: PgPool,
     enabled: bool,
     config: SiteExplorerConfig,
-    instruments: Arc<metrics::SiteExplorerInstruments>,
+    metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
 }
 
@@ -78,8 +78,6 @@ impl SiteExplorer {
         meter: opentelemetry::metrics::Meter,
         endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> Self {
-        let instruments = Arc::new(metrics::SiteExplorerInstruments::new(&meter));
-
         let explorer_config = config.cloned().unwrap_or(SiteExplorerConfig {
             enabled: false,
             run_interval: Duration::from_secs(0),
@@ -87,11 +85,22 @@ impl SiteExplorer {
             explorations_per_run: 0,
             create_machines: false,
         });
+
+        // We want to hold metrics for longer than the iteration interval, so there is continuity
+        // in emitting metrics. However we want to avoid reporting outdated metrics in case
+        // reporting gets stuck. Therefore round up the iteration interval by 1min.
+        let hold_period = explorer_config
+            .run_interval
+            .saturating_add(std::time::Duration::from_secs(60));
+
+        let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
+        metric_holder.register_callback();
+
         SiteExplorer {
             database_connection,
             enabled: explorer_config.enabled,
             config: explorer_config,
-            instruments,
+            metric_holder,
             endpoint_explorer,
         }
     }
@@ -196,7 +205,9 @@ impl SiteExplorer {
                 }
             }
 
-            self.instruments.emit(&metrics, &[]);
+            // Cache all other metrics that have been captured in this iteration.
+            // Those will be queried by OTEL on demand
+            self.metric_holder.update_metrics(metrics);
 
             res?;
 
