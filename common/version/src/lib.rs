@@ -15,7 +15,6 @@ use std::process::Command;
 
 /// Set build script environment variables. Call this from a build script.
 pub fn build() {
-    git_allow();
     println!(
         "cargo:rustc-env=FORGE_BUILD_USER={}",
         option_env!("USER").unwrap_or_default()
@@ -32,6 +31,20 @@ pub fn build() {
         "cargo:rustc-env=FORGE_BUILD_RUSTC_VERSION={}",
         run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
     );
+
+    // In a a git worktree in a container (local dev) none of the git commands will work because
+    // the real git directory isn't mounted.
+    let can_git = Command::new("git")
+        .args(["rev-parse"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !can_git {
+        println!("cargo:warning=No git, version will be blank");
+        return;
+    }
+
+    git_allow();
 
     // For these two in CI we use the env var, locally we query git
 
