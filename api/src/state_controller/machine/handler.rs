@@ -364,9 +364,7 @@ impl StateHandler for MachineStateHandler {
                         if discovered_after_state_transition(
                             state.host_snapshot.current.version,
                             state.host_snapshot.last_discovery_time,
-                        )
-                        .await?
-                        {
+                        ) {
                             ctx.metrics
                                 .machine_reboot_attempts_in_failed_during_discovery =
                                 Some(*retry_count as u64);
@@ -582,9 +580,7 @@ async fn try_wait_for_dpu_discovery_and_reboot(
     if !discovered_after_state_transition(
         state.dpu_snapshot.current.version,
         state.dpu_snapshot.last_discovery_time,
-    )
-    .await?
-    {
+    ) {
         trigger_reboot_if_needed(
             &state.dpu_snapshot,
             &state.host_snapshot,
@@ -1377,16 +1373,12 @@ pub async fn rebooted(target: &MachineSnapshot) -> Result<bool, StateHandlerErro
     Ok(false)
 }
 
-pub async fn discovered_after_state_transition(
+// Was machine rebooted after state change?
+fn discovered_after_state_transition(
     version: ConfigVersion,
     last_discovery_time: Option<DateTime<Utc>>,
-) -> Result<bool, StateHandlerError> {
-    if last_discovery_time.unwrap_or_default() > version.timestamp() {
-        // Machine is rebooted after state change.
-        return Ok(true);
-    }
-
-    Ok(false)
+) -> bool {
+    last_discovery_time.unwrap_or_default() > version.timestamp()
 }
 
 pub async fn cleanedup_after_state_transition(
@@ -1486,9 +1478,7 @@ impl StateHandler for HostMachineStateHandler {
                     if !discovered_after_state_transition(
                         state.dpu_snapshot.current.version,
                         state.host_snapshot.last_discovery_time,
-                    )
-                    .await?
-                    {
+                    ) {
                         trigger_reboot_if_needed(
                             &state.host_snapshot,
                             &state.host_snapshot,
