@@ -22,6 +22,11 @@ $ minikube start -p local-forge-db
 $ minikube profile local-forge-db
 ```
 
+**And if you're on a Mac (with Apple Silicon), you'll need to also run this:**
+```
+$ minikube ssh "sudo apt-get update && sudo apt-get -y install qemu-user-static"
+```
+
 ### 2. Install CRDs for external-secrets
 
 This is used by the `postgres-operator` for managing the passwords for the *Postgres* superuser and replication user(s). You don't have to generate secrets -- the `postgres-operator` takes care of that for you.
