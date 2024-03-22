@@ -311,7 +311,10 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
                 credential_type: CredentialType::HardwareDefault,
             })
             .await
-            .map_err(RedfishClientCreationError::MissingCredentials)?;
+            .unwrap_or(Credentials::UsernamePassword {
+                username: "".to_string(),
+                password: "bluefield".to_string(),
+            });
 
         let (_, current_password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
