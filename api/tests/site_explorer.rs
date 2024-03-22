@@ -830,6 +830,12 @@ async fn test_site_explorer_creates_managed_host(
 
     assert!(dpu_machine.loopback_ip().is_some());
 
+    let machine_interfaces = MachineInterface::find_by_mac_address(&mut txn, oob_mac).await?;
+    assert!(machine_interfaces[0]
+        .machine_id
+        .as_ref()
+        .is_some_and(|id| id == dpu_machine.id()));
+
     let host_machine =
         Machine::find_one(&mut txn, host_machine.id(), MachineSearchConfig::default())
             .await
