@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -11,7 +13,9 @@
  */
 use carbide::{
     db::{
-        machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
+        machine::{Machine, MachineSearchConfig},
+        machine_interface::MachineInterface,
+        machine_topology::MachineTopology,
         network_segment::NetworkSegment,
     },
     model::{hardware_info::HardwareInfo, machine::machine_id::MachineId},
@@ -178,4 +182,44 @@ async fn test_topology_missing_mac_field(pool: PgPool) {
     let machine = machines.machines.first().unwrap();
     let bmc_info = machine.bmc_info.as_ref().unwrap();
     assert!(bmc_info.mac.is_none());
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.hardware_info().is_some());
+
+    let mut txn = pool.begin().await.unwrap();
+
+    let query = r#"UPDATE machines SET id = $2 WHERE id=$1;"#;
+
+    sqlx::query(query)
+        .bind(host.id().to_string())
+        .bind("fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg")
+        .execute(&mut *txn)
+        .await
+        .expect("update failed");
+    txn.commit().await.unwrap();
+
+    let m_id =
+        MachineId::from_str("fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg").unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap();
+    assert!(host.is_none());
+
+    let host = Machine::find_one(&mut txn, &m_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(host.hardware_info().is_some());
 }
