@@ -701,7 +701,7 @@ impl DpuMachineStateHandler {
                     tracing::error!(msg);
                     return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
                 }
-                tracing::debug!(
+                tracing::info!(
                     "Version: {}, latest available_version: {}",
                     version,
                     latest_available_version
@@ -1074,21 +1074,24 @@ impl StateHandler for DpuMachineStateHandler {
                     .uefi_setup(client.as_ref())
                     .await
                 {
-                    let msg = format!("Failed to run uefi_setup call: {}", e);
-                    *controller_state.modify() = self.get_discovery_failure(msg, dpu_machine_id);
-                    return Ok(());
+                    tracing::error!(%e, "Failed to run uefi_setup call");
+                    return Err(StateHandlerError::RedfishClientCreationError(e));
                 }
 
                 if let Err(e) = client.forge_setup().await {
-                    let msg = format!("Failed to run forge_setup call: {}", e);
-                    *controller_state.modify() = self.get_discovery_failure(msg, dpu_machine_id);
-                    return Ok(());
+                    tracing::error!(%e, "Failed to run forge_setup call");
+                    return Err(StateHandlerError::RedfishError {
+                        operation: "forge_setup",
+                        error: e,
+                    });
                 }
 
-                if let Err(e) = client.power(SystemPowerControl::GracefulRestart).await {
-                    let msg = format!("Failed to reboot a DPU: {}", e);
-                    *controller_state.modify() = self.get_discovery_failure(msg, dpu_machine_id);
-                    return Ok(());
+                if let Err(e) = client.power(SystemPowerControl::ForceRestart).await {
+                    tracing::error!(%e, "Failed to reboot a DPU");
+                    return Err(StateHandlerError::RedfishError {
+                        operation: "reboot",
+                        error: e,
+                    });
                 }
 
                 *controller_state.modify() = ManagedHostState::DPUNotReady {
