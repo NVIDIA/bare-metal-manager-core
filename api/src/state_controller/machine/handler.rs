@@ -587,7 +587,9 @@ async fn try_wait_for_dpu_discovery_and_reboot(
             None,
             reachability_params,
             services,
-            None,
+            Some(CredentialKey::DpuRedfish {
+                credential_type: CredentialType::SiteDefault,
+            }),
             txn,
         )
         .await?;
