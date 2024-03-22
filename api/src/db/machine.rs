@@ -471,6 +471,9 @@ impl Machine {
         if existing_machine.is_some() {
             // New site-explorer redfish discovery path.
             let machine = existing_machine.unwrap();
+            interface
+                .associate_interface_with_machine(txn, &machine.id)
+                .await?;
             // Machine that is discovered via redfish, still considered as new for api to configure network.
             let is_new = machine.network_config().loopback_ip.is_none();
 
