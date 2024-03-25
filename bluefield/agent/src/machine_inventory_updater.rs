@@ -9,6 +9,7 @@ use crate::containerd::container::ContainerSummary;
 
 #[derive(Debug, Clone)]
 pub struct MachineInventoryUpdaterConfig {
+    pub dpu_agent_version: String,
     /// How often to update the inventory
     pub update_inventory_interval: Duration,
     pub machine_id: String,
@@ -40,7 +41,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
         result.push(c);
     }
 
-    let inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
+    let mut inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
         .into_iter()
         .flat_map(|c| {
             c.image_ref
@@ -53,6 +54,13 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
                 .collect::<Vec<_>>()
         })
         .collect();
+
+    // Add the DPU agent version to the inventory
+    inventory.push(rpc::MachineInventorySoftwareComponent {
+        name: "forge-dpu-agent".to_string(),
+        version: config.dpu_agent_version.clone(),
+        url: String::new(),
+    });
 
     let inventory = rpc::MachineInventory {
         components: inventory,

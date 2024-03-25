@@ -139,6 +139,7 @@ pub async fn run(
     };
 
     let inventory_updater_config = MachineInventoryUpdaterConfig {
+        dpu_agent_version: build_version.clone(),
         update_inventory_interval: Duration::from_secs(agent.period.inventory_update_secs),
         machine_id: machine_id.to_string(),
         forge_api: forge_api.to_string(),
