@@ -28,6 +28,7 @@ use carbide::{
         machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome,
         },
     },
 };
@@ -61,7 +62,7 @@ impl StateHandler for TestMachineStateHandler {
         _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<(), StateHandlerError> {
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
         assert_eq!(state.host_snapshot.machine_id, *machine_id);
         self.count.fetch_add(1, Ordering::SeqCst);
         {
@@ -69,7 +70,7 @@ impl StateHandler for TestMachineStateHandler {
             *guard.entry(machine_id.to_string()).or_default() += 1;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        Ok(())
+        Ok(StateHandlerOutcome::DoNothing)
     }
 }
 

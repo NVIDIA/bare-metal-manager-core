@@ -25,6 +25,7 @@ use crate::{
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome,
         },
     },
 };
@@ -68,14 +69,14 @@ impl StateHandler for NetworkSegmentStateHandler {
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<(), StateHandlerError> {
+    ) -> Result<StateHandlerOutcome<NetworkSegmentControllerState>, StateHandlerError> {
         let read_state: &NetworkSegmentControllerState = &*controller_state;
         match read_state {
             NetworkSegmentControllerState::Provisioning => {
                 let new_state = NetworkSegmentControllerState::Ready;
                 tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                *controller_state.modify() = new_state;
-                return Ok(());
+                *controller_state.modify() = new_state.clone();
+                return Ok(StateHandlerOutcome::Transition(new_state));
             }
             NetworkSegmentControllerState::Ready => {
                 if state.is_marked_as_deleted() {
@@ -88,8 +89,8 @@ impl StateHandler for NetworkSegmentStateHandler {
                         },
                     };
                     tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                    *controller_state.modify() = new_state;
-                    return Ok(());
+                    *controller_state.modify() = new_state.clone();
+                    return Ok(StateHandlerOutcome::Transition(new_state));
                 }
             }
             NetworkSegmentControllerState::Deleting { deletion_state } => {
@@ -120,8 +121,8 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 },
                             };
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                            *controller_state.modify() = new_state;
-                            return Ok(());
+                            *controller_state.modify() = new_state.clone();
+                            return Ok(StateHandlerOutcome::Transition(new_state));
                         }
 
                         if chrono::Utc::now() >= *delete_at {
@@ -129,8 +130,8 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 deletion_state: NetworkSegmentDeletionState::DBDelete,
                             };
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
-                            *controller_state.modify() = new_state;
-                            return Ok(());
+                            *controller_state.modify() = new_state.clone();
+                            return Ok(StateHandlerOutcome::Transition(new_state));
                         }
                     }
                     NetworkSegmentDeletionState::DBDelete => {
@@ -150,6 +151,6 @@ impl StateHandler for NetworkSegmentStateHandler {
             }
         }
 
-        Ok(())
+        Ok(StateHandlerOutcome::Todo)
     }
 }
