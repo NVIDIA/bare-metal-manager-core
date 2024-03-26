@@ -250,7 +250,7 @@ impl From<CarbideError> for tonic::Status {
             CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
             CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
             CarbideError::NotFoundError { kind, id } => {
-                Status::not_found(format!("missing {kind} {id}"))
+                Status::not_found(format!("{kind} not found: {id}"))
             }
             CarbideError::MaintenanceMode => {
                 Status::failed_precondition("MaintenanceMode".to_string())
