@@ -153,7 +153,14 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<(), StateHandlerError>;
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
+}
+
+pub enum StateHandlerOutcome<S> {
+    Wait(String),  // String is reason we're waiting
+    Transition(S), // S is the next state
+    DoNothing,     // Nothing to do. Typically in Ready or Assigned/Ready
+    Todo,          // State handler not ported to StateHandlerOutcome yet
 }
 
 /// Error type for handling a Machine State
@@ -200,6 +207,9 @@ pub enum StateHandlerError {
 
     #[error("Failed to update firmware: {0}")]
     FirmwareUpdateError(eyre::Report),
+
+    #[error("Manual intervention required. Cannot make progress. {0}")]
+    ManualInterventionRequired(String),
 }
 
 impl StateHandlerError {
@@ -226,6 +236,7 @@ impl StateHandlerError {
                 "lockdown" => "redfish_lockdown_error",
                 _ => "redfish_other_error",
             },
+            StateHandlerError::ManualInterventionRequired(_) => "manual_intervention_required",
         }
     }
 }
@@ -269,7 +280,7 @@ impl<
         _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<(), StateHandlerError> {
-        Ok(())
+    ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {
+        Ok(StateHandlerOutcome::DoNothing)
     }
 }

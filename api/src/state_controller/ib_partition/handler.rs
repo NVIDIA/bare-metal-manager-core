@@ -18,6 +18,7 @@ use crate::{
         ib_partition::context::IBPartitionStateHandlerContextObjects,
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome,
         },
     },
     CarbideError,
@@ -41,7 +42,7 @@ impl StateHandler for IBPartitionStateHandler {
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<(), StateHandlerError> {
+    ) -> Result<StateHandlerOutcome<IBPartitionControllerState>, StateHandlerError> {
         let read_state: &IBPartitionControllerState = &*controller_state;
 
         let ib_fabric = ctx
@@ -127,7 +128,7 @@ impl StateHandler for IBPartitionStateHandler {
             }
         }
 
-        Ok(())
+        Ok(StateHandlerOutcome::Todo)
     }
 }
 

@@ -34,7 +34,7 @@ use crate::{
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
             ControllerStateReader, NoopStateHandler, StateHandler, StateHandlerContext,
-            StateHandlerError, StateHandlerServices,
+            StateHandlerError, StateHandlerOutcome, StateHandlerServices,
         },
     },
 };
@@ -337,7 +337,22 @@ async fn handle_controller_iteration<IO: StateControllerIO>(
                                 )
                                 .await
                             {
-                                Ok(()) => {
+                                Ok(outcome) => {
+                                    use StateHandlerOutcome::*;
+
+                                    // TEMP
+                                    // This will go in the DB
+                                    //
+                                    match outcome {
+                                        Wait(reason) => {
+                                            tracing::debug!(%object_id, "Waiting: {reason}");
+                                        }
+                                        Transition(next_state) => {
+                                            tracing::debug!(%object_id, "Move to state {next_state:?}");
+                                        }
+                                        DoNothing | Todo => {}
+                                    }
+
                                     if state_holder.is_modified() {
                                         io.persist_controller_state(
                                             &mut txn,
