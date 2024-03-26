@@ -994,10 +994,11 @@ where
         .map_err(CarbideError::from)?;
 
         let Some(instance) = instance.last() else {
-            return Err(Status::invalid_argument(format!(
-                "Supplied invalid UUID: {}. Could not find associated instance.",
-                delete_instance.instance_id
-            )));
+            return Err(CarbideError::NotFoundError {
+                kind: "instance",
+                id: delete_instance.instance_id.to_string(),
+            }
+            .into());
         };
 
         log_machine_id(&instance.machine_id);
@@ -1010,6 +1011,9 @@ where
             return Ok(Response::new(rpc::InstanceReleaseResult {}));
         }
 
+        // TODO: This is racy. If the instance just got deleted we still
+        // see an error here that is not returned as `NotFound` error. Ideally
+        // we convert this case of the DatabaseError into NotFound too.
         let _ = delete_instance.mark_as_deleted(&mut txn).await?;
 
         txn.commit().await.map_err(|e| {

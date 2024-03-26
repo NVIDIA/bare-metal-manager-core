@@ -419,7 +419,7 @@ async fn test_instance_deletion_is_idempotent(pool: sqlx::PgPool) {
     // And finally delete the instance
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 
-    // Release instance on non-existing instance
+    // Release instance on non-existing instance should lead to a Not Found error
     let err = env
         .api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
@@ -427,15 +427,11 @@ async fn test_instance_deletion_is_idempotent(pool: sqlx::PgPool) {
         }))
         .await
         .expect_err("Expect deletion to fail");
-    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert_eq!(err.code(), tonic::Code::NotFound);
     let err_msg = err.message();
-    assert!(
-        err_msg.contains("Supplied invalid UUID:"),
-        "Error message is: {}",
-        err_msg
-    );
-    assert!(
-        err_msg.contains("Could not find associated instance."),
+    assert_eq!(
+        err.message(),
+        format!("instance not found: {instance_id}"),
         "Error message is: {}",
         err_msg
     );
