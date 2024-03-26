@@ -1478,6 +1478,7 @@ message MachineDiscoveryInfo {
   oneof discovery_data {
     machine_discovery.DiscoveryInfo info = 2;
   }
+  bool create_machine = 3;
 }
 
 message MachineDiscoveryCompletedRequest {

@@ -11,7 +11,8 @@
  */
 
 use forge_host_support::{
-    hardware_enumeration::enumerate_hardware, registration::register_machine,
+    hardware_enumeration::enumerate_hardware,
+    registration::{register_machine, DiscoveryRetry},
 };
 use tracing::info;
 
@@ -27,14 +28,18 @@ pub async fn run(
     let hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
 
+    let retry = DiscoveryRetry {
+        secs: discovery_retry_secs,
+        max: discovery_retries_max,
+    };
     let registration_data = register_machine(
         forge_api,
         root_ca,
         Some(machine_interface_id),
         hardware_info,
         false,
-        discovery_retry_secs,
-        discovery_retries_max,
+        retry,
+        true,
     )
     .await?;
     let machine_id = registration_data.machine_id;

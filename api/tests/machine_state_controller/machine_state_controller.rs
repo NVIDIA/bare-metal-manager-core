@@ -94,6 +94,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 discovery_data: Some(DiscoveryData::Info(
                     DiscoveryInfo::try_from(hardware_info.clone()).unwrap(),
                 )),
+                create_machine: true,
             }))
             .await
             .unwrap()

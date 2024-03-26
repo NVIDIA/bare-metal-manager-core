@@ -2099,8 +2099,25 @@ where
         let interface =
             MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
-            let (db_machine, is_new) =
-                Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?;
+            let (db_machine, is_new) = if machine_discovery_info.create_machine {
+                Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?
+            } else {
+                let machine = Machine::find_one(
+                    &mut txn,
+                    &stable_machine_id,
+                    MachineSearchConfig {
+                        include_dpus: true,
+                        ..MachineSearchConfig::default()
+                    },
+                )
+                .await
+                .map_err(CarbideError::from)?
+                .ok_or_else(|| {
+                    Status::invalid_argument(format!("Machine id {stable_machine_id} not found."))
+                })?;
+                (machine, false)
+            };
+
             interface
                 .associate_interface_with_dpu_machine(&mut txn, &stable_machine_id)
                 .await

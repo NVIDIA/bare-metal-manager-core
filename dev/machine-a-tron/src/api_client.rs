@@ -129,6 +129,7 @@ pub async fn discover_machine(
         discovery_data: Some(rpc::forge::machine_discovery_info::DiscoveryData::Info(
             discovery_data,
         )),
+        create_machine: true,
     };
 
     with_forge_client(app_config, |mut client| async move {
