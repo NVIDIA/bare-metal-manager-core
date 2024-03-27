@@ -64,7 +64,7 @@ pub async fn admin_network(
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "Domain",
+                    kind: "domain",
                     id: domain_id.to_string(),
                 })?
                 .name

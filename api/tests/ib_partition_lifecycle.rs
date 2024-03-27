@@ -68,13 +68,13 @@ async fn test_ib_partition_lifecycle_impl(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
 
-    let segment =
+    let partition =
         create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
             .await
             .unwrap()
             .into_inner();
 
-    let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
+    let segment_id: uuid::Uuid = partition.id.clone().unwrap().try_into().unwrap();
     // The TenantState only switches after the state controller recognized the update
     assert_eq!(
         get_partition_state(&env.api, segment_id).await,
@@ -86,7 +86,7 @@ async fn test_ib_partition_lifecycle_impl(
     env.run_ib_partition_controller_iteration(segment_id, &state_handler)
         .await;
 
-    // After 1 controller iterations, the segment should be ready
+    // After 1 controller iterations, the partition should be ready
     assert_eq!(
         get_partition_state(&env.api, segment_id).await,
         TenantState::Ready
@@ -94,16 +94,24 @@ async fn test_ib_partition_lifecycle_impl(
 
     env.api
         .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
-            id: segment.id.clone(),
+            id: partition.id.clone(),
         }))
         .await
         .expect("expect deletion to succeed");
 
-    // After the API request, the segment should show up as deleting
+    // After the API request, the partition should show up as deleting
     assert_eq!(
         get_partition_state(&env.api, segment_id).await,
         TenantState::Terminating
     );
+
+    // Deletion is idempotent
+    env.api
+        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+            id: partition.id.clone(),
+        }))
+        .await
+        .expect("expect deletion to succeed");
 
     // Make the controller aware about termination too
     env.run_ib_partition_controller_iteration(segment_id, &state_handler)
@@ -114,7 +122,7 @@ async fn test_ib_partition_lifecycle_impl(
     let segments = env
         .api
         .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
-            id: segment.id.clone(),
+            id: partition.id.clone(),
             search_config: None,
         }))
         .await
@@ -123,6 +131,21 @@ async fn test_ib_partition_lifecycle_impl(
         .ib_partitions;
 
     assert!(segments.is_empty());
+
+    // After the partition is fully gone, deleting it again should return NotFound
+    // Calling the API again in this state should be a noop
+    let err = env
+        .api
+        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+            id: partition.id.clone(),
+        }))
+        .await
+        .expect_err("expect deletion to fail");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+    assert_eq!(
+        err.message(),
+        format!("ib_partition not found: {}", partition.id.unwrap())
+    );
 
     Ok(())
 }

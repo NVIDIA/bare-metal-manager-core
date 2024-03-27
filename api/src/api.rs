@@ -594,26 +594,33 @@ where
 
         let uuid = match id {
             Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
+                Ok(uuid) => uuid,
+                Err(_err) => {
+                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
                 }
             },
             None => {
-                return Err(Status::invalid_argument("No UUID provided".to_string()));
+                return Err(CarbideError::MissingArgument("id").into());
             }
         };
 
-        let mut segments = IBPartition::find(&mut txn, uuid, IBPartitionSearchConfig::default())
-            .await
-            .map_err(CarbideError::from)?;
+        let mut segments = IBPartition::find(
+            &mut txn,
+            UuidKeyedObjectFilter::One(uuid),
+            IBPartitionSearchConfig::default(),
+        )
+        .await
+        .map_err(CarbideError::from)?;
 
         let segment = match segments.len() {
             1 => segments.remove(0),
-            _ => return Err(Status::not_found("ib subnet not found")),
+            _ => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "ib_partition",
+                    id: uuid.to_string(),
+                }
+                .into())
+            }
         };
 
         let resp = segment
@@ -770,27 +777,33 @@ where
 
         let uuid = match id {
             Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
+                Ok(uuid) => uuid,
+                Err(_err) => {
+                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
                 }
             },
             None => {
-                return Err(Status::invalid_argument("No UUID provided".to_string()));
+                return Err(CarbideError::MissingArgument("id").into());
             }
         };
 
-        let mut segments =
-            NetworkSegment::find(&mut txn, uuid, NetworkSegmentSearchConfig::default())
-                .await
-                .map_err(CarbideError::from)?;
+        let mut segments = NetworkSegment::find(
+            &mut txn,
+            UuidKeyedObjectFilter::One(uuid),
+            NetworkSegmentSearchConfig::default(),
+        )
+        .await
+        .map_err(CarbideError::from)?;
 
         let segment = match segments.len() {
             1 => segments.remove(0),
-            _ => return Err(Status::not_found("network segment not found")),
+            _ => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "network segment",
+                    id: uuid.to_string(),
+                }
+                .into());
+            }
         };
 
         let response = Ok(segment
@@ -828,22 +841,19 @@ where
 
         let rpc::VpcSearchQuery { id, .. } = request.into_inner();
 
-        let _uuid = match id {
+        let uuid = match id {
             Some(id) => match Uuid::try_from(id) {
                 Ok(uuid) => uuid,
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Did not supply a valid VPC_ID UUID: {}",
-                        err
-                    )));
+                Err(_) => {
+                    return Err(CarbideError::MissingArgument("id").into());
                 }
             },
             None => {
-                return Err(Status::invalid_argument("A VPC_ID UUID is required"));
+                return Err(CarbideError::InvalidArgument("id".to_string()).into());
             }
         };
 
-        let results = NetworkSegment::for_vpc(&mut txn, _uuid)
+        let results = NetworkSegment::for_vpc(&mut txn, uuid)
             .await
             .map_err(CarbideError::from)?;
 
