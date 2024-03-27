@@ -152,6 +152,7 @@ struct Index {
     eth_data: EthVirtData,
     dpu_nic_firmware_initial_update_enabled: bool,
     dpu_nic_firmware_reprovision_update_enabled: bool,
+    log_filter: String,
     carbide_config: CarbideConfig,
 }
 
@@ -185,7 +186,7 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
         dpu_nic_firmware_reprovision_update_enabled: state
             .runtime_config
             .dpu_nic_firmware_reprovision_update_enabled,
-
+        log_filter: state.log_filter_string(),
         agent_upgrade_policy,
         carbide_config: (*state.runtime_config).clone(),
     };

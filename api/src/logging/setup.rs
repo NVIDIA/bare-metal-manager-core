@@ -10,32 +10,55 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::sync::Arc;
+
+use arc_swap::ArcSwap;
 use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_semantic_conventions as semcov;
 use tracing_subscriber::{
-    filter::EnvFilter, filter::LevelFilter, prelude::*, util::SubscriberInitExt,
+    filter, filter::EnvFilter, filter::LevelFilter, layer::Filter, prelude::*,
+    util::SubscriberInitExt,
 };
 
 use crate::logging::sqlx_query_tracing;
 
+pub struct TelemetrySetup {
+    pub registry: prometheus::Registry,
+    pub meter: Meter,
+    pub filter: Arc<ArcSwap<EnvFilter>>,
+}
+
 pub async fn setup_telemetry(
     debug: u8,
     logging_subscriber: Option<impl SubscriberInitExt>,
-) -> eyre::Result<(prometheus::Registry, Meter)> {
+) -> eyre::Result<TelemetrySetup> {
     // This configures emission of logs in LogFmt syntax
     // and emission of metrics
+
+    let deps_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::TRACE.into())
+        .parse("")?
+        .add_directive("sqlxmq::runner=warn".parse()?)
+        .add_directive("sqlx::query=warn".parse()?)
+        .add_directive("sqlx::extract_query_data=warn".parse()?)
+        .add_directive("rustify=off".parse()?)
+        .add_directive("hyper=error".parse()?)
+        .add_directive("rustls=warn".parse()?)
+        .add_directive("tokio_util::codec=warn".parse()?)
+        .add_directive("vaultrs=error".parse()?)
+        .add_directive("h2=warn".parse()?);
 
     // We set up some global filtering using `tracing`s `EnvFilter` framework
     // The global filter will apply to all `Layer`s that are added to the
     // `logging_subscriber` later on. This means it applies for both logging to
     // stdout as well as for OpenTelemetry integration.
     // We ignore a lot of spans and events from 3rd party frameworks
-    let mut global_filter = EnvFilter::builder()
+    let mut initial_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
     if debug != 0 {
-        global_filter = global_filter.add_directive(
+        initial_filter = initial_filter.add_directive(
             match debug {
                 1 => {
                     // command line overrides config file
@@ -46,16 +69,18 @@ pub async fn setup_telemetry(
             .into(),
         );
     }
-    global_filter = global_filter
-        .add_directive("sqlxmq::runner=warn".parse()?)
-        .add_directive("sqlx::query=warn".parse()?)
-        .add_directive("sqlx::extract_query_data=warn".parse()?)
-        .add_directive("rustify=off".parse()?)
-        .add_directive("hyper=error".parse()?)
-        .add_directive("rustls=warn".parse()?)
-        .add_directive("tokio_util::codec=warn".parse()?)
-        .add_directive("vaultrs=error".parse()?)
-        .add_directive("h2=warn".parse()?);
+
+    // The outer Arc allows sharing/cloning the contents.
+    // The inner ArcSwap is a higher performance alternative to Arc<RwLock>.
+    let dyn_filter = Arc::new(ArcSwap::from(Arc::new(initial_filter)));
+    let dyn_filter_c = dyn_filter.clone();
+
+    let combined_filter = filter::dynamic_filter_fn(move |metadata, context| {
+        if !Filter::enabled(&deps_filter, metadata, context) {
+            return false;
+        }
+        Filter::enabled(&**dyn_filter_c.load(), metadata, context)
+    });
 
     // This defines attributes that are set on the exported logs **and** metrics
     let service_telemetry_attributes = opentelemetry_sdk::Resource::new(vec![
@@ -83,7 +108,7 @@ pub async fn setup_telemetry(
 
         // Set up the tracing subscriber
         tracing_subscriber::registry()
-            .with(logfmt_stdout_formatter.with_filter(global_filter))
+            .with(logfmt_stdout_formatter.with_filter(combined_filter))
             .with(tokio_console_layer.with_filter(tokio_console_filter))
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()
@@ -109,8 +134,11 @@ pub async fn setup_telemetry(
     // After this call `global::meter()` will be available
     opentelemetry::global::set_meter_provider(meter_provider.clone());
 
-    let meter = meter_provider.meter("carbide-api");
-    Ok((prometheus_registry, meter))
+    Ok(TelemetrySetup {
+        registry: prometheus_registry,
+        meter: meter_provider.meter("carbide-api"),
+        filter: dyn_filter,
+    })
 }
 
 /// Configures a View for Histograms that describe retries or attempts for operations

@@ -19,6 +19,7 @@ use std::{
     time::SystemTime,
 };
 
+use arc_swap::ArcSwap;
 use carbide::{
     api::Api,
     cfg::{
@@ -58,6 +59,7 @@ use chrono::Duration;
 use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
 use tonic::Request;
+use tracing_subscriber::EnvFilter;
 
 use crate::common::{
     api_fixtures::{
@@ -125,6 +127,9 @@ impl TestEnv {
             self.eth_virt_data.clone(),
             self.common_pools.clone(),
             self.ib_fabric_manager.clone(),
+            Arc::new(ArcSwap::from(Arc::new(
+                EnvFilter::builder().parse("trace").unwrap(),
+            ))),
         ));
 
         StateHandlerServices {
@@ -404,6 +409,9 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         eth_virt_data.clone(),
         common_pools.clone(),
         ib_fabric_manager.clone(),
+        Arc::new(ArcSwap::from(Arc::new(
+            EnvFilter::builder().parse("trace").unwrap(),
+        ))),
     );
     TestEnv {
         api,

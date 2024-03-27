@@ -41,6 +41,10 @@
     <th>NIC Firmware update reprovisioning</th>
     <td>{% if dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
   </tr>
+  <tr>
+    <th>RUST_LOG</th>
+    <td>{{ log_filter }}</td>
+  <tr/>
 </table>
 
 <h2 style="margin-left:10%">Carbide (API) Configuration</h2>
