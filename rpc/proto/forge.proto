@@ -154,6 +154,9 @@ service Forge {
   // Maintenance mode operations: enable, disable
   rpc SetMaintenance(MaintenanceRequest) returns (google.protobuf.Empty);
 
+  // Set RUST_LOG dynamically
+  rpc SetLogFilter(LogFilterRequest) returns (google.protobuf.Empty);
+
   // Trigger reprovisioning of DPU
   rpc TriggerDpuReprovisioning(DpuReprovisioningRequest) returns (google.protobuf.Empty);
   // List DPUs waiting for reprovisioning
@@ -1871,6 +1874,10 @@ message MaintenanceRequest {
   MachineId host_id = 2;
   // For Enable: The ticket tracker URL.
   optional string reference = 3;
+}
+
+message LogFilterRequest {
+  string filter = 1;
 }
 
 message FindIpAddressRequest {

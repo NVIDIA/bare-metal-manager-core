@@ -585,6 +585,9 @@ async fn main() -> color_eyre::Result<()> {
             }
         }
         CarbideCommand::Ping(opts) => ping::ping(api_config, opts).await?,
+        CarbideCommand::SetLogFilter(opts) => {
+            rpc::set_log_filter(api_config, opts.filter).await?;
+        }
     }
 
     Ok(())

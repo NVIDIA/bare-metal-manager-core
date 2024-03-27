@@ -126,6 +126,8 @@ pub enum CarbideCommand {
         about = "Query the Version gRPC endpoint repeatedly printing how long it took and any failures."
     )]
     Ping(PingOptions),
+    #[clap(about = "Set RUST_LOG")]
+    SetLogFilter(LogFilterOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -977,4 +979,10 @@ pub struct PingOptions {
         help = "Wait interval seconds between sending each request. Real number allowed with dot as a decimal separator."
     )]
     pub interval: f32,
+}
+
+#[derive(Parser, Debug)]
+pub struct LogFilterOptions {
+    #[clap(short, long, help = "Set server's RUST_LOG.")]
+    pub filter: String,
 }

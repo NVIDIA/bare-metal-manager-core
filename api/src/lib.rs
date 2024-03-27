@@ -288,7 +288,7 @@ pub async fn run(
     logging_subscriber: Option<impl SubscriberInitExt>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
-    let (prometheus_registry, meter) = setup_telemetry(debug, logging_subscriber)
+    let tconf = setup_telemetry(debug, logging_subscriber)
         .await
         .wrap_err("setup_telemetry")?;
 
@@ -317,7 +317,7 @@ pub async fn run(
             .spawn(async move {
                 if let Err(e) = run_metrics_endpoint(&MetricsEndpointConfig {
                     address: metrics_address,
-                    registry: prometheus_registry,
+                    registry: tconf.registry,
                 })
                 .await
                 {
@@ -326,7 +326,7 @@ pub async fn run(
             })?;
     }
 
-    let forge_vault_client = setup::create_vault_client(meter.clone()).await?;
+    let forge_vault_client = setup::create_vault_client(tconf.meter.clone()).await?;
 
     let ipmi_tool = setup::create_ipmi_tool(forge_vault_client.clone(), &carbide_config);
 
@@ -342,7 +342,8 @@ pub async fn run(
         carbide_config,
         forge_vault_client.clone(),
         forge_vault_client,
-        meter,
+        tconf.meter,
+        tconf.filter,
         ipmi_tool,
     )
     .await

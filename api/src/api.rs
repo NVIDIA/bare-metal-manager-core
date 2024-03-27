@@ -27,11 +27,13 @@ use ::rpc::protos::forge::{
     UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
+use arc_swap::ArcSwap;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
+use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
@@ -115,6 +117,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub(crate) runtime_config: Arc<CarbideConfig>,
     dpu_health_log_limiter: LogLimiter<MachineId>,
+    log_filter: Arc<ArcSwap<EnvFilter>>,
 }
 
 #[tonic::async_trait]
@@ -4659,6 +4662,27 @@ where
 
         Ok(tonic::Response::new(()))
     }
+
+    // Override RUST_LOG
+    async fn set_log_filter(
+        &self,
+        request: tonic::Request<rpc::LogFilterRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        log_request_data(&request);
+
+        let filter_str = request.into_inner().filter;
+        if filter_str.is_empty() {
+            return Err(Status::invalid_argument("'filter' cannot be empty"));
+        }
+
+        let filter = EnvFilter::builder().parse(&filter_str).map_err(|err| {
+            Status::invalid_argument(format!("Invalid filter string '{filter_str}'. {err}"))
+        })?;
+
+        tracing::info!("Log filter updated to '{filter_str}'");
+        self.log_filter.store(Arc::new(filter));
+        Ok(tonic::Response::new(()))
+    }
 }
 
 fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
@@ -4699,6 +4723,7 @@ where
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
         ib_fabric_manager: Arc<dyn IBFabricManager>,
+        log_filter: Arc<ArcSwap<EnvFilter>>,
     ) -> Self {
         Self {
             database_connection,
@@ -4713,6 +4738,7 @@ where
                 std::time::Duration::from_secs(5 * 60),
                 std::time::Duration::from_secs(60 * 60),
             ),
+            log_filter,
         }
     }
 
@@ -4921,6 +4947,10 @@ where
             }
         };
         Ok(network_segment)
+    }
+
+    pub(crate) fn log_filter_string(&self) -> String {
+        self.log_filter.load().to_string()
     }
 }
 

@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::{env, path::Path, sync::Arc};
+
+use arc_swap::ArcSwap;
 use eyre::WrapErr;
 use figment::{
     providers::{Env, Format, Toml},
@@ -26,7 +29,7 @@ use forge_secrets::{
 };
 use opentelemetry::metrics::{Meter, Observer, Unit};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
-use std::{env, path::Path, sync::Arc};
+use tracing_subscriber::EnvFilter;
 
 use crate::{
     api::Api,
@@ -199,6 +202,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     credential_provider: Arc<C1>,
     certificate_provider: Arc<C2>,
     meter: opentelemetry::metrics::Meter,
+    log_filter: Arc<ArcSwap<EnvFilter>>,
     ipmi_tool: Arc<dyn IPMITool>,
 ) -> eyre::Result<()> {
     let rf_pool = libredfish::RedfishClientPool::builder()
@@ -297,6 +301,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         eth_data,
         common_pools.clone(),
         ib_fabric_manager.clone(),
+        log_filter,
     ));
 
     if let Some(networks) = carbide_config.networks.as_ref() {
