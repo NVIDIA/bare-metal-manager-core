@@ -130,6 +130,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
             discovery_data: Some(rpc::DiscoveryData::Info(
                 rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
             )),
+            create_machine: true,
         }))
         .await;
     let err = response.expect_err("Expected DiscoverMachine request to fail");
@@ -239,12 +240,50 @@ async fn test_discover_dpu_by_source_ip(
         discovery_data: Some(rpc::DiscoveryData::Info(
             rpc::DiscoveryInfo::try_from(create_dpu_hardware_info(&host_sim.config)).unwrap(),
         )),
+        create_machine: true,
     });
     req.metadata_mut()
         .insert("x-forwarded-for", dhcp_response.address.parse().unwrap());
     let response = env.api.discover_machine(req).await.unwrap().into_inner();
 
     assert!(response.machine_id.is_some());
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_discover_dpu_not_create_machine(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+
+    let dhcp_response = env
+        .api
+        .discover_dhcp(Request::new(rpc::forge::DhcpDiscovery {
+            mac_address: host_sim.config.dpu_oob_mac_address.to_string(),
+            relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
+            vendor_string: None,
+            link_address: None,
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let mut req = Request::new(rpc::MachineDiscoveryInfo {
+        machine_interface_id: None,
+        discovery_data: Some(rpc::DiscoveryData::Info(
+            rpc::DiscoveryInfo::try_from(create_dpu_hardware_info(&host_sim.config)).unwrap(),
+        )),
+        create_machine: false,
+    });
+    req.metadata_mut()
+        .insert("x-forwarded-for", dhcp_response.address.parse().unwrap());
+    let response = env.api.discover_machine(req).await;
+
+    assert!(response.is_err());
 
     Ok(())
 }

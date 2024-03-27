@@ -36,9 +36,9 @@ pub struct RegistrationData {
     pub machine_id: String,
 }
 
-struct DiscoveryRetry {
-    secs: u64,
-    max: u32,
+pub struct DiscoveryRetry {
+    pub secs: u64,
+    pub max: u32,
 }
 // RegistrationClient is a small wrapper client that handles
 // doing async retries of machine discovery requests. Since
@@ -149,14 +149,15 @@ pub async fn register_machine(
     machine_interface_id: Option<uuid::Uuid>,
     hardware_info: rpc_discovery::DiscoveryInfo,
     use_mgmt_vrf: bool,
-    discovery_retry_secs: u64,
-    discovery_retries_max: u32,
+    retry: DiscoveryRetry,
+    create_machine: bool,
 ) -> Result<RegistrationData, RegistrationError> {
     let info = rpc::MachineDiscoveryInfo {
         machine_interface_id: machine_interface_id.map(|mid| mid.into()),
         discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
             hardware_info,
         )),
+        create_machine,
     };
     tracing::debug!("register_machine discovery_info {:?}", info);
 
@@ -168,10 +169,6 @@ pub async fn register_machine(
     };
     tracing::debug!("register_machine client_config {:?}", forge_client_config);
 
-    let retry = DiscoveryRetry {
-        secs: discovery_retry_secs,
-        max: discovery_retries_max,
-    };
     let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
         .discover_machine(info)
         .await?;

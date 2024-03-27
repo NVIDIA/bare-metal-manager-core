@@ -140,6 +140,7 @@ pub async fn host_discover_machine(
             discovery_data: Some(DiscoveryData::Info(
                 DiscoveryInfo::try_from(create_host_hardware_info(host_config)).unwrap(),
             )),
+            create_machine: true,
         }))
         .await
         .unwrap()

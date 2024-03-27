@@ -306,8 +306,11 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
         agent.machine.interface_id,
         hardware_info,
         true,
-        agent.period.discovery_retry_secs,
-        agent.period.discovery_retries_max,
+        forge_host_support::registration::DiscoveryRetry {
+            secs: agent.period.discovery_retry_secs,
+            max: agent.period.discovery_retries_max,
+        },
+        false,
     )
     .await?;
 
