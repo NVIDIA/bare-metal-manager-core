@@ -199,27 +199,28 @@ where
         // TODO(jdg): Move this out into a function and share it with delete
         let uuid = match id {
             Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
+                Ok(uuid) => uuid,
+                Err(_err) => {
+                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
                 }
             },
             None => {
-                return Err(Status::not_found(
-                    "No domain object found matching requested UUID".to_string(),
-                ));
+                return Err(CarbideError::MissingArgument("id").into());
             }
         };
 
-        let mut domains = Domain::find(&mut txn, uuid)
+        let mut domains = Domain::find(&mut txn, UuidKeyedObjectFilter::One(uuid))
             .await
             .map_err(CarbideError::from)?;
 
         let mut dom = match domains.len() {
-            0 => return Err(Status::not_found("domain not found")),
+            0 => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "domain",
+                    id: uuid.to_string(),
+                }
+                .into())
+            }
             1 => domains.remove(0),
             _ => {
                 return Err(Status::internal(
@@ -268,25 +269,28 @@ where
         // load from find from domain.rs
         let uuid = match id {
             Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
+                Ok(uuid) => uuid,
+                Err(_err) => {
+                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
                 }
             },
             None => {
-                return Err(Status::invalid_argument("No UUID provided".to_string()));
+                return Err(CarbideError::MissingArgument("id").into());
             }
         };
 
-        let mut domains = Domain::find(&mut txn, uuid)
+        let mut domains = Domain::find(&mut txn, UuidKeyedObjectFilter::One(uuid))
             .await
             .map_err(CarbideError::from)?;
 
         let dom = match domains.len() {
-            0 => return Err(Status::not_found("domain not found")),
+            0 => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "domain",
+                    id: uuid.to_string(),
+                }
+                .into())
+            }
             1 => domains.remove(0),
             _ => {
                 return Err(Status::internal(
@@ -663,7 +667,7 @@ where
         let _tenant_organization_id: String = match tenant_organization_id {
             Some(id) => id,
             None => {
-                return Err(Status::invalid_argument("A organization_id is required"));
+                return Err(CarbideError::MissingArgument("tenant_organization_id").into());
             }
         };
 
@@ -903,11 +907,8 @@ where
             Some(id) => {
                 let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                    Err(err) => {
-                        return Err(Status::invalid_argument(format!(
-                            "Invalid UUID supplied: {}",
-                            err
-                        )));
+                    Err(_err) => {
+                        return Err(CarbideError::InvalidArgument("id".to_string()).into());
                     }
                 };
                 Instance::find(&mut txn, uuid)
@@ -1109,7 +1110,7 @@ where
         let instance_id = match request.instance_id {
             Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
             None => {
-                return Err(Status::invalid_argument("instance_id is required"));
+                return Err(CarbideError::MissingArgument("instance_id").into());
             }
         };
 
@@ -1126,7 +1127,10 @@ where
             .await
             .map_err(CarbideError::from)?
             .pop()
-            .ok_or(Status::not_found("instance not found"))?;
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
 
         log_machine_id(&instance.machine_id);
 
@@ -1158,7 +1162,7 @@ where
         let dpu_machine_id = match &request.dpu_machine_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
-                return Err(Status::not_found("Missing machine id"));
+                return Err(CarbideError::MissingArgument("dpu_machine_id").into());
             }
         };
         log_machine_id(&dpu_machine_id);
@@ -1179,7 +1183,11 @@ where
         {
             Ok(snap) => snap,
             Err(SnapshotLoaderError::HostNotFound(_)) => {
-                return Err(tonic::Status::not_found(dpu_machine_id.to_string()));
+                return Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: dpu_machine_id.to_string(),
+                }
+                .into());
             }
             Err(err) => {
                 return Err(CarbideError::from(err).into());
@@ -1317,7 +1325,7 @@ where
         let dpu_machine_id = match &request.machine_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
-                return Err(Status::not_found("Missing machine id"));
+                return Err(CarbideError::MissingArgument("machine_id").into());
             }
         };
 
@@ -1365,7 +1373,7 @@ where
         let dpu_machine_id = match &request.dpu_machine_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
-                return Err(Status::not_found("Missing machine id"));
+                return Err(CarbideError::MissingArgument("dpu_machine_id").into());
             }
         };
         log_machine_id(&dpu_machine_id);
@@ -1885,9 +1893,10 @@ where
         } = request.into_inner();
 
         if organization_id.is_none() && keyset_id.is_some() {
-            return Err(Status::invalid_argument(
-                "Keyset id is given but Organization id is missing.",
-            ));
+            return Err(CarbideError::InvalidArgument(
+                "Keyset id is given but Organization id is missing.".to_string(),
+            )
+            .into());
         }
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
@@ -1978,7 +1987,7 @@ where
         })?;
 
         let Some(keyset_identifier) = keyset_identifier else {
-            return Err(Status::invalid_argument("Keyset identifier is missing."));
+            return Err(CarbideError::MissingArgument("keyset_identifier").into());
         };
 
         let keyset_identifier: TenantKeysetIdentifier =
@@ -3819,7 +3828,11 @@ where
         let ip = req.ip;
         let (matches, errors) = ip_finder::find(self, &ip).await;
         if matches.is_empty() && errors.is_empty() {
-            return Err(Status::not_found(ip));
+            return Err(CarbideError::NotFoundError {
+                kind: "ip",
+                id: ip.to_string(),
+            }
+            .into());
         }
         Ok(Response::new(rpc::FindIpAddressResponse {
             matches,
