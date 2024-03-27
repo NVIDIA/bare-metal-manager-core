@@ -985,4 +985,10 @@ pub struct PingOptions {
 pub struct LogFilterOptions {
     #[clap(short, long, help = "Set server's RUST_LOG.")]
     pub filter: String,
+    #[clap(
+        long,
+        default_value("1h"),
+        help = "Revert to startup RUST_LOG after this much time, friendly format e.g. '1h', '3min', https://docs.rs/duration-str/latest/duration_str/"
+    )]
+    pub expiry: String,
 }

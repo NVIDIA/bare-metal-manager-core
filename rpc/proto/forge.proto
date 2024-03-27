@@ -1879,6 +1879,7 @@ message MaintenanceRequest {
 
 message LogFilterRequest {
   string filter = 1;
+  optional string expiry = 2;
 }
 
 message FindIpAddressRequest {

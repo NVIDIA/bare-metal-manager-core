@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{env, path::Path, sync::Arc};
+use std::sync::Arc;
+use std::{env, path::Path};
 
 use arc_swap::ArcSwap;
 use eyre::WrapErr;
@@ -29,7 +30,6 @@ use forge_secrets::{
 };
 use opentelemetry::metrics::{Meter, Observer, Unit};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
-use tracing_subscriber::EnvFilter;
 
 use crate::{
     api::Api,
@@ -41,7 +41,10 @@ use crate::{
     ib_fabric_monitor::IbFabricMonitor,
     ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl},
     listener,
-    logging::service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
+    logging::{
+        level_filter::ActiveLevel,
+        service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
+    },
     machine_update_manager::MachineUpdateManager,
     redfish::{RedfishClientPool, RedfishClientPoolImpl},
     resource_pool::{self, common::CommonPools},
@@ -202,7 +205,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     credential_provider: Arc<C1>,
     certificate_provider: Arc<C2>,
     meter: opentelemetry::metrics::Meter,
-    log_filter: Arc<ArcSwap<EnvFilter>>,
+    log_filter: Arc<ArcSwap<ActiveLevel>>,
     ipmi_tool: Arc<dyn IPMITool>,
 ) -> eyre::Result<()> {
     let rf_pool = libredfish::RedfishClientPool::builder()

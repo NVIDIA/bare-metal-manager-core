@@ -12,10 +12,14 @@
 use std::{
     backtrace::{Backtrace, BacktraceStatus},
     net::IpAddr,
+    sync::Arc,
+    time::Duration,
 };
 
+use arc_swap::ArcSwap;
 use dhcp::allocation::DhcpError;
 use eyre::WrapErr;
+use logging::level_filter::ActiveLevel;
 use mac_address::MacAddress;
 use model::{
     config_version::{ConfigVersion, ConfigVersionParseError},
@@ -59,6 +63,9 @@ pub mod setup;
 pub mod site_explorer;
 pub mod state_controller;
 pub mod web;
+
+/// How often to check if the log filter (RUST_LOG) needs resetting
+const LOG_FILTER_RESET_PERIOD: Duration = Duration::from_secs(15 * 60); // 1/4 hour
 
 /// Represents various Errors that can occur throughout the system.
 ///
@@ -327,6 +334,8 @@ pub async fn run(
             })?;
     }
 
+    start_log_filter_reset_task(tconf.filter.clone(), LOG_FILTER_RESET_PERIOD);
+
     let forge_vault_client = setup::create_vault_client(tconf.meter.clone()).await?;
 
     let ipmi_tool = setup::create_ipmi_tool(forge_vault_client.clone(), &carbide_config);
@@ -348,4 +357,30 @@ pub async fn run(
         ipmi_tool,
     )
     .await
+}
+
+/// The background task that resets RUST_LOG to startup value when the override expires
+/// Overrides are applied in `set_log_filter` RPC.
+pub fn start_log_filter_reset_task(log_filter: Arc<ArcSwap<ActiveLevel>>, period: Duration) {
+    let _ = tokio::task::Builder::new()
+        .name("log_filter_reset")
+        .spawn(async move {
+            loop {
+                tokio::time::sleep(period).await;
+                let f = log_filter.load();
+                if f.has_expired() {
+                    match f.reset_from() {
+                        Ok(next_level) => {
+                            log_filter.store(Arc::new(next_level));
+                        }
+                        Err(err) => {
+                            tracing::error!("Failed resetting log level: {err}");
+                        }
+                    }
+                }
+            }
+        })
+        .map_err(|err| {
+            tracing::error!("log_filter_reset task aborted: {err}");
+        });
 }

@@ -802,9 +802,16 @@ pub async fn get_machines_by_ids(
     .await
 }
 
-pub async fn set_log_filter(api_config: &ApiConfig<'_>, filter: String) -> CarbideCliResult<()> {
+pub async fn set_log_filter(
+    api_config: &ApiConfig<'_>,
+    filter: String,
+    expiry: String,
+) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::LogFilterRequest { filter });
+        let request = tonic::Request::new(rpc::LogFilterRequest {
+            filter,
+            expiry: Some(expiry),
+        });
         client
             .set_log_filter(request)
             .await
