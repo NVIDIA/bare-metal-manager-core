@@ -30,6 +30,7 @@ use carbide::{
     ethernet_virtualization::EthVirtData,
     ib::{self, IBFabricManager, IBFabricManagerConfig, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
+    logging::level_filter::ActiveLevel,
     model::{
         hardware_info::TpmEkCertificate,
         machine::{
@@ -127,9 +128,11 @@ impl TestEnv {
             self.eth_virt_data.clone(),
             self.common_pools.clone(),
             self.ib_fabric_manager.clone(),
-            Arc::new(ArcSwap::from(Arc::new(
-                EnvFilter::builder().parse("trace").unwrap(),
-            ))),
+            Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
+                EnvFilter::builder()
+                    .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
+                    .unwrap(),
+            )))),
         ));
 
         StateHandlerServices {
@@ -409,9 +412,11 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         eth_virt_data.clone(),
         common_pools.clone(),
         ib_fabric_manager.clone(),
-        Arc::new(ArcSwap::from(Arc::new(
-            EnvFilter::builder().parse("trace").unwrap(),
-        ))),
+        Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
+            EnvFilter::builder()
+                .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
+                .unwrap(),
+        )))),
     );
     TestEnv {
         api,

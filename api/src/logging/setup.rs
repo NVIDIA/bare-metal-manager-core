@@ -21,12 +21,13 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
+use super::level_filter::ActiveLevel;
 use crate::logging::sqlx_query_tracing;
 
 pub struct TelemetrySetup {
     pub registry: prometheus::Registry,
     pub meter: Meter,
-    pub filter: Arc<ArcSwap<EnvFilter>>,
+    pub filter: Arc<ArcSwap<ActiveLevel>>,
 }
 
 pub async fn setup_telemetry(
@@ -72,14 +73,14 @@ pub async fn setup_telemetry(
 
     // The outer Arc allows sharing/cloning the contents.
     // The inner ArcSwap is a higher performance alternative to Arc<RwLock>.
-    let dyn_filter = Arc::new(ArcSwap::from(Arc::new(initial_filter)));
+    let dyn_filter = Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(initial_filter))));
     let dyn_filter_c = dyn_filter.clone();
 
     let combined_filter = filter::dynamic_filter_fn(move |metadata, context| {
         if !Filter::enabled(&deps_filter, metadata, context) {
             return false;
         }
-        Filter::enabled(&**dyn_filter_c.load(), metadata, context)
+        Filter::enabled(&dyn_filter_c.load().current, metadata, context)
     });
 
     // This defines attributes that are set on the exported logs **and** metrics

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
@@ -33,7 +34,6 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialTy
 use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
-use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
@@ -49,6 +49,7 @@ use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipxe::PxeInstructions;
+use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
 use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
@@ -117,7 +118,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub(crate) runtime_config: Arc<CarbideConfig>,
     dpu_health_log_limiter: LogLimiter<MachineId>,
-    log_filter: Arc<ArcSwap<EnvFilter>>,
+    pub log_filter: Arc<ArcSwap<ActiveLevel>>,
 }
 
 #[tonic::async_trait]
@@ -4731,17 +4732,32 @@ where
     ) -> Result<tonic::Response<()>, Status> {
         log_request_data(&request);
 
-        let filter_str = request.into_inner().filter;
-        if filter_str.is_empty() {
+        let req = request.into_inner();
+        if req.filter.is_empty() {
             return Err(Status::invalid_argument("'filter' cannot be empty"));
         }
 
-        let filter = EnvFilter::builder().parse(&filter_str).map_err(|err| {
-            Status::invalid_argument(format!("Invalid filter string '{filter_str}'. {err}"))
+        let exp_str = req.expiry.as_deref().unwrap_or("1h");
+        let expiry = duration_str::parse(exp_str).map_err(|err| {
+            Status::invalid_argument(format!("Invalid expiry string '{exp_str}'. {err}"))
         })?;
+        const MAX_LOG_FILTER_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
+        if MAX_LOG_FILTER_EXPIRY < expiry {
+            return Err(Status::invalid_argument(
+                "Expiry exceeds max allowed of 60 hours",
+            ));
+        }
+        let expire_at = chrono::Utc::now() + expiry;
 
-        tracing::info!("Log filter updated to '{filter_str}'");
-        self.log_filter.store(Arc::new(filter));
+        let current_level = self.log_filter.load();
+        let next_level = current_level
+            .with_base(&req.filter, Some(expire_at))
+            .map_err(|err| {
+                Status::invalid_argument(format!("Invalid filter string '{}'. {err}", req.filter))
+            })?;
+        self.log_filter.store(Arc::new(next_level));
+
+        tracing::info!("Log filter updated to '{}'", req.filter);
         Ok(tonic::Response::new(()))
     }
 }
@@ -4784,7 +4800,7 @@ where
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
         ib_fabric_manager: Arc<dyn IBFabricManager>,
-        log_filter: Arc<ArcSwap<EnvFilter>>,
+        log_filter: Arc<ArcSwap<ActiveLevel>>,
     ) -> Self {
         Self {
             database_connection,
@@ -5010,7 +5026,7 @@ where
         Ok(network_segment)
     }
 
-    pub(crate) fn log_filter_string(&self) -> String {
+    pub fn log_filter_string(&self) -> String {
         self.log_filter.load().to_string()
     }
 }
