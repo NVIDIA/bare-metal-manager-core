@@ -80,7 +80,7 @@ use crate::{
         network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment},
         resource_record::DnsQuestion,
         route_servers::RouteServer,
-        vpc::{DeleteVpc, NewVpc, UpdateVpc, Vpc},
+        vpc::{NewVpc, UpdateVpc, Vpc},
         DatabaseError, ObjectFilter, UuidKeyedObjectFilter,
     },
     ethernet_virtualization,
@@ -416,11 +416,28 @@ where
 
         // TODO: This needs to validate that nothing references the VPC anymore
         // (like NetworkSegments)
-
-        let vpc = DeleteVpc::try_from(request.into_inner())?
-            .delete(&mut txn)
-            .await
+        let vpc_id: uuid::Uuid = request
+            .into_inner()
+            .id
+            .ok_or(CarbideError::MissingArgument("id"))?
+            .try_into()
             .map_err(CarbideError::from)?;
+
+        let vpc = match Vpc::try_delete(&mut txn, vpc_id)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            Some(vpc) => vpc,
+            None => {
+                // VPC didn't exist or was deleted in the past. We are not allowed
+                // to free the VNI again
+                return Err(CarbideError::NotFoundError {
+                    kind: "vpc",
+                    id: vpc_id.to_string(),
+                }
+                .into());
+            }
+        };
 
         if let Some(vni) = vpc.vni {
             self.common_pools

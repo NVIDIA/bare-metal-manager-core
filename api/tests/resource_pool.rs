@@ -214,11 +214,12 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
             rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
         ),
     };
-    let resp = env
+    let vpc1 = env
         .api
         .create_vpc(tonic::Request::new(vpc_req))
         .await
-        .unwrap();
+        .unwrap()
+        .into_inner();
 
     // Value is allocated
     let mut txn = db_pool.begin().await?;
@@ -229,9 +230,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     txn.commit().await?;
 
     // DeleteVpc rpc call
-    let del_req = rpc::forge::VpcDeletionRequest {
-        id: resp.into_inner().id,
-    };
+    let del_req = rpc::forge::VpcDeletionRequest { id: vpc1.id };
     env.api
         .delete_vpc(tonic::Request::new(del_req))
         .await
@@ -255,13 +254,56 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
             rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
         ),
     };
-    let _ = env
+    let vpc2 = env
         .api
         .create_vpc(tonic::Request::new(vpc_req))
         .await
-        .unwrap();
+        .unwrap()
+        .into_inner();
 
     // Value allocated again
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(
+        vpc_vni_pool.stats(&mut *txn).await?,
+        St { used: 1, free: 0 }
+    );
+    txn.commit().await?;
+
+    let del_req = rpc::forge::VpcDeletionRequest { id: vpc2.id };
+    env.api
+        .delete_vpc(tonic::Request::new(del_req.clone()))
+        .await
+        .unwrap();
+
+    // Value is free
+    let mut txn = db_pool.begin().await?;
+    assert_eq!(
+        vpc_vni_pool.stats(&mut *txn).await?,
+        St { used: 0, free: 1 }
+    );
+
+    // Allocate the value for something else. Deleting the already deleted VPC again
+    // shouldn't free the VNI another time
+    let _vni = vpc_vni_pool
+        .allocate(&mut txn, OwnerType::Vpc, "testalloc")
+        .await?;
+    assert_eq!(
+        vpc_vni_pool.stats(&mut *txn).await?,
+        St { used: 1, free: 0 }
+    );
+    txn.commit().await?;
+
+    // Delete the VPC again
+    assert_eq!(
+        env.api
+            .delete_vpc(tonic::Request::new(del_req))
+            .await
+            .expect_err("should fail")
+            .code(),
+        tonic::Code::NotFound
+    );
+
+    // The VNI isn't freed
     let mut txn = db_pool.begin().await?;
     assert_eq!(
         vpc_vni_pool.stats(&mut *txn).await?,

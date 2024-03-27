@@ -116,11 +116,6 @@ pub struct UpdateVpc {
 }
 
 #[derive(Clone, Debug)]
-pub struct DeleteVpc {
-    pub id: Uuid,
-}
-
-#[derive(Clone, Debug)]
 pub struct VpcSearchQuery {
     pub id: Option<uuid::Uuid>,
     pub string: Option<String>,
@@ -245,6 +240,23 @@ impl Vpc {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+
+    /// Tries to deletes a VPC
+    ///
+    /// If the VPC existed at the point of deletion this returns the last known information about the VPC
+    /// If the VPC already had been delete, this returns Ok(`None`)
+    pub async fn try_delete(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        id: uuid::Uuid,
+    ) -> Result<Option<Self>, DatabaseError> {
+        // TODO: Should this update the version?
+        let query = "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 AND deleted is null RETURNING *";
+        match sqlx::query_as(query).bind(id).fetch_one(&mut **txn).await {
+            Ok(vpc) => Ok(Some(vpc)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        }
+    }
 }
 
 impl From<Vpc> for rpc::Vpc {
@@ -306,19 +318,6 @@ impl TryFrom<rpc::VpcUpdateRequest> for UpdateVpc {
     }
 }
 
-impl TryFrom<rpc::VpcDeletionRequest> for DeleteVpc {
-    type Error = CarbideError;
-
-    fn try_from(value: rpc::VpcDeletionRequest) -> Result<Self, Self::Error> {
-        Ok(DeleteVpc {
-            id: value
-                .id
-                .ok_or(CarbideError::MissingArgument("id"))?
-                .try_into()?,
-        })
-    }
-}
-
 impl From<Vpc> for rpc::VpcDeletionResult {
     fn from(_src: Vpc) -> Self {
         rpc::VpcDeletionResult {}
@@ -346,7 +345,7 @@ impl UpdateVpc {
         // TODO check number of changed rows
         let query = "UPDATE vpcs
             SET name=$1, organization_id=$2, version=$3, updated=NOW()
-            WHERE id=$4 AND version=$5
+            WHERE id=$4 AND version=$5 AND deleted is null
             RETURNING *";
         let query_result = sqlx::query_as(query)
             .bind(&self.name)
@@ -374,20 +373,5 @@ impl UpdateVpc {
                 e,
             ))),
         }
-    }
-}
-
-impl DeleteVpc {
-    pub async fn delete(
-        &self,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<Vpc, DatabaseError> {
-        // TODO: Should this update the version?
-        let query = "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
-        sqlx::query_as(query)
-            .bind(self.id)
-            .fetch_one(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 }
