@@ -89,6 +89,15 @@ async fn test_network_segment_lifecycle_impl(
         get_segment_state(&env.api, segment_id).await,
         rpc::forge::TenantState::Terminating
     );
+
+    // Calling the API again in this state should be a noop
+    env.api
+        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+            id: segment.id.clone(),
+        }))
+        .await
+        .expect("expect deletion to succeed");
+
     // Make the controller aware about termination too
     env.run_network_segment_controller_iteration(segment_id, &state_handler)
         .await;
@@ -112,6 +121,21 @@ async fn test_network_segment_lifecycle_impl(
         .unwrap()
         .into_inner()
         .network_segments;
+
+    // After the segment is fully gone, deleting it again should return NotFound
+    // Calling the API again in this state should be a noop
+    let err = env
+        .api
+        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+            id: segment.id.clone(),
+        }))
+        .await
+        .expect_err("expect deletion to fail");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+    assert_eq!(
+        err.message(),
+        format!("network segment not found: {}", segment.id.unwrap())
+    );
 
     let mut txn = pool.begin().await.unwrap();
     assert!(segments.is_empty());
