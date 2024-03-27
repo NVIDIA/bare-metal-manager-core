@@ -247,6 +247,7 @@ impl From<CarbideError> for tonic::Status {
         match &from {
             CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
             CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
+            CarbideError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
             CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
             CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
             CarbideError::NotFoundError { kind, id } => {
