@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::db::vpc::{DeleteVpc, UpdateVpc, Vpc, VpcVirtualizationType};
+use carbide::db::vpc::{UpdateVpc, Vpc, VpcVirtualizationType};
 use carbide::db::UuidKeyedObjectFilter;
 use carbide::model::config_version::ConfigVersion;
 use carbide::CarbideError;
@@ -128,7 +128,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(&first.tenant_organization_id, "yet another new org");
     assert_eq!(first.version.version_nr(), 3);
 
-    let vpc = DeleteVpc { id: no_org_vpc_id }.delete(&mut txn).await?;
+    let vpc = Vpc::try_delete(&mut txn, no_org_vpc_id).await?.unwrap();
 
     assert!(vpc.deleted.is_some());
 
@@ -144,7 +144,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let forge_vpc_id: uuid::Uuid = forge_vpc.id.expect("should have id").try_into()?;
     assert_eq!(vpcs[0].id, forge_vpc_id);
 
-    let vpc = DeleteVpc { id: forge_vpc_id }.delete(&mut txn).await?;
+    let vpc = Vpc::try_delete(&mut txn, forge_vpc_id).await?.unwrap();
     assert!(vpc.deleted.is_some());
     txn.commit().await?;
 
@@ -260,5 +260,96 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
         .into_inner();
 
     assert_eq!(forge_vpc.id.unwrap().value, id.to_string());
+    Ok(())
+}
+
+#[sqlx::test]
+async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool.clone()).await;
+
+    let vpc_req = rpc::forge::VpcCreationRequest {
+        id: None,
+        name: "test_vpc".to_string(),
+        tenant_organization_id: "test".to_string(),
+        tenant_keyset_id: None,
+        network_virtualization_type: None,
+    };
+    let resp = env
+        .api
+        .create_vpc(tonic::Request::new(vpc_req))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let vpc_id = resp.id.clone().unwrap();
+    assert_eq!(resp.name, "test_vpc");
+
+    let vpc_list = env
+        .api
+        .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
+            id: Some(vpc_id.clone()),
+            name: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(vpc_list.vpcs.len(), 1);
+    assert_eq!(vpc_list.vpcs[0].id, Some(vpc_id.clone()));
+    assert_eq!(vpc_list.vpcs[0].name, "test_vpc");
+
+    let vpc_list = env
+        .api
+        .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
+            id: None,
+            name: Some("test_vpc".to_string()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(vpc_list.vpcs.len(), 1);
+    assert_eq!(vpc_list.vpcs[0].id, Some(vpc_id.clone()));
+    assert_eq!(vpc_list.vpcs[0].name, "test_vpc");
+
+    // Delete the first time. Queries should now yield no results
+    env.api
+        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+            id: Some(vpc_id.clone()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let vpc_list = env
+        .api
+        .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
+            id: Some(vpc_id.clone()),
+            name: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(vpc_list.vpcs.is_empty());
+    let vpc_list = env
+        .api
+        .find_vpcs(tonic::Request::new(rpc::forge::VpcSearchQuery {
+            id: None,
+            name: Some("test_vpc".to_string()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(vpc_list.vpcs.is_empty());
+
+    // With a duplicated delete query, we want to return NotFound
+    let delete_result = env
+        .api
+        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+            id: Some(vpc_id.clone()),
+        }))
+        .await;
+    let err = delete_result.expect_err("Deletion should fail");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+    assert_eq!(err.message(), format!("vpc not found: {vpc_id}"));
+
     Ok(())
 }
