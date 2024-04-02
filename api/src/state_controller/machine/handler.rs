@@ -2051,10 +2051,11 @@ async fn record_infiniband_status_observation(
     }
 
     if ib_interfaces.len() != ib_interfaces_status.len() {
-        return Err(StateHandlerError::MissingData {
-            object_id: instance.instance_id.to_string(),
-            missing: "number of infiniband interfaces mismatched",
-        });
+        return Err(StateHandlerError::InvalidState(format!(
+            "{} infiniband interfaces with {} statuses",
+            ib_interfaces.len(),
+            ib_interfaces_status.len()
+        )));
     }
 
     let status = InstanceInfinibandStatusObservation {

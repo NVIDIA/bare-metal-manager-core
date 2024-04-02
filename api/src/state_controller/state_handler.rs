@@ -210,6 +210,9 @@ pub enum StateHandlerError {
 
     #[error("Manual intervention required. Cannot make progress. {0}")]
     ManualInterventionRequired(String),
+
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
 }
 
 impl StateHandlerError {
@@ -230,6 +233,7 @@ impl StateHandlerError {
             StateHandlerError::PoolAllocateError { .. } => "pool_allocate_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
             StateHandlerError::IBFabricError(_) => "ib_fabric_error",
+            StateHandlerError::InvalidState(_) => "invalid_state",
             StateHandlerError::RedfishClientCreationError(_) => "redfish_client_creation_error",
             StateHandlerError::RedfishError { operation, .. } => match *operation {
                 "restart" => "redfish_restart_error",
