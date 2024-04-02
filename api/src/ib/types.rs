@@ -13,7 +13,7 @@
 pub const IBNETWORK_DEFAULT_MEMBERSHIP: IBPortMembership = IBPortMembership::Full;
 pub const IBNETWORK_DEFAULT_INDEX0: bool = true;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IBNetwork {
     /// The name of IB network.
     pub name: String,
@@ -35,19 +35,19 @@ pub struct IBNetwork {
     pub rate_limit: f64,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum IBPortState {
     Active,
     Down,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum IBPortMembership {
     Full,
     Limited,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IBPort {
     pub name: String,
     pub guid: String,

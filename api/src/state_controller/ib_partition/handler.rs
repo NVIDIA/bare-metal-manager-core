@@ -50,7 +50,7 @@ impl StateHandler for IBPartitionStateHandler {
             .ib_fabric_manager
             .connect(DEFAULT_IB_FABRIC_NAME)
             .await
-            .map_err(|_| StateHandlerError::IBFabricError("can not get IB fabric".to_string()))?;
+            .map_err(|e| StateHandlerError::IBFabricError(format!("can not get IB fabric: {e}")))?;
 
         match read_state {
             IBPartitionControllerState::Provisioning => {
@@ -80,9 +80,9 @@ impl StateHandler for IBPartitionStateHandler {
                                     }
                                 }
                                 _ => {
-                                    return Err(StateHandlerError::IBFabricError(
-                                        "get_ib_network".to_string(),
-                                    ))
+                                    return Err(StateHandlerError::IBFabricError(format!(
+                                        "get_ib_network: {e}"
+                                    )))
                                 }
                             }
                         }
@@ -100,8 +100,8 @@ impl StateHandler for IBPartitionStateHandler {
                         *controller_state.modify() = IBPartitionControllerState::Deleting;
                     } else {
                         let pkey = pkey.to_string();
-                        let ibnetwork = ib_fabric.get_ib_network(&pkey).await.map_err(|_| {
-                            StateHandlerError::IBFabricError("get_ib_network".to_string())
+                        let ibnetwork = ib_fabric.get_ib_network(&pkey).await.map_err(|e| {
+                            StateHandlerError::IBFabricError(format!("get_ib_network: {e}"))
                         })?;
 
                         // If found the IBNetwork, update the status accordingly. And check
@@ -112,9 +112,10 @@ impl StateHandler for IBPartitionStateHandler {
 
                         if !is_valid_status(&state.config, &ibnetwork) {
                             *controller_state.modify() = IBPartitionControllerState::Error;
-                            return Err(StateHandlerError::IBFabricError(
-                                "invalid status".to_string(),
-                            ));
+                            return Err(StateHandlerError::IBFabricError(format!(
+                                "invalid status: the status in UFM is '{:?}'",
+                                ibnetwork
+                            )));
                         }
                     }
                 }
