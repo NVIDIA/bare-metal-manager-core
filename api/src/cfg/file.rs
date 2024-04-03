@@ -19,7 +19,7 @@ use ipnetwork::Ipv4Network;
 use itertools::Itertools;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::state_controller::controller::IterationConfig;
+use crate::state_controller::config::IterationConfig;
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 

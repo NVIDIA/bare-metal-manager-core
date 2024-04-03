@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod config;
 pub mod controller;
 pub mod ib_partition;
 pub mod io;
