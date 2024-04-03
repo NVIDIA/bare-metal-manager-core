@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,33 +10,29 @@
  * its affiliates is strictly prohibited.
  */
 
-#![allow(clippy::type_complexity)]
-
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use opentelemetry::metrics::Meter;
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
-    ib::IBFabricManager,
-    ipmitool::IPMITool,
     logging::sqlx_query_tracing,
-    redfish::RedfishClientPool,
-    resource_pool::DbResourcePool,
     state_controller::{
+        config::IterationConfig,
         io::StateControllerIO,
         metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics},
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
-            ControllerStateReader, NoopStateHandler, StateHandler, StateHandlerContext,
-            StateHandlerError, StateHandlerOutcome, StateHandlerServices,
+            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
+            StateHandlerOutcome, StateHandlerServices,
         },
     },
 };
+
+mod builder;
 
 /// The object static controller evaluates the current state of all objects of a
 /// certain type in a Forge site, and decides which actions the system should
@@ -69,22 +65,10 @@ pub struct SingleIterationResult {
     skipped_iteration: bool,
 }
 
-/// Creates the query that will be used for advisory locking of a postgres table
-/// with the given name.
-///
-/// Note that there is no real relation between the table and the query
-/// We just use it to get an object identifier
-fn create_lock_query(db_lock_name: &str) -> String {
-    format!(
-        "SELECT pg_try_advisory_xact_lock((SELECT '{}'::regclass::oid)::integer);",
-        db_lock_name
-    )
-}
-
 impl<IO: StateControllerIO> StateController<IO> {
     /// Returns a [`Builder`] for configuring `StateController`
-    pub fn builder() -> Builder<IO> {
-        Builder::new()
+    pub fn builder() -> builder::Builder<IO> {
+        builder::Builder::default()
     }
 
     /// Runs the state handler task repeadetly, while waiting for the configured
@@ -445,290 +429,4 @@ pub struct StateControllerHandle {
     /// Instructs the controller to stop.
     /// We rely on the handle being dropped to instruct the controller to stop performing actions
     _stop_sender: oneshot::Sender<()>,
-}
-
-/// The return value of `[Builder::build_internal]`
-struct BuildOrSpawn<IO: StateControllerIO> {
-    /// Instructs the controller to stop.
-    /// We rely on the handle being dropped to instruct the controller to stop performing actions
-    stop_sender: oneshot::Sender<()>,
-    controller_name: String,
-    controller: StateController<IO>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum StateControllerBuildError {
-    #[error("Missing parameter {0}")]
-    MissingArgument(&'static str),
-
-    #[error("Task spawn error: {0}")]
-    IOError(#[from] std::io::Error),
-}
-
-/// General settings for state controller iterations
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct IterationConfig {
-    /// Configures the desired duration for one state controller iteration
-    ///
-    /// Lower iteration times will make the controller react faster to state changes.
-    /// However they will also increase the load on the system
-    pub iteration_time: Duration,
-
-    /// Configures the maximum time that the state handler will spend on evaluating
-    /// and advancing the state of a single object. If more time elapses during
-    /// state handling than this timeout allows for, state handling will fail with
-    /// a `TimeoutError`.
-    pub max_object_handling_time: Duration,
-
-    /// Configures the maximum amount of concurrency for the object state controller
-    ///
-    /// The controller will attempt to advance the state of this amount of instances
-    /// in parallel.
-    pub max_concurrency: usize,
-}
-
-impl Default for IterationConfig {
-    fn default() -> Self {
-        Self {
-            iteration_time: Duration::from_secs(30),
-            // This is by default set rather high to make sure we usually run the operations
-            // in the state handlers to completion. The purpose of the timeout is just to
-            // prevent an indefinitely stuck state handler - e.g. to due to networking issues
-            // and missing sqlx timeouts
-            max_object_handling_time: Duration::from_secs(3 * 60),
-            max_concurrency: 10,
-        }
-    }
-}
-
-/// A builder for `StateController`
-pub struct Builder<IO: StateControllerIO> {
-    database: Option<sqlx::PgPool>,
-    redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
-    ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
-    iteration_config: IterationConfig,
-    object_type_for_metrics: Option<String>,
-    meter: Option<Meter>,
-    state_handler: Arc<
-        dyn StateHandler<
-            State = IO::State,
-            ControllerState = IO::ControllerState,
-            ContextObjects = IO::ContextObjects,
-            ObjectId = IO::ObjectId,
-        >,
-    >,
-    forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
-    pool_pkey: Option<Arc<DbResourcePool<i16>>>,
-    ipmi_tool: Option<Arc<dyn IPMITool>>,
-}
-
-impl<IO: StateControllerIO> Builder<IO> {
-    /// Creates a new `Builder`
-    ///
-    /// This is not deriving [`Default`] since the method is only intended to be
-    /// called by [`StateController::builder()`].
-    fn new() -> Self {
-        Self {
-            database: None,
-            redfish_client_pool: None,
-            ib_fabric_manager: None,
-            iteration_config: IterationConfig::default(),
-            state_handler: Arc::new(NoopStateHandler::<
-                IO::ObjectId,
-                IO::State,
-                IO::ControllerState,
-                IO::ContextObjects,
-            >::default()),
-            meter: None,
-            object_type_for_metrics: None,
-            forge_api: None,
-            pool_pkey: None,
-            ipmi_tool: None,
-        }
-    }
-
-    /// Builds a [`StateController`] with all configured options with the intention
-    /// of calling the `run_single_iteration` whenever required
-    pub fn build_for_manual_iterations(
-        self,
-    ) -> Result<StateController<IO>, StateControllerBuildError> {
-        let build_or_spawn = self.build_internal()?;
-        Ok(build_or_spawn.controller)
-    }
-
-    /// Builds a [`StateController`] with all configured options
-    /// and spawns the state controller as background task.
-    ///
-    /// The state controller will continue to run as long as the returned `StateControllerHandle`
-    /// is kept alive.
-    pub fn build_and_spawn(self) -> Result<StateControllerHandle, StateControllerBuildError> {
-        let build_or_spawn = self.build_internal()?;
-
-        tokio::task::Builder::new()
-            .name(&format!(
-                "state_controller {}",
-                build_or_spawn.controller_name
-            ))
-            .spawn(async move { build_or_spawn.controller.run().await })?;
-
-        Ok(StateControllerHandle {
-            _stop_sender: build_or_spawn.stop_sender,
-        })
-    }
-
-    /// Builds a [`StateController`] with all configured options
-    fn build_internal(mut self) -> Result<BuildOrSpawn<IO>, StateControllerBuildError> {
-        let database = self
-            .database
-            .take()
-            .ok_or(StateControllerBuildError::MissingArgument("database"))?;
-
-        let object_type_for_metrics = self.object_type_for_metrics.take();
-        let meter = self.meter.take();
-
-        let redfish_client_pool =
-            self.redfish_client_pool
-                .take()
-                .ok_or(StateControllerBuildError::MissingArgument(
-                    "redfish_client_pool",
-                ))?;
-
-        let forge_api = self
-            .forge_api
-            .take()
-            .ok_or(StateControllerBuildError::MissingArgument("forge_api"))?;
-
-        let ib_fabric_manager =
-            self.ib_fabric_manager
-                .take()
-                .ok_or(StateControllerBuildError::MissingArgument(
-                    "ib_fabric_manager",
-                ))?;
-
-        let (stop_sender, stop_receiver) = oneshot::channel();
-
-        if self.iteration_config.max_concurrency == 0 {
-            return Err(StateControllerBuildError::MissingArgument(
-                "max_concurrency",
-            ));
-        }
-        let controller_name = object_type_for_metrics.unwrap_or_else(|| "undefined".to_string());
-
-        let ipmi_tool = self
-            .ipmi_tool
-            .take()
-            .ok_or(StateControllerBuildError::MissingArgument("ipmi_tool"))?;
-
-        let handler_services = Arc::new(StateHandlerServices {
-            pool: database,
-            ib_fabric_manager,
-            redfish_client_pool,
-            forge_api,
-            meter: meter.clone(),
-            pool_pkey: self.pool_pkey.take(),
-            ipmi_tool,
-        });
-
-        // This defines the shared storage location for metrics between the state handler
-        // and the OTEL framework
-        let metric_holder = Arc::new(MetricHolder::new(meter, &controller_name));
-        // Now configure OpenTelemetry to fetch those metrics via a callback
-        // This callback will get executed whenever OTEL needs to publish metrics
-        if let Some(meter) = handler_services.meter.as_ref() {
-            let metric_holder_clone = metric_holder.clone();
-            if let Some(emitter) = metric_holder.emitter.as_ref() {
-                meter
-                    .register_callback(&emitter.instruments(), move |observer| {
-                        if let Some(emitter) = metric_holder_clone.emitter.as_ref() {
-                            if let Some(metrics) =
-                                metric_holder_clone.last_iteration_metrics.load_full()
-                            {
-                                emitter.emit_gauges(observer, &metrics);
-                            }
-                        }
-                    })
-                    .unwrap();
-            }
-        }
-
-        let controller = StateController::<IO> {
-            stop_receiver,
-            iteration_config: self.iteration_config,
-            lock_query: create_lock_query(IO::DB_LOCK_NAME),
-            handler_services,
-            io: Arc::new(IO::default()),
-            state_handler: self.state_handler.clone(),
-            metric_holder,
-        };
-
-        Ok(BuildOrSpawn {
-            controller,
-            controller_name,
-            stop_sender,
-        })
-    }
-
-    /// Configures the forge grpc api
-    pub fn forge_api(mut self, forge_api: Arc<dyn rpc::forge::forge_server::Forge>) -> Self {
-        self.forge_api = Some(forge_api);
-        self
-    }
-
-    /// Configures the utilized database
-    pub fn database(mut self, db: sqlx::PgPool) -> Self {
-        self.database = Some(db);
-        self
-    }
-
-    /// Configures the Meter that will be used for emitting metrics
-    pub fn meter(mut self, object_type_for_metrics: impl Into<String>, meter: Meter) -> Self {
-        self.object_type_for_metrics = Some(object_type_for_metrics.into());
-        self.meter = Some(meter);
-        self
-    }
-
-    /// Configures the utilized Redfish client pool
-    pub fn redfish_client_pool(mut self, redfish_client_pool: Arc<dyn RedfishClientPool>) -> Self {
-        self.redfish_client_pool = Some(redfish_client_pool);
-        self
-    }
-
-    /// Configures the utilized IBService
-    pub fn ib_fabric_manager(mut self, ib_fabric_manager: Arc<dyn IBFabricManager>) -> Self {
-        self.ib_fabric_manager = Some(ib_fabric_manager);
-        self
-    }
-
-    /// Configures the resource pool for allocation / release pkey
-    pub fn pool_pkey(mut self, pool_pkey: Arc<DbResourcePool<i16>>) -> Self {
-        self.pool_pkey = Some(pool_pkey);
-        self
-    }
-
-    /// Configures how the state controller performs iterations
-    pub fn iteration_config(mut self, config: IterationConfig) -> Self {
-        self.iteration_config = config;
-        self
-    }
-
-    /// Sets the function that will be called to advance the state of a single object
-    pub fn state_handler(
-        mut self,
-        handler: Arc<
-            dyn StateHandler<
-                State = IO::State,
-                ControllerState = IO::ControllerState,
-                ContextObjects = IO::ContextObjects,
-                ObjectId = IO::ObjectId,
-            >,
-        >,
-    ) -> Self {
-        self.state_handler = handler;
-        self
-    }
-
-    pub fn ipmi_tool(mut self, ipmi_tool: Arc<dyn IPMITool>) -> Self {
-        self.ipmi_tool = Some(ipmi_tool);
-        self
-    }
 }

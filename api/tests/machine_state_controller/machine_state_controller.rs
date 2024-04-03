@@ -22,7 +22,8 @@ use std::{
 use carbide::{
     model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
     state_controller::{
-        controller::{IterationConfig, StateController},
+        config::IterationConfig,
+        controller::StateController,
         machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
