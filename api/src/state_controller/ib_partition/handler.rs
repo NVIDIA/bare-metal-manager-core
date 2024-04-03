@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// The actual IBPartition State handler
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct IBPartitionStateHandler {}
 
 #[async_trait::async_trait]

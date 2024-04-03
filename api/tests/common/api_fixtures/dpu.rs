@@ -437,17 +437,9 @@ pub async fn create_dpu_machine_with_discovery_error(
     .await;
 
     discovery_completed(env, dpu_rpc_machine_id.clone(), discovery_error).await;
+    env.run_machine_state_controller_iteration(handler).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host_machine_id = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
-        .await
-        .unwrap()
-        .unwrap()
-        .id()
-        .clone();
-
-    env.run_machine_state_controller_iteration(host_machine_id, &handler)
-        .await;
     let machine = Machine::find_one(
         &mut txn,
         &dpu_machine_id,

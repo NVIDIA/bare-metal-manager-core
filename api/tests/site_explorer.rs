@@ -34,7 +34,7 @@ use carbide::{
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
-    state_controller::{machine::handler::MachineStateHandler, metrics::IterationMetrics},
+    state_controller::machine::handler::MachineStateHandler,
 };
 use mac_address::MacAddress;
 use rpc::{
@@ -48,9 +48,8 @@ use common::api_fixtures::TestEnv;
 use tonic::Request;
 
 use crate::common::{
-    api_fixtures::{
-        network_segment::{create_admin_network_segment, create_underlay_network_segment},
-        run_state_controller_iteration,
+    api_fixtures::network_segment::{
+        create_admin_network_segment, create_underlay_network_segment,
     },
     test_meter::TestMeter,
 };
@@ -747,17 +746,8 @@ async fn test_site_explorer_creates_managed_host(
         DpuFwUpdateConfig::default(),
         env.reachability_params,
     );
-    let services = Arc::new(env.state_handler_services());
-    let mut iteration_metrics = IterationMetrics::default();
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine.id().clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
         .await
@@ -771,15 +761,8 @@ async fn test_site_explorer_creates_managed_host(
         }
     );
 
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine.id().clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
         .await

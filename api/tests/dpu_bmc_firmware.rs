@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
+use std::{collections::HashMap, net::IpAddr, str::FromStr};
 
 use carbide::{
     cfg::DpuFwUpdateConfig,
@@ -11,16 +11,15 @@ use carbide::{
         },
     },
     site_explorer::SiteExplorer,
-    state_controller::{machine::handler::MachineStateHandler, metrics::IterationMetrics},
+    state_controller::machine::handler::MachineStateHandler,
 };
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 
-use crate::common::api_fixtures::{
-    network_segment::{create_admin_network_segment, create_underlay_network_segment},
-    run_state_controller_iteration,
+use crate::common::api_fixtures::network_segment::{
+    create_admin_network_segment, create_underlay_network_segment,
 };
 
 pub mod common;
@@ -177,17 +176,8 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
-    let services = Arc::new(env.state_handler_services());
-    let mut iteration_metrics = IterationMetrics::default();
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine.id().clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -210,15 +200,8 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let mut bmc_fw = File::create(bmc_fw_filename).await?;
     bmc_fw.write_all(b"Fake BMC FW").await?;
 
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine.id().clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -241,15 +224,8 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine.id().clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -272,15 +248,8 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine.id().clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let dpu_machine = Machine::find_one(
         &mut txn,
