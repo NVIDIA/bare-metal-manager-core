@@ -128,7 +128,7 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                 .forge_api(test_api.clone())
                 .state_handler(machine_handler.clone())
                 .ipmi_tool(Arc::new(IPMIToolTestImpl {}))
-                .build()
+                .build_and_spawn()
                 .unwrap(),
         );
     }

@@ -83,6 +83,12 @@ impl<IO: StateControllerIO> MetricHolder<IO> {
     }
 }
 
+pub struct SingleIterationResult {
+    /// Whether the iteration was skipped due to not being able to obtain the lock.
+    /// This will be `true` if the lock could not be obtained.
+    skipped_iteration: bool,
+}
+
 /// Creates the query that will be used for advisory locking of a postgres table
 /// with the given name.
 ///
@@ -101,86 +107,17 @@ impl<IO: StateControllerIO> StateController<IO> {
         Builder::new()
     }
 
-    /// Runs the object state controller task
+    /// Runs the state handler task repeadetly, while waiting for the configured
+    /// amount of time between runs.
+    ///
+    /// The controller task will continue to run until `stop_receiver` was signaled
     pub async fn run(mut self) {
         let max_jitter = (self.config.iteration_time.as_millis() / 3) as u64;
         let err_jitter = (self.config.iteration_time.as_millis() / 5) as u64;
 
         loop {
-            let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
-            let mut metrics = IterationMetrics::default();
-
-            let controller_span = tracing::span!(
-                tracing::Level::INFO,
-                "state_controller_iteration",
-                span_id,
-                controller = IO::LOG_SPAN_CONTROLLER_NAME,
-                otel.status_code = tracing::field::Empty,
-                otel.status_message = tracing::field::Empty,
-                skipped_iteration = tracing::field::Empty,
-                num_objects = tracing::field::Empty,
-                num_errors = tracing::field::Empty,
-                states = tracing::field::Empty,
-                states_above_sla = tracing::field::Empty,
-                error_types = tracing::field::Empty,
-                times_in_state_s = tracing::field::Empty,
-                handler_latencies_us = tracing::field::Empty,
-                sql_queries = 0,
-                sql_total_rows_affected = 0,
-                sql_total_rows_returned = 0,
-                sql_max_query_duration_us = 0,
-                sql_max_query_duration_summary = tracing::field::Empty,
-                sql_total_query_duration_us = 0,
-            );
-
-            let res = self
-                .single_iteration(&mut metrics)
-                .instrument(controller_span.clone())
-                .await;
-            let elapsed = metrics.elapsed();
-
-            controller_span.record("otel.status_code", if res.is_ok() { "ok" } else { "error" });
-
-            let db_query_metrics = {
-                let _e: tracing::span::Entered<'_> = controller_span.enter();
-                sqlx_query_tracing::fetch_and_update_current_span_attributes()
-            };
-
-            match &res {
-                Ok(()) | Err(IterationError::LockError) => {
-                    controller_span.record("otel.status_code", "ok");
-                }
-                Err(e) => {
-                    tracing::error!("StateController iteration failed due to: {:?}", e);
-                    controller_span.record("otel.status_code", "error");
-                    // Writing this field will set the span status to error
-                    // Therefore we only write it on errors
-                    controller_span.record("otel.status_message", format!("{:?}", e));
-                }
-            }
-
-            // Immediately emit latency metrics
-            // These will be emitted both in cases where we actually acted on objects
-            // as well as for cases where we didn't get the lock. Since the
-            // latter case doesn't handle any objects it will be a no-op apart
-            // from emitting the latency for not getting the lock.
-            if let Some(emitter) = self.metric_holder.emitter.as_ref() {
-                emitter.emit_latency_metrics(
-                    IO::LOG_SPAN_CONTROLLER_NAME,
-                    &metrics,
-                    &db_query_metrics,
-                );
-                emitter.set_iteration_span_attributes(&controller_span, &metrics);
-            }
-
-            // If we actually performed an iteration (and not failed to obtain the lock),
-            // cache all other metrics that have been captured in this iteration.
-            // Those will be queried by OTEL on demand
-            if res.is_ok() {
-                self.metric_holder
-                    .last_iteration_metrics
-                    .store(Some(Arc::new(metrics)));
-            }
+            let start = Instant::now();
+            let iteration_result = self.run_single_iteration().await;
 
             // We add some jitter before sleeping, to give other controller instances
             // a chance to pick up the lock.
@@ -189,11 +126,15 @@ impl<IO: StateControllerIO> StateController<IO> {
             // a different controller.
             use rand::Rng;
             let jitter = rand::thread_rng().gen::<u64>()
-                % if res.is_err() { err_jitter } else { max_jitter };
+                % if iteration_result.skipped_iteration {
+                    err_jitter
+                } else {
+                    max_jitter
+                };
             let sleep_time = self
                 .config
                 .iteration_time
-                .saturating_sub(elapsed)
+                .saturating_sub(start.elapsed())
                 .saturating_add(Duration::from_millis(jitter));
 
             tokio::select! {
@@ -206,7 +147,95 @@ impl<IO: StateControllerIO> StateController<IO> {
         }
     }
 
-    async fn single_iteration(
+    /// Performs a single state controller iteration
+    ///
+    /// This includes
+    /// - Generating a Span for the iteration
+    /// - Loading all object states
+    /// - Changing the state of all objects and storing results
+    /// - Storing and emitting metrics for the run
+    pub async fn run_single_iteration(&mut self) -> SingleIterationResult {
+        let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
+        let mut metrics = IterationMetrics::default();
+        let mut iteration_result = SingleIterationResult {
+            skipped_iteration: false,
+        };
+
+        let controller_span = tracing::span!(
+            tracing::Level::INFO,
+            "state_controller_iteration",
+            span_id,
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            otel.status_code = tracing::field::Empty,
+            otel.status_message = tracing::field::Empty,
+            skipped_iteration = tracing::field::Empty,
+            num_objects = tracing::field::Empty,
+            num_errors = tracing::field::Empty,
+            states = tracing::field::Empty,
+            states_above_sla = tracing::field::Empty,
+            error_types = tracing::field::Empty,
+            times_in_state_s = tracing::field::Empty,
+            handler_latencies_us = tracing::field::Empty,
+            sql_queries = 0,
+            sql_total_rows_affected = 0,
+            sql_total_rows_returned = 0,
+            sql_max_query_duration_us = 0,
+            sql_max_query_duration_summary = tracing::field::Empty,
+            sql_total_query_duration_us = 0,
+        );
+
+        let res = self
+            .lock_and_handle_iteration(&mut metrics)
+            .instrument(controller_span.clone())
+            .await;
+
+        controller_span.record("otel.status_code", if res.is_ok() { "ok" } else { "error" });
+
+        let db_query_metrics = {
+            let _e: tracing::span::Entered<'_> = controller_span.enter();
+            sqlx_query_tracing::fetch_and_update_current_span_attributes()
+        };
+
+        match &res {
+            Ok(()) => {
+                controller_span.record("otel.status_code", "ok");
+            }
+            Err(IterationError::LockError) => {
+                controller_span.record("otel.status_code", "ok");
+                iteration_result.skipped_iteration = true;
+            }
+            Err(e) => {
+                tracing::error!("StateController iteration failed due to: {:?}", e);
+                controller_span.record("otel.status_code", "error");
+                // Writing this field will set the span status to error
+                // Therefore we only write it on errors
+                controller_span.record("otel.status_message", format!("{:?}", e));
+            }
+        }
+
+        // Immediately emit latency metrics
+        // These will be emitted both in cases where we actually acted on objects
+        // as well as for cases where we didn't get the lock. Since the
+        // latter case doesn't handle any objects it will be a no-op apart
+        // from emitting the latency for not getting the lock.
+        if let Some(emitter) = self.metric_holder.emitter.as_ref() {
+            emitter.emit_latency_metrics(IO::LOG_SPAN_CONTROLLER_NAME, &metrics, &db_query_metrics);
+            emitter.set_iteration_span_attributes(&controller_span, &metrics);
+        }
+
+        // If we actually performed an iteration (and not failed to obtain the lock),
+        // cache all other metrics that have been captured in this iteration.
+        // Those will be queried by OTEL on demand
+        if res.is_ok() {
+            self.metric_holder
+                .last_iteration_metrics
+                .store(Some(Arc::new(metrics)));
+        }
+
+        iteration_result
+    }
+
+    async fn lock_and_handle_iteration(
         &mut self,
         iteration_metrics: &mut IterationMetrics<IO>,
     ) -> Result<(), IterationError> {
@@ -467,6 +496,15 @@ pub struct StateControllerHandle {
     _stop_sender: oneshot::Sender<()>,
 }
 
+/// The return value of `[Builder::build_internal]`
+struct BuildOrSpawn<IO: StateControllerIO> {
+    /// Instructs the controller to stop.
+    /// We rely on the handle being dropped to instruct the controller to stop performing actions
+    stop_sender: oneshot::Sender<()>,
+    controller_name: String,
+    controller: StateController<IO>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StateControllerBuildError {
     #[error("Missing parameter {0}")]
@@ -558,8 +596,37 @@ impl<IO: StateControllerIO> Builder<IO> {
         }
     }
 
+    /// Builds a [`StateController`] with all configured options with the intention
+    /// of calling the `run_single_iteration` whenever required
+    pub fn build_for_manual_iterations(
+        self,
+    ) -> Result<StateController<IO>, StateControllerBuildError> {
+        let build_or_spawn = self.build_internal()?;
+        Ok(build_or_spawn.controller)
+    }
+
     /// Builds a [`StateController`] with all configured options
-    pub fn build(mut self) -> Result<StateControllerHandle, StateControllerBuildError> {
+    /// and spawns the state controller as background task.
+    ///
+    /// The state controller will continue to run as long as the returned `StateControllerHandle`
+    /// is kept alive.
+    pub fn build_and_spawn(self) -> Result<StateControllerHandle, StateControllerBuildError> {
+        let build_or_spawn = self.build_internal()?;
+
+        tokio::task::Builder::new()
+            .name(&format!(
+                "state_controller {}",
+                build_or_spawn.controller_name
+            ))
+            .spawn(async move { build_or_spawn.controller.run().await })?;
+
+        Ok(StateControllerHandle {
+            _stop_sender: build_or_spawn.stop_sender,
+        })
+    }
+
+    /// Builds a [`StateController`] with all configured options
+    fn build_internal(mut self) -> Result<BuildOrSpawn<IO>, StateControllerBuildError> {
         let database = self
             .database
             .take()
@@ -648,15 +715,12 @@ impl<IO: StateControllerIO> Builder<IO> {
             state_handler: self.state_handler.clone(),
             metric_holder,
         };
-        tokio::task::Builder::new()
-            .name(&format!("state_controller {controller_name}"))
-            .spawn(async move { controller.run().await })?;
 
-        let handle = StateControllerHandle {
-            _stop_sender: stop_sender,
-        };
-
-        Ok(handle)
+        Ok(BuildOrSpawn {
+            controller,
+            controller_name,
+            stop_sender,
+        })
     }
 
     /// Configures the forge grpc api
