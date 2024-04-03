@@ -17,7 +17,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use arc_swap::ArcSwapOption;
 use opentelemetry::metrics::Meter;
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
@@ -30,7 +29,7 @@ use crate::{
     resource_pool::DbResourcePool,
     state_controller::{
         io::StateControllerIO,
-        metrics::{IterationMetrics, ObjectHandlerMetrics, StateControllerMetricEmitter},
+        metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics},
         snapshot_loader::SnapshotLoaderError,
         state_handler::{
             ControllerStateReader, NoopStateHandler, StateHandler, StateHandlerContext,
@@ -61,26 +60,7 @@ pub struct StateController<IO: StateControllerIO> {
     >,
     metric_holder: Arc<MetricHolder<IO>>,
     stop_receiver: oneshot::Receiver<()>,
-    config: Config,
-}
-
-/// Stores Metric data shared between the Controller and the OpenTelemetry background task
-struct MetricHolder<IO: StateControllerIO> {
-    emitter: Option<StateControllerMetricEmitter<IO>>,
-    last_iteration_metrics: ArcSwapOption<IterationMetrics<IO>>,
-}
-
-impl<IO: StateControllerIO> MetricHolder<IO> {
-    pub fn new(meter: Option<Meter>, object_type_for_metrics: &str) -> Self {
-        let emitter = meter
-            .as_ref()
-            .map(|meter| StateControllerMetricEmitter::new(object_type_for_metrics, meter.clone()));
-
-        Self {
-            emitter,
-            last_iteration_metrics: ArcSwapOption::const_empty(),
-        }
-    }
+    iteration_config: IterationConfig,
 }
 
 pub struct SingleIterationResult {
@@ -112,8 +92,8 @@ impl<IO: StateControllerIO> StateController<IO> {
     ///
     /// The controller task will continue to run until `stop_receiver` was signaled
     pub async fn run(mut self) {
-        let max_jitter = (self.config.iteration_time.as_millis() / 3) as u64;
-        let err_jitter = (self.config.iteration_time.as_millis() / 5) as u64;
+        let max_jitter = (self.iteration_config.iteration_time.as_millis() / 3) as u64;
+        let err_jitter = (self.iteration_config.iteration_time.as_millis() / 5) as u64;
 
         loop {
             let start = Instant::now();
@@ -132,7 +112,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                     max_jitter
                 };
             let sleep_time = self
-                .config
+                .iteration_config
                 .iteration_time
                 .saturating_sub(start.elapsed())
                 .saturating_add(Duration::from_millis(jitter));
@@ -258,209 +238,192 @@ impl<IO: StateControllerIO> StateController<IO> {
             "State controller acquired the lock",
         );
 
-        handle_controller_iteration::<IO>(
-            &self.io,
-            &self.state_handler,
-            &self.handler_services,
-            &self.config,
-            &self.metric_holder.emitter,
-            iteration_metrics,
-        )
-        .await?;
+        self.handle_iteration(iteration_metrics).await?;
 
         txn.commit().await?;
 
         Ok(())
     }
-}
 
-async fn handle_controller_iteration<IO: StateControllerIO>(
-    io: &Arc<IO>,
-    state_handler: &Arc<
-        dyn StateHandler<
-            State = IO::State,
-            ControllerState = IO::ControllerState,
-            ContextObjects = IO::ContextObjects,
-            ObjectId = IO::ObjectId,
-        >,
-    >,
-    handler_services: &Arc<StateHandlerServices>,
-    config: &Config,
-    emitter: &Option<StateControllerMetricEmitter<IO>>,
-    iteration_metrics: &mut IterationMetrics<IO>,
-) -> Result<(), IterationError> {
-    // We start by grabbing a list of objects that should be active
-    // The list might change until we fetch more data. However that should be ok:
-    // The next iteration of the controller would also find objects that
-    // have been added to the system. And no object should ever be removed
-    // outside of the state controller
-    let mut txn = handler_services.pool.begin().await?;
-    let object_ids = io.list_objects(&mut txn).await?;
-    txn.commit().await?;
+    async fn handle_iteration(
+        &mut self,
+        iteration_metrics: &mut IterationMetrics<IO>,
+    ) -> Result<(), IterationError> {
+        // We start by grabbing a list of objects that should be active
+        // The list might change until we fetch more data. However that should be ok:
+        // The next iteration of the controller would also find objects that
+        // have been added to the system. And no object should ever be removed
+        // outside of the state controller
+        let mut txn = self.handler_services.pool.begin().await?;
+        let object_ids = self.io.list_objects(&mut txn).await?;
+        txn.commit().await?;
 
-    let mut task_set = JoinSet::new();
+        let mut task_set = JoinSet::new();
 
-    let concurrency_limiter = Arc::new(tokio::sync::Semaphore::new(config.max_concurrency));
+        let concurrency_limiter = Arc::new(tokio::sync::Semaphore::new(
+            self.iteration_config.max_concurrency,
+        ));
 
-    for object_id in object_ids.iter() {
-        let object_id = object_id.clone();
-        let services = handler_services.clone();
-        let io = io.clone();
-        let handler = state_handler.clone();
-        let concurrency_limiter = concurrency_limiter.clone();
-        let max_object_handling_time = config.max_object_handling_time;
+        for object_id in object_ids.iter() {
+            let object_id = object_id.clone();
+            let services = self.handler_services.clone();
+            let io = self.io.clone();
+            let handler = self.state_handler.clone();
+            let concurrency_limiter = concurrency_limiter.clone();
+            let max_object_handling_time = self.iteration_config.max_object_handling_time;
 
-        let _abort_handle = task_set
-            .build_task()
-            .name(&format!("state_controller {object_id}"))
-            .spawn(
-                async move {
-                    // Acquire a permit which will block more than `MAX_CONCURRENCY`
-                    // tasks from running.
-                    // Note that assigning the permit to a named variable is necessary
-                    // to make it live until the end of the scope. Using `_` would
-                    // immediately dispose the permit.
-                    let _permit = concurrency_limiter
-                        .acquire()
-                        .await
-                        .expect("Semaphore can't be closed");
+            let _abort_handle = task_set
+                .build_task()
+                .name(&format!("state_controller {object_id}"))
+                .spawn(
+                    async move {
+                        // Acquire a permit which will block more than `MAX_CONCURRENCY`
+                        // tasks from running.
+                        // Note that assigning the permit to a named variable is necessary
+                        // to make it live until the end of the scope. Using `_` would
+                        // immediately dispose the permit.
+                        let _permit = concurrency_limiter
+                            .acquire()
+                            .await
+                            .expect("Semaphore can't be closed");
 
-                    let mut metrics = ObjectHandlerMetrics::<IO>::default();
+                        let mut metrics = ObjectHandlerMetrics::<IO>::default();
 
-                    let start = Instant::now();
+                        let start = Instant::now();
 
-                    // Note that this inner async block is required to be able to use
-                    // the ? operator in the inner block, and then return a `Result`
-                    // from the other outer block.
-                    let result: Result<Result<(), StateHandlerError>, tokio::time::error::Elapsed> =
-                        tokio::time::timeout(max_object_handling_time, async {
-                            let mut txn = services.pool.begin().await?;
-                            let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
-                            let mut controller_state = io
-                                .load_controller_state(&mut txn, &object_id, &snapshot)
-                                .await?;
-                            metrics.common.state = Some(controller_state.value.clone());
-                            // Unwrap uses a very large duration as default to show something is wrong
-                            metrics.common.time_in_state = chrono::Utc::now()
-                                .signed_duration_since(controller_state.version.timestamp())
-                                .to_std()
-                                .unwrap_or(Duration::from_secs(60 * 60 * 24));
-                            metrics.common.time_in_state_above_sla =
-                                IO::time_in_state_above_sla(&controller_state);
+                        // Note that this inner async block is required to be able to use
+                        // the ? operator in the inner block, and then return a `Result`
+                        // from the other outer block.
+                        let result: Result<Result<(), StateHandlerError>, tokio::time::error::Elapsed> =
+                            tokio::time::timeout(max_object_handling_time, async {
+                                let mut txn = services.pool.begin().await?;
+                                let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
+                                let mut controller_state = io
+                                    .load_controller_state(&mut txn, &object_id, &snapshot)
+                                    .await?;
+                                metrics.common.state = Some(controller_state.value.clone());
+                                // Unwrap uses a very large duration as default to show something is wrong
+                                metrics.common.time_in_state = chrono::Utc::now()
+                                    .signed_duration_since(controller_state.version.timestamp())
+                                    .to_std()
+                                    .unwrap_or(Duration::from_secs(60 * 60 * 24));
+                                metrics.common.time_in_state_above_sla =
+                                    IO::time_in_state_above_sla(&controller_state);
 
-                            let mut ctx = StateHandlerContext {
-                                services: &services,
-                                metrics: &mut metrics.specific,
-                            };
+                                let mut ctx = StateHandlerContext {
+                                    services: &services,
+                                    metrics: &mut metrics.specific,
+                                };
 
-                            let mut state_holder =
-                                ControllerStateReader::new(&mut controller_state.value);
+                                let mut state_holder =
+                                    ControllerStateReader::new(&mut controller_state.value);
 
-                            match handler
-                                .handle_object_state(
-                                    &object_id,
-                                    &mut snapshot,
-                                    &mut state_holder,
-                                    &mut txn,
-                                    &mut ctx,
-                                )
-                                .await
-                            {
-                                Ok(outcome) => {
-                                    use StateHandlerOutcome::*;
+                                match handler
+                                    .handle_object_state(
+                                        &object_id,
+                                        &mut snapshot,
+                                        &mut state_holder,
+                                        &mut txn,
+                                        &mut ctx,
+                                    )
+                                    .await
+                                {
+                                    Ok(outcome) => {
+                                        use StateHandlerOutcome::*;
 
-                                    // TEMP
-                                    // This will go in the DB
-                                    //
-                                    match outcome {
-                                        Wait(reason) => {
-                                            tracing::debug!(%object_id, "Waiting: {reason}");
+                                        // TEMP
+                                        // This will go in the DB
+                                        //
+                                        match outcome {
+                                            Wait(reason) => {
+                                                tracing::debug!(%object_id, "Waiting: {reason}");
+                                            }
+                                            Transition(next_state) => {
+                                                tracing::debug!(%object_id, "Move to state {next_state:?}");
+                                            }
+                                            DoNothing | Todo => {}
                                         }
-                                        Transition(next_state) => {
-                                            tracing::debug!(%object_id, "Move to state {next_state:?}");
+
+                                        if state_holder.is_modified() {
+                                            io.persist_controller_state(
+                                                &mut txn,
+                                                &object_id,
+                                                controller_state.version,
+                                                controller_state.value,
+                                            )
+                                            .await?;
                                         }
-                                        DoNothing | Todo => {}
-                                    }
 
-                                    if state_holder.is_modified() {
-                                        io.persist_controller_state(
-                                            &mut txn,
-                                            &object_id,
-                                            controller_state.version,
-                                            controller_state.value,
-                                        )
-                                        .await?;
+                                        txn.commit()
+                                            .await
+                                            .map_err(StateHandlerError::TransactionError)
                                     }
-
-                                    txn.commit()
-                                        .await
-                                        .map_err(StateHandlerError::TransactionError)
+                                    Err(e) => Err(e),
                                 }
-                                Err(e) => Err(e),
-                            }
-                        })
-                        .await;
+                            })
+                            .await;
 
-                    let result = match result {
-                        Ok(Ok(result)) => Ok(result),
-                        Ok(Err(err)) => Err(err),
-                        Err(_timeout) => Err(StateHandlerError::Timeout {
-                            object_id: object_id.to_string(),
-                            state: metrics
-                                .common
-                                .state
-                                .as_ref()
-                                .map(|state| format!("{:?}", state))
-                                .unwrap_or_default(),
-                        }),
-                    };
+                        let result = match result {
+                            Ok(Ok(result)) => Ok(result),
+                            Ok(Err(err)) => Err(err),
+                            Err(_timeout) => Err(StateHandlerError::Timeout {
+                                object_id: object_id.to_string(),
+                                state: metrics
+                                    .common
+                                    .state
+                                    .as_ref()
+                                    .map(|state| format!("{:?}", state))
+                                    .unwrap_or_default(),
+                            }),
+                        };
 
-                    metrics.common.handler_latency = start.elapsed();
+                        metrics.common.handler_latency = start.elapsed();
 
-                    if let Err(e) = &result {
-                        tracing::warn!(%object_id, error = ?e, "State handler error");
+                        if let Err(e) = &result {
+                            tracing::warn!(%object_id, error = ?e, "State handler error");
+                        }
+
+                        (metrics, result)
                     }
+                    .in_current_span(),
+                );
+        }
 
-                    (metrics, result)
+        // We want for all tasks to run to completion here and therefore can't
+        // return early until the `TaskSet` is fully consumed.
+        // If we would return early then some tasks might still work on an object
+        // even thought the next controller iteration already started.
+        // Therefore we drain the `task_set` here completely and record all errors
+        // before returning.
+        let mut last_join_error: Option<tokio::task::JoinError> = None;
+        while let Some(result) = task_set.join_next().await {
+            match result {
+                Err(join_error) => {
+                    last_join_error = Some(join_error);
                 }
-                .in_current_span(),
-            );
-    }
-
-    // We want for all tasks to run to completion here and therefore can't
-    // return early until the `TaskSet` is fully consumed.
-    // If we would return early then some tasks might still work on an object
-    // even thought the next controller iteration already started.
-    // Therefore we drain the `task_set` here completely and record all errors
-    // before returning.
-    let mut last_join_error: Option<tokio::task::JoinError> = None;
-    while let Some(result) = task_set.join_next().await {
-        match result {
-            Err(join_error) => {
-                last_join_error = Some(join_error);
-            }
-            Ok((mut metrics, Err(handler_error))) => {
-                metrics.common.error = Some(handler_error);
-                iteration_metrics.merge_object_handling_metrics(&metrics);
-                // Since we log StateHandlerErrors including the objectId inside the
-                // handling task themselves, we don't have to forward these errors.
-                // This avoids double logging of the results of individual tasks.
-            }
-            Ok((metrics, Ok(()))) => {
-                iteration_metrics.merge_object_handling_metrics(&metrics);
+                Ok((mut metrics, Err(handler_error))) => {
+                    metrics.common.error = Some(handler_error);
+                    iteration_metrics.merge_object_handling_metrics(&metrics);
+                    // Since we log StateHandlerErrors including the objectId inside the
+                    // handling task themselves, we don't have to forward these errors.
+                    // This avoids double logging of the results of individual tasks.
+                }
+                Ok((metrics, Ok(()))) => {
+                    iteration_metrics.merge_object_handling_metrics(&metrics);
+                }
             }
         }
-    }
 
-    if let Some(emitter) = emitter {
-        emitter.update_histograms(iteration_metrics);
-    }
+        if let Some(emitter) = self.metric_holder.emitter.as_ref() {
+            emitter.update_histograms(iteration_metrics);
+        }
 
-    if let Some(err) = last_join_error.take() {
-        return Err(err.into());
-    }
+        if let Some(err) = last_join_error.take() {
+            return Err(err.into());
+        }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -475,18 +438,6 @@ enum IterationError {
     StateHandlerError(#[from] StateHandlerError),
     #[error("Snapshot loader error: {0}")]
     SnapshotLoaderError(#[from] SnapshotLoaderError),
-}
-
-#[derive(Debug)]
-struct Config {
-    /// Iteration time
-    iteration_time: Duration,
-    /// Maxmimum duration of the controller iteration for a single object
-    max_object_handling_time: Duration,
-    /// Maximum concurrency level
-    max_concurrency: usize,
-    /// The name that will be assigned for state controller metrics
-    object_type_for_metrics: String,
 }
 
 /// A remote handle for the state controller
@@ -662,12 +613,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             ));
         }
         let controller_name = object_type_for_metrics.unwrap_or_else(|| "undefined".to_string());
-        let config = Config {
-            iteration_time: self.iteration_config.iteration_time,
-            max_object_handling_time: self.iteration_config.max_object_handling_time,
-            max_concurrency: self.iteration_config.max_concurrency,
-            object_type_for_metrics: controller_name.clone(),
-        };
 
         let ipmi_tool = self
             .ipmi_tool
@@ -686,7 +631,7 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         // This defines the shared storage location for metrics between the state handler
         // and the OTEL framework
-        let metric_holder = Arc::new(MetricHolder::new(meter, &config.object_type_for_metrics));
+        let metric_holder = Arc::new(MetricHolder::new(meter, &controller_name));
         // Now configure OpenTelemetry to fetch those metrics via a callback
         // This callback will get executed whenever OTEL needs to publish metrics
         if let Some(meter) = handler_services.meter.as_ref() {
@@ -708,7 +653,7 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         let controller = StateController::<IO> {
             stop_receiver,
-            config,
+            iteration_config: self.iteration_config,
             lock_query: create_lock_query(IO::DB_LOCK_NAME),
             handler_services,
             io: Arc::new(IO::default()),

@@ -12,6 +12,7 @@
 
 use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
+use arc_swap::ArcSwapOption;
 use opentelemetry::{
     metrics::{self, Histogram, Meter, ObservableGauge, Unit},
     KeyValue,
@@ -613,6 +614,25 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
     /// Update histograms
     pub fn update_histograms(&self, iteration_metrics: &IterationMetrics<IO>) {
         self.specific.update_histograms(&iteration_metrics.specific);
+    }
+}
+
+/// Stores Metric data shared between the Controller and the OpenTelemetry background task
+pub struct MetricHolder<IO: StateControllerIO> {
+    pub emitter: Option<StateControllerMetricEmitter<IO>>,
+    pub last_iteration_metrics: ArcSwapOption<IterationMetrics<IO>>,
+}
+
+impl<IO: StateControllerIO> MetricHolder<IO> {
+    pub fn new(meter: Option<Meter>, object_type_for_metrics: &str) -> Self {
+        let emitter = meter
+            .as_ref()
+            .map(|meter| StateControllerMetricEmitter::new(object_type_for_metrics, meter.clone()));
+
+        Self {
+            emitter,
+            last_iteration_metrics: ArcSwapOption::const_empty(),
+        }
     }
 }
 
