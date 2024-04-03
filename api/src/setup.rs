@@ -338,7 +338,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             },
         )))
         .ipmi_tool(ipmi_tool.clone())
-        .build()
+        .build_and_spawn()
         .expect("Unable to build MachineStateController");
 
     let sc_pool_vlan_id = common_pools.ethernet.pool_vlan_id.clone();
@@ -360,7 +360,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             sc_pool_vni,
         )))
         .ipmi_tool(ipmi_tool.clone())
-        .build()
+        .build_and_spawn()
         .expect("Unable to build NetworkSegmentController");
 
     let _ib_partition_controller_handle =
@@ -374,7 +374,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
             .state_handler(Arc::new(IBPartitionStateHandler::default()))
             .ipmi_tool(ipmi_tool.clone())
-            .build()
+            .build_and_spawn()
             .expect("Unable to build IBPartitionStateController");
 
     let ib_fabric_monitor = IbFabricMonitor::new(
