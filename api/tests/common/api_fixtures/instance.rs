@@ -135,10 +135,10 @@ pub async fn advance_created_instance_into_ready_state(
     );
 
     // - first run: state controller moves state to WaitingForNetworkConfig
-    env.run_machine_state_controller_iteration(host_machine_id.clone(), &handler)
+    env.run_machine_state_controller_iteration(handler.clone())
         .await;
     // - second run: state controller sets use_admin_network to false
-    env.run_machine_state_controller_iteration(host_machine_id.clone(), &handler)
+    env.run_machine_state_controller_iteration(handler.clone())
         .await;
     // - forge-dpu-agent gets an instance network to configure, reports it configured
     super::network_configured(env, dpu_machine_id).await;

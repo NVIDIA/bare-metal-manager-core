@@ -11,20 +11,16 @@
  */
 pub mod common;
 
-use std::sync::Arc;
-
 use carbide::cfg::DpuFwUpdateConfig;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
 use carbide::state_controller::machine::handler::MachineStateHandler;
-use carbide::state_controller::metrics::IterationMetrics;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::Action;
 
 use crate::common::api_fixtures::{
-    discovery_completed, forge_agent_control, network_configured, run_state_controller_iteration,
-    update_time_params,
+    discovery_completed, forge_agent_control, network_configured, update_time_params,
 };
 
 #[ctor::ctor]
@@ -78,17 +74,8 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
         DpuFwUpdateConfig::default(),
         env.reachability_params,
     );
-    let services = Arc::new(env.state_handler_services());
-    let mut iteration_metrics = IterationMetrics::default();
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -106,7 +93,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let env = create_test_env(pool.clone()).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let mut txn = pool.begin().await.unwrap();
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
@@ -127,17 +114,8 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Run the state state handler
-    let services = Arc::new(env.state_handler_services());
-    let mut iteration_metrics = IterationMetrics::default();
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     // Now the network should be marked unhealthy
     let dpu_machine = Machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
@@ -182,17 +160,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         DpuFwUpdateConfig::default(),
         env.reachability_params,
     );
-    let services = Arc::new(env.state_handler_services());
-    let mut iteration_metrics = IterationMetrics::default();
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -207,15 +176,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     update_time_params(&env.pool, &host, 1).await;
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
 
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -249,33 +211,23 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     discovery_completed(&env, host_rpc_machine_id.clone(), None).await;
 
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
     assert_eq!(
-        iteration_metrics
-            .specific
-            .machine_reboot_attempts_in_failed_during_discovery()
-            .iter()
-            .sum::<u64>(),
-        1
+        env.test_meter
+            .formatted_metric("forge_reboot_attempts_in_failed_during_discovery_sum")
+            .unwrap(),
+        "1"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_reboot_attempts_in_failed_during_discovery_count")
+            .unwrap(),
+        "1"
     );
 
-    run_state_controller_iteration(
-        &services,
-        &pool,
-        &env.machine_state_controller_io,
-        host_machine_id.clone(),
-        &handler,
-        &mut iteration_metrics,
-    )
-    .await;
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await

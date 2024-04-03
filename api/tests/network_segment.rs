@@ -194,9 +194,9 @@ async fn test_network_segment_max_history_length(
         env.common_pools.ethernet.pool_vni.clone(),
     );
 
-    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+    env.run_network_segment_controller_iteration(state_handler.clone())
         .await;
-    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+    env.run_network_segment_controller_iteration(state_handler)
         .await;
 
     assert_eq!(
@@ -310,7 +310,6 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Create a network segment rpc call
     let segment = create_network_segment_with_api(&env.api, false, true, None).await;
-    let segment_id = segment.id.clone().unwrap().try_into()?;
 
     // Value is allocated
     let mut txn = db_pool.begin().await?;
@@ -327,18 +326,18 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         }))
         .await?;
     // Ready
-    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+    env.run_network_segment_controller_iteration(state_handler.clone())
         .await;
     // DrainAllocatedIPs
-    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+    env.run_network_segment_controller_iteration(state_handler.clone())
         .await;
     // Wait for the drain period
     tokio::time::sleep(Duration::from_secs(1)).await;
     // Deleting
-    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+    env.run_network_segment_controller_iteration(state_handler.clone())
         .await;
     // DBDelete
-    env.run_network_segment_controller_iteration(segment_id, &state_handler)
+    env.run_network_segment_controller_iteration(state_handler)
         .await;
 
     // Value is free

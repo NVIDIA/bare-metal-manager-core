@@ -89,10 +89,9 @@ async fn create_network_segment(
         env.common_pools.ethernet.pool_vlan_id.clone(),
         env.common_pools.ethernet.pool_vni.clone(),
     );
-    env.run_network_segment_controller_iteration(segment_id, &handler)
+    env.run_network_segment_controller_iteration(handler.clone())
         .await;
-    env.run_network_segment_controller_iteration(segment_id, &handler)
-        .await;
+    env.run_network_segment_controller_iteration(handler).await;
 
     segment_id
 }

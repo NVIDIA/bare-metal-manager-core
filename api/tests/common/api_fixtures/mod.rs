@@ -48,13 +48,10 @@ use carbide::{
             handler::{MachineStateHandler, ReachabilityParams},
             io::MachineStateControllerIO,
         },
-        metrics::{IterationMetrics, ObjectHandlerMetrics},
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
         },
-        state_handler::{
-            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerServices,
-        },
+        state_handler::{StateHandler, StateHandlerServices},
     },
 };
 use chrono::Duration;
@@ -224,62 +221,63 @@ impl TestEnv {
         self.build_state_controller("forge_machines", handler)
     }
 
+    /// Builds a Network Segment State Controller that executes a specific handler for unit-testing purposes
+    pub fn build_network_segment_state_controller(
+        &self,
+        handler: NetworkSegmentStateHandler,
+    ) -> StateController<NetworkSegmentStateControllerIO> {
+        self.build_state_controller("forge_network_segments", handler)
+    }
+
+    /// Builds a InfiniBand Partition State Controller that executes a specific handler for unit-testing purposes
+    pub fn build_ib_partition_state_controller(
+        &self,
+        handler: IBPartitionStateHandler,
+    ) -> StateController<IBPartitionStateControllerIO> {
+        self.build_state_controller("forge_ib_partitions", handler)
+    }
+
+    /// Runs a single state controller iteration for any kind of state controller
+    pub async fn run_state_controller_iteration<IO: StateControllerIO>(
+        &self,
+        object_type_for_metrics: &str,
+        handler: impl StateHandler<
+            State = IO::State,
+            ControllerState = IO::ControllerState,
+            ObjectId = IO::ObjectId,
+            ContextObjects = IO::ContextObjects,
+        >,
+    ) {
+        let mut controller = self.build_state_controller::<IO, _>(object_type_for_metrics, handler);
+        controller.run_single_iteration().await;
+    }
+
     /// Runs one iteration of the machine state controller handler with the services
     /// in this test environment
-    pub async fn run_machine_state_controller_iteration(
-        &self,
-        host_machine_id: MachineId,
-        handler: &MachineStateHandler,
-    ) {
-        let services = Arc::new(self.state_handler_services());
-        let mut iteration_metrics = IterationMetrics::default();
-        run_state_controller_iteration(
-            &services,
-            &self.pool,
-            &self.machine_state_controller_io,
-            host_machine_id,
-            handler,
-            &mut iteration_metrics,
-        )
-        .await
+    pub async fn run_machine_state_controller_iteration(&self, handler: MachineStateHandler) {
+        self.run_state_controller_iteration::<MachineStateControllerIO>("forge_machines", handler)
+            .await
     }
 
     /// Runs one iteration of the network state controller handler with the services
     /// in this test environment
     pub async fn run_network_segment_controller_iteration(
         &self,
-        segment_id: uuid::Uuid,
-        handler: &NetworkSegmentStateHandler,
+        handler: NetworkSegmentStateHandler,
     ) {
-        let services = Arc::new(self.state_handler_services());
-        let mut iteration_metrics = IterationMetrics::default();
-        run_state_controller_iteration(
-            &services,
-            &self.pool,
-            &self.network_segment_state_controller_io,
-            segment_id,
+        self.run_state_controller_iteration::<NetworkSegmentStateControllerIO>(
+            "forge_network_segments",
             handler,
-            &mut iteration_metrics,
         )
         .await
     }
 
     /// Runs one iteration of the IB partition state controller handler with the services
     /// in this test environment
-    pub async fn run_ib_partition_controller_iteration(
-        &self,
-        segment_id: uuid::Uuid,
-        handler: &IBPartitionStateHandler,
-    ) {
-        let services = Arc::new(self.state_handler_services());
-        let mut iteration_metrics = IterationMetrics::default();
-        run_state_controller_iteration(
-            &services,
-            &self.pool,
-            &self.ib_partition_state_controller_io,
-            segment_id,
+    pub async fn run_ib_partition_controller_iteration(&self, handler: IBPartitionStateHandler) {
+        self.run_state_controller_iteration::<IBPartitionStateControllerIO>(
+            "forge_ib_partitions",
             handler,
-            &mut iteration_metrics,
         )
         .await
     }
@@ -509,59 +507,6 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
         },
     );
     defs
-}
-
-/// Runs a single state controller iteration for any kind of state controller
-pub async fn run_state_controller_iteration<IO: StateControllerIO>(
-    handler_services: &Arc<StateHandlerServices>,
-    pool: &PgPool,
-    io: &IO,
-    object_id: IO::ObjectId,
-    handler: &impl StateHandler<
-        State = IO::State,
-        ControllerState = IO::ControllerState,
-        ObjectId = IO::ObjectId,
-        ContextObjects = IO::ContextObjects,
-    >,
-    iteration_metrics: &mut IterationMetrics<IO>,
-) {
-    let mut metrics = ObjectHandlerMetrics::<IO>::default();
-    let mut handler_ctx = StateHandlerContext {
-        services: handler_services,
-        metrics: &mut metrics.specific,
-    };
-    let mut txn = pool.begin().await.unwrap();
-
-    let mut full_state = io.load_object_state(&mut txn, &object_id).await.unwrap();
-    let mut controller_state = io
-        .load_controller_state(&mut txn, &object_id, &full_state)
-        .await
-        .unwrap();
-
-    let mut holder = ControllerStateReader::new(&mut controller_state.value);
-    handler
-        .handle_object_state(
-            &object_id,
-            &mut full_state,
-            &mut holder,
-            &mut txn,
-            &mut handler_ctx,
-        )
-        .await
-        .unwrap();
-
-    if holder.is_modified() {
-        io.persist_controller_state(
-            &mut txn,
-            &object_id,
-            controller_state.version,
-            controller_state.value,
-        )
-        .await
-        .unwrap();
-    }
-    iteration_metrics.merge_object_handling_metrics(&metrics);
-    txn.commit().await.unwrap();
 }
 
 /// Emulates the `UpdateBmcMetaData` request of a DPU/Host

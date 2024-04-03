@@ -31,7 +31,7 @@ use crate::{
 };
 
 /// The actual Network Segment State handler
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NetworkSegmentStateHandler {
     /// Specifies for how long the number of allocated IPs on network prefixes
     /// need to be zero until the segment is deleted

@@ -43,7 +43,7 @@ pub async fn create_ib_partition(
         uuid::Uuid::try_from(ib_partition.id.clone().expect("Missing ib partition ID")).unwrap();
 
     let state_handler = IBPartitionStateHandler::default();
-    env.run_ib_partition_controller_iteration(ib_partition_id, &state_handler)
+    env.run_ib_partition_controller_iteration(state_handler)
         .await;
 
     let ib_partition = env
