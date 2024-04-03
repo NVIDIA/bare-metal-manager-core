@@ -41,6 +41,7 @@ use carbide::{
     redfish::RedfishSim,
     resource_pool::{self, common::CommonPools},
     state_controller::{
+        controller::StateController,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
         io::StateControllerIO,
         machine::{
@@ -97,7 +98,7 @@ pub const FIXTURE_X86_MACHINE_ID: &str =
     "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 
 pub struct TestEnv {
-    pub api: TestApi,
+    pub api: Arc<TestApi>,
     pub config: Arc<CarbideConfig>,
     pub credential_provider: Arc<TestCredentialProvider>,
     pub certificate_provider: Arc<TestCertificateProvider>,
@@ -106,6 +107,7 @@ pub struct TestEnv {
     pub pool: PgPool,
     pub redfish_sim: Arc<RedfishSim>,
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
+    pub ipmi_tool: Arc<IPMIToolTestImpl>,
     pub machine_state_controller_io: MachineStateControllerIO,
     pub network_segment_state_controller_io: NetworkSegmentStateControllerIO,
     pub reachability_params: ReachabilityParams,
@@ -117,32 +119,14 @@ impl TestEnv {
     /// Creates an instance of StateHandlerServices that are suitable for this
     /// test environment
     pub fn state_handler_services(&self) -> StateHandlerServices {
-        let config = Arc::new(get_config());
-
-        let forge_api = Arc::new(Api::new(
-            config,
-            self.credential_provider.clone(),
-            self.certificate_provider.clone(),
-            self.pool.clone(),
-            self.redfish_sim.clone(),
-            self.eth_virt_data.clone(),
-            self.common_pools.clone(),
-            self.ib_fabric_manager.clone(),
-            Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
-                EnvFilter::builder()
-                    .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
-                    .unwrap(),
-            )))),
-        ));
-
         StateHandlerServices {
             pool: self.pool.clone(),
             redfish_client_pool: self.redfish_sim.clone(),
             ib_fabric_manager: self.ib_fabric_manager.clone(),
-            forge_api,
-            meter: None,
+            forge_api: self.api.clone(),
+            meter: Some(self.test_meter.meter()),
             pool_pkey: Some(self.common_pools.infiniband.pool_pkey.clone()),
-            ipmi_tool: Arc::new(IPMIToolTestImpl {}),
+            ipmi_tool: self.ipmi_tool.clone(),
         }
     }
 
@@ -167,23 +151,15 @@ impl TestEnv {
     pub async fn run_machine_state_controller_iteration_until_state_matches(
         &self,
         host_machine_id: &MachineId,
-        handler: &MachineStateHandler,
+        handler: MachineStateHandler,
         max_iterations: u32,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         expected_state: ManagedHostState,
-        iteration_metrics: &mut IterationMetrics<MachineStateControllerIO>,
     ) {
-        let services = Arc::new(self.state_handler_services());
+        let mut controller = self.build_machine_state_controller(handler);
+
         for _ in 0..max_iterations {
-            run_state_controller_iteration(
-                &services,
-                &self.pool,
-                &self.machine_state_controller_io,
-                host_machine_id.clone(),
-                handler,
-                iteration_metrics,
-            )
-            .await;
+            controller.run_single_iteration().await;
 
             let machine = Machine::find_one(
                 txn,
@@ -212,6 +188,40 @@ impl TestEnv {
             "Expected Machine state to be {expected_state} after {max_iterations} iterations, but state is {}",
             machine.current_state()
         );
+    }
+
+    /// Builds a State Controller that executes a specific handler for unit-testing purposes
+    pub fn build_state_controller<IO: StateControllerIO, H>(
+        &self,
+        object_type_for_metrics: &str,
+        handler: H,
+    ) -> StateController<IO>
+    where
+        H: StateHandler<
+            State = IO::State,
+            ControllerState = IO::ControllerState,
+            ContextObjects = IO::ContextObjects,
+            ObjectId = IO::ObjectId,
+        >,
+    {
+        StateController::<IO>::builder()
+            .database(self.pool.clone())
+            .meter(object_type_for_metrics, self.test_meter.meter())
+            .redfish_client_pool(self.redfish_sim.clone())
+            .ib_fabric_manager(self.ib_fabric_manager.clone())
+            .forge_api(self.api.clone())
+            .ipmi_tool(self.ipmi_tool.clone())
+            .state_handler(Arc::new(handler))
+            .build_for_manual_iterations()
+            .expect("Unable to build state controller")
+    }
+
+    /// Builds a Machine State Controller that executes a specific handler for unit-testing purposes
+    pub fn build_machine_state_controller(
+        &self,
+        handler: MachineStateHandler,
+    ) -> StateController<MachineStateControllerIO> {
+        self.build_state_controller("forge_machines", handler)
     }
 
     /// Runs one iteration of the machine state controller handler with the services
@@ -369,6 +379,7 @@ fn get_config() -> CarbideConfig {
 /// the Forge site controller, as well as mocks for dependent services that
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
+    let test_meter = TestMeter::default();
     let credential_provider = Arc::new(TestCredentialProvider::new());
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
@@ -403,7 +414,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
 
     let config = Arc::new(get_config());
 
-    let api = Api::new(
+    let api = Arc::new(Api::new(
         config.clone(),
         credential_provider.clone(),
         certificate_provider.clone(),
@@ -417,7 +428,8 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
                 .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
                 .unwrap(),
         )))),
-    );
+    ));
+
     TestEnv {
         api,
         common_pools,
@@ -428,6 +440,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         pool: db_pool,
         redfish_sim,
         ib_fabric_manager,
+        ipmi_tool: Arc::new(IPMIToolTestImpl {}),
         machine_state_controller_io: MachineStateControllerIO::default(),
         network_segment_state_controller_io: NetworkSegmentStateControllerIO::default(),
         reachability_params: ReachabilityParams {
@@ -436,7 +449,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
             failure_retry_time: Duration::seconds(0),
         },
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
-        test_meter: TestMeter::default(),
+        test_meter,
     }
 }
 

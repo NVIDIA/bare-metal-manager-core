@@ -47,7 +47,6 @@ use carbide::{
     },
     state_controller::{
         machine::handler::MachineStateHandler,
-        metrics::IterationMetrics,
         snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader},
     },
 };
@@ -1121,10 +1120,9 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let mut iteration_metrics = IterationMetrics::default();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        &handler,
+        handler.clone(),
         1,
         &mut txn,
         ManagedHostState::Assigned {
@@ -1132,17 +1130,14 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
                 retry: carbide::model::machine::RetryInfo { count: 0 },
             },
         },
-        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
-    assert_eq!(
-        0,
-        iteration_metrics
-            .specific
-            .machine_reboot_attempts_in_booting_with_discovery_image()
-            .iter()
-            .sum::<u64>()
+    assert!(
+        env.test_meter
+            .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_count")
+            .is_none(),
+        "State is not changed. The reboot counter should only increased once state changed"
     );
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -1158,7 +1153,7 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        &handler,
+        handler.clone(),
         1,
         &mut txn,
         ManagedHostState::Assigned {
@@ -1166,33 +1161,34 @@ async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
                 retry: carbide::model::machine::RetryInfo { count: 1 },
             },
         },
-        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
-    assert_eq!(
-        0, // State is still not changed. This counter will increase once state is changed.
-        iteration_metrics
-            .specific
-            .machine_reboot_attempts_in_booting_with_discovery_image()
-            .iter()
-            .sum::<u64>()
+    assert!(
+        env.test_meter
+            .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_count")
+            .is_none(),
+        "State is not changed. The reboot counter should only increased once state changed"
     );
 
     common::api_fixtures::instance::handle_delete_post_bootingwithdiscoveryimage(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        &handler,
-        &mut iteration_metrics,
+        handler,
     )
     .await;
+
     assert_eq!(
-        2, // State is changed now.
-        iteration_metrics
-            .specific
-            .machine_reboot_attempts_in_booting_with_discovery_image()
-            .iter()
-            .sum::<u64>()
+        env.test_meter
+            .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_sum")
+            .unwrap(),
+        "2"
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_reboot_attempts_in_booting_with_discovery_image_count")
+            .unwrap(),
+        "1"
     );
 }

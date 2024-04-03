@@ -300,13 +300,12 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        &handler,
+        handler.clone(),
         3,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::Discovered,
         },
-        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -327,11 +326,10 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        &handler,
+        handler,
         1,
         &mut txn,
         ManagedHostState::Ready,
-        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();

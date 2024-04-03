@@ -25,7 +25,7 @@ use carbide::{
             ManagedHostState,
         },
     },
-    state_controller::{machine::handler::MachineStateHandler, metrics::IterationMetrics},
+    state_controller::machine::handler::MachineStateHandler,
 };
 use rpc::{
     forge::{forge_agent_control_response::Action, forge_server::Forge, DhcpDiscovery},
@@ -183,17 +183,15 @@ pub async fn create_host_machine(
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let mut iteration_metrics = IterationMetrics::default();
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        &handler,
+        handler.clone(),
         2,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::WaitingForDiscovery,
         },
-        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -217,7 +215,7 @@ pub async fn create_host_machine(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        &handler,
+        handler.clone(),
         3,
         &mut txn,
         ManagedHostState::HostNotReady {
@@ -228,7 +226,6 @@ pub async fn create_host_machine(
                 },
             },
         },
-        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -240,13 +237,12 @@ pub async fn create_host_machine(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        &handler,
+        handler.clone(),
         3,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::Discovered,
         },
-        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
@@ -256,11 +252,10 @@ pub async fn create_host_machine(
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
-        &handler,
+        handler,
         1,
         &mut txn,
         ManagedHostState::Ready,
-        &mut iteration_metrics,
     )
     .await;
     txn.commit().await.unwrap();
