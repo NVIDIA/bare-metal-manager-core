@@ -70,7 +70,7 @@ pub struct ReachabilityParams {
 }
 
 /// The actual Machine State handler
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MachineStateHandler {
     host_handler: HostMachineStateHandler,
     pub dpu_handler: DpuMachineStateHandler,
@@ -655,7 +655,7 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 }
 
 /// A `StateHandler` implementation for DPU machines
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
     dpu_firmware_update_config: DpuFwUpdateConfig,
@@ -1449,7 +1449,7 @@ fn cleanedup_after_state_transition(
 }
 
 /// A `StateHandler` implementation for host machines
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HostMachineStateHandler {
     reachability_params: ReachabilityParams,
 }
@@ -1657,7 +1657,7 @@ impl StateHandler for HostMachineStateHandler {
 }
 
 /// A `StateHandler` implementation for instances
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InstanceStateHandler {
     dpu_nic_firmware_reprovision_update_enabled: bool,
     reachability_params: ReachabilityParams,

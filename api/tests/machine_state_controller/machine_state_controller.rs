@@ -20,9 +20,7 @@ use std::{
 };
 
 use carbide::{
-    ipmitool::IPMIToolTestImpl,
     model::machine::{machine_id::MachineId, ManagedHostState, ManagedHostStateSnapshot},
-    redfish::RedfishSim,
     state_controller::{
         controller::{IterationConfig, StateController},
         machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
@@ -111,7 +109,6 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let expected_iterations = (TEST_TIME.as_millis() / ITERATION_TIME.as_millis()) as f64;
     let expected_total_count = expected_iterations * hosts.len() as f64;
 
-    let test_api = Arc::new(env.api);
     // We build multiple state controllers. But since only one should act at a time,
     // the count should still not increase
     let mut handles = Vec::new();
@@ -123,11 +120,11 @@ async fn iterate_over_all_machines(pool: sqlx::PgPool) -> sqlx::Result<()> {
                     ..Default::default()
                 })
                 .database(pool.clone())
-                .redfish_client_pool(Arc::new(RedfishSim::default()))
+                .redfish_client_pool(env.redfish_sim.clone())
                 .ib_fabric_manager(env.ib_fabric_manager.clone())
-                .forge_api(test_api.clone())
+                .forge_api(env.api.clone())
                 .state_handler(machine_handler.clone())
-                .ipmi_tool(Arc::new(IPMIToolTestImpl {}))
+                .ipmi_tool(env.ipmi_tool.clone())
                 .build_and_spawn()
                 .unwrap(),
         );
