@@ -301,19 +301,6 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
     }
 
     async fn uefi_setup(&self, client: &dyn Redfish) -> Result<(), RedfishClientCreationError> {
-        let bios_attrs = client
-            .bios()
-            .await
-            .map_err(RedfishClientCreationError::RedfishError)?;
-        // If the attribute field is ampty we couldn't change a UEFI password.
-        if bios_attrs
-            .get("Attributes")
-            .map_or(true, |v| v.as_object().is_none())
-        {
-            tracing::warn!("Bios attributes don't have CurrentUefiPassword.");
-            return Ok(());
-        }
-
         // Replace DPU UEFI default password with site default
         // default password is taken from DpuUefi:factory_default key
         // site password is taken from DpuUefi:site_default key
