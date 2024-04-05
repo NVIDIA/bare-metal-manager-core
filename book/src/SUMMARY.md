@@ -22,6 +22,11 @@
 - [forge-admin-cli access](sites/forge_admin_cli.md)
 - [DPU SSH access](sites/dpu_ssh_access.md)
 
+# Observability (Metrics & Logs)
+
+- [Site metrics](observability/site_metrics.md)
+- [Dashboards](observability/dashboards.md)
+
 # Components
 
 - [gRPC API]()
