@@ -26,7 +26,7 @@ flowchart LR
         Prometheus -- scrapes --> K8S-Services
 
         MetalLb --> SiteEnvoy["Envoy/Counter\n(L7 HTTP Proxy)"]
-        SiteEnvoy -."https://grafana-siteid.frg.nvidia.com" .-> SiteGrafana[Grafana\nLog/Metric Query UI]
+        SiteEnvoy -."https://grafana-siteid.frg.nvidia.com" .-> SiteGrafana[Grafana\nLog/Metric Query UI\nOICD auth]
         SiteEnvoy -. "https://prometheus-siteid.frg.nvidia.com" .-> Prometheus
         SiteGrafana --> Prometheus
     end
