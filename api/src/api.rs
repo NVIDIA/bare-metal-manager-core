@@ -568,7 +568,14 @@ where
         let resp = resp
             .create(&mut txn, &self.ib_fabric_manager.get_config())
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(|e| match e.source {
+                // During IB paritiont creation, it will check the existing partition by a 'select' query.
+                // The 'RowNotFound' error means that the carbide can not find a valid row for the new IBPartition.
+                sqlx::Error::RowNotFound => Status::invalid_argument(
+                    "Maximum Limit of Infiniband partitions had been reached",
+                ),
+                _ => CarbideError::from(e).into(),
+            })?;
         let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
 
         txn.commit().await.map_err(|e| {
