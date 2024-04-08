@@ -205,8 +205,8 @@ async fn test_create_ib_partition_over_max_limit(
         .expect_err("expected create ibpartition to fail")
         .to_string();
     assert!(
-        error.contains("no rows returned"),
-        "Error message should contain 'no rows returned', but is {}",
+        error.contains("Maximum Limit of Infiniband partitions had been reached"),
+        "Error message should contain 'Maximum Limit of Infiniband partitions had been reached', but is {}",
         error
     );
 
