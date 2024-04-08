@@ -58,7 +58,6 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &segment,
         &host_sim.config.host_mac_address,
         Some(FIXTURE_CREATED_DOMAIN_ID),
-        "myhost".to_string(),
         true,
         carbide::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
     )

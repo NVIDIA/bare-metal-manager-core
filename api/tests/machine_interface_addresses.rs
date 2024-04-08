@@ -15,8 +15,11 @@ use std::str::FromStr;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::machine_interface::MachineInterface;
 use carbide::db::machine_interface_address::MachineInterfaceAddress;
+use carbide::db::network_prefix::NewNetworkPrefix;
 use carbide::db::network_segment::{NetworkSegmentType, NewNetworkSegment};
 use carbide::model::network_segment::NetworkSegmentControllerState;
+use ipnetwork::IpNetwork;
+use std::net::IpAddr;
 
 pub mod common;
 use mac_address::MacAddress;
@@ -36,7 +39,11 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         subdomain_id: Some(uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e")),
         vpc_id: None,
         mtu: 1490,
-        prefixes: vec![],
+        prefixes: vec![NewNetworkPrefix {
+            prefix: IpNetwork::V4("192.168.0.0/24".parse().unwrap()),
+            gateway: Some(IpAddr::V4("192.168.0.1".parse().unwrap())),
+            num_reserved: 14,
+        }],
         vlan_id: None,
         vni: None,
         segment_type: NetworkSegmentType::Underlay,
@@ -45,27 +52,23 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     let network_segment = new_ns
         .persist(&mut txn, NetworkSegmentControllerState::Ready)
         .await?;
-
     // An interface that isn't attached to a Machine. This is what BMC interfaces are.
     let interface = MachineInterface::create(
         &mut txn,
         &network_segment,
         &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        None,
-        "hostname_find_by_address_bmc".to_string(),
+        Some(uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e")),
         true,
         AddressSelectionStrategy::Automatic,
     )
     .await?;
-
-    let bmc_ip: std::net::IpAddr = "192.168.0.14".parse()?;
-    sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1, $2)")
-        .bind(interface.id)
-        .bind(bmc_ip)
-        .execute(&mut *txn)
-        .await?;
-
-    let res = MachineInterfaceAddress::find_by_address(&mut txn, bmc_ip).await?;
+    let bmc_ip = interface
+        .addresses()
+        .iter()
+        .find(|x| x.is_ipv4())
+        .map(|x| x.address);
+    assert!(bmc_ip.is_some());
+    let res = MachineInterfaceAddress::find_by_address(&mut txn, bmc_ip.unwrap()).await?;
     assert!(res.is_some());
     assert_eq!(res.unwrap().interface_id, interface.id);
 

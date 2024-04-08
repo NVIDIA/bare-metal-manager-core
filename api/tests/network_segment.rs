@@ -127,7 +127,6 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
         &db_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         None,
-        "colklink".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
