@@ -726,16 +726,16 @@ pub struct DpuAgentInventoryReport {
     pub inventory: MachineInventory,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MachineInventory {
     pub components: Vec<MachineInventorySoftwareComponent>,
 }
 
-#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct MachineInventorySoftwareComponent {
-    name: String,
-    version: String,
-    url: String,
+    pub name: String,
+    pub version: String,
+    pub url: String,
 }
 
 impl Display for MachineInventorySoftwareComponent {

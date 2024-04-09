@@ -20,7 +20,12 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::Action;
 
 use crate::common::api_fixtures::{
-    discovery_completed, forge_agent_control, network_configured, update_time_params,
+    discovery_completed,
+    dpu::{
+        DEFAULT_DPU_FIRMWARE_VERSION, TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION,
+        TEST_DPU_AGENT_VERSION,
+    },
+    forge_agent_control, network_configured, update_time_params,
 };
 
 #[ctor::ctor]
@@ -285,4 +290,57 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     )
     .await;
     txn.commit().await.unwrap();
+}
+
+/// Check whether metrics that describe hardware/software versions of discovered machines
+/// are emitted correctly
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (_host_machine_id_1, _dpu_machine_id_1) =
+        common::api_fixtures::create_managed_host(&env).await;
+    let (_host_machine_id_2, _dpu_machine_id_2) =
+        common::api_fixtures::create_managed_host(&env).await;
+
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_dpu_firmware_version_count")
+            .unwrap(),
+        format!(
+            r#"{{firmware_version="{}",fresh="true"}} 2"#,
+            DEFAULT_DPU_FIRMWARE_VERSION
+        )
+    );
+
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_dpu_agent_version_count")
+            .unwrap(),
+        format!(r#"{{fresh="true",version="{}"}} 2"#, TEST_DPU_AGENT_VERSION)
+    );
+
+    let mut inventory_metrics = env
+        .test_meter
+        .formatted_metrics("forge_machine_inventory_component_version_count");
+    inventory_metrics.sort();
+
+    for expected in &[
+        format!(
+            r#"{{fresh="true",name="doca-hbn",version="{}"}} 2"#,
+            TEST_DOCA_HBN_VERSION
+        ),
+        format!(
+            r#"{{fresh="true",name="doca-telemetry",version="{}"}} 2"#,
+            TEST_DOCA_TELEMETRY_VERSION
+        ),
+    ] {
+        assert!(
+            inventory_metrics
+                .iter()
+                .any(|m| m.as_str() == expected.as_str()),
+            "Expected to find {}. Got {:?}",
+            expected,
+            inventory_metrics
+        );
+    }
 }

@@ -57,6 +57,17 @@ pub const FIXTURE_DPU_SSH_PASSWORD: &str = "asdhjkf";
 pub const FIXTURE_DPU_HBN_USERNAME: &str = "cumulus";
 pub const FIXTURE_DPU_HBN_PASSWORD: &str = "a9123";
 
+/// DPU firmware version that is reported by DPU objects created via `create_dpu_hardware_info`.
+pub const DEFAULT_DPU_FIRMWARE_VERSION: &str = "1.2.3";
+
+/// The version identifier that is used by dpu-agent in unit-tests
+pub const TEST_DPU_AGENT_VERSION: &str = "test";
+
+/// The version of HBN reported in unit-tests
+pub const TEST_DOCA_HBN_VERSION: &str = "1.5.0-doca2.2.0";
+/// The version of doca-telemetry reported in unit-tests
+pub const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
+
 /// Creates a Machine Interface and Machine for a DPU
 ///
 /// Returns the ID of the created machine
@@ -213,12 +224,12 @@ pub async fn create_machine_inventory(env: &TestEnv, machine_id: &MachineId) {
                 components: vec![
                     rpc::forge::MachineInventorySoftwareComponent {
                         name: "doca-hbn".to_string(),
-                        version: "1.5.0-doca2.2.0".to_string(),
+                        version: TEST_DOCA_HBN_VERSION.to_string(),
                         url: "nvcr.io/nvidia/doca/".to_string(),
                     },
                     rpc::forge::MachineInventorySoftwareComponent {
                         name: "doca-telemetry".to_string(),
-                        version: "1.14.2-doca2.2.0".to_string(),
+                        version: TEST_DOCA_TELEMETRY_VERSION.to_string(),
                         url: "nvcr.io/nvidia/doca/".to_string(),
                     },
                 ],
@@ -356,7 +367,7 @@ pub fn create_dpu_hardware_info(host_config: &ManagedHostConfig) -> HardwareInfo
     info.dmi_data.as_mut().unwrap().product_serial =
         format!("DPU_{}", host_config.dpu_oob_mac_address);
     // TODO: Patch in the correct DPU mac addresses
-    info.dpu_info.as_mut().unwrap().firmware_version = "1.2.3".to_owned();
+    info.dpu_info.as_mut().unwrap().firmware_version = DEFAULT_DPU_FIRMWARE_VERSION.to_owned();
     assert!(info.is_dpu());
     info
 }

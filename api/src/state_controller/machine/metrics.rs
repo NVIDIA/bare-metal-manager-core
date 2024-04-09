@@ -19,7 +19,10 @@ use opentelemetry::{
     KeyValue,
 };
 
-use crate::state_controller::metrics::MetricsEmitter;
+use crate::{
+    model::hardware_info::MachineInventorySoftwareComponent,
+    state_controller::metrics::MetricsEmitter,
+};
 
 #[derive(Debug, Default)]
 pub struct MachineMetrics {
@@ -28,6 +31,7 @@ pub struct MachineMetrics {
     pub dpu_healthy: bool,
     pub failed_dpu_healthchecks: HashSet<String>,
     pub dpu_firmware_version: Option<String>,
+    pub machine_inventory_component_versions: Vec<MachineInventorySoftwareComponent>,
     pub client_certificate_expiry: Option<i64>,
     pub machine_id: Option<String>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Option<u64>,
@@ -41,6 +45,9 @@ pub struct MachineStateControllerIterationMetrics {
     pub dpus_healthy: usize,
     pub failed_dpu_healthchecks: HashMap<String, usize>,
     pub dpu_firmware_versions: HashMap<String, usize>,
+    /// Map from Machine component (names and version string) to the count of
+    /// machines which run that version combination
+    pub machine_inventory_component_versions: HashMap<MachineInventorySoftwareComponent, usize>,
     pub client_certificate_expiration_times: HashMap<String, i64>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Vec<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Vec<u64>,
@@ -53,6 +60,7 @@ pub struct MachineMetricsEmitter {
     failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
     dpu_agent_version_gauge: ObservableGauge<u64>,
     dpu_firmware_version_gauge: ObservableGauge<u64>,
+    machine_inventory_component_versions_gauge: ObservableGauge<u64>,
     client_certificate_expiration_gauge: ObservableGauge<i64>,
     machine_reboot_attempts_in_booting_with_discovery_image: Histogram<u64>,
     machine_reboot_attempts_in_failed_during_discovery: Histogram<u64>,
@@ -99,6 +107,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .with_description("The amount of DPUs which have reported a certain firmware version.")
             .init();
 
+        let machine_inventory_component_versions_gauge = meter
+            .u64_observable_gauge("forge_machine_inventory_component_version_count")
+            .with_description(
+                "The amount of machines report software components with a certain version.",
+            )
+            .init();
+
         let client_certificate_expiration_gauge = meter
             .i64_observable_gauge("forge_dpu_client_certificate_expiration_time")
             .with_description("The expiration time (epoch seconds) for the client certificate associated with a given DPU.")
@@ -120,6 +135,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             dpu_agent_version_gauge,
             failed_dpu_healthchecks_gauge,
             dpu_firmware_version_gauge,
+            machine_inventory_component_versions_gauge,
             client_certificate_expiration_gauge,
             machine_reboot_attempts_in_booting_with_discovery_image,
             machine_reboot_attempts_in_failed_during_discovery,
@@ -133,6 +149,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             self.dpu_agent_version_gauge.as_any(),
             self.failed_dpu_healthchecks_gauge.as_any(),
             self.dpu_firmware_version_gauge.as_any(),
+            self.machine_inventory_component_versions_gauge.as_any(),
             self.client_certificate_expiration_gauge.as_any(),
         ]
     }
@@ -181,6 +198,13 @@ impl MetricsEmitter for MachineMetricsEmitter {
             *iteration_metrics
                 .dpu_firmware_versions
                 .entry(version.clone())
+                .or_default() += 1;
+        }
+
+        for component in object_metrics.machine_inventory_component_versions.iter() {
+            *iteration_metrics
+                .machine_inventory_component_versions
+                .entry(component.clone())
                 .or_default() += 1;
         }
 
@@ -251,6 +275,20 @@ impl MetricsEmitter for MachineMetricsEmitter {
             );
         }
 
+        let mut component_version_attrs = attributes.to_vec();
+        // Placeholders that are replaced in the loop in order not having to reallocate the Vec each time
+        component_version_attrs.push(KeyValue::new("name", "".to_string()));
+        component_version_attrs.push(KeyValue::new("version", "".to_string()));
+        for (component, count) in &iteration_metrics.machine_inventory_component_versions {
+            component_version_attrs[attributes.len()].value = component.name.clone().into();
+            component_version_attrs[attributes.len() + 1].value = component.version.clone().into();
+            observer.observe_u64(
+                &self.machine_inventory_component_versions_gauge,
+                *count as u64,
+                &component_version_attrs,
+            );
+        }
+
         let mut dpu_machine_id_attributes = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
         dpu_machine_id_attributes.push(KeyValue::new("dpu_machine_id", "".to_string()));
@@ -296,6 +334,7 @@ mod tests {
                 dpu_healthy: true,
                 failed_dpu_healthchecks: HashSet::from_iter([]),
                 dpu_firmware_version: None,
+                machine_inventory_component_versions: Vec::new(),
                 client_certificate_expiry: Some(1),
                 machine_id: Some("machine a".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
@@ -307,6 +346,11 @@ mod tests {
                 dpu_healthy: false,
                 failed_dpu_healthchecks: HashSet::from_iter(["bgp".to_string(), "ntp".to_string()]),
                 dpu_firmware_version: None,
+                machine_inventory_component_versions: vec![MachineInventorySoftwareComponent {
+                    name: "doca_hbn".to_string(),
+                    version: "2.0.0-doca2.5.0".to_string(),
+                    url: "nvcr.io/nvidia/doca".to_string(),
+                }],
                 client_certificate_expiry: Some(2),
                 machine_id: Some("machine a".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(0),
@@ -318,6 +362,11 @@ mod tests {
                 dpu_healthy: true,
                 failed_dpu_healthchecks: HashSet::from_iter([]),
                 dpu_firmware_version: Some("v4".to_string()),
+                machine_inventory_component_versions: vec![MachineInventorySoftwareComponent {
+                    name: "doca_telemetry".to_string(),
+                    version: "1.15.5-doca2.5.0".to_string(),
+                    url: "nvcr.io/nvidia/doca".to_string(),
+                }],
                 client_certificate_expiry: Some(3),
                 machine_id: Some("machine b".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(1),
@@ -329,6 +378,18 @@ mod tests {
                 dpu_healthy: true,
                 failed_dpu_healthchecks: HashSet::from_iter([]),
                 dpu_firmware_version: Some("v2".to_string()),
+                machine_inventory_component_versions: vec![
+                    MachineInventorySoftwareComponent {
+                        name: "doca_hbn".to_string(),
+                        version: "2.0.0-doca2.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    MachineInventorySoftwareComponent {
+                        name: "doca_telemetry".to_string(),
+                        version: "1.15.5-doca2.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                ],
                 client_certificate_expiry: None,
                 machine_id: Some("machine b".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(2),
@@ -340,6 +401,18 @@ mod tests {
                 dpu_healthy: false,
                 failed_dpu_healthchecks: HashSet::from_iter(["bgp".to_string(), "dns".to_string()]),
                 dpu_firmware_version: Some("v4".to_string()),
+                machine_inventory_component_versions: vec![
+                    MachineInventorySoftwareComponent {
+                        name: "doca_hbn".to_string(),
+                        version: "3.0.0-doca3.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    MachineInventorySoftwareComponent {
+                        name: "doca_telemetry".to_string(),
+                        version: "3.15.5-doca3.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                ],
                 client_certificate_expiry: Some(55),
                 machine_id: None,
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
@@ -377,6 +450,43 @@ mod tests {
         assert_eq!(
             iteration_metrics.dpu_firmware_versions,
             HashMap::from_iter([("v2".to_string(), 1), ("v4".to_string(), 2)])
+        );
+        assert_eq!(
+            iteration_metrics.machine_inventory_component_versions,
+            HashMap::from_iter([
+                (
+                    MachineInventorySoftwareComponent {
+                        name: "doca_hbn".to_string(),
+                        version: "2.0.0-doca2.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    2
+                ),
+                (
+                    MachineInventorySoftwareComponent {
+                        name: "doca_hbn".to_string(),
+                        version: "3.0.0-doca3.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    1
+                ),
+                (
+                    MachineInventorySoftwareComponent {
+                        name: "doca_telemetry".to_string(),
+                        version: "1.15.5-doca2.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    2
+                ),
+                (
+                    MachineInventorySoftwareComponent {
+                        name: "doca_telemetry".to_string(),
+                        version: "3.15.5-doca3.5.0".to_string(),
+                        url: "nvcr.io/nvidia/doca".to_string(),
+                    },
+                    1
+                )
+            ])
         );
 
         assert_eq!(
