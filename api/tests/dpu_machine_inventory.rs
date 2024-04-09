@@ -12,7 +12,10 @@
 
 use ::rpc::forge as rpc;
 use carbide::model::machine::machine_id;
-use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
+use common::api_fixtures::{
+    create_test_env,
+    dpu::{create_dpu_machine, TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION},
+};
 
 mod common;
 
@@ -41,12 +44,12 @@ async fn test_create_inventory(db_pool: sqlx::PgPool) -> Result<(), eyre::Report
             components: vec![
                 rpc::MachineInventorySoftwareComponent {
                     name: "doca-hbn".to_string(),
-                    version: "1.5.0-doca2.2.0".to_string(),
+                    version: TEST_DOCA_HBN_VERSION.to_string(),
                     url: "nvcr.io/nvidia/doca/".to_string(),
                 },
                 rpc::MachineInventorySoftwareComponent {
                     name: "doca-telemetry".to_string(),
-                    version: "1.14.2-doca2.2.0".to_string(),
+                    version: TEST_DOCA_TELEMETRY_VERSION.to_string(),
                     url: "nvcr.io/nvidia/doca/".to_string(),
                 },
             ]

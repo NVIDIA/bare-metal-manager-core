@@ -166,6 +166,20 @@ impl StateHandler for MachineStateHandler {
             .hardware_info
             .as_ref()
             .and_then(|hi| hi.dpu_info.as_ref().map(|di| di.firmware_version.clone()));
+        ctx.metrics.machine_inventory_component_versions.extend(
+            state
+                .dpu_snapshot
+                .inventory
+                .clone()
+                .components
+                .into_iter()
+                .map(|mut component| {
+                    // Remove the URL field for metrics purposes. We don't want to report different metrics
+                    // just because the URL field in components differ. Only name and version are important
+                    component.url = String::new();
+                    component
+                }),
+        );
 
         // Update DPU network health Prometheus metrics
         ctx.metrics.dpu_healthy = state.dpu_snapshot.has_healthy_network();

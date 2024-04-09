@@ -23,6 +23,7 @@ use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo,
     config_version::{ConfigVersion, Versioned},
+    hardware_info::MachineInventory,
     instance::snapshot::InstanceSnapshot,
 };
 use crate::model::hardware_info::{BMCVendor, HardwareInfo};
@@ -83,6 +84,9 @@ pub struct MachineSnapshot {
     pub machine_id: MachineId,
     /// Hardware Information that was discovered about this Machine
     pub hardware_info: Option<HardwareInfo>,
+    /// Inventory related to a machine.
+    /// Software and versions installed on the machine.
+    pub inventory: MachineInventory,
     /// The desired network configuration for this machine
     /// Includes the loopback_ip address. Do not query that
     /// directly, use `.loopback_ip()` instead.
