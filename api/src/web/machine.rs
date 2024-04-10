@@ -17,6 +17,7 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
 use chrono::{TimeDelta, Utc};
+use config_version::ConfigVersion;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
@@ -25,7 +26,6 @@ use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent};
 
 use super::filters;
 use crate::api::Api;
-use crate::model::config_version::ConfigVersion;
 
 #[derive(Template)]
 #[template(path = "machine_show.html")]

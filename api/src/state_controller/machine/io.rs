@@ -12,14 +12,13 @@
 
 //! State Controller IO implementation for Machines
 
+use config_version::{ConfigVersion, Versioned};
+
 use crate::{
     db::host_machine::HostMachine,
-    model::{
-        config_version::{ConfigVersion, Versioned},
-        machine::{
-            machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState,
-            ManagedHostState, ManagedHostStateSnapshot,
-        },
+    model::machine::{
+        machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState, ManagedHostState,
+        ManagedHostStateSnapshot,
     },
     state_controller::{
         io::StateControllerIO,

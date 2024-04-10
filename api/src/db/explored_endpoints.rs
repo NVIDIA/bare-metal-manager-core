@@ -10,15 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::net::IpAddr;
+
+use config_version::ConfigVersion;
+use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{
     db::DatabaseError,
-    model::{
-        config_version::ConfigVersion,
-        site_explorer::{EndpointExplorationReport, ExploredEndpoint},
-    },
+    model::site_explorer::{EndpointExplorationReport, ExploredEndpoint},
 };
 
 #[derive(Debug, Clone)]

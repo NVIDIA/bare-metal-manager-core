@@ -1,0 +1,12 @@
+[package]
+name = "config-version"
+version = "0.1.0"
+edition.workspace = true
+license-file.workspace = true
+authors.workspace = true
+
+[dependencies]
+chrono = "0.4.34"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "*"
+thiserror = "1.0"

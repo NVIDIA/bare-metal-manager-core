@@ -29,6 +29,7 @@ use ::rpc::protos::forge::{
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
 use arc_swap::ArcSwap;
+use config_version::ConfigVersion;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use itertools::Itertools;
@@ -51,7 +52,6 @@ use crate::ip_finder;
 use crate::ipxe::PxeInstructions;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
-use crate::model::config_version::ConfigVersion;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;

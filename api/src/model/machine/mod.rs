@@ -16,15 +16,13 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
+use config_version::{ConfigVersion, Versioned};
 use libredfish::SystemPowerControl;
 use serde::{Deserialize, Serialize};
 
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
-    bmc_info::BmcInfo,
-    config_version::{ConfigVersion, Versioned},
-    hardware_info::MachineInventory,
-    instance::snapshot::InstanceSnapshot,
+    bmc_info::BmcInfo, hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
 };
 use crate::model::hardware_info::{BMCVendor, HardwareInfo};
 

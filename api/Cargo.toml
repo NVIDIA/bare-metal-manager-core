@@ -88,6 +88,7 @@ version-compare = "0.1.1"
 x509-parser = { version = "0.15.1", features = ["verify"] }
 
 # [local-dependencies]
+config-version = { path = "../common/config-version" }
 forge-tls = { path = "../common/tls" }
 forge_secrets = { path = "../common/secrets" }
 forge-version = { path = "../common/version" }

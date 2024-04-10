@@ -13,15 +13,13 @@ use std::collections::HashMap;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
+use config_version::ConfigVersion;
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{
     db::{machine::DbMachineId, DatabaseError},
-    model::{
-        config_version::ConfigVersion,
-        machine::{machine_id::MachineId, ManagedHostState},
-    },
+    model::machine::{machine_id::MachineId, ManagedHostState},
 };
 
 /// Representation of an event (state transition) on a machine.

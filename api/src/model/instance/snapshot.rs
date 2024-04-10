@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use config_version::{ConfigVersion, Versioned};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    config_version::{ConfigVersion, Versioned},
     instance::{
         config::InstanceConfig,
         status::{InstanceStatus, InstanceStatusObservations},

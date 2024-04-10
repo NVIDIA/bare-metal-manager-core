@@ -12,9 +12,9 @@
 
 use carbide::db::vpc::{UpdateVpc, Vpc, VpcVirtualizationType};
 use carbide::db::UuidKeyedObjectFilter;
-use carbide::model::config_version::ConfigVersion;
 use carbide::CarbideError;
 use common::api_fixtures::create_test_env;
+use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 
 pub mod common;

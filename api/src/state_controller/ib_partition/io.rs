@@ -12,12 +12,13 @@
 
 //! State Controller IO implementation for Infiniband Partitions
 
+use config_version::{ConfigVersion, Versioned};
+
 use crate::{
     db::{
         ib_partition::{IBPartition, IBPartitionSearchConfig},
         UuidKeyedObjectFilter,
     },
-    model::config_version::{ConfigVersion, Versioned},
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects, io::StateControllerIO,

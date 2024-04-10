@@ -1,10 +1,11 @@
 use std::{net::Ipv4Addr, time::SystemTime};
 
 use chrono::{DateTime, Utc};
+use config_version::ConfigVersion;
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{config_version::ConfigVersion, RpcDataConversionError};
+use crate::model::RpcDataConversionError;
 
 /// The network status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed

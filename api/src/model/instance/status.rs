@@ -10,10 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+use config_version::Versioned;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    config_version::Versioned,
     instance::config::{infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig},
     machine::{InstanceState, ManagedHostState},
     RpcDataConversionError,

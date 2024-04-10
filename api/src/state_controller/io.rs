@@ -10,12 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::{
-    model::config_version::{ConfigVersion, Versioned},
-    state_controller::{
-        metrics::MetricsEmitter, snapshot_loader::SnapshotLoaderError,
-        state_handler::StateHandlerContextObjects,
-    },
+use config_version::{ConfigVersion, Versioned};
+
+use crate::state_controller::{
+    metrics::MetricsEmitter, snapshot_loader::SnapshotLoaderError,
+    state_handler::StateHandlerContextObjects,
 };
 
 /// This trait defines on what objects a state controller instance will act,

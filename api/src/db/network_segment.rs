@@ -17,6 +17,7 @@ use std::str::FromStr;
 use ::rpc::forge as rpc;
 use ::rpc::protos::forge::TenantState;
 use chrono::prelude::*;
+use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use ipnetwork::{IpNetwork, IpNetworkError};
 use itertools::Itertools;
@@ -35,10 +36,7 @@ use crate::{
         network_segment_state_history::NetworkSegmentStateHistory,
         DatabaseError, UuidKeyedObjectFilter,
     },
-    model::{
-        config_version::{ConfigVersion, Versioned},
-        network_segment::NetworkSegmentControllerState,
-    },
+    model::network_segment::NetworkSegmentControllerState,
 };
 use crate::{CarbideError, CarbideResult};
 

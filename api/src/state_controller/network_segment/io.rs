@@ -12,12 +12,11 @@
 
 //! State Controller IO implementation for network segments
 
+use config_version::{ConfigVersion, Versioned};
+
 use crate::{
     db::{network_segment::NetworkSegment, UuidKeyedObjectFilter},
-    model::{
-        config_version::{ConfigVersion, Versioned},
-        network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
-    },
+    model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     state_controller::{
         io::StateControllerIO, metrics::NoopMetricsEmitter,
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
