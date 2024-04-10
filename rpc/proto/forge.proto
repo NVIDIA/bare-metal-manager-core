@@ -659,8 +659,7 @@ message InstanceAllocationRequest {
   // The Instance ID must be unique within the Forge site.
   optional UUID instance_id = 3;
 
-  //DEPRECATED -- use tenantKeysetId in InstanceConfig.TenantConfig instead.
-  repeated string ssh_keys = 11;
+  reserved 11; // Was ssh_keys - replaced by tenantKeysetId in InstanceConfig.TenantConfig instead.
 }
 
 // Tenant related configuration that is set once the instance is allocated

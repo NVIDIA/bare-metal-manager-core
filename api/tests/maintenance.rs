@@ -58,7 +58,6 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         instance_id: None,
         machine_id: Some(rpc_host_id.clone()),
         config: Some(instance_config.clone()),
-        ssh_keys: vec![],
     };
     match env.api.allocate_instance(tonic::Request::new(req)).await {
         Ok(_) => {
@@ -126,7 +125,6 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         instance_id: None,
         machine_id: Some(rpc_host_id.clone()),
         config: Some(instance_config),
-        ssh_keys: vec![],
     };
     env.api.allocate_instance(tonic::Request::new(req)).await?;
 

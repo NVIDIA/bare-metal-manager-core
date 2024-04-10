@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use itertools::Itertools;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
@@ -54,9 +53,6 @@ pub struct InstanceAllocationRequest {
 
     // Desired configuration of the instance
     pub config: InstanceConfig,
-
-    // Public SSH keys which are trusted
-    pub ssh_keys: Vec<String>,
 }
 
 impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
@@ -92,7 +88,6 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             instance_id,
             machine_id,
             config,
-            ssh_keys: request.ssh_keys,
         })
     }
 }
@@ -131,17 +126,6 @@ pub async fn allocate_instance(
         instance_id: request.instance_id,
         machine_id: request.machine_id,
         tenant_config: &tenant_config,
-        ssh_keys: request
-            .ssh_keys
-            .into_iter()
-            .map(|x| {
-                x.split(' ')
-                    .collect::<Vec<&str>>()
-                    .get(1)
-                    .map(|x| x.to_string())
-                    .unwrap_or(x)
-            })
-            .collect_vec(),
         network_config: network_config.as_ref(),
         ib_config: ib_config.as_ref(),
     };

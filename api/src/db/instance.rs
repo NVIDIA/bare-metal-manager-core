@@ -44,7 +44,6 @@ pub struct Instance {
     pub started: DateTime<Utc>,
     pub finished: Option<DateTime<Utc>>,
     pub tenant_config: TenantConfig,
-    pub ssh_keys: Vec<String>,
     pub use_custom_pxe_on_boot: bool,
     pub deleted: Option<DateTime<Utc>>,
     pub network_config: Versioned<InstanceNetworkConfig>,
@@ -63,7 +62,6 @@ pub struct NewInstance<'a> {
     pub machine_id: MachineId,
     pub instance_id: uuid::Uuid,
     pub tenant_config: &'a TenantConfig,
-    pub ssh_keys: Vec<String>,
     pub network_config: Versioned<&'a InstanceNetworkConfig>,
     pub ib_config: Versioned<&'a InstanceInfinibandConfig>,
 }
@@ -120,7 +118,6 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             started: row.try_get("started")?,
             finished: row.try_get("finished")?,
             tenant_config,
-            ssh_keys: Vec::new(),
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             deleted: row.try_get("deleted")?,
             network_config: Versioned::new(network_config.0, network_config_version),
@@ -419,7 +416,6 @@ impl<'a> NewInstance<'a> {
                         custom_ipxe,
                         always_boot_with_custom_ipxe,
                         tenant_org,
-                        ssh_keys,
                         use_custom_pxe_on_boot,
                         network_config,
                         network_config_version,
@@ -430,7 +426,7 @@ impl<'a> NewInstance<'a> {
                         keyset_ids,
                         phone_home_enabled
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7::text[], true, $8::json, $9, $10::json, $11::json, $12, $13::json, $14, $15)
+                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.instance_id)
@@ -439,7 +435,6 @@ impl<'a> NewInstance<'a> {
             .bind(&self.tenant_config.custom_ipxe)
             .bind(self.tenant_config.always_boot_with_custom_ipxe)
             .bind(self.tenant_config.tenant_organization_id.as_str())
-            .bind(&self.ssh_keys)
             .bind(sqlx::types::Json(&self.network_config.value))
             .bind(&network_version_string)
             .bind(sqlx::types::Json(network_status_observation))
