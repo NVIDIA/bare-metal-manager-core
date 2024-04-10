@@ -15,6 +15,7 @@ use std::env;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
+use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
@@ -30,7 +31,6 @@ use crate::model::instance::config::{
 };
 use crate::{
     db::{DatabaseError, UuidKeyedObjectFilter},
-    model::config_version::{ConfigVersion, Versioned},
     model::ib_partition::{
         IBPartitionControllerState, IB_DEFAULT_MTU, IB_DEFAULT_RATE_LIMIT,
         IB_DEFAULT_SERVICE_LEVEL, IB_MTU_ENV, IB_RATE_LIMIT_ENV, IB_SERVICE_LEVEL_ENV,

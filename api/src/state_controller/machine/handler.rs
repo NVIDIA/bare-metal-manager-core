@@ -15,6 +15,7 @@
 use std::{collections::HashMap, task::Poll};
 
 use chrono::{DateTime, Duration, Utc};
+use config_version::ConfigVersion;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::{model::task::TaskState, Redfish, SystemPowerControl};
@@ -31,7 +32,6 @@ use crate::{
     },
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::{
-        config_version::ConfigVersion,
         instance::{
             config::infiniband::InstanceIbInterfaceConfig,
             snapshot::InstanceSnapshot,

@@ -12,12 +12,12 @@
 use std::collections::HashMap;
 
 use chrono::prelude::*;
+use config_version::ConfigVersion;
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
-use crate::model::{config_version::ConfigVersion, network_segment::NetworkSegmentControllerState};
-
 use super::DatabaseError;
+use crate::model::network_segment::NetworkSegmentControllerState;
 
 /// A record of a past state of a NetworkSegment
 ///

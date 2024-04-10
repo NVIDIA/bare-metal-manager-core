@@ -17,17 +17,14 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
+use config_version::{ConfigVersion, ConfigVersionParseError};
 use dhcp::allocation::DhcpError;
 use eyre::WrapErr;
 use logging::level_filter::ActiveLevel;
 use mac_address::MacAddress;
 use model::{
-    config_version::{ConfigVersion, ConfigVersionParseError},
-    hardware_info::HardwareInfoError,
-    machine::machine_id::MachineId,
-    network_devices::LldpError,
-    tenant::TenantError,
-    ConfigValidationError, RpcDataConversionError,
+    hardware_info::HardwareInfoError, machine::machine_id::MachineId, network_devices::LldpError,
+    tenant::TenantError, ConfigValidationError, RpcDataConversionError,
 };
 use state_controller::snapshot_loader::SnapshotLoaderError;
 use tonic::Status;

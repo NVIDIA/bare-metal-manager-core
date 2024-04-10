@@ -10,13 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 
 use super::instance::Instance;
 use super::ObjectFilter;
 use crate::db::DatabaseError;
-use crate::model::config_version::ConfigVersion;
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetContent, TenantKeysetIdentifier,
     TenantPublicKeyValidationRequest, UpdateTenantKeyset,

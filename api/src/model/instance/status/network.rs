@@ -13,11 +13,11 @@
 use std::net::IpAddr;
 
 use chrono::{DateTime, Utc};
+use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    config_version::{ConfigVersion, Versioned},
     instance::{
         config::network::{
             validate_interface_function_ids, InstanceNetworkConfig, InterfaceFunctionId,

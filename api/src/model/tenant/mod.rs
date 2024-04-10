@@ -13,10 +13,10 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
+use config_version::ConfigVersion;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::model::config_version::ConfigVersion;
 use crate::model::RpcDataConversionError;
 
 #[derive(thiserror::Error, Debug)]

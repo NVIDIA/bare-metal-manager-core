@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use config_version::{ConfigVersion, Versioned};
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
@@ -23,7 +24,6 @@ use crate::{
     },
     dhcp::allocation::DhcpError,
     model::{
-        config_version::{ConfigVersion, Versioned},
         instance::{
             config::{
                 infiniband::InstanceInfinibandConfig,

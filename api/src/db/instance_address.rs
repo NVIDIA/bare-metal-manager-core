@@ -12,6 +12,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
+use config_version::Versioned;
 use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
@@ -23,7 +24,6 @@ use super::{
     UuidKeyedObjectFilter,
 };
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
-use crate::model::config_version::Versioned;
 use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::ConfigValidationError;
@@ -308,12 +308,10 @@ WHERE network_segments.id = $1::uuid";
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use config_version::{ConfigVersion, Versioned};
 
     use super::*;
-    use crate::model::{
-        config_version::ConfigVersion,
-        instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
-    };
+    use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {
         let vpc_id = uuid::uuid!("11609f10-c11d-1101-3261-6293ea0c0100");
@@ -333,7 +331,7 @@ mod tests {
                     updated: Utc::now(),
                     deleted: None,
                     prefixes: Vec::new(),
-                    controller_state: crate::model::config_version::Versioned {
+                    controller_state: Versioned {
                         value: NetworkSegmentControllerState::Ready,
                         version,
                     },

@@ -13,15 +13,11 @@
 use std::{fmt, marker::PhantomData, str::FromStr};
 
 use chrono::{DateTime, Utc};
+use config_version::ConfigVersion;
 use sqlx::{Postgres, Row, Transaction};
 
-use crate::{
-    db::DatabaseError,
-    model::{config_version::ConfigVersion, resource_pool::ResourcePoolEntryState},
-    CarbideError,
-};
-
 use super::BIND_LIMIT;
+use crate::{db::DatabaseError, model::resource_pool::ResourcePoolEntryState, CarbideError};
 
 #[derive(Debug)]
 pub struct DbResourcePool<T>

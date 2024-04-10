@@ -14,6 +14,7 @@ use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
+use config_version::{ConfigVersion, Versioned};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
@@ -21,7 +22,6 @@ use super::{DatabaseError, UuidKeyedObjectFilter};
 use crate::{
     db::{instance_address::InstanceAddress, machine::DbMachineId},
     model::{
-        config_version::{ConfigVersion, Versioned},
         instance::{
             config::{
                 infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,

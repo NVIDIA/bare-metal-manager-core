@@ -18,6 +18,7 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
+use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
@@ -28,7 +29,6 @@ use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::bmc_info::BmcInfo;
-use crate::model::config_version::{ConfigVersion, Versioned};
 use crate::model::hardware_info::{BMCVendor, HardwareInfo, MachineInventory};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};

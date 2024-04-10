@@ -12,6 +12,7 @@
 
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc, time::Duration};
 
+use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use sqlx::PgPool;
 use tokio::{sync::oneshot, task::JoinSet};
@@ -31,7 +32,6 @@ use crate::{
     },
     model::{
         bmc_info::BmcInfo,
-        config_version::ConfigVersion,
         hardware_info::{DpuData, HardwareInfo},
         machine::{machine_id::MachineId, DpuDiscoveringState, ManagedHostState},
         site_explorer::{

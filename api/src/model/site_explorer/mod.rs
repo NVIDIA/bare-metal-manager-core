@@ -12,11 +12,11 @@
 
 use std::net::IpAddr;
 
+use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    config_version::ConfigVersion,
     hardware_info::{DmiData, HardwareInfo},
     machine::machine_id::MachineId,
 };

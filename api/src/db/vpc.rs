@@ -14,13 +14,13 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
+use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
 use super::DatabaseError;
 use crate::db::UuidKeyedObjectFilter;
-use crate::model::config_version::ConfigVersion;
 use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
 

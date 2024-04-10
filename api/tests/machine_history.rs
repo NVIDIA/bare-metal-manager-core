@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 use carbide::db::{machine::Machine, machine_state_history::MachineStateHistory};
-use carbide::model::config_version::ConfigVersion;
 use carbide::model::machine::{machine_id::try_parse_machine_id, ManagedHostState};
+use config_version::ConfigVersion;
 
 mod common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};

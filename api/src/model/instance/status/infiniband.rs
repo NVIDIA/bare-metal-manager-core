@@ -11,13 +11,13 @@
  */
 
 use chrono::{DateTime, Utc};
+use config_version::{ConfigVersion, Versioned};
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     ib::types::IBPort,
     model::{
-        config_version::{ConfigVersion, Versioned},
         instance::{config::infiniband::InstanceInfinibandConfig, status::SyncState},
         RpcDataConversionError, StatusValidationError,
     },
