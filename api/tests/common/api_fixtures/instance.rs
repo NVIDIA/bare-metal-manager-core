@@ -100,7 +100,6 @@ pub async fn create_instance_with_config(
                 id: host_machine_id.to_string(),
             }),
             config: Some(config),
-            ssh_keys: vec![],
         }))
         .await
         .expect("Create instance failed.")

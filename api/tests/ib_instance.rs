@@ -389,7 +389,6 @@ pub async fn try_allocate_instance(
                 id: host_machine_id.to_string(),
             }),
             config: Some(config),
-            ssh_keys: vec![],
         }))
         .await?;
 

@@ -266,7 +266,6 @@ async fn test_create_instance_with_provided_id(pool: sqlx::PgPool) {
                 id: host_machine_id.to_string(),
             }),
             config: Some(config),
-            ssh_keys: vec![],
         }))
         .await
         .expect("Create instance failed.")
@@ -302,7 +301,6 @@ async fn test_instance_deletion_before_provisioning_finishes(pool: sqlx::PgPool)
                 id: host_machine_id.to_string(),
             }),
             config: Some(config),
-            ssh_keys: vec![],
         }))
         .await
         .expect("Create instance failed.")
@@ -459,7 +457,6 @@ async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
                 id: host_machine_id.to_string(),
             }),
             config: Some(config.clone()),
-            ssh_keys: vec![],
         }))
         .await
         .expect("Create instance failed.")
@@ -474,7 +471,6 @@ async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
                 id: host_machine_id_2.to_string(),
             }),
             config: Some(config),
-            ssh_keys: vec![],
         }))
         .await;
 
@@ -815,7 +811,6 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
             infiniband: InstanceInfinibandConfig::default(),
         },
-        ssh_keys: vec!["mykey1".to_owned()],
     };
 
     // Note: This also requests a background task in the DB for creating managed
@@ -1032,7 +1027,6 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
                 network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
                 infiniband: None,
             }),
-            ssh_keys: vec!["mykey1".to_owned()],
         }))
         .await;
     let Err(err) = result else {
