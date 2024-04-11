@@ -29,7 +29,7 @@
 			<td>{{ host.maintenance_start_time }}</td>
 			<td>{{ host.machine_id|machine_id_link|safe }}</td>
 			<td>{{ host.dpu_machine_id|machine_id_link|safe}}</td>
-			<td>{{ host.state }}</td>
+			<td>{{ host.state }} {{ host.state_reason }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
 			<td style="padding: 0;">
 				<table style="width: 100%;">
@@ -75,7 +75,7 @@
 			<td><a href="/admin/managed-host/{{host.machine_id}}">{{ host.hostname }}</a></td>
 			<td>{{ host.machine_id|machine_id_link|safe }}</td>
 			<td>{{ host.dpu_machine_id|machine_id_link|safe }}</td>
-			<td>{{ host.state }}</td>
+			<td title="{{ host.state_reason }}">{{ host.state }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
 			<td style="padding: 0;">
 				<table style="width: 100%;">

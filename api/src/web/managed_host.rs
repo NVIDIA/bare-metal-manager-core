@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -41,6 +41,8 @@ struct ManagedHostRowDisplay {
     machine_id: String,
     dpu_machine_id: String,
     state: String,
+    time_in_state: String,
+    state_reason: String,
     is_network_healthy: bool,
     network_err_message: String,
     dpu_bmc_ip: String,
@@ -67,6 +69,8 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             machine_id: o.machine_id.unwrap_or(UNKNOWN.to_string()),
             dpu_machine_id: o.dpu_machine_id.unwrap_or(UNKNOWN.to_string()),
             state: o.state,
+            time_in_state: o.time_in_state,
+            state_reason: o.state_reason,
             is_network_healthy: o.is_network_healthy,
             network_err_message: o.network_err_message.unwrap_or_default(),
             dpu_bmc_ip: o.dpu_bmc_ip.unwrap_or_default(),
@@ -181,6 +185,8 @@ struct ManagedHostDetail {
     pub hostname: String,
     pub machine_id: String,
     pub state: String,
+    pub time_in_state: String,
+    pub state_reason: String,
     pub host_serial_number: String,
     pub host_bios_version: String,
     pub host_bmc_ip: String,
@@ -219,6 +225,12 @@ impl From<utils::ManagedHostOutput> for ManagedHostDetail {
             hostname: m.hostname.unwrap_or(UNKNOWN.to_string()),
             machine_id: m.machine_id.unwrap_or(UNKNOWN.to_string()),
             state: m.state,
+            time_in_state: m.time_in_state,
+            state_reason: if !m.state_reason.is_empty() {
+                format!("({})", m.state_reason)
+            } else {
+                m.state_reason
+            },
             host_serial_number: m.host_serial_number.unwrap_or(UNKNOWN.to_string()),
             host_bios_version: m.host_bios_version.unwrap_or(UNKNOWN.to_string()),
             host_bmc_ip: m.host_bmc_ip.unwrap_or_default(),

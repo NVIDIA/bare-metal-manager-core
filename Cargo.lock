@@ -6441,6 +6441,7 @@ version = "0.1.0"
 dependencies = [
  "byte-unit",
  "chrono",
+ "config-version",
  "forge-tls",
  "ipnetwork",
  "rpc",

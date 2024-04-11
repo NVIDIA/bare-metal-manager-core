@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -241,6 +241,7 @@ struct MachineDetail {
     state: String,
     state_version: String,
     time_in_state: String,
+    state_reason: String,
     machine_type: String,
     hostname: String,
     is_host: bool,
@@ -369,6 +370,7 @@ impl From<forgerpc::Machine> for MachineDetail {
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
             state: m.state,
             state_version: m.state_version,
+            state_reason: m.state_reason.map(|r| format!("({r})")).unwrap_or_default(),
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
             network_config: String::new(), // filled in later

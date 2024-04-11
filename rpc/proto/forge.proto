@@ -1061,6 +1061,7 @@ message Machine {
   optional string last_reboot_requested_mode = 23;
 
   optional string dpu_agent_version = 24;
+  optional string state_reason = 25;
 }
 
 message DpuAgentInventoryReport {

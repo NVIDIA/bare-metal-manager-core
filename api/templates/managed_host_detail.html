@@ -5,7 +5,7 @@
 {% block content %}
 <h1>Managed Host {{ hostname }}</h1>
 <table>
-	<tr><th>State</th><td>{{ state }}</td></tr>
+	<tr><th>State</th><td>{{ state }} for {{ time_in_state }} {{ state_reason }}</td></tr>
 	{% if !maintenance_reference.is_empty() %}
 		<tr>
       <th>Maintenance Reference</th>

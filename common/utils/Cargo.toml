@@ -19,5 +19,6 @@ ipnetwork = "0.20.0"
 tonic = { workspace = true }
 
 # [local-dependencies]
+config-version = { path = "../config-version" }
 rpc = { path = "../../rpc" }
 forge-tls = { path = "../tls" }
