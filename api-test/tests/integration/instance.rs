@@ -44,6 +44,10 @@ pub fn create(
                     "network_segment_id": {"value": segment_id}
                 }]
             }
+        },
+        "metadata": {
+             "name": "test_instance",
+             "description": "tests/integration/instance"
         }
     });
     let instance_id = grpcurl_id(addr, "AllocateInstance", &data.to_string())?;

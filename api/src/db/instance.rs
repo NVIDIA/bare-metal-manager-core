@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
@@ -31,6 +32,7 @@ use crate::{
             status::network::InstanceNetworkStatusObservation,
         },
         machine::machine_id::MachineId,
+        metadata::Metadata,
         tenant::TenantOrganizationId,
     },
     CarbideError, CarbideResult,
@@ -51,6 +53,8 @@ pub struct Instance {
     pub ib_config: Versioned<InstanceInfinibandConfig>,
     pub ib_status_observation: Option<InstanceInfinibandStatusObservation>,
     pub phone_home_last_contact: Option<DateTime<Utc>>,
+    pub metadata: Metadata,
+    pub metadata_version: ConfigVersion,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +68,8 @@ pub struct NewInstance<'a> {
     pub tenant_config: &'a TenantConfig,
     pub network_config: Versioned<&'a InstanceNetworkConfig>,
     pub ib_config: Versioned<&'a InstanceInfinibandConfig>,
+    pub metadata: Metadata,
+    pub metadata_version: ConfigVersion,
 }
 
 pub struct DeleteInstance {
@@ -111,6 +117,19 @@ impl<'r> FromRow<'r, PgRow> for Instance {
         let ib_status_observation: sqlx::types::Json<OptionalIbStatusObservation> =
             row.try_get("ib_status_observation")?;
 
+        let version_str: &str = row.try_get("metadata_version")?;
+        let metadata_version = version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
+        let instance_labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: instance_labels.0,
+        };
+
         Ok(Instance {
             id: row.try_get("id")?,
             machine_id: machine_id.into_inner(),
@@ -125,6 +144,8 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             ib_config: Versioned::new(ib_config.0, ib_config_version),
             ib_status_observation: ib_status_observation.0 .0,
             phone_home_last_contact: row.try_get("phone_home_last_contact")?,
+            metadata,
+            metadata_version,
         })
     }
 }
@@ -424,9 +445,13 @@ impl<'a> NewInstance<'a> {
                         ib_config_version,
                         ib_status_observation,
                         keyset_ids,
-                        phone_home_enabled
+                        phone_home_enabled,
+                        name, 
+                        description, 
+                        labels,
+                        metadata_version
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14)
+                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17, $18)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.instance_id)
@@ -443,6 +468,10 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(ib_status_observation))
             .bind(&self.tenant_config.tenant_keyset_ids)
             .bind(self.tenant_config.phone_home_enabled)
+            .bind(&self.metadata.name)
+            .bind(&self.metadata.description)
+            .bind(sqlx::types::Json(&self.metadata.labels))
+            .bind(&self.metadata_version.version_string())
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

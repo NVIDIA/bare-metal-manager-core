@@ -389,6 +389,11 @@ pub async fn try_allocate_instance(
                 id: host_machine_id.to_string(),
             }),
             config: Some(config),
+            metadata: Some(rpc::forge::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/ib_instance".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await?;
 
