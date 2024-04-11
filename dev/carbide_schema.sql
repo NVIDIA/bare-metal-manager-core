@@ -1309,7 +1309,11 @@ CREATE TABLE public.instances (
     ib_config jsonb DEFAULT '{"ib_interfaces": []}'::jsonb NOT NULL,
     ib_status_observation jsonb DEFAULT '{"observed_at": "2023-01-01T00:00:00.000000000Z", "config_version": "V1-T1666644937952267"}'::jsonb NOT NULL,
     keyset_ids text[] DEFAULT '{}'::text[] NOT NULL,
-    always_boot_with_custom_ipxe boolean DEFAULT false
+    always_boot_with_custom_ipxe boolean DEFAULT false,
+    labels JSONB NOT NULL DEFAULT ('{}'),
+    name VARCHAR(64) NOT NULL DEFAULT (''),
+    description VARCHAR(64) NOT NULL DEFAULT (''),
+    metadata_version VARCHAR(64) NOT NULL DEFAULT ('V1-T1666644937952268')
 );
 
 

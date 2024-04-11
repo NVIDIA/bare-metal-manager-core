@@ -42,7 +42,34 @@ pub async fn create_instance(
         infiniband,
     };
 
-    create_instance_with_config(env, dpu_machine_id, host_machine_id, config).await
+    create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
+}
+
+pub async fn create_instance_with_labels(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+    host_machine_id: &MachineId,
+    network: Option<rpc::InstanceNetworkConfig>,
+    infiniband: Option<rpc::InstanceInfinibandConfig>,
+    keyset_ids: Vec<String>,
+    instance_metadata: rpc::Metadata,
+) -> (uuid::Uuid, rpc::Instance) {
+    let mut tenant_config = default_tenant_config();
+    tenant_config.tenant_keyset_ids = keyset_ids;
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(tenant_config),
+        network,
+        infiniband,
+    };
+    create_instance_with_config(
+        env,
+        dpu_machine_id,
+        host_machine_id,
+        config,
+        Some(instance_metadata),
+    )
+    .await
 }
 
 pub async fn create_instance_with_ib_config(
@@ -53,7 +80,7 @@ pub async fn create_instance_with_ib_config(
 ) -> (uuid::Uuid, rpc::forge::Instance) {
     let config = config_for_ib_config(ib_config);
 
-    create_instance_with_config(env, dpu_machine_id, host_machine_id, config).await
+    create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
 }
 
 pub fn single_interface_network_config(segment_id: uuid::Uuid) -> rpc::InstanceNetworkConfig {
@@ -91,6 +118,7 @@ pub async fn create_instance_with_config(
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
     config: rpc::InstanceConfig,
+    instance_metadata: Option<rpc::Metadata>,
 ) -> (uuid::Uuid, rpc::Instance) {
     let instance_id: uuid::Uuid = env
         .api
@@ -100,6 +128,7 @@ pub async fn create_instance_with_config(
                 id: host_machine_id.to_string(),
             }),
             config: Some(config),
+            metadata: instance_metadata,
         }))
         .await
         .expect("Create instance failed.")

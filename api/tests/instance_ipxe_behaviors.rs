@@ -178,5 +178,5 @@ pub async fn create_instance(
         infiniband: None,
     };
 
-    create_instance_with_config(env, dpu_machine_id, host_machine_id, config).await
+    create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
 }

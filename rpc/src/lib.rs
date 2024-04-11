@@ -31,9 +31,9 @@ pub use crate::protos::forge::{
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
     InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceSearchQuery, InstanceStatus,
     InstanceTenantStatus, InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo,
-    MachineEvent, MachineId, MachineInterface, MachineList, NetworkPrefixEvent, NetworkSegment,
-    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState,
-    TenantConfig, TenantState, Uuid,
+    MachineEvent, MachineId, MachineInterface, MachineList, Metadata, NetworkPrefixEvent,
+    NetworkSegment, NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult,
+    ResourcePoolType, SyncState, TenantConfig, TenantState, Uuid,
 };
 pub use crate::protos::forge::{
     IbPartition, IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,

@@ -44,6 +44,7 @@ use carbide::{
             },
         },
         machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
+        metadata::Metadata,
     },
     state_controller::{
         machine::handler::MachineStateHandler,
@@ -54,8 +55,9 @@ use chrono::Utc;
 use common::api_fixtures::{
     create_managed_host, create_test_env, dpu,
     instance::{
-        advance_created_instance_into_ready_state, create_instance, default_tenant_config,
-        delete_instance, single_interface_network_config, FIXTURE_CIRCUIT_ID,
+        advance_created_instance_into_ready_state, create_instance, create_instance_with_labels,
+        default_tenant_config, delete_instance, single_interface_network_config,
+        FIXTURE_CIRCUIT_ID,
     },
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
@@ -245,6 +247,70 @@ async fn test_allocate_and_release_instance(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_allocate_instance_with_labels(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    txn.commit().await.unwrap();
+
+    let (_instance_id, _instance) = create_instance_with_labels(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
+        vec![],
+        rpc::forge::Metadata {
+            name: "test_instance_with_labels".to_string(),
+            description: "this instance must have labels.".to_string(),
+            labels: vec![
+                rpc::forge::Label {
+                    key: "key1".to_string(),
+                    value: Some("value1".to_string()),
+                },
+                rpc::forge::Label {
+                    key: "key2".to_string(),
+                    value: None,
+                },
+            ],
+        },
+    )
+    .await;
+
+    let mut txn = pool
+        .clone()
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| {
+            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
+        });
+    assert_eq!(fetched_instance.machine_id, host_machine_id);
+
+    assert_eq!(fetched_instance.metadata.name, "test_instance_with_labels");
+    assert_eq!(
+        fetched_instance.metadata.description,
+        "this instance must have labels."
+    );
+    assert!(fetched_instance.metadata.labels.len() == 2);
+    assert_eq!(
+        fetched_instance.metadata.labels.get("key1").unwrap(),
+        "value1"
+    );
+    assert_eq!(fetched_instance.metadata.labels.get("key2").unwrap(), "");
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_with_provided_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
@@ -266,6 +332,11 @@ async fn test_create_instance_with_provided_id(pool: sqlx::PgPool) {
                 id: host_machine_id.to_string(),
             }),
             config: Some(config),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/instance".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await
         .expect("Create instance failed.")
@@ -301,6 +372,11 @@ async fn test_instance_deletion_before_provisioning_finishes(pool: sqlx::PgPool)
                 id: host_machine_id.to_string(),
             }),
             config: Some(config),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/instance".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await
         .expect("Create instance failed.")
@@ -457,6 +533,11 @@ async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
                 id: host_machine_id.to_string(),
             }),
             config: Some(config.clone()),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/instance".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await
         .expect("Create instance failed.")
@@ -471,6 +552,11 @@ async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
                 id: host_machine_id_2.to_string(),
             }),
             config: Some(config),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/instance".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await;
 
@@ -811,6 +897,11 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
             infiniband: InstanceInfinibandConfig::default(),
         },
+        metadata: Metadata {
+            name: "test_instance".to_string(),
+            description: "tests/instance".to_string(),
+            labels: HashMap::new(),
+        },
     };
 
     // Note: This also requests a background task in the DB for creating managed
@@ -1027,6 +1118,11 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
                 network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
                 infiniband: None,
             }),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/instance".to_string(),
+                labels: Vec::new(),
+            }),
         }))
         .await;
     let Err(err) = result else {
@@ -1050,8 +1146,14 @@ async fn test_instance_phone_home(pool: sqlx::PgPool) {
         infiniband: None,
     };
 
-    let (instance_id, _instance) =
-        create_instance_with_config(&env, &dpu_machine_id, &host_machine_id, instance_config).await;
+    let (instance_id, _instance) = create_instance_with_config(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        instance_config,
+        None,
+    )
+    .await;
 
     let instance = env
         .find_instances(Some(instance_id.into()))

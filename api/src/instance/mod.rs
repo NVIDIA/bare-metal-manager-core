@@ -12,6 +12,7 @@
 
 use config_version::{ConfigVersion, Versioned};
 use sqlx::{PgPool, Postgres, Transaction};
+use std::collections::HashMap;
 
 use crate::{
     db::{
@@ -36,6 +37,7 @@ use crate::{
             machine_id::{try_parse_machine_id, MachineId},
             ManagedHostState,
         },
+        metadata::Metadata,
         tenant::TenantOrganizationId,
         ConfigValidationError, RpcDataConversionError,
     },
@@ -53,6 +55,8 @@ pub struct InstanceAllocationRequest {
 
     // Desired configuration of the instance
     pub config: InstanceConfig,
+
+    pub metadata: Metadata,
 }
 
 impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
@@ -84,10 +88,35 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             None => uuid::Uuid::new_v4(),
         };
 
+        let metadata = Metadata {
+            name: request
+                .metadata
+                .clone()
+                .map(|m| m.name.clone())
+                .unwrap_or("".to_owned()),
+            description: request
+                .metadata
+                .clone()
+                .map(|m| m.description.clone())
+                .unwrap_or("".to_owned()),
+            labels: request.metadata.clone().map_or(HashMap::new(), |m| {
+                m.labels
+                    .iter()
+                    .map(|label| {
+                        (
+                            label.key.clone(),
+                            label.value.clone().unwrap_or("".to_owned()),
+                        )
+                    })
+                    .collect()
+            }),
+        };
+
         Ok(InstanceAllocationRequest {
             instance_id,
             machine_id,
             config,
+            metadata,
         })
     }
 }
@@ -115,7 +144,9 @@ pub async fn allocate_instance(
 
     let network_config = Versioned::new(request.config.network, ConfigVersion::initial());
     let ib_config = Versioned::new(request.config.infiniband, ConfigVersion::initial());
+    let metadata_version = ConfigVersion::initial();
 
+    let instance_metadata = request.metadata;
     let tenant_organization_id = tenant_config.clone().tenant_organization_id;
 
     tenant_consistent_check(&mut txn, tenant_organization_id, &ib_config).await?;
@@ -128,6 +159,8 @@ pub async fn allocate_instance(
         tenant_config: &tenant_config,
         network_config: network_config.as_ref(),
         ib_config: ib_config.as_ref(),
+        metadata: instance_metadata,
+        metadata_version,
     };
 
     let machine_id = new_instance.machine_id.clone();

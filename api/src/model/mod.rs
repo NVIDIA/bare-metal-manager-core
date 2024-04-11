@@ -30,6 +30,7 @@ pub mod hardware_info;
 pub mod ib_partition;
 pub mod instance;
 pub mod machine;
+pub mod metadata;
 pub mod network_devices;
 pub mod network_segment;
 pub mod resource_pool;
