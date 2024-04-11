@@ -103,64 +103,12 @@ impl MachineStateHandler {
             reachability_params,
         }
     }
-}
 
-/// This function checks if reprovisioning is requested of a given DPU or not.
-/// It also returns if firmware upgrade is needed.
-fn dpu_reprovisioning_needed(dpu_snapshot: &MachineSnapshot) -> Option<ReprovisionRequest> {
-    dpu_snapshot.reprovision_requested.clone()
-}
-
-// Function to wait for some time in state machine.
-fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
-    let expected_time = *basetime + wait_time;
-    let current_time = Utc::now();
-
-    current_time < expected_time
-}
-
-/// if dpu_agent has responded health after dpu is rebooted, return true.
-fn is_dpu_up(state: &ManagedHostStateSnapshot) -> bool {
-    let observation_time = state
-        .dpu_snapshot
-        .network_status_observation
-        .as_ref()
-        .map(|o| o.observed_at)
-        .unwrap_or(DateTime::<Utc>::MIN_UTC);
-    let state_change_time = state.host_snapshot.current.version.timestamp();
-
-    observation_time >= state_change_time
-}
-
-fn is_dpu_up_and_network_ready(state: &ManagedHostStateSnapshot) -> bool {
-    if !is_dpu_up(state) {
-        return false;
-    }
-
-    if !is_network_ready(&state.dpu_snapshot) {
-        return false;
-    }
-
-    true
-}
-
-#[async_trait::async_trait]
-impl StateHandler for MachineStateHandler {
-    type State = ManagedHostStateSnapshot;
-    type ControllerState = ManagedHostState;
-    type ObjectId = MachineId;
-    type ContextObjects = MachineStateHandlerContextObjects;
-
-    async fn handle_object_state(
+    fn record_metrics(
         &self,
-        host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        controller_state: &mut ControllerStateReader<Self::ControllerState>,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        ctx: &mut StateHandlerContext<Self::ContextObjects>,
-    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let managed_state = &state.managed_state;
-
+        ctx: &mut StateHandlerContext<MachineStateHandlerContextObjects>,
+    ) {
         ctx.metrics.dpu_firmware_version = state
             .dpu_snapshot
             .hardware_info
@@ -194,6 +142,17 @@ impl StateHandler for MachineStateHandler {
             ctx.metrics.machine_id = Some(observation.machine_id.clone());
             ctx.metrics.client_certificate_expiry = observation.client_certificate_expiry;
         }
+    }
+
+    async fn attempt_state_transition(
+        &self,
+        host_machine_id: &MachineId,
+        state: &mut ManagedHostStateSnapshot,
+        controller_state: &mut ControllerStateReader<'_, ManagedHostState>,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        let managed_state = &state.managed_state;
 
         // If it's been more than 5 minutes since DPU reported status, consider it unhealthy
         if state.dpu_snapshot.has_healthy_network() {
@@ -476,6 +435,66 @@ impl StateHandler for MachineStateHandler {
                 }
             }
         }
+    }
+}
+
+/// This function checks if reprovisioning is requested of a given DPU or not.
+/// It also returns if firmware upgrade is needed.
+fn dpu_reprovisioning_needed(dpu_snapshot: &MachineSnapshot) -> Option<ReprovisionRequest> {
+    dpu_snapshot.reprovision_requested.clone()
+}
+
+// Function to wait for some time in state machine.
+fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
+    let expected_time = *basetime + wait_time;
+    let current_time = Utc::now();
+
+    current_time < expected_time
+}
+
+/// if dpu_agent has responded health after dpu is rebooted, return true.
+fn is_dpu_up(state: &ManagedHostStateSnapshot) -> bool {
+    let observation_time = state
+        .dpu_snapshot
+        .network_status_observation
+        .as_ref()
+        .map(|o| o.observed_at)
+        .unwrap_or(DateTime::<Utc>::MIN_UTC);
+    let state_change_time = state.host_snapshot.current.version.timestamp();
+
+    observation_time >= state_change_time
+}
+
+fn is_dpu_up_and_network_ready(state: &ManagedHostStateSnapshot) -> bool {
+    if !is_dpu_up(state) {
+        return false;
+    }
+
+    if !is_network_ready(&state.dpu_snapshot) {
+        return false;
+    }
+
+    true
+}
+
+#[async_trait::async_trait]
+impl StateHandler for MachineStateHandler {
+    type State = ManagedHostStateSnapshot;
+    type ControllerState = ManagedHostState;
+    type ObjectId = MachineId;
+    type ContextObjects = MachineStateHandlerContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        host_machine_id: &MachineId,
+        state: &mut ManagedHostStateSnapshot,
+        controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        self.record_metrics(state, ctx);
+        self.attempt_state_transition(host_machine_id, state, controller_state, txn, ctx)
+            .await
     }
 }
 
