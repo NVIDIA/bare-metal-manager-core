@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -56,6 +56,9 @@ pub struct ManagedHostOutput {
     pub hostname: Option<String>,
     pub machine_id: Option<String>,
     pub state: String,
+    pub state_version: String,
+    pub time_in_state: String,
+    pub state_reason: String,
     pub host_serial_number: Option<String>,
     pub host_bios_version: Option<String>,
     pub host_bmc_ip: Option<String>,
@@ -141,6 +144,9 @@ pub fn get_managed_host_output(
         };
         managed_host_output.machine_id = Some(machine_id.to_string());
         managed_host_output.state = machine.state.clone();
+        managed_host_output.time_in_state =
+            config_version::since_state_change_humanized(&machine.state_version);
+        managed_host_output.state_reason = machine.state_reason.clone().unwrap_or_default();
         managed_host_output.host_serial_number =
             get_dmi_data_from_machine!(machine, chassis_serial);
         managed_host_output.host_bios_version = get_dmi_data_from_machine!(machine, bios_version);

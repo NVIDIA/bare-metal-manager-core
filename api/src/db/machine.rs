@@ -335,6 +335,7 @@ impl From<Machine> for rpc::Machine {
                 .last_reboot_requested
                 .as_ref()
                 .map(|x| x.mode.to_string()),
+            state_reason: None, // TODO(GK) fill this in once it's in DB
         }
     }
 }
