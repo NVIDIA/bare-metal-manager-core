@@ -6,18 +6,17 @@ build:
   tagPolicy:
     sha256: {}
   local:
+    push: false
     useBuildkit: true
     useDockerCLI: true
-  insecureRegistries:
-    - "registry.minikube"
   artifacts:
-    - image: registry.minikube/carbide-dns
+    - image: carbide-dns
       sync:
         infer:
           - "carbide-dns"
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.dns.localdev
-    - image: registry.minikube/carbide-pxe
+    - image: carbide-pxe
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.pxe.localdev
       sync:
@@ -25,7 +24,7 @@ build:
           - "carbide"
           - pxe/templates/*
           - pxe/static/*
-    - image: registry.minikube/carbide-api
+    - image: carbide-api
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.api.localdev
       sync:
@@ -33,13 +32,13 @@ build:
           - "carbide-api"
           - api/casbin-policy.csv
           - pxe/static/*
-    - image: registry.minikube/carbide-dhcp
+    - image: carbide-dhcp
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.dhcp.localdev
       sync:
         infer:
           - "libdhcp.so"
-    - image: registry.minikube/bmc-mock
+    - image: bmc-mock
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.bmc-mock.localdev
       sync:
@@ -49,9 +48,10 @@ build:
 manifests:
   kustomize:
     paths:
-      - forged/envs/local-dev/site/site-controller
+      - forged/envs/k3s-dev/site/site-controller
 
 deploy:
+  kubeContext: k3s-dev
   kubectl:
     defaultNamespace: forge-system
 

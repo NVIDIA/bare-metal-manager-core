@@ -1,0 +1,57 @@
+apiVersion: skaffold/v4beta2
+kind: Config
+metadata:
+  name: carbide
+build:
+  tagPolicy:
+    sha256: {}
+  local:
+    useBuildkit: true
+    useDockerCLI: true
+  insecureRegistries:
+    - "registry.minikube"
+  artifacts:
+    - image: registry.minikube/carbide-dns
+      sync:
+        infer:
+          - "carbide-dns"
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.dns.localdev.minikube
+    - image: registry.minikube/carbide-pxe
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.pxe.localdev.minikube
+      sync:
+        infer:
+          - "carbide"
+          - pxe/templates/*
+          - pxe/static/*
+    - image: registry.minikube/carbide-api
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.api.localdev.minikube
+      sync:
+        infer:
+          - "carbide-api"
+          - api/casbin-policy.csv
+          - pxe/static/*
+    - image: registry.minikube/carbide-dhcp
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.dhcp.localdev.minikube
+      sync:
+        infer:
+          - "libdhcp.so"
+    - image: registry.minikube/bmc-mock
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.bmc-mock.localdev.minikube
+      sync:
+        infer:
+          - "bmc-mock"
+
+manifests:
+  kustomize:
+    paths:
+      - forged/envs/local-dev/site/site-controller
+
+deploy:
+  kubectl:
+    defaultNamespace: forge-system
+

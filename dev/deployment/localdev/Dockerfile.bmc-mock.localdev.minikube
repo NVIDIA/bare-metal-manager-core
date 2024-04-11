@@ -9,12 +9,9 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
-FROM runtime-container-localdev:latest as carbide
+FROM registry.minikube/runtime-container:latest as carbide
+
 WORKDIR ./carbide
-
-RUN mkdir -p /opt/carbide/pxe/templates
-RUN mkdir -p /forge-boot-artifacts/blobs
-
-COPY .skaffold/target/carbide-pxe/debug/carbide /opt/carbide/
-COPY pxe/templates/* /opt/carbide/pxe/templates/
-COPY pxe/static/* /forge-boot-artifacts/blobs/
+COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/carbide/
+COPY dev/bmc-mock/tls.crt /opt/carbide/
+COPY dev/bmc-mock/tls.key /opt/carbide/

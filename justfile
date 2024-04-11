@@ -16,9 +16,11 @@ build-container: (_dockerbuild "urm.nvidia.com/swngc-ngcc-docker-local/forge/car
 
 # Build the build-container used for minikube forge development
 build-container-minikube: build-container (_dockerbuild "registry.minikube/build-container:latest" "dev/deployment/localdev/Dockerfile.build-container.localdev" "dev/deployment")
+build-container-k3s: build-container (_dockerbuild "build-container-localdev:latest" "dev/deployment/localdev/Dockerfile.build-container.localdev" "dev/deployment")
 
 # Build the runtime-container for minikube development. This gets used for deploying forge containers
 runtime-container-minikube: (_dockerbuild "registry.minikube/runtime-container:latest" "dev/deployment/localdev/Dockerfile.runtime-container.localdev")
+runtime-container-k3s: (_dockerbuild "runtime-container-localdev:latest" "dev/deployment/localdev/Dockerfile.runtime-container.localdev")
 
 load-minikube-registry: runtime-container-minikube build-container-minikube
   minikube image load registry.minikube/build-container:latest
