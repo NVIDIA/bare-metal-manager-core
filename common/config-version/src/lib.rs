@@ -16,7 +16,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeDelta, TimeZone, Utc};
 
 /// A value that is accompanied by a version field
 ///
@@ -134,6 +134,19 @@ impl ConfigVersion {
             self.timestamp.timestamp_micros()
         )
     }
+
+    /// Amount of time since we entered this state version
+    /// Returned value will be negative if state change is in the future.
+    /// Use `to_std()` to get a Duration.
+    pub fn since_state_change(&self) -> TimeDelta {
+        Utc::now() - self.timestamp()
+    }
+
+    /// Human readable amount of time since we entered the given state version
+    /// e.g. "2 hours and 14 minutes", or "12 seconds"
+    pub fn since_state_change_humanized(&self) -> String {
+        format_duration(self.since_state_change())
+    }
 }
 
 /// Returns the current timestamp rounded to the next microsecond
@@ -241,8 +254,63 @@ impl<'de> serde::Deserialize<'de> for ConfigVersion {
     }
 }
 
+/// Human readable amount of time since we entered the given state version
+pub fn since_state_change_humanized(ver: &str) -> String {
+    let Ok(state_version_t) = ver.parse::<ConfigVersion>() else {
+        return "state version parse error".to_string();
+    };
+    state_version_t.since_state_change_humanized()
+}
+
+fn format_duration(d: TimeDelta) -> String {
+    let seconds = d.num_seconds();
+    const SECONDS_IN_MINUTE: i64 = 60;
+    const SECONDS_IN_HOUR: i64 = SECONDS_IN_MINUTE * 60;
+    const SECONDS_IN_DAY: i64 = 24 * SECONDS_IN_HOUR;
+
+    let days = seconds / SECONDS_IN_DAY;
+    let hours = (seconds % SECONDS_IN_DAY) / SECONDS_IN_HOUR;
+    let minutes = (seconds % SECONDS_IN_HOUR) / SECONDS_IN_MINUTE;
+    let seconds = seconds % SECONDS_IN_MINUTE;
+
+    let mut parts = vec![];
+    if days > 0 {
+        parts.push(plural(days, "day"));
+    }
+    if hours > 0 {
+        parts.push(plural(hours, "hour"));
+    }
+    if minutes > 0 {
+        parts.push(plural(minutes, "minute"));
+    }
+    if parts.is_empty() {
+        // Only include seconds if less than 1 minute
+        parts.push(plural(seconds, "second"));
+    }
+    match parts.len() {
+        0 => String::from("0 seconds"),
+        1 => parts.remove(0),
+        _ => {
+            let last = parts.pop().unwrap();
+            format!("{} and {}", parts.join(", "), last)
+        }
+    }
+}
+
+fn plural(val: i64, period: &str) -> String {
+    if val == 1 {
+        format!("{val} {period}")
+    } else {
+        format!("{val} {period}s")
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use chrono::TimeDelta;
+
     use super::*;
 
     #[test]
@@ -271,5 +339,44 @@ mod tests {
         let vs = serde_json::to_string(&next).unwrap();
         let parsed_next: ConfigVersion = serde_json::from_str(&vs).unwrap();
         assert_eq!(parsed_next, next);
+    }
+
+    #[test]
+    fn it_formats_seconds() {
+        let td = TimeDelta::from_std(Duration::from_secs(44)).unwrap();
+        assert_eq!(format_duration(td), "44 seconds");
+    }
+
+    #[test]
+    fn it_formats_minutes() {
+        // 60 seconds make a minute
+        let td = TimeDelta::from_std(Duration::from_secs(60)).unwrap();
+        assert_eq!(format_duration(td), "1 minute");
+    }
+
+    #[test]
+    fn it_formats_hours() {
+        // 3600 seconds make an hour
+        let td = TimeDelta::from_std(Duration::from_secs(3600 * 2)).unwrap();
+        assert_eq!(format_duration(td), "2 hours");
+    }
+
+    #[test]
+    fn it_formats_days() {
+        // 86400 seconds make a day
+        let td = TimeDelta::from_std(Duration::from_secs(86400)).unwrap();
+        assert_eq!(format_duration(td), "1 day");
+    }
+
+    #[test]
+    fn it_formats_combinations_no_seconds() {
+        let td = TimeDelta::from_std(Duration::from_secs(86400 + 3600 + 60 + 1)).unwrap();
+        assert_eq!(format_duration(td), "1 day, 1 hour and 1 minute");
+    }
+
+    #[test]
+    fn it_formats_zero_seconds() {
+        let td = TimeDelta::from_std(Duration::from_secs(0)).unwrap();
+        assert_eq!(format_duration(td), "0 seconds");
     }
 }

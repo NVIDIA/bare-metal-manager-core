@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use chrono::{TimeDelta, Utc};
-use config_version::ConfigVersion;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
@@ -82,7 +80,7 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             hostname,
             id: m.id.unwrap_or_default().id,
             state: m.state,
-            time_in_state: since_state_change(&m.state_version),
+            time_in_state: config_version::since_state_change_humanized(&m.state_version),
             ip_address,
             mac_address,
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
@@ -368,7 +366,7 @@ impl From<forgerpc::Machine> for MachineDetail {
         let machine_id = m.id.unwrap_or_default().id;
         MachineDetail {
             id: machine_id.clone(),
-            time_in_state: since_state_change(&m.state_version),
+            time_in_state: config_version::since_state_change_humanized(&m.state_version),
             state: m.state,
             state_version: m.state_version,
             machine_type: get_machine_type(&machine_id),
@@ -446,61 +444,4 @@ fn get_machine_type(machine_id: &str) -> String {
         "DPU"
     }
     .to_string()
-}
-
-/// Human readable amount of time since we entered the given state version
-fn since_state_change(ver: &str) -> String {
-    let Ok(state_version_t) = ver.parse::<ConfigVersion>() else {
-        return "state version parse error".to_string();
-    };
-    let now = Utc::now();
-    let state_ts = state_version_t.timestamp();
-    if state_ts < now {
-        format_duration(now - state_ts)
-    } else {
-        String::new()
-    }
-}
-
-fn format_duration(d: TimeDelta) -> String {
-    let seconds = d.num_seconds();
-    const SECONDS_IN_MINUTE: i64 = 60;
-    const SECONDS_IN_HOUR: i64 = SECONDS_IN_MINUTE * 60;
-    const SECONDS_IN_DAY: i64 = 24 * SECONDS_IN_HOUR;
-
-    let days = seconds / SECONDS_IN_DAY;
-    let hours = (seconds % SECONDS_IN_DAY) / SECONDS_IN_HOUR;
-    let minutes = (seconds % SECONDS_IN_HOUR) / SECONDS_IN_MINUTE;
-    let seconds = seconds % SECONDS_IN_MINUTE;
-
-    let mut parts = vec![];
-    if days > 0 {
-        parts.push(plural(days, "day"));
-    }
-    if hours > 0 {
-        parts.push(plural(hours, "hour"));
-    }
-    if minutes > 0 {
-        parts.push(plural(minutes, "minute"));
-    }
-    if parts.is_empty() {
-        // Only include seconds if less than 1 minute
-        parts.push(plural(seconds, "second"));
-    }
-    match parts.len() {
-        0 => String::from("0 seconds"),
-        1 => parts.remove(0),
-        _ => {
-            let last = parts.pop().unwrap();
-            format!("{} and {}", parts.join(", "), last)
-        }
-    }
-}
-
-fn plural(val: i64, period: &str) -> String {
-    if val == 1 {
-        format!("{val} {period}")
-    } else {
-        format!("{val} {period}s")
-    }
 }
