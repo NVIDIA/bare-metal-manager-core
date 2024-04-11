@@ -2,6 +2,13 @@
 # This is called from parallel CLI and creates a docker task for each component passed
 # Each component gets its own cargo cache and cargo_target_dir
 
+# Check if CONTEXT is set to k3s
+if [ "$CONTEXT" == "k3s" ]; then
+  IMAGE_NAME="build-container-localdev"
+else
+  IMAGE_NAME="registry.minikube/build-container:latest"
+fi
+
 docker run --rm -v $REPO_ROOT:/carbide \
   -e CARGO_TARGET_DIR=/target/$1 \
   -e CARGO_HOME=/cache/cargo/$1 \
@@ -10,5 +17,5 @@ docker run --rm -v $REPO_ROOT:/carbide \
   -v $REPO_ROOT/.skaffold/cache:/cache \
   --user $(id -u):$(id -g) \
   --add-host urm.nvidia.com:10.124.92.246 \
-  registry.minikube/build-container:latest $1
+  $IMAGE_NAME $1
 

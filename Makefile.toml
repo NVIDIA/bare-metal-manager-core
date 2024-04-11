@@ -62,12 +62,18 @@ category = "Build"
 description = "Build forge-scout and forge-admin-cli locally using debian container. Ensures correct GCC version is used."
 workspace = false
 script = '''
+# Check if CARGO_HOME is not set or is empty
+if [ -z "$CARGO_HOME" ]; then
+  # Set CARGO_HOME to $HOME/.cargo if it is not set
+  CARGO_HOME="$HOME/.cargo"
+fi
+
 docker run \
 	--rm \
 	--user $(id -u):$(id -g) \
 	--volume $(pwd):/code \
 	--workdir /code \
-	--volume $HOME/.cargo:/cargo \
+	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	-it urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
 	cargo build -p scout -p admin
@@ -78,12 +84,18 @@ category = "Build"
 description = "Build forge-hw-health locally using debian container."
 workspace = false
 script = '''
+# Check if CARGO_HOME is not set or is empty
+if [ -z "$CARGO_HOME" ]; then
+  # Set CARGO_HOME to $HOME/.cargo if it is not set
+  CARGO_HOME="$HOME/.cargo"
+fi
+
 docker run \
 	--rm \
 	--user $(id -u):$(id -g) \
 	--volume $(pwd):/code \
 	--workdir /code \
-	--volume $HOME/.cargo:/cargo \
+	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	-it urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
 	cargo build -p health

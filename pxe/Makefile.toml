@@ -115,6 +115,7 @@ script = '''
 category = "ipxe"
 script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
+  mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 '''
 
 [tasks.copy-forge-prod-root-ca]
@@ -152,36 +153,32 @@ dependencies = [
 
 [tasks.mkosi-clean-qcow-imager]
 category = "Ephemeral Image"
-command = "sudo"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
 args = [
-	"${REPO_ROOT}/pxe/mkosi/bin/mkosi",
 	"--profile", "qcow-imager",
 	"clean"
 ]
 
 [tasks.mkosi-clean-scout]
 category = "Ephemeral Image"
-command = "sudo"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
 args = [
-	"${REPO_ROOT}/pxe/mkosi/bin/mkosi",
 	"--profile", "scout",
 	"clean"
 ]
 
 [tasks.mkosi-build-scout]
 category = "Ephemeral Image"
-command = "sudo"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
 args = [
-	"${REPO_ROOT}/pxe/mkosi/bin/mkosi",
 	"--profile", "scout",
 	"build"
 ]
 
 [tasks.mkosi-build-qcow-imager]
 category = "Ephemeral Image"
-command = "sudo"
+command = "${REPO_ROOT}/pxe/mkosi/bin/mkosi"
 args = [
-	"${REPO_ROOT}/pxe/mkosi/bin/mkosi",
 	"--profile", "qcow-imager",
 	"build"
 ]
@@ -412,9 +409,8 @@ cwd = "/tmp/bfb-dump"
 [tasks.bfb-hbn-download]
 category = "iPXE Kernel"
 description = "Download the hbn doca container on aarch64 gitlab runner"
-command = "sudo"
+command = "docker"
 args = [
-	"docker",
 	"pull",
 	"${DOCA_HBN_URI}",
 ]
@@ -422,9 +418,8 @@ args = [
 [tasks.bfb-telemetry-download]
 category = "iPXE Kernel"
 description = "Download the doca telemetry container on aarch64 gitlab runner"
-command = "sudo"
+command = "docker"
 args = [
-    "docker",
 	"pull",
 	"${DOCA_TELEMETRY_URI}",
 ]
@@ -432,9 +427,8 @@ args = [
 [tasks.k8s-pause-download]
 category = "iPXE Kernel"
 description = "Download the kubelet pause container on aarch64 gitlab runner"
-command = "sudo"
+command = "docker"
 args = [
-	"docker",
 	"pull",
 	"${K8S_PAUSE_URI}",
 ]
@@ -455,9 +449,8 @@ cwd = "/tmp/bfb-dump/initramfs-tmp"
 [tasks.bfb-hbn-export]
 category = "iPXE Kernel"
 description = "export the hbn doca container on aarch64 gitlab runner"
-command = "sudo"
+command = "docker"
 args = [
-	"docker",
 	"save",
 	"--output=doca_hbn.tar",
 	"${DOCA_HBN_URI}",
@@ -467,9 +460,8 @@ cwd = "/tmp/bfb-dump/initramfs-tmp"
 [tasks.bfb-telemetry-export]
 category = "iPXE Kernel"
 description = "export the hbn telemetry container on aarch64 gitlab runner"
-command = "sudo"
+command = "docker"
 args = [
-	"docker",
 	"save",
 	"--output=doca_telemetry.tar",
 	"${DOCA_TELEMETRY_URI}",
@@ -479,9 +471,8 @@ cwd = "/tmp/bfb-dump/initramfs-tmp"
 [tasks.kubelet-pause-export]
 category = "iPXE Kernel"
 description = "export the kubelet pause container on aarch64 gitlab runner"
-command = "sudo"
+command = "docker"
 args = [
-	"docker",
 	"save",
 	"--output=pause.tar",
 	"${K8S_PAUSE_URI}",
@@ -652,6 +643,9 @@ Architecture: arm64" > Release
 
 [tasks.setup-firmware-repo]
 category = "iPXE Kernel"
+dependencies = [
+	"mkdir-static-x86_64",
+]
 description = "Download vendor specific firmware packages"
 script = [
   "echo Downloading nvidia firmware",

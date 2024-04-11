@@ -9,7 +9,7 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
-FROM registry.minikube/runtime-container:latest as carbide
+FROM runtime-container-localdev:latest as carbide
 
 WORKDIR ./carbide
 COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/carbide/
