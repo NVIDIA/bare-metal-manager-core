@@ -15,13 +15,13 @@
 use config_version::{ConfigVersion, Versioned};
 
 use crate::{
-    db::host_machine::HostMachine,
+    db::{host_machine::HostMachine, machine::Machine, DatabaseError},
     model::machine::{
         machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState, ManagedHostState,
         ManagedHostStateSnapshot,
     },
     state_controller::{
-        io::StateControllerIO,
+        io::{PersistentStateHandlerOutcome, StateControllerIO},
         machine::{context::MachineStateHandlerContextObjects, metrics::MachineMetricsEmitter},
         snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError},
     },
@@ -88,6 +88,15 @@ impl StateControllerIO for MachineStateControllerIO {
             .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
 
         Ok(())
+    }
+
+    async fn persist_outcome(
+        &self,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        object_id: &Self::ObjectId,
+        outcome: PersistentStateHandlerOutcome,
+    ) -> Result<(), DatabaseError> {
+        Machine::update_controller_state_outcome(txn, object_id, outcome).await
     }
 
     fn metric_state_names(state: &ManagedHostState) -> (&'static str, &'static str) {

@@ -181,6 +181,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "BMCMetaDataUpdateRequest",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute(
+            "ControllerStateReason",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

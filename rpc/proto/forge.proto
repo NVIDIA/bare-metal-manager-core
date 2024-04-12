@@ -1073,7 +1073,7 @@ message Machine {
   optional string last_reboot_requested_mode = 23;
 
   optional string dpu_agent_version = 24;
-  optional string state_reason = 25;
+  optional ControllerStateReason state_reason = 25;
 }
 
 message DpuAgentInventoryReport {
@@ -1089,6 +1089,20 @@ message MachineInventorySoftwareComponent {
   string name = 1;
   string version = 2;
   string url = 3;
+}
+
+// Result of last state controller iteration
+message ControllerStateReason {
+  ControllerStateOutcome outcome = 1;
+  optional string outcome_msg = 2;
+}
+
+enum ControllerStateOutcome {
+  WAIT = 0;
+  ERROR = 1;
+  TRANSITION = 2;
+  DO_NOTHING = 3;
+  TODO = 4;
 }
 
 // The most recent tenant related status

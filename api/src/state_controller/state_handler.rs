@@ -163,6 +163,19 @@ pub enum StateHandlerOutcome<S> {
     Todo,          // State handler not ported to StateHandlerOutcome yet
 }
 
+impl<S> std::fmt::Display for StateHandlerOutcome<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        use StateHandlerOutcome::*;
+        let msg = match self {
+            Wait(s) => s.as_str(),
+            Transition(_) => "Transition to next state",
+            DoNothing => "Do nothing",
+            Todo => "TODO",
+        };
+        write!(f, "{msg}")
+    }
+}
+
 /// Error type for handling a Machine State
 #[derive(Debug, thiserror::Error)]
 pub enum StateHandlerError {

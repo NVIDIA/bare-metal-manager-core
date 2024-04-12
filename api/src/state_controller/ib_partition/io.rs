@@ -17,12 +17,14 @@ use config_version::{ConfigVersion, Versioned};
 use crate::{
     db::{
         ib_partition::{IBPartition, IBPartitionSearchConfig},
-        UuidKeyedObjectFilter,
+        DatabaseError, UuidKeyedObjectFilter,
     },
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
-        ib_partition::context::IBPartitionStateHandlerContextObjects, io::StateControllerIO,
-        metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
+        ib_partition::context::IBPartitionStateHandlerContextObjects,
+        io::{PersistentStateHandlerOutcome, StateControllerIO},
+        metrics::NoopMetricsEmitter,
+        snapshot_loader::SnapshotLoaderError,
     },
 };
 
@@ -92,6 +94,16 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         let _updated =
             IBPartition::try_update_controller_state(txn, *object_id, old_version, &new_state)
                 .await?;
+        Ok(())
+    }
+
+    async fn persist_outcome(
+        &self,
+        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _object_id: &Self::ObjectId,
+        _outcome: PersistentStateHandlerOutcome,
+    ) -> Result<(), DatabaseError> {
+        // TODO: IBPartition::update_controller_state_outcome(txn, object_id, outcome).await
         Ok(())
     }
 

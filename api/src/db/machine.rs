@@ -38,6 +38,7 @@ use crate::model::machine::{
     FailureDetails, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineState,
     ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
+use crate::state_controller::io::PersistentStateHandlerOutcome;
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -143,6 +144,9 @@ pub struct Machine {
     /// Last time when machine reboot was requested.
     /// This field takes care of reboot requested from state machine only.
     last_reboot_requested: Option<MachineLastRebootRequested>,
+
+    /// The result of the last attempt to change state
+    controller_state_outcome: Option<PersistentStateHandlerOutcome>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -182,6 +186,9 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let machine_inventory: Option<sqlx::types::Json<MachineInventory>> =
             row.try_get("agent_reported_inventory")?;
 
+        let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
+            row.try_get("controller_state_outcome")?;
+
         Ok(Machine {
             id,
             created: row.try_get("created")?,
@@ -212,6 +219,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             associated_host_machine_id: None,
             associated_dpu_machine_id: None,
             inventory: machine_inventory.map(|x| x.0),
+            controller_state_outcome: state_outcome.map(|x| x.0),
         })
     }
 }
@@ -335,7 +343,7 @@ impl From<Machine> for rpc::Machine {
                 .last_reboot_requested
                 .as_ref()
                 .map(|x| x.mode.to_string()),
-            state_reason: None, // TODO(GK) fill this in once it's in DB
+            state_reason: machine.controller_state_outcome.map(|r| r.into()),
         }
     }
 }
@@ -566,19 +574,16 @@ SELECT m.id FROM
     }
 
     /// Return the current state of the machine.
-    ///
-    /// Arguments:
-    /// None
-    ///
     pub fn current_state(&self) -> ManagedHostState {
         self.state.value.clone()
     }
 
+    /// The result of the last state controller iteration, if any
+    pub fn current_state_iteration_outcome(&self) -> Option<PersistentStateHandlerOutcome> {
+        self.controller_state_outcome.clone()
+    }
+
     /// Return the current version of state of the machine.
-    ///
-    /// Arguments:
-    /// None
-    ///
     pub fn current_version(&self) -> ConfigVersion {
         self.state.version
     }
@@ -1361,6 +1366,21 @@ SELECT m.id FROM
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
+        Ok(())
+    }
+
+    pub async fn update_controller_state_outcome(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        outcome: PersistentStateHandlerOutcome,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET controller_state_outcome=$1 WHERE id=$2";
+        sqlx::query(query)
+            .bind(sqlx::types::Json(outcome))
+            .bind(machine_id.to_string())
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
 
