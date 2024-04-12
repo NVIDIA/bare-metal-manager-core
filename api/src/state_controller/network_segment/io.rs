@@ -15,10 +15,11 @@
 use config_version::{ConfigVersion, Versioned};
 
 use crate::{
-    db::{network_segment::NetworkSegment, UuidKeyedObjectFilter},
+    db::{network_segment::NetworkSegment, DatabaseError, UuidKeyedObjectFilter},
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     state_controller::{
-        io::StateControllerIO, metrics::NoopMetricsEmitter,
+        io::{PersistentStateHandlerOutcome, StateControllerIO},
+        metrics::NoopMetricsEmitter,
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
         snapshot_loader::SnapshotLoaderError,
     },
@@ -90,6 +91,16 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         let _updated =
             NetworkSegment::try_update_controller_state(txn, *object_id, old_version, &new_state)
                 .await?;
+        Ok(())
+    }
+
+    async fn persist_outcome(
+        &self,
+        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        _object_id: &Self::ObjectId,
+        _outcome: PersistentStateHandlerOutcome,
+    ) -> Result<(), DatabaseError> {
+        // TODO: NetworkSegment::update_controller_state_outcome(txn, object_id, outcome).await
         Ok(())
     }
 

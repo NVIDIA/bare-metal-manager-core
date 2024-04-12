@@ -278,74 +278,60 @@ impl<IO: StateControllerIO> StateController<IO> {
                         // Note that this inner async block is required to be able to use
                         // the ? operator in the inner block, and then return a `Result`
                         // from the other outer block.
-                        let result: Result<Result<(), StateHandlerError>, tokio::time::error::Elapsed> =
-                            tokio::time::timeout(max_object_handling_time, async {
-                                let mut txn = services.pool.begin().await?;
-                                let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
-                                let mut controller_state = io
-                                    .load_controller_state(&mut txn, &object_id, &snapshot)
-                                    .await?;
-                                metrics.common.state = Some(controller_state.value.clone());
-                                // Unwrap uses a very large duration as default to show something is wrong
-                                metrics.common.time_in_state = chrono::Utc::now()
-                                    .signed_duration_since(controller_state.version.timestamp())
-                                    .to_std()
-                                    .unwrap_or(Duration::from_secs(60 * 60 * 24));
-                                metrics.common.time_in_state_above_sla =
-                                    IO::time_in_state_above_sla(&controller_state);
+                        let result: Result<
+                            Result<StateHandlerOutcome<_>, StateHandlerError>,
+                            tokio::time::error::Elapsed,
+                        > = tokio::time::timeout(max_object_handling_time, async {
+                            let mut txn = services.pool.begin().await?;
+                            let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
+                            let mut controller_state = io
+                                .load_controller_state(&mut txn, &object_id, &snapshot)
+                                .await?;
+                            metrics.common.state = Some(controller_state.value.clone());
+                            // Unwrap uses a very large duration as default to show something is wrong
+                            metrics.common.time_in_state = chrono::Utc::now()
+                                .signed_duration_since(controller_state.version.timestamp())
+                                .to_std()
+                                .unwrap_or(Duration::from_secs(60 * 60 * 24));
+                            metrics.common.time_in_state_above_sla =
+                                IO::time_in_state_above_sla(&controller_state);
 
-                                let mut ctx = StateHandlerContext {
-                                    services: &services,
-                                    metrics: &mut metrics.specific,
-                                };
+                            let mut ctx = StateHandlerContext {
+                                services: &services,
+                                metrics: &mut metrics.specific,
+                            };
 
-                                let mut state_holder =
-                                    ControllerStateReader::new(&mut controller_state.value);
+                            let mut state_holder =
+                                ControllerStateReader::new(&mut controller_state.value);
 
-                                match handler
-                                    .handle_object_state(
-                                        &object_id,
-                                        &mut snapshot,
-                                        &mut state_holder,
-                                        &mut txn,
-                                        &mut ctx,
-                                    )
-                                    .await
-                                {
-                                    Ok(outcome) => {
-                                        use StateHandlerOutcome::*;
+                            let handler_outcome = handler
+                                .handle_object_state(
+                                    &object_id,
+                                    &mut snapshot,
+                                    &mut state_holder,
+                                    &mut txn,
+                                    &mut ctx,
+                                )
+                                .await;
+                            if handler_outcome.is_ok() && state_holder.is_modified() {
+                                io.persist_controller_state(
+                                    &mut txn,
+                                    &object_id,
+                                    controller_state.version,
+                                    controller_state.value,
+                                )
+                                .await?;
+                            }
+                            let db_outcome = handler_outcome.as_ref().into();
+                            io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
+                            txn.commit()
+                                .await
+                                .map_err(StateHandlerError::TransactionError)?;
 
-                                        // TEMP
-                                        // This will go in the DB
-                                        //
-                                        match outcome {
-                                            Wait(reason) => {
-                                                tracing::debug!(%object_id, "Waiting: {reason}");
-                                            }
-                                            Transition(next_state) => {
-                                                tracing::debug!(%object_id, "Move to state {next_state:?}");
-                                            }
-                                            DoNothing | Todo => {}
-                                        }
-
-                                        if state_holder.is_modified() {
-                                            io.persist_controller_state(
-                                                &mut txn,
-                                                &object_id,
-                                                controller_state.version,
-                                                controller_state.value,
-                                            )
-                                            .await?;
-                                        }
-
-                                        txn.commit()
-                                            .await
-                                            .map_err(StateHandlerError::TransactionError)
-                                    }
-                                    Err(e) => Err(e),
-                                }
-                            })
-                            .await;
+                            handler_outcome
+                        })
+                        .await;
+                        metrics.common.handler_latency = start.elapsed();
 
                         let result = match result {
                             Ok(Ok(result)) => Ok(result),
@@ -360,9 +346,6 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     .unwrap_or_default(),
                             }),
                         };
-
-                        metrics.common.handler_latency = start.elapsed();
-
                         if let Err(e) = &result {
                             tracing::warn!(%object_id, error = ?e, "State handler error");
                         }
@@ -392,7 +375,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                     // handling task themselves, we don't have to forward these errors.
                     // This avoids double logging of the results of individual tasks.
                 }
-                Ok((metrics, Ok(()))) => {
+                Ok((metrics, Ok(_))) => {
                     iteration_metrics.merge_object_handling_metrics(&metrics);
                 }
             }
