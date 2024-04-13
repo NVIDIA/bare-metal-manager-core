@@ -189,6 +189,9 @@ service Forge {
 
   // Phone Home
   rpc UpdateInstancePhoneHomeLastContact(InstancePhoneHomeLastContactRequest) returns (InstancePhoneHomeLastContactResponse);
+
+  // Set UEFI password
+  rpc SetUefiPassword(SetUefiPasswordRequest) returns (SetUefiPasswordResponse);
 }
 
 enum CredentialType {
@@ -196,6 +199,7 @@ enum CredentialType {
   DPUBMC = 1;
   UFM = 2;
   DpuUefi = 3;
+  HostUefi = 4;
 }
 
 message CredentialCreationRequest {
@@ -1998,3 +2002,9 @@ message RouteServers {
 message MachineIdList {
   repeated MachineId machine_ids = 1;
 }
+
+message SetUefiPasswordRequest {
+  MachineId machine_id = 1;
+}
+
+message SetUefiPasswordResponse {}

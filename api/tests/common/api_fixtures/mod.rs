@@ -426,6 +426,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
                 .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
                 .unwrap(),
         )))),
+        Arc::new(IPMIToolTestImpl {}),
     ));
 
     TestEnv {

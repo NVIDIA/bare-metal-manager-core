@@ -40,6 +40,35 @@ impl Credentials {
 
         password.into_iter().collect()
     }
+
+    pub fn generate_password_no_special_char() -> String {
+        const UPPERCHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const LOWERCHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
+        const NUMCHARS: &[u8] = b"0123456789";
+        const CHARSET: [&[u8]; 3] = [UPPERCHARS, LOWERCHARS, NUMCHARS];
+
+        let mut rng = rand::thread_rng();
+
+        let mut password: Vec<char> = (0..PASSWORD_LEN)
+            .map(|_| {
+                let chid = rng.gen_range(0..CHARSET.len());
+                let idx = rng.gen_range(0..CHARSET[chid].len());
+                CHARSET[chid][idx] as char
+            })
+            .collect();
+
+        // Enforce 1 Uppercase, 1 lowercase, 1 symbol and 1 numeric value rule.
+        let mut positions_to_overlap = (0..PASSWORD_LEN).collect::<Vec<_>>();
+        positions_to_overlap.shuffle(&mut thread_rng());
+        let positions_to_overlap = positions_to_overlap.into_iter().take(CHARSET.len());
+
+        for (index, pos) in positions_to_overlap.enumerate() {
+            let char_index = rng.gen_range(0..CHARSET[index].len());
+            password[pos] = CHARSET[index][char_index] as char;
+        }
+
+        password.into_iter().collect()
+    }
 }
 
 #[async_trait]
@@ -84,6 +113,9 @@ pub enum CredentialKey {
         fabric: String,
     },
     DpuUefi {
+        credential_type: CredentialType,
+    },
+    HostUefi {
         credential_type: CredentialType,
     },
 }
@@ -134,6 +166,14 @@ impl CredentialKey {
                 }
                 CredentialType::SiteDefault => {
                     "machines/all_dpus/site_default/uefi-metadata-items/auth".to_string()
+                }
+                _ => {
+                    panic!("Not supported credential key");
+                }
+            },
+            CredentialKey::HostUefi { credential_type } => match credential_type {
+                CredentialType::SiteDefault => {
+                    "machines/all_hosts/site_default/uefi-metadata-items/auth".to_string()
                 }
                 _ => {
                     panic!("Not supported credential key");

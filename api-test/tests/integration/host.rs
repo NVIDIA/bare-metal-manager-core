@@ -32,6 +32,11 @@ const BMC_METADATA: &str = r#"{
   "request_type": 1
 }"#;
 
+const UEFI_CREDENTIALS: &str = r#"{
+  "credential_type": 4,
+  "password": "notforprod"
+}"#;
+
 pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
     let (machine_interface_id, ip_address) = discover_dhcp(addr)?;
     tracing::info!("Using Machine Interface ID {machine_interface_id} on address {ip_address}");
@@ -39,6 +44,7 @@ pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
     let host_machine_id = discover_machine(addr, &ip_address)?;
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &host_machine_id);
     grpcurl(addr, "UpdateBMCMetaData", Some(data))?;
+    grpcurl(addr, "CreateCredential", Some(UEFI_CREDENTIALS))?;
     tracing::info!("Created HOST Machine with ID {host_machine_id}. Starting discovery.");
 
     grpcurl(

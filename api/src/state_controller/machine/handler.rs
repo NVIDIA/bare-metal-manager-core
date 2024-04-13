@@ -30,6 +30,7 @@ use crate::{
         machine::{Machine, MachineSearchConfig},
         machine_topology::MachineTopology,
     },
+    host_power_control,
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::{
         instance::{
@@ -524,7 +525,7 @@ async fn handle_dpu_reprovision(
                 return Ok(None);
             }
 
-            host_power_control(
+            handler_host_power_control(
                 &state.host_snapshot,
                 services,
                 SystemPowerControl::ForceOff,
@@ -554,7 +555,7 @@ async fn handle_dpu_reprovision(
                     "Machine {} is still not power-off state. Turning off for host again.",
                     state.host_snapshot.machine_id
                 );
-                host_power_control(
+                handler_host_power_control(
                     &state.host_snapshot,
                     services,
                     SystemPowerControl::ForceOff,
@@ -565,7 +566,7 @@ async fn handle_dpu_reprovision(
 
                 return Ok(None);
             }
-            host_power_control(
+            handler_host_power_control(
                 &state.host_snapshot,
                 services,
                 SystemPowerControl::On,
@@ -607,7 +608,7 @@ async fn handle_dpu_reprovision(
             Machine::clear_dpu_reprovisioning_request(txn, &state.dpu_snapshot.machine_id, false)
                 .await
                 .map_err(StateHandlerError::from)?;
-            host_power_control(
+            handler_host_power_control(
                 &state.host_snapshot,
                 services,
                 SystemPowerControl::ForceRestart,
@@ -905,7 +906,7 @@ impl StateHandler for DpuMachineStateHandler {
                                 })?;
 
                             // Use host client with site-default credentials.
-                            // TODO: modify host_power_control to use site-default credentials and use that method.
+                            // TODO: modify handler_host_power_control to use site-default credentials and use that method.
                             let host_client = ctx
                                 .services
                                 .redfish_client_pool
@@ -1129,7 +1130,7 @@ impl StateHandler for DpuMachineStateHandler {
                 if let Err(e) = ctx
                     .services
                     .redfish_client_pool
-                    .uefi_setup(client.as_ref())
+                    .uefi_setup(client.as_ref(), true)
                     .await
                 {
                     tracing::error!(%e, "Failed to run uefi_setup call");
@@ -1266,7 +1267,7 @@ impl StateHandler for DpuMachineStateHandler {
                 let key = CredentialKey::HostRedfish {
                     credential_type: CredentialType::SiteDefault,
                 };
-                if let Err(e) = host_power_control(
+                if let Err(e) = handler_host_power_control(
                     &state.host_snapshot,
                     ctx.services,
                     SystemPowerControl::ForceRestart,
@@ -1381,7 +1382,7 @@ async fn trigger_reboot_if_needed(
         };
 
         tracing::trace!(machine_id=%target.machine_id, "Redfish setting host power state to {action}");
-        host_power_control(host, services, action, key, txn).await?;
+        handler_host_power_control(host, services, action, key, txn).await?;
         Machine::update_reboot_requested_time(&target.machine_id, txn, action.into()).await?;
         return Ok(RebootStatus {
             increase_retry_count: false,
@@ -1423,7 +1424,7 @@ async fn trigger_reboot_if_needed(
                 // PowerDown
                 // DPU or host, in both cases power down is triggered from host.
                 let action = SystemPowerControl::ForceOff;
-                host_power_control(host, services, action, key, txn).await?;
+                handler_host_power_control(host, services, action, key, txn).await?;
                 // Update target machine also. In case of DPU, target machine is DPU. In case of
                 // Host stuck, target machine is host. In case of host, this field will be updated
                 // twice. Well, it should not harm much.
@@ -1521,7 +1522,7 @@ async fn handle_host_waitingfordiscovery(
     state: &mut ManagedHostStateSnapshot,
 ) -> Result<ManagedHostState, StateHandlerError> {
     // Enable Bios/BMC lockdown now.
-    lockdown_host(txn, &state.host_snapshot, ctx.services, true).await?;
+    lockdown_host(txn, &state.host_snapshot, ctx.services).await?;
 
     Ok(ManagedHostState::HostNotReady {
         machine_state: MachineState::WaitingForLockdown {
@@ -2228,7 +2229,7 @@ async fn restart_machine(
         .await
         .map_err(|err| err.into())
     } else {
-        host_power_control(
+        handler_host_power_control(
             machine_snapshot,
             services,
             SystemPowerControl::ForceRestart,
@@ -2274,63 +2275,25 @@ async fn host_power_state(
         })
 }
 
-async fn host_power_control(
+pub async fn handler_host_power_control(
     machine_snapshot: &MachineSnapshot,
     services: &StateHandlerServices,
     action: SystemPowerControl,
     key: Option<CredentialKey>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    let bmc_ip =
-        machine_snapshot
-            .bmc_info
-            .ip
-            .as_deref()
-            .ok_or_else(|| StateHandlerError::MissingData {
-                object_id: machine_snapshot.machine_id.to_string(),
-                missing: "bmc_info.ip",
-            })?;
-
-    let key = key.unwrap_or(CredentialKey::Bmc {
-        machine_id: machine_snapshot.machine_id.to_string(),
-        user_role: UserRoles::Administrator.to_string(),
-    });
-
-    let client = services
-        .redfish_client_pool
-        .create_client(bmc_ip, machine_snapshot.bmc_info.port, key)
-        .await?;
-
-    if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
-        // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
-        // Supermicro will bot the users OS if we don't do this
-        client.boot_once(libredfish::Boot::Pxe).await.map_err(|e| {
-            StateHandlerError::RedfishError {
-                operation: "boot_once",
-                error: e,
-            }
-        })?;
-    }
-    // vikings reboot their DPU's if redfish reset is used. \
-    // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
-    if machine_snapshot.bmc_vendor.is_viking() {
-        services
-            .ipmi_tool
-            .restart(&machine_snapshot.machine_id, bmc_ip.to_string(), false)
-            .await
-            .map_err(|e: eyre::ErrReport| {
-                StateHandlerError::GenericError(eyre!("Failed to restart machine: {}", e))
-            })?;
-    } else {
-        client
-            .power(action)
-            .await
-            .map_err(|e| StateHandlerError::RedfishError {
-                operation: "restart",
-                error: e,
-            })?;
-    }
-    Machine::update_reboot_requested_time(&machine_snapshot.machine_id, txn, action.into()).await?;
+    host_power_control(
+        machine_snapshot,
+        action,
+        key,
+        services.ipmi_tool.clone(),
+        services.redfish_client_pool.clone(),
+        txn,
+    )
+    .await
+    .map_err(|e| {
+        StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
+    })?;
 
     Ok(())
 }
@@ -2365,7 +2328,6 @@ async fn lockdown_host(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine_snapshot: &MachineSnapshot,
     services: &StateHandlerServices,
-    enable: bool,
 ) -> Result<(), StateHandlerError> {
     let bmc_ip =
         machine_snapshot
@@ -2389,21 +2351,20 @@ async fn lockdown_host(
         )
         .await?;
 
-    if enable {
-        // the forge_setup call includes the equivalent of these calls internally in libredfish
-        // 1. serial setup (bios, bmc)
-        // 2. tpm clear (bios)
-        // 3. lockdown (bios, bmc)
-        // 4. boot once to pxe
-        client
-            .forge_setup()
-            .await
-            .map_err(|e| StateHandlerError::RedfishError {
-                operation: "lockdown",
-                error: e,
-            })?;
-    }
-    host_power_control(
+    // the forge_setup call includes the equivalent of these calls internally in libredfish
+    // 1. serial setup (bios, bmc)
+    // 2. tpm clear (bios)
+    // 3. lockdown (bios, bmc)
+    // 4. boot once to pxe
+    client
+        .forge_setup()
+        .await
+        .map_err(|e| StateHandlerError::RedfishError {
+            operation: "lockdown",
+            error: e,
+        })?;
+
+    handler_host_power_control(
         machine_snapshot,
         services,
         SystemPowerControl::ForceRestart,

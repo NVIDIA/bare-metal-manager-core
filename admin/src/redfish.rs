@@ -23,6 +23,7 @@ use tracing::warn;
 
 use super::cfg::carbide_options::RedfishCommand;
 use crate::cfg::carbide_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort};
+use forge_secrets::credentials::Credentials;
 
 pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     let endpoint = libredfish::Endpoint {
@@ -230,6 +231,10 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         GetSystemEthernetInterfaces => {
             handle_ethernet_interface_show(redfish, true).await?;
+        }
+        GenerateHostUefiPassword => {
+            let password = Credentials::generate_password_no_special_char();
+            println!("Generated Bios Admin Password: {}", password);
         }
     }
     Ok(())

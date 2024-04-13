@@ -33,6 +33,7 @@ use config_version::ConfigVersion;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use itertools::Itertools;
+use libredfish::SystemPowerControl;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -48,7 +49,7 @@ use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
-use crate::ip_finder;
+use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
@@ -97,6 +98,7 @@ use crate::{
     state_controller::snapshot_loader::DbSnapshotLoader,
     CarbideError, CarbideResult,
 };
+use crate::{host_power_control, ip_finder};
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -119,6 +121,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     pub(crate) runtime_config: Arc<CarbideConfig>,
     dpu_health_log_limiter: LogLimiter<MachineId>,
     pub log_filter: Arc<ArcSwap<ActiveLevel>>,
+    ipmi_tool: Arc<dyn IPMITool>,
 }
 
 #[tonic::async_trait]
@@ -4505,6 +4508,37 @@ where
                         ))
                     })?
             }
+            rpc::CredentialType::HostUefi => {
+                if self
+                    .credential_provider
+                    .get_credentials(CredentialKey::HostUefi {
+                        credential_type: CredentialType::SiteDefault,
+                    })
+                    .await
+                    .is_ok()
+                {
+                    // TODO: support reset credential
+                    return Err(tonic::Status::already_exists(
+                        "Resetting the Host UEFI credentials in Vault is not supported",
+                    ));
+                }
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::HostUefi {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                        Credentials::UsernamePassword {
+                            username: "".to_string(),
+                            password: password.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error setting credential for Host UEFI: {e:?}"
+                        ))
+                    })?
+            }
         };
 
         Ok(Response::new(rpc::CredentialCreationResult {}))
@@ -4551,7 +4585,8 @@ where
             }
             rpc::CredentialType::HostBmc
             | rpc::CredentialType::Dpubmc
-            | rpc::CredentialType::DpuUefi => {
+            | rpc::CredentialType::DpuUefi
+            | rpc::CredentialType::HostUefi => {
                 // Not support delete credential for these types
             }
         };
@@ -4767,6 +4802,79 @@ where
         tracing::info!("Log filter updated to '{}'", req.filter);
         Ok(tonic::Response::new(()))
     }
+
+    async fn set_uefi_password(
+        &self,
+        request: tonic::Request<rpc::SetUefiPasswordRequest>,
+    ) -> Result<tonic::Response<rpc::SetUefiPasswordResponse>, tonic::Status> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin set_uefi_password",
+                e,
+            ))
+        })?;
+
+        let request = request.into_inner();
+        let machine_id = match &request.machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("A machine UUID is required"));
+            }
+        };
+        log_machine_id(&machine_id);
+
+        let loader = DbSnapshotLoader {};
+        let snapshot = loader
+            .load_machine_snapshot(&mut txn, &machine_id)
+            .await
+            .map_err(CarbideError::from)?;
+        if snapshot.instance.is_none() {
+            return Err(Status::invalid_argument(format!(
+                "Supplied invalid UUID: {machine_id}"
+            )));
+        }
+        let bmc_ip = snapshot.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
+            CarbideError::NotFoundError {
+                kind: "bmc_ip",
+                id: machine_id.to_string(),
+            }
+        })?;
+
+        let client = self
+            .redfish_pool
+            .create_client(
+                bmc_ip,
+                snapshot.host_snapshot.bmc_info.port,
+                CredentialKey::Bmc {
+                    machine_id: machine_id.to_string(),
+                    user_role: UserRoles::Administrator.to_string(),
+                },
+            )
+            .await
+            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
+
+        self.redfish_pool
+            .uefi_setup(client.as_ref(), true)
+            .await
+            .map_err(|e| {
+                tracing::error!(%e, "Failed to run uefi_setup call");
+                CarbideError::GenericError(format!("Failed redfish ForceRestart subtask: {}", e))
+            })?;
+
+        host_power_control(
+            &snapshot.host_snapshot,
+            SystemPowerControl::ForceRestart,
+            None,
+            self.ipmi_tool.clone(),
+            self.redfish_pool.clone(),
+            &mut txn,
+        )
+        .await?;
+
+        Ok(Response::new(rpc::SetUefiPasswordResponse {}))
+    }
 }
 
 fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
@@ -4808,6 +4916,7 @@ where
         common_pools: Arc<CommonPools>,
         ib_fabric_manager: Arc<dyn IBFabricManager>,
         log_filter: Arc<ArcSwap<ActiveLevel>>,
+        ipmi_tool: Arc<dyn IPMITool>,
     ) -> Self {
         Self {
             database_connection,
@@ -4823,6 +4932,7 @@ where
                 std::time::Duration::from_secs(60 * 60),
             ),
             log_filter,
+            ipmi_tool,
         }
     }
 

@@ -28,6 +28,7 @@ dependencies = [
  "color-eyre",
  "forge-tls",
  "forge-version",
+ "forge_secrets",
  "libredfish",
  "prettytable-rs",
  "rpc",
@@ -2912,15 +2913,14 @@ checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
 name = "libredfish"
-version = "0.16.3"
+version = "0.16.4"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "a0d6bf7e1a9c4f21ad170c166adeff7634c62db20fcd71707c3f1f6fcd3aa1ef"
+checksum = "fe47d93b3ea81f9dd6383bad8b99bf99af4ea1ac72597f6b29fd5ee3ea7d7b06"
 dependencies = [
  "async-trait",
  "log",
  "reqwest",
  "serde",
- "serde_derive",
  "serde_json",
  "serde_with",
  "thiserror",
