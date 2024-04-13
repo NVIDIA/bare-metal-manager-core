@@ -305,6 +305,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         common_pools.clone(),
         ib_fabric_manager.clone(),
         log_filter,
+        ipmi_tool.clone(),
     ));
 
     if let Some(networks) = carbide_config.networks.as_ref() {

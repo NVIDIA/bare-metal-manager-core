@@ -372,6 +372,9 @@ pub enum RedfishCommand {
     ChangeUefiPassword(UefiPassword),
     #[clap(about = "DPU specific operations", subcommand)]
     Dpu(DpuOperations),
+    /// Generates a string that can be a site-default host UEFI password in Vault
+    /// - the generated string will meet the uefi password requirements of all vendors
+    GenerateHostUefiPassword,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
@@ -514,6 +517,8 @@ pub enum Machine {
     Reboot(BMCConfigForReboot),
     #[clap(about = "Force delete a machine")]
     ForceDelete(ForceDeleteMachineQuery),
+    #[clap(about = "Set UEFI Password")]
+    SetUefiPassword(MachineQuery),
 }
 
 #[derive(Parser, Debug)]
@@ -561,7 +566,7 @@ pub struct MachineQuery {
     #[clap(
         short,
         long,
-        help = "ID, IPv4, MAC or hostnmame of the DPU machine to query"
+        help = "ID, IPv4, MAC or hostnmame of the machine to query"
     )]
     pub query: String,
 }
@@ -897,6 +902,7 @@ pub struct AddBMCredential {
 #[derive(ValueEnum, Parser, Debug, Clone)]
 pub enum UefiCredentialType {
     Dpu,
+    Host,
 }
 
 impl From<UefiCredentialType> for rpc::forge::CredentialType {
@@ -904,6 +910,7 @@ impl From<UefiCredentialType> for rpc::forge::CredentialType {
         use rpc::forge::CredentialType::*;
         match c_type {
             UefiCredentialType::Dpu => DpuUefi,
+            UefiCredentialType::Host => HostUefi,
         }
     }
 }

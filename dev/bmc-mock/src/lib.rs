@@ -64,6 +64,7 @@ pub async fn run(state: BmcState) {
             rf!("Systems/:manager_id/Actions/ComputerSystem.Reset"),
             post(set_system_power),
         )
+        .route(rf!("Systems/:manager_id/Bios"), get(get_bios))
         .with_state(state.clone());
 
     let cert_path = match state.cert_path.as_ref() {
@@ -185,6 +186,17 @@ async fn set_bios_attribute(
 ) -> impl IntoResponse {
     debug!("set_bios_attribute {manager_id}, body: {body}");
     StatusCode::OK
+}
+
+async fn get_bios() -> impl IntoResponse {
+    let odata = libredfish::model::ODataLinks {
+        odata_context: Some("/redfish/v1/$metadata#Bios.Bios".to_string()),
+        odata_id: "/redfish/v1/Systems/System.Embedded.1/Bios".to_string(),
+        odata_type: "#Bios.v1_2_1.Bios".to_string(),
+        links: None,
+    };
+
+    (StatusCode::OK, Json(odata))
 }
 
 async fn set_system_power(

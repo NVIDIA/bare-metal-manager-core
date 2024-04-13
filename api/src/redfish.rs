@@ -68,7 +68,11 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         machine_id: String,
     ) -> Result<(), RedfishClientCreationError>;
 
-    async fn uefi_setup(&self, client: &dyn Redfish) -> Result<(), RedfishClientCreationError>;
+    async fn uefi_setup(
+        &self,
+        client: &dyn Redfish,
+        dpu: bool,
+    ) -> Result<(), RedfishClientCreationError>;
 }
 
 #[derive(Debug)]
@@ -300,37 +304,71 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         Ok(())
     }
 
-    async fn uefi_setup(&self, client: &dyn Redfish) -> Result<(), RedfishClientCreationError> {
-        // Replace DPU UEFI default password with site default
-        // default password is taken from DpuUefi:factory_default key
-        // site password is taken from DpuUefi:site_default key
-        //
-        let credentials = self
-            .credential_provider
-            .get_credentials(CredentialKey::DpuUefi {
-                credential_type: CredentialType::HardwareDefault,
-            })
+    async fn uefi_setup(
+        &self,
+        client: &dyn Redfish,
+        dpu: bool,
+    ) -> Result<(), RedfishClientCreationError> {
+        let bios_attrs = client
+            .bios()
             .await
-            .unwrap_or(Credentials::UsernamePassword {
-                username: "".to_string(),
-                password: "bluefield".to_string(),
-            });
+            .map_err(RedfishClientCreationError::RedfishError)?;
+        // If the attribute field is empty we couldn't change a UEFI password.
+        if bios_attrs
+            .get("Attributes")
+            .map_or(true, |v| v.as_object().is_none())
+        {
+            tracing::warn!("Bios attributes don't have CurrentUefiPassword.");
+            return Ok(());
+        }
 
-        let (_, current_password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
+        let mut current_password = String::new();
+        let new_password: String;
+        if dpu {
+            // Replace DPU UEFI default password with site default
+            // default password is taken from DpuUefi:factory_default key
+            // site password is taken from DpuUefi:site_default key
+            //
+            let credentials = self
+                .credential_provider
+                .get_credentials(CredentialKey::DpuUefi {
+                    credential_type: CredentialType::HardwareDefault,
+                })
+                .await
+                .unwrap_or(Credentials::UsernamePassword {
+                    username: "".to_string(),
+                    password: "bluefield".to_string(),
+                });
 
-        let credentials = self
-            .credential_provider
-            .get_credentials(CredentialKey::DpuUefi {
-                credential_type: CredentialType::SiteDefault,
-            })
-            .await
-            .map_err(RedfishClientCreationError::MissingCredentials)?;
+            (_, current_password) = match credentials {
+                Credentials::UsernamePassword { username, password } => (username, password),
+            };
 
-        let (_, new_password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
+            let credentials = self
+                .credential_provider
+                .get_credentials(CredentialKey::DpuUefi {
+                    credential_type: CredentialType::SiteDefault,
+                })
+                .await
+                .map_err(RedfishClientCreationError::MissingCredentials)?;
+
+            (_, new_password) = match credentials {
+                Credentials::UsernamePassword { username, password } => (username, password),
+            };
+        } else {
+            // the current password is always an empty string for the host uefi
+            let credentials = self
+                .credential_provider
+                .get_credentials(CredentialKey::HostUefi {
+                    credential_type: CredentialType::SiteDefault,
+                })
+                .await
+                .map_err(RedfishClientCreationError::MissingCredentials)?;
+
+            (_, new_password) = match credentials {
+                Credentials::UsernamePassword { username, password } => (username, password),
+            };
+        }
 
         client
             .change_uefi_password(current_password.as_str(), new_password.as_str())
@@ -779,7 +817,11 @@ impl RedfishClientPool for RedfishSim {
         Ok(())
     }
 
-    async fn uefi_setup(&self, _client: &dyn Redfish) -> Result<(), RedfishClientCreationError> {
+    async fn uefi_setup(
+        &self,
+        _client: &dyn Redfish,
+        _dpu: bool,
+    ) -> Result<(), RedfishClientCreationError> {
         Ok(())
     }
 }

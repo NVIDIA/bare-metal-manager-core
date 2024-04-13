@@ -23,7 +23,7 @@ use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use ::rpc::{MachineId, Uuid};
 
 use super::{CarbideCliError, CarbideCliResult};
-use crate::cfg::carbide_options::ForceDeleteMachineQuery;
+use crate::cfg::carbide_options::{ForceDeleteMachineQuery, MachineQuery};
 pub async fn with_forge_client<'a, T, F>(
     api_config: &ApiConfig<'a>,
     callback: impl FnOnce(ForgeClientT) -> F,
@@ -343,6 +343,25 @@ pub async fn machine_admin_force_delete(
         });
         let response = client
             .admin_force_delete_machine(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(response)
+    })
+    .await
+}
+
+pub async fn set_uefi_password(
+    query: MachineQuery,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<::rpc::forge::SetUefiPasswordResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::SetUefiPasswordRequest {
+            machine_id: Some(rpc::MachineId { id: query.query }),
+        });
+        let response = client
+            .set_uefi_password(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
