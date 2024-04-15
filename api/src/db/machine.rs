@@ -1417,7 +1417,7 @@ SELECT m.id FROM
         let query = if validate_started_time {
             query.replace(
                 "{validate_started}",
-                "AND reprovisioning_requested->'started_at' IS NOT NULL",
+                "AND reprovisioning_requested->'started_at' = 'null'::jsonb",
             )
         } else {
             query.replace("{validate_started}", "")
