@@ -32,6 +32,7 @@ pub enum DiscoveryBuilderResult {
     BuilderError = 5,
     FetchMachineError = 6,
     InvalidCircuitId = 7,
+    TooManyFailuresError = 8,
 }
 
 #[no_mangle]
@@ -50,6 +51,7 @@ pub extern "C" fn discovery_builder_result_as_str(result: DiscoveryBuilderResult
             DiscoveryBuilderResult::BuilderError => "BuilderError\0",
             DiscoveryBuilderResult::FetchMachineError => "FetchMachineError\0",
             DiscoveryBuilderResult::InvalidCircuitId => "InvalidCircuitId\0",
+            DiscoveryBuilderResult::TooManyFailuresError => "TooManyFailuresError\0",
         }
         .as_bytes(),
     )
@@ -341,6 +343,7 @@ unsafe fn discovery_fetch_machine_at(
             None => "",
         };
 
+        let mut cache_entry_status = cache::CacheEntryStatus::DiscoveryFailing(0);
         if let Some(cache_entry) = cache::get(
             mac_address,
             addr_for_dhcp,
@@ -348,11 +351,28 @@ unsafe fn discovery_fetch_machine_at(
             &remote_id,
             vendor_id,
         ) {
-            log::info!(
-                "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})"
-            );
-            *machine_ptr_out = Box::into_raw(Box::new(cache_entry.machine));
-            return DiscoveryBuilderResult::Success;
+            // We return the cached response if it's a positive cache entry, or an error if it's a negative one.
+            match cache_entry.status {
+                cache::CacheEntryStatus::ValidEntry(machine) => {
+                    log::info!(
+                    "returning cached response for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})."
+                    );
+                    *machine_ptr_out = Box::into_raw(machine);
+                    return DiscoveryBuilderResult::Success;
+                }
+                cache::CacheEntryStatus::DiscoveryFailing(count) => {
+                    log::info!(
+                    "retrying carbide-api for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id}). failure count: {count}."
+                    );
+                    cache_entry_status = cache_entry.status;
+                }
+                cache::CacheEntryStatus::DiscoveryFailed => {
+                    log::info!(
+                    "too many failures for ({mac_address}, {addr_for_dhcp}, {circuit_id:?}, {vendor_id})."
+                    );
+                    return DiscoveryBuilderResult::TooManyFailuresError;
+                }
+            }
         }
 
         // Spawn a tokio runtime and schedule the API connection and machine retrieval to an async
@@ -376,8 +396,8 @@ unsafe fn discovery_fetch_machine_at(
                     addr_for_dhcp,
                     circuit_id,
                     remote_id,
-                    machine.clone(),
                     vendor_id,
+                    cache::CacheEntryStatus::ValidEntry(Box::new(machine.clone())),
                 );
                 *machine_ptr_out = Box::into_raw(Box::new(machine));
                 DiscoveryBuilderResult::Success
@@ -389,6 +409,14 @@ unsafe fn discovery_fetch_machine_at(
                     addr_for_dhcp,
                     e_str,
                     url
+                );
+                cache::put(
+                    mac_address,
+                    addr_for_dhcp,
+                    circuit_id,
+                    remote_id,
+                    vendor_id,
+                    cache_entry_status.increment_fails(),
                 );
                 DiscoveryBuilderResult::FetchMachineError
             }
@@ -544,5 +572,120 @@ mod tests {
         fn assert_send<T: Send>() {}
         assert_send::<Machine>();
         assert_send::<DiscoveryBuilderFFI>();
+    }
+
+    #[test]
+    fn test_discovery_fetch_machine_success_after_failure() {
+        // Start the mock API server.
+        let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        let mut api_server = rt.block_on(mock_api_server::MockAPIServer::start());
+
+        // Input packet, found by printing a real one
+        let builder_ffi = discovery_builder_allocate();
+        unsafe {
+            marshal_discovery_ffi(builder_ffi, |builder| {
+                builder.relay_address([172, 20, 0, 11].into());
+                builder.mac_address(MacAddress::new([2, 66, 172, 20, 0, 42]));
+                builder.circuit_id("eth0");
+                DiscoveryBuilderResult::Success
+            });
+        }
+
+        // Pointer to result will go here
+        let mut out = null_mut();
+
+        // Test after introducing a failure in the API.
+        api_server.set_inject_failure(true);
+        let res = unsafe {
+            discovery_fetch_machine_at(builder_ffi, &mut out, api_server.local_http_addr())
+        };
+        assert_eq!(res, DiscoveryBuilderResult::FetchMachineError);
+
+        // TODO: how can we check that there is a negative cache entry?
+
+        // Check
+        assert!(out.is_null());
+        assert_eq!(
+            api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP),
+            1
+        );
+
+        // If we fix the API, and call again, the cache entry should be reset.
+        api_server.set_inject_failure(false);
+        let res = unsafe {
+            discovery_fetch_machine_at(builder_ffi, &mut out, api_server.local_http_addr())
+        };
+        assert_eq!(res, DiscoveryBuilderResult::Success);
+
+        // TODO: again it would be good to verify the CacheEntryStatus of the CacheEntry
+
+        // Check
+        let machine = unsafe { &*out };
+        assert!(mock_api_server::matches_mock_response(machine));
+        assert_eq!(
+            api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP),
+            2,
+        );
+
+        unsafe {
+            discovery_builder_free(builder_ffi);
+        }
+    }
+
+    #[test]
+    fn test_discovery_fetch_machine_multi_failure() {
+        // Start the mock API server.
+        let rt: &tokio::runtime::Runtime = CarbideDhcpContext::get_tokio_runtime();
+        let mut api_server = rt.block_on(mock_api_server::MockAPIServer::start());
+
+        // Input packet, found by printing a real one
+        let builder_ffi = discovery_builder_allocate();
+        unsafe {
+            marshal_discovery_ffi(builder_ffi, |builder| {
+                builder.relay_address([172, 20, 0, 11].into());
+                builder.mac_address(MacAddress::new([2, 66, 172, 20, 0, 42]));
+                builder.circuit_id("eth0");
+                DiscoveryBuilderResult::Success
+            });
+        }
+
+        // Pointer to result will go here
+        let mut out = null_mut();
+
+        // Inject a failure to the API server, and test multiple discovery_fetch_machine_at calls.
+        api_server.set_inject_failure(true);
+        for attempt in 1..=cache::MAX_DISCOVERY_FAILS {
+            let res = unsafe {
+                discovery_fetch_machine_at(builder_ffi, &mut out, api_server.local_http_addr())
+            };
+            assert_eq!(res, DiscoveryBuilderResult::FetchMachineError);
+
+            // Check
+            assert!(out.is_null());
+            assert_eq!(
+                api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP),
+                attempt as usize,
+            );
+        }
+
+        // Now there should be no more calls to the API, since we've reached the max allowed number of fails.
+        let res = unsafe {
+            discovery_fetch_machine_at(builder_ffi, &mut out, api_server.local_http_addr())
+        };
+        assert_eq!(res, DiscoveryBuilderResult::TooManyFailuresError);
+
+        // Check
+        assert!(out.is_null());
+        assert_eq!(
+            api_server.calls_for(mock_api_server::ENDPOINT_DISCOVER_DHCP),
+            cache::MAX_DISCOVERY_FAILS as usize,
+        );
+
+        // TODO: we should test that the cache entry is removed after 5 mins, but I don't want to add
+        // a sleep for that long.
+
+        unsafe {
+            discovery_builder_free(builder_ffi);
+        }
     }
 }

@@ -32,6 +32,10 @@ use crate::machine::Machine;
 
 /// Data in cache is only valid this long
 const MACHINE_CACHE_TIMEOUT: Duration = Duration::from_secs(60);
+// For negative caching, the TTL should be longer
+const MACHINE_DISC_FAILED_CACHE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+// Max allowed discovery failures before an error is returned to the machine without calling carbide-api. Public so unit tests can access it.
+pub const MAX_DISCOVERY_FAILS: u32 = 5;
 /// How many entries to keep. After that we evict the entry used the longest ago.
 const MACHINE_CACHE_SIZE: usize = 1000;
 /// If the cache key comes out shorter than this something went wrong, don't use it.
@@ -45,10 +49,17 @@ lazy_static! {
 
 #[derive(Debug, Clone)]
 pub struct CacheEntry {
-    pub machine: Machine,
     pub timestamp: Instant,
     pub link_address: IpAddr,
     pub circuit_id: Option<String>,
+    pub status: CacheEntryStatus,
+}
+
+#[derive(Debug, Clone)]
+pub enum CacheEntryStatus {
+    ValidEntry(Box<Machine>),
+    DiscoveryFailing(u32),
+    DiscoveryFailed,
 }
 
 /// Fetch an entry from the cache.
@@ -87,8 +98,8 @@ pub fn put(
     link_address: IpAddr,
     circuit_id: Option<String>,
     remote_id: Option<String>,
-    machine: Machine,
     vendor_id: &str,
+    status: CacheEntryStatus,
 ) {
     let key = key(
         mac_address,
@@ -99,9 +110,9 @@ pub fn put(
     );
     let new_entry = CacheEntry {
         timestamp: Instant::now(),
-        machine,
         link_address,
         circuit_id,
+        status,
     };
     MACHINE_CACHE.lock().unwrap().put(key, new_entry);
 }
@@ -136,6 +147,28 @@ fn key(
 
 impl CacheEntry {
     fn has_expired(&self) -> bool {
-        self.timestamp.elapsed() >= MACHINE_CACHE_TIMEOUT
+        match &self.status {
+            CacheEntryStatus::ValidEntry(_machine) => {
+                self.timestamp.elapsed() >= MACHINE_CACHE_TIMEOUT
+            }
+            _ => self.timestamp.elapsed() >= MACHINE_DISC_FAILED_CACHE_TIMEOUT,
+        }
+    }
+}
+
+impl CacheEntryStatus {
+    pub fn increment_fails(&self) -> CacheEntryStatus {
+        match self {
+            CacheEntryStatus::ValidEntry(_machine) => CacheEntryStatus::DiscoveryFailing(1),
+            CacheEntryStatus::DiscoveryFailing(count) => {
+                let new_count = count + 1;
+                if new_count == MAX_DISCOVERY_FAILS {
+                    CacheEntryStatus::DiscoveryFailed
+                } else {
+                    CacheEntryStatus::DiscoveryFailing(new_count)
+                }
+            }
+            CacheEntryStatus::DiscoveryFailed => CacheEntryStatus::DiscoveryFailed,
+        }
     }
 }

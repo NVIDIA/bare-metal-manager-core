@@ -101,6 +101,20 @@ pub struct MockAPIServer {
     handle: JoinHandle<Result<(), hyper::Error>>,
     tx: Option<tokio::sync::oneshot::Sender<()>>,
     local_addr: String,
+    inject_failure: Arc<Mutex<bool>>,
+}
+
+#[derive(Debug)]
+enum MockAPIServerError {
+    MockAPIFetchMachineError,
+}
+
+impl std::error::Error for MockAPIServerError {}
+
+impl std::fmt::Display for MockAPIServerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "MockAPIServer injected test error")
+    }
 }
 
 impl MockAPIServer {
@@ -110,13 +124,16 @@ impl MockAPIServer {
         // Gitlab CI (or some part of our config of it) does not support IPv6
         let addr = SocketAddr::V4(SocketAddrV4::from_str("127.0.0.1:0").unwrap());
 
+        let inject_failure = Arc::new(Mutex::new(false));
+        let i2 = inject_failure.clone();
         let calls = Arc::new(Mutex::new(HashMap::new()));
         let c2 = calls.clone();
         let make_svc = make_service_fn(move |_conn| {
             let c3 = c2.clone();
+            let i3 = i2.clone();
             async move {
                 Ok::<_, Infallible>(service_fn(move |req: Request<Body>| {
-                    MockAPIServer::handler(req, c3.clone())
+                    MockAPIServer::handler(req, c3.clone(), i3.clone())
                 }))
             }
         });
@@ -133,12 +150,17 @@ impl MockAPIServer {
             handle,
             local_addr: format!("http://{}", local_addr),
             tx: Some(tx),
+            inject_failure,
         }
     }
 
     // The HTTP address of the server
     pub fn local_http_addr(&self) -> &str {
         &self.local_addr
+    }
+
+    pub fn set_inject_failure(&mut self, fail: bool) {
+        *self.inject_failure.lock().unwrap() = fail;
     }
 
     // Number of times the given endpoint has been hit
@@ -154,7 +176,8 @@ impl MockAPIServer {
     async fn handler(
         req: Request<Body>,
         calls: Arc<Mutex<HashMap<String, usize>>>,
-    ) -> Result<Response<Body>, Infallible> {
+        fail: Arc<Mutex<bool>>,
+    ) -> Result<Response<Body>, MockAPIServerError> {
         let path = req.uri().path();
         calls
             .lock()
@@ -162,12 +185,20 @@ impl MockAPIServer {
             .entry(path.to_owned())
             .and_modify(|e| *e += 1)
             .or_insert(1);
-        let resp = match path {
+        match path {
             // Add the endpoints you need here
-            ENDPOINT_DISCOVER_DHCP => MockAPIServer::discover_dhcp(req).await,
+            ENDPOINT_DISCOVER_DHCP => {
+                let inject_failure = *fail.lock().unwrap();
+                if inject_failure {
+                    Err(MockAPIServerError::MockAPIFetchMachineError)
+                } else {
+                    Ok(Response::new(
+                        MockAPIServer::discover_dhcp(req).await.into(),
+                    ))
+                }
+            }
             _ => panic!("DHCP -> API wrong uri: {}", req.uri().path()),
-        };
-        Ok(Response::new(resp.into()))
+        }
     }
 
     async fn discover_dhcp(req: Request<Body>) -> Vec<u8> {
