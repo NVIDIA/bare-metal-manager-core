@@ -8,9 +8,23 @@ stateDiagram-v2
 %%classDef cleanup fill:white,font-weight:bold,font-size:23px,stroke-width:2px,stroke:orange
 %%classDef failed fill:#f00,color:white,font-size:25px,font-weight:bold,stroke-width:2px,stroke:yellow
 
-  [*] --> DPUNotReady
+state if_state <<choice>>
+[*] --> CreateMachineFeatureEnabled
+CreateMachineFeatureEnabled --> if_state
+if_state --> DPU_Init: False
+if_state --> DpuDiscoveringState: True
+
+  state DpuDiscoveringState {
+    [*] --> Initializing
+    Initializing --> Configuring: Setting boot order, UEFI password, etc.
+    state if_state2 <<choice>>
+    Configuring --> if_state2: BMC and CEC FW Update Needed
+    if_state2 --> Configuring: false
+    if_state2 --> BmcFirmwareUpdate: true - Update BMC and CEC FW
+    BmcFirmwareUpdate --> Configuring
+  }
+  Configuring --> DPU_Init: Reboot a DPU to boot Forge scout image using iPXE
   state DPUNotReady {
-    [*] --> DPU_Init
     DPU_Init --> DPU_WaitingForNetworkInstall: Rebooted and discovered
     DPU_WaitingForNetworkInstall --> DPU_WaitingForNetworkConfig: Rebooted
   }
