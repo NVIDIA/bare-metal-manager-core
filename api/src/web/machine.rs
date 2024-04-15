@@ -374,7 +374,6 @@ impl From<forgerpc::Machine> for MachineDetail {
             state_reason: m
                 .state_reason
                 .and_then(|r| reason_to_user_string(&r))
-                .map(|r| format!("({r})"))
                 .unwrap_or_default(),
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
