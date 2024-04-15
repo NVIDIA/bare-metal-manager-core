@@ -226,11 +226,7 @@ impl From<utils::ManagedHostOutput> for ManagedHostDetail {
             machine_id: m.machine_id.unwrap_or(UNKNOWN.to_string()),
             state: m.state,
             time_in_state: m.time_in_state,
-            state_reason: if !m.state_reason.is_empty() {
-                format!("({})", m.state_reason)
-            } else {
-                m.state_reason
-            },
+            state_reason: m.state_reason,
             host_serial_number: m.host_serial_number.unwrap_or(UNKNOWN.to_string()),
             host_bios_version: m.host_bios_version.unwrap_or(UNKNOWN.to_string()),
             host_bmc_ip: m.host_bmc_ip.unwrap_or_default(),

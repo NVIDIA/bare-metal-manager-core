@@ -5,9 +5,13 @@
 {% block content %}
 <h1>Managed Host {{ hostname }}</h1>
 <table>
-	<tr><th>State</th><td>{{ state }} for {{ time_in_state }} {{ state_reason }}</td></tr>
+	<tr><th>State</th><td>{{ state }}</td></tr>
+	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
+	{% if !state_reason.is_empty() %}
+	<tr><th>State machine is blocked</th><td>{{ state_reason }}</td></tr>
+	{% endif %}
 	{% if !maintenance_reference.is_empty() %}
-		<tr>
+	<tr>
       <th>Maintenance Reference</th>
       <td>{% if is_link_ref %}<a href="{{ maintenance_reference }}">{{ maintenance_reference }}</a>{% else %}{{ maintenance_reference }}{% endif %}</td>
     </tr>
