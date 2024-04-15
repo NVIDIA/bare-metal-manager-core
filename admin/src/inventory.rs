@@ -14,11 +14,11 @@ use std::{
     fs,
 };
 
-use ::rpc::forge_tls_client::ApiConfig;
+use ::rpc::{forge::MachineType, forge_tls_client::ApiConfig, MachineId};
 use ::rpc::{site_explorer::ExploredManagedHost, InstanceList, MachineList};
 use serde::{Deserialize, Serialize};
 
-use crate::{cfg::carbide_options::InventoryAction, rpc, CarbideCliResult};
+use crate::{cfg::carbide_options::InventoryAction, rpc, CarbideCliError, CarbideCliResult};
 
 // Expected output
 // x86_host_bmcs:
@@ -80,27 +80,30 @@ fn get_host_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, HostMa
     let mut machine_element: HashMap<String, HostMachineInfo> = HashMap::new();
 
     for machine in machines {
-        let primary_interface = machine
-            .interfaces
-            .iter()
-            .find(|x| x.primary_interface)
-            .unwrap();
+        let primary_interface = machine.interfaces.iter().find(|x| x.primary_interface);
 
-        let hostname = primary_interface.hostname.clone();
-        let address = primary_interface.address[0].clone();
+        if let Some(primary_interface) = primary_interface {
+            let hostname = primary_interface.hostname.clone();
+            let address = primary_interface.address[0].clone();
 
-        machine_element.insert(
-            hostname,
-            HostMachineInfo {
-                ansible_host: address,
-                machine_id: machine.id.clone().unwrap_or_default().to_string(),
-                dpu_machine_id: primary_interface
-                    .attached_dpu_machine_id
-                    .clone()
-                    .unwrap_or_default()
-                    .to_string(),
-            },
-        );
+            machine_element.insert(
+                hostname,
+                HostMachineInfo {
+                    ansible_host: address,
+                    machine_id: machine.id.clone().unwrap_or_default().to_string(),
+                    dpu_machine_id: primary_interface
+                        .attached_dpu_machine_id
+                        .clone()
+                        .unwrap_or_default()
+                        .to_string(),
+                },
+            );
+        } else {
+            eprintln!(
+                "Ignoring machine {:?} since no attached primary interface found with it.",
+                machine.id
+            )
+        }
     }
 
     machine_element
@@ -111,22 +114,20 @@ fn get_dpu_machine_info(machines: &[&::rpc::Machine]) -> HashMap<String, DpuMach
     let mut machine_element: HashMap<String, DpuMachineInfo> = HashMap::new();
 
     for machine in machines {
-        let primary_interface = machine
-            .interfaces
-            .iter()
-            .find(|x| x.primary_interface)
-            .unwrap();
+        let primary_interface = machine.interfaces.iter().find(|x| x.primary_interface);
 
-        let hostname = primary_interface.hostname.clone();
-        let address = primary_interface.address[0].clone();
+        if let Some(primary_interface) = primary_interface {
+            let hostname = primary_interface.hostname.clone();
+            let address = primary_interface.address[0].clone();
 
-        machine_element.insert(
-            hostname,
-            DpuMachineInfo {
-                ansible_host: address,
-                machine_id: machine.id.clone().unwrap_or_default().to_string(),
-            },
-        );
+            machine_element.insert(
+                hostname,
+                DpuMachineInfo {
+                    ansible_host: address,
+                    machine_id: machine.id.clone().unwrap_or_default().to_string(),
+                },
+            );
+        }
     }
 
     machine_element
@@ -157,9 +158,14 @@ fn get_bmc_info(
         let hostname = machine
             .interfaces
             .iter()
-            .find(|x| x.primary_interface)
-            .unwrap()
-            .hostname
+            .find_map(|x| {
+                if x.primary_interface {
+                    Some(x.hostname.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or("Not Found".to_string())
             .clone();
 
         bmc_element.insert(
@@ -189,6 +195,18 @@ fn get_bmc_info(
     bmc_element
 }
 
+fn machine_type(machine_id: &Option<MachineId>) -> MachineType {
+    let Some(machine_id) = machine_id else {
+        return MachineType::Unknown;
+    };
+
+    match machine_id.id.as_bytes()[5] as char {
+        'd' => MachineType::Dpu,
+        'p' | 'h' => MachineType::Host,
+        _ => MachineType::Unknown,
+    }
+}
+
 /// Main entry function which print inventory.
 pub async fn print_inventory(
     api_config: &ApiConfig<'_>,
@@ -197,7 +215,7 @@ pub async fn print_inventory(
     let all_machines = rpc::get_all_machines(api_config, None, false).await?;
     let all_instances = rpc::get_instances(api_config, None).await?;
 
-    let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines);
+    let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines)?;
 
     let children: InstanceGroup = HashMap::from([(
         "children",
@@ -228,27 +246,13 @@ pub async fn print_inventory(
     let all_hosts = all_machines
         .machines
         .iter()
-        .filter(|x| {
-            x.id != x
-                .interfaces
-                .iter()
-                .find(|x| x.primary_interface)
-                .unwrap()
-                .attached_dpu_machine_id
-        })
+        .filter(|x| machine_type(&x.id) == MachineType::Host)
         .collect::<Vec<&::rpc::Machine>>();
 
     let all_dpus = all_machines
         .machines
         .iter()
-        .filter(|x| {
-            x.id == x
-                .interfaces
-                .iter()
-                .find(|x| x.primary_interface)
-                .unwrap()
-                .attached_dpu_machine_id
-        })
+        .filter(|x| machine_type(&x.id) == MachineType::Dpu)
         .collect::<Vec<&::rpc::Machine>>();
 
     final_group.insert(
@@ -284,9 +288,10 @@ pub async fn print_inventory(
             get_dpu_machine_info(&all_dpus),
         )])),
     );
-    let output = serde_yaml::to_string(&final_group).unwrap();
+    let output = serde_yaml::to_string(&final_group).map_err(CarbideCliError::YamlError)?;
     if let Some(filename) = action.filename {
-        fs::write(filename, output).unwrap();
+        fs::write(filename, output)
+            .map_err(|e| CarbideCliError::GenericError(format!("File write error: {e}")))?;
     } else {
         println!("{}", output);
     }
@@ -302,13 +307,14 @@ struct InstanceDetails {
 }
 
 /// Generate inventory item for instances.
+#[allow(clippy::type_complexity)]
 fn create_inventory_for_instances(
     instances: InstanceList,
     machines: &MachineList,
-) -> (
+) -> CarbideCliResult<(
     HashMap<String, Vec<InstanceDetails>>,
     Vec<Option<::rpc::MachineId>>,
-) {
+)> {
     let mut tenant_map: HashMap<String, Vec<InstanceDetails>> = HashMap::new();
     let mut used_machines = vec![];
 
@@ -333,7 +339,12 @@ fn create_inventory_for_instances(
             .machines
             .iter()
             .find(|x| x.id == instance.machine_id)
-            .unwrap();
+            .ok_or_else(|| {
+                CarbideCliError::GenericError(format!(
+                    "No such machine {:?} found in db, instance {:?}",
+                    instance.machine_id, instance.id,
+                ))
+            })?;
 
         used_machines.push(machine.id.clone());
 
@@ -352,13 +363,12 @@ fn create_inventory_for_instances(
 
         let tenant = instance
             .config
-            .unwrap()
-            .tenant
-            .unwrap()
-            .tenant_organization_id;
+            .and_then(|x| x.tenant)
+            .map(|x| x.tenant_organization_id)
+            .unwrap_or("Unknown".to_string());
 
         tenant_map.entry(tenant).or_default().push(details);
     }
 
-    (tenant_map, used_machines)
+    Ok((tenant_map, used_machines))
 }
