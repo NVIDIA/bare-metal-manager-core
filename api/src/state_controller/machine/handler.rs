@@ -18,7 +18,7 @@ use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialType};
-use libredfish::{model::task::TaskState, Redfish, SystemPowerControl};
+use libredfish::{model::task::TaskState, PowerState, Redfish, SystemPowerControl};
 use tokio::fs::File;
 
 use crate::{
@@ -861,6 +861,58 @@ impl StateHandler for DpuMachineStateHandler {
             ManagedHostState::DpuDiscoveringState {
                 discovering_state:
                     DpuDiscoveringState::BmcFirmwareUpdate {
+                        substate: BmcFirmwareUpdateSubstate::HostPowerOff,
+                    },
+            } => {
+                let bmc_ip = state.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
+                    StateHandlerError::RedfishClientCreationError(
+                        RedfishClientCreationError::MissingCredentials(eyre!("No host BMC IP")),
+                    )
+                })?;
+
+                let host_client = ctx
+                    .services
+                    .redfish_client_pool
+                    .create_client(
+                        bmc_ip.as_str(),
+                        None,
+                        CredentialKey::HostRedfish {
+                            credential_type: CredentialType::SiteDefault,
+                        },
+                    )
+                    .await
+                    .map_err(StateHandlerError::RedfishClientCreationError)?;
+                match host_client.get_power_state().await.map_err(|e| {
+                    StateHandlerError::RedfishError {
+                        operation: "get_power_state",
+                        error: e,
+                    }
+                })? {
+                    PowerState::Off => {
+                        host_client
+                            .power(SystemPowerControl::On)
+                            .await
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "host_power_on",
+                                error: e,
+                            })?;
+                        let next_state = ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
+                            },
+                        };
+                        *controller_state.modify() = next_state.clone();
+                        Ok(StateHandlerOutcome::Transition(next_state))
+                    }
+                    _ => Ok(StateHandlerOutcome::Wait(format!(
+                        "Waiting to host {} power off",
+                        bmc_ip
+                    ))),
+                }
+            }
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state:
+                    DpuDiscoveringState::BmcFirmwareUpdate {
                         substate:
                             BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
                                 firmware_type,
@@ -920,12 +972,19 @@ impl StateHandler for DpuMachineStateHandler {
                                 .await
                                 .map_err(StateHandlerError::RedfishClientCreationError)?;
                             host_client
-                                .power(SystemPowerControl::ForceRestart)
+                                .power(SystemPowerControl::ForceOff)
                                 .await
                                 .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "host_reboot",
+                                    operation: "host_power_off",
                                     error: e,
                                 })?;
+                            let next_state = ManagedHostState::DpuDiscoveringState {
+                                discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                    substate: BmcFirmwareUpdateSubstate::HostPowerOff,
+                                },
+                            };
+                            *controller_state.modify() = next_state.clone();
+                            return Ok(StateHandlerOutcome::Transition(next_state));
                         }
                         client
                             .bmc_reset()
