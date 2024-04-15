@@ -29,6 +29,7 @@ use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::human_hash;
 use crate::model::bmc_info::BmcInfo;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::{BMCVendor, HardwareInfo, MachineInventory};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
@@ -38,7 +39,6 @@ use crate::model::machine::{
     FailureDetails, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineState,
     ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
-use crate::state_controller::io::PersistentStateHandlerOutcome;
 use crate::{CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters

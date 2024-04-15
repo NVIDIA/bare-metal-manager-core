@@ -16,10 +16,10 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     db::{network_segment::NetworkSegment, DatabaseError, UuidKeyedObjectFilter},
+    model::controller_outcome::PersistentStateHandlerOutcome,
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     state_controller::{
-        io::{PersistentStateHandlerOutcome, StateControllerIO},
-        metrics::NoopMetricsEmitter,
+        io::StateControllerIO, metrics::NoopMetricsEmitter,
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
         snapshot_loader::SnapshotLoaderError,
     },

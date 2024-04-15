@@ -13,21 +13,14 @@ pub mod common;
 
 use carbide::cfg::DpuFwUpdateConfig;
 use carbide::db::machine::{Machine, MachineSearchConfig};
-use carbide::db::machine_interface::MachineInterface;
-use carbide::model::machine::machine_id::try_parse_machine_id;
+use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
 use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
-use carbide::state_controller::io::PersistentStateHandlerOutcome;
 use carbide::state_controller::machine::handler::MachineStateHandler;
+use common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::Action;
 
-use crate::common::api_fixtures::dpu::{
-    create_machine_inventory, dpu_bmc_discover_dhcp, dpu_discover_dhcp, dpu_discover_machine,
-    update_dpu_machine_credentials, FIXTURE_DPU_BMC_ADMIN_USER_NAME,
-    FIXTURE_DPU_BMC_FIRMWARE_VERSION, FIXTURE_DPU_BMC_VERSION,
-};
-use crate::common::api_fixtures::update_bmc_metadata;
 use crate::common::api_fixtures::{
     discovery_completed,
     dpu::{
@@ -360,49 +353,37 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let host_sim = env.start_managed_host_sim();
     let host_config = &host_sim.config;
+    let (dpu_machine_id, _host_machine_id) =
+        create_dpu_machine_in_waiting_for_network_install(&env, host_config).await;
 
-    // Setup: A DPU appears
-
-    let bmc_machine_interface_id =
-        dpu_bmc_discover_dhcp(&env, &host_config.dpu_bmc_mac_address.to_string()).await;
+    // Setup code did Transition to WaitingForNetworkInstall
     let mut txn = env.pool.begin().await.unwrap();
-    let bmc_interface =
-        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
-            .await
-            .unwrap();
-    let dpu_bmc_ip = bmc_interface.addresses()[0].address;
-    txn.rollback().await.unwrap();
-    let machine_interface_id =
-        dpu_discover_dhcp(&env, &host_config.dpu_oob_mac_address.to_string()).await;
-    let dpu_rpc_machine_id = dpu_discover_machine(&env, host_config, machine_interface_id).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
-    create_machine_inventory(&env, &dpu_machine_id).await;
-    let agent_control_response = env
-        .api
-        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-            machine_id: Some(dpu_rpc_machine_id.clone()),
-        }))
+    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
-        .into_inner();
-    assert_eq!(
-        agent_control_response.action,
-        rpc::forge_agent_control_response::Action::Discovery as i32
+        .unwrap();
+    txn.rollback().await.unwrap();
+    assert!(matches!(
+        host_machine.current_state(),
+        ManagedHostState::DPUNotReady {
+            machine_state: MachineState::WaitingForNetworkInstall
+        }
+    ));
+    assert!(
+        matches!(
+            host_machine.current_state_iteration_outcome(),
+            Some(PersistentStateHandlerOutcome::Transition)
+        ),
+        "Machine should have just transitioned into WaitingForNetworkInstall"
     );
-    update_dpu_machine_credentials(&env, dpu_rpc_machine_id.clone()).await;
-    update_bmc_metadata(
-        &env,
-        dpu_rpc_machine_id.clone(),
-        &dpu_bmc_ip.to_string(),
-        FIXTURE_DPU_BMC_ADMIN_USER_NAME.to_string(),
-        host_config.dpu_bmc_mac_address.to_string(),
-        FIXTURE_DPU_BMC_VERSION.to_string(),
-        FIXTURE_DPU_BMC_FIRMWARE_VERSION.to_string(),
-    )
-    .await;
-    discovery_completed(&env, dpu_rpc_machine_id.clone(), None).await;
 
-    // end of setup
+    // Scout does it's thing
+    env.api
+        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
+            machine_id: Some(dpu_machine_id.to_string().into()),
+        }))
+        .await
+        .unwrap();
 
     let handler = MachineStateHandler::new(
         chrono::Duration::minutes(5),
@@ -412,7 +393,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         env.reachability_params,
     );
 
-    // First: Run state controller once. It should Transition us to WaitingForNetworkInstall
+    // Transition to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
     let mut txn = env.pool.begin().await.unwrap();
@@ -421,31 +402,12 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
     txn.rollback().await.unwrap();
-    assert!(
-        matches!(
-            host_machine.current_state_iteration_outcome(),
-            Some(PersistentStateHandlerOutcome::Transition)
-        ),
-        "First state controller iteration should have changed state"
-    );
-
-    // Scout does it's thing
-    env.api
-        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-            machine_id: Some(dpu_rpc_machine_id.clone()),
-        }))
-        .await
-        .unwrap();
-
-    // Second: Transition to WaitingForNetworkConfig
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
-    let mut txn = env.pool.begin().await.unwrap();
-    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
-    txn.rollback().await.unwrap();
+    assert!(matches!(
+        host_machine.current_state(),
+        ManagedHostState::DPUNotReady {
+            machine_state: MachineState::WaitingForNetworkConfig
+        }
+    ));
     assert!(
         matches!(
             host_machine.current_state_iteration_outcome(),
@@ -454,7 +416,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         "Second state controller iteration should also change state"
     );
 
-    // Third: New we're stuck waiting for DPU agent to run
+    // Now we're stuck waiting for DPU agent to run
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
     let mut txn = env.pool.begin().await.unwrap();

@@ -1043,6 +1043,9 @@ message Machine {
   // Version field that is associated with the `state` of the machine.
   // Every time the lifecycle state of the `Machine` changes for any reason, the version field will be updated.
   string state_version = 13;
+  // The result of last state controller run - it's outcome and an optional reason for that outcome
+  optional ControllerStateReason state_reason = 25;
+
   // The history of the state for the machine. Only populated if `include_history` is set.
   repeated MachineEvent events = 8;
 
@@ -1077,7 +1080,8 @@ message Machine {
   optional string last_reboot_requested_mode = 23;
 
   optional string dpu_agent_version = 24;
-  optional ControllerStateReason state_reason = 25;
+
+  // Fields are not ordered numerically, check the whole message for max field number
 }
 
 message DpuAgentInventoryReport {
