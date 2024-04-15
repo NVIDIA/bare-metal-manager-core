@@ -217,20 +217,12 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
     // This part processes dpu case and do two things such as
     // 1. update system serial_number in case it is empty using chassis serial_number
     // 2. format serial_number data using the same rules as in fetch_chassis()
-    if system.id.to_lowercase().contains("bluefield") {
-        if system.serial_number.is_none() {
-            let chassis = client.get_chassis("Card1").await?;
-            system.serial_number = chassis.serial_number;
-        }
-        system.serial_number = Some(
-            system
-                .serial_number
-                .as_ref()
-                .unwrap_or(&"".to_string())
-                .trim()
-                .to_string(),
-        );
+    if system.id.to_lowercase().contains("bluefield") && system.serial_number.is_none() {
+        let chassis = client.get_chassis("Card1").await?;
+        system.serial_number = chassis.serial_number;
     }
+
+    system.serial_number = system.serial_number.map(|s| s.trim().to_string());
 
     Ok(ComputerSystem {
         ethernet_interfaces,

@@ -35,7 +35,8 @@ use crate::{
         hardware_info::{DpuData, HardwareInfo},
         machine::{machine_id::MachineId, DpuDiscoveringState, ManagedHostState},
         site_explorer::{
-            Chassis, EndpointExplorationReport, EndpointType, ExploredEndpoint, ExploredManagedHost,
+            Chassis, EndpointExplorationReport, EndpointType, ExploredEndpoint,
+            ExploredManagedHost, Service,
         },
     },
     CarbideError, CarbideResult,
@@ -70,6 +71,7 @@ impl SiteExplorer {
     const DB_LOCK_NAME: &'static str = "site_explorer_lock";
     const DB_LOCK_QUERY: &'static str =
         "SELECT pg_try_advisory_xact_lock((SELECT 'site_explorer_lock'::regclass::oid)::integer);";
+    const MIN_SUPPORTED_UEFI_FW: &'static str = "4.5.0";
 
     /// Create a SiteExplorer with the default modules.
     pub fn new(
@@ -305,6 +307,18 @@ impl SiteExplorer {
             return Err(CarbideError::MissingArgument("Missing Service Info"));
         }
 
+        let uefi_version = dpu_report.dpu_uefi_version().unwrap_or("0".to_string());
+
+        if version_compare::compare(uefi_version.clone(), Self::MIN_SUPPORTED_UEFI_FW)
+            .is_ok_and(|c| c == version_compare::Cmp::Lt)
+        {
+            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                "UEFI firmware of version {} is not supported. Please update to: {}",
+                uefi_version,
+                Self::MIN_SUPPORTED_UEFI_FW
+            )));
+        }
+
         let stable_machine_id = dpu_report.machine_id.as_ref().unwrap();
 
         let (dpu_machine, is_new) =
@@ -349,21 +363,7 @@ impl SiteExplorer {
             .into_iter()
             .map(|x| (x.id.clone(), x))
             .collect::<HashMap<_, _>>();
-
-        let service_map = dpu_report
-            .service
-            .clone()
-            .into_iter()
-            .map(|x| (x.id.clone(), x))
-            .collect::<HashMap<_, _>>();
-
-        let inventory_map = service_map
-            .get("FirmwareInventory")
-            .map(|value| value.inventories.clone())
-            .unwrap()
-            .into_iter()
-            .map(|x| (x.id.clone(), x))
-            .collect::<HashMap<_, _>>();
+        let inventory_map = dpu_report.get_inventory_map();
 
         let dpu_data = DpuData {
             factory_mac_address: explored_host
@@ -871,6 +871,25 @@ struct IdentifiedManageHosts {
     pub managed_hosts: Vec<ExploredManagedHost>,
 }
 
+pub fn get_sys_image_version(services: &[Service]) -> Result<String, String> {
+    let Some(service) = services.iter().find(|s| s.id == "FirmwareInventory") else {
+        return Err("Missing FirmwareInventory".to_string());
+    };
+
+    let Some(image) = service
+        .inventories
+        .iter()
+        .find(|inv| inv.id == "DPU_SYS_IMAGE")
+    else {
+        return Err("Missing DPU_SYS_IMAGE".to_string());
+    };
+
+    image
+        .version
+        .clone()
+        .ok_or("Missing DPU_SYS_IMAGE version".to_string())
+}
+
 /// Identifies the MAC address that is used by the pf0 interface that
 /// the DPU exposes to the host.
 ///
@@ -919,24 +938,7 @@ struct IdentifiedManageHosts {
 /// The method should be migrated to the DPU directly providing the
 /// MAC address: https://redmine.mellanox.com/issues/3749837
 fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, String> {
-    let Some(service) = dpu_ep
-        .report
-        .service
-        .iter()
-        .find(|s| s.id == "FirmwareInventory")
-    else {
-        return Err("Missing FirmwareInventory".to_string());
-    };
-
-    let Some(image) = service
-        .inventories
-        .iter()
-        .find(|inv| inv.id == "DPU_SYS_IMAGE")
-    else {
-        return Err("Missing DPU_SYS_IMAGE".to_string());
-    };
-
-    let mut base_mac = image.version.clone().unwrap_or("".to_string());
+    let mut base_mac = get_sys_image_version(dpu_ep.report.service.as_ref())?;
     if base_mac.len() != 19 {
         return Err(format!("Invalid base_mac length: {}", base_mac.len()));
     }

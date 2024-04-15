@@ -19,8 +19,9 @@ use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use http::StatusCode;
 use libredfish::{
-    model::task::Task, standard::RedfishStandard, Chassis, Endpoint, PowerState, Redfish,
-    RedfishError, RoleId,
+    model::{service_root::ServiceRoot, task::Task},
+    standard::RedfishStandard,
+    Chassis, Endpoint, PowerState, Redfish, RedfishError, RoleId,
 };
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
@@ -559,7 +560,11 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn get_chassis_all(&self) -> Result<Vec<String>, RedfishError> {
-        todo!()
+        Ok(vec![
+            "Bluefield_BMC".to_string(),
+            "Bluefield_EROT".to_string(),
+            "Card1".to_string(),
+        ])
     }
 
     async fn get_chassis(&self, _id: &str) -> Result<Chassis, RedfishError> {
@@ -575,7 +580,7 @@ impl Redfish for RedfishSimClient {
         &self,
         _chassis_id: &str,
     ) -> Result<Vec<String>, RedfishError> {
-        todo!()
+        Ok(vec!["NvidiaNetworkAdapter".to_string()])
     }
 
     async fn get_chassis_network_adapter(
@@ -583,33 +588,49 @@ impl Redfish for RedfishSimClient {
         _chassis_id: &str,
         _id: &str,
     ) -> Result<libredfish::model::chassis::NetworkAdapter, RedfishError> {
-        todo!()
+        Ok(serde_json::from_str(
+            r##"
+            {
+                "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter",
+                "@odata.type": "#NetworkAdapter.v1_9_0.NetworkAdapter",
+                "Id": "NetworkAdapter",
+                "Manufacturer": "Nvidia",
+                "Name": "NvidiaNetworkAdapter",
+                "NetworkDeviceFunctions": {
+                  "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/NetworkDeviceFunctions"
+                },
+                "Ports": {
+                  "@odata.id": "/redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/Ports"
+                }
+              }
+            "##)
+        .unwrap())
     }
 
     async fn get_manager_ethernet_interfaces(
         &self,
     ) -> Result<Vec<std::string::String>, RedfishError> {
-        todo!()
+        Ok(vec!["eth0".to_string(), "vlan4040".to_string()])
     }
 
     async fn get_manager_ethernet_interface(
         &self,
         _id: &str,
     ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError> {
-        todo!()
+        Ok(libredfish::model::ethernet_interface::EthernetInterface::default())
     }
 
     async fn get_system_ethernet_interfaces(
         &self,
     ) -> Result<Vec<std::string::String>, RedfishError> {
-        todo!()
+        Ok(vec!["oob_net0".to_string()])
     }
 
     async fn get_system_ethernet_interface(
         &self,
         _id: &str,
     ) -> Result<libredfish::model::ethernet_interface::EthernetInterface, RedfishError> {
-        todo!()
+        Ok(libredfish::model::ethernet_interface::EthernetInterface::default())
     }
 
     async fn get_software_inventories(&self) -> Result<Vec<std::string::String>, RedfishError> {
@@ -620,7 +641,10 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn get_system(&self) -> Result<libredfish::model::ComputerSystem, RedfishError> {
-        todo!()
+        Ok(libredfish::model::ComputerSystem {
+            id: "Bluefield".to_string(),
+            ..Default::default()
+        })
     }
 
     async fn get_secure_boot(
@@ -714,7 +738,10 @@ impl Redfish for RedfishSimClient {
     async fn get_service_root(
         &self,
     ) -> Result<libredfish::model::service_root::ServiceRoot, RedfishError> {
-        todo!()
+        Ok(ServiceRoot {
+            vendor: Some("Nvidia".to_string()),
+            ..Default::default()
+        })
     }
 
     async fn get_systems(&self) -> Result<Vec<String>, RedfishError> {
@@ -726,7 +753,88 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
-        todo!()
+        Ok(serde_json::from_str(
+            r##"{
+            "@odata.id": "/redfish/v1/Managers/Bluefield_BMC",
+            "@odata.type": "#Manager.v1_14_0.Manager",
+            "Actions": {
+              "#Manager.Reset": {
+                "@Redfish.ActionInfo": "/redfish/v1/Managers/Bluefield_BMC/ResetActionInfo",
+                "target": "/redfish/v1/Managers/Bluefield_BMC/Actions/Manager.Reset"
+              },
+              "#Manager.ResetToDefaults": {
+                "ResetType@Redfish.AllowableValues": [
+                  "ResetAll"
+                ],
+                "target": "/redfish/v1/Managers/Bluefield_BMC/Actions/Manager.ResetToDefaults"
+              }
+            },
+            "CommandShell": {
+              "ConnectTypesSupported": [
+                "SSH"
+              ],
+              "MaxConcurrentSessions": 1,
+              "ServiceEnabled": true
+            },
+            "DateTime": "2024-04-09T11:13:49+00:00",
+            "DateTimeLocalOffset": "+00:00",
+            "Description": "Baseboard Management Controller",
+            "EthernetInterfaces": {
+              "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/EthernetInterfaces"
+            },
+            "FirmwareVersion": "bf-23.10-5-0-g87a8acd1708.1701259870.8631477",
+            "GraphicalConsole": {
+              "ConnectTypesSupported": [
+                "KVMIP"
+              ],
+              "MaxConcurrentSessions": 4,
+              "ServiceEnabled": true
+            },
+            "Id": "Bluefield_BMC",
+            "LastResetTime": "2024-04-01T13:04:04+00:00",
+            "LogServices": {
+                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/LogServices"
+              },
+              "ManagerType": "BMC",
+              "Model": "OpenBmc",
+              "Name": "OpenBmc Manager",
+              "NetworkProtocol": {
+                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol"
+              },
+              "Oem": {
+                "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem",
+                "@odata.type": "#OemManager.Oem",
+                "Nvidia": {
+                  "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia"
+                },
+                "OpenBmc": {
+                  "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Oem/OpenBmc",
+                  "@odata.type": "#OemManager.OpenBmc",
+                  "Certificates": {
+                    "@odata.id": "/redfish/v1/Managers/Bluefield_BMC/Truststore/Certificates"
+                  }
+                }
+              },
+              "PowerState": "On",
+              "SerialConsole": {
+                "ConnectTypesSupported": [
+                  "IPMI",
+                  "SSH"
+                ],
+                "MaxConcurrentSessions": 15,
+                "ServiceEnabled": true
+              },
+              "ServiceEntryPointUUID": "a614e837-6b4a-4560-8c22-c6ed1b96c7c9",
+              "Status": {
+                "Conditions": [],
+                "Health": "OK",
+                "HealthRollup": "OK",
+                "State": "Starting"
+              },
+              "UUID": "0b623306-fa7f-42d2-809d-a63a13d49c8d"                          
+        }"##,
+        )
+        .unwrap())
     }
 
     async fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {

@@ -224,6 +224,9 @@ pub enum CarbideError {
 
     #[error("Lldp handling error: {0}")]
     LldpError(#[from] LldpError),
+
+    #[error("Unsupported firmware version: {0}")]
+    UnsupportedFirmwareVersion(String),
 }
 
 impl From<CarbideError> for tonic::Status {

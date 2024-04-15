@@ -12,6 +12,7 @@ use carbide::{
     },
     site_explorer::SiteExplorer,
     state_controller::machine::handler::MachineStateHandler,
+    CarbideError,
 };
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
@@ -27,6 +28,87 @@ pub mod common;
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let _underlay_segment = create_underlay_network_segment(&env).await;
+    let _admin_segment = create_admin_network_segment(&env).await;
+
+    let mut dpu_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some("NVIDIA".to_string()),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "Bluefield_BMC".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("eth0".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("a0:88:c2:08:80:97".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: Vec::new(),
+            manufacturer: None,
+            model: None,
+            serial_number: Some("MT2328XZ185R".to_string()),
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+            serial_number: Some("MT2328XZ185R".to_string()),
+            network_adapters: vec![],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "DPU_SYS_IMAGE".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("3.9.3-7-g8f2d8ca".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
+    };
+    dpu_report.generate_machine_id();
+
+    assert!(dpu_report.machine_id.as_ref().is_some());
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
+        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+    };
+
+    let handled_uefi_err = match SiteExplorer::create_machine_pair(
+        &dpu_report,
+        &exploration_report,
+        &env.pool,
+    )
+    .await
+    {
+        Err(CarbideError::UnsupportedFirmwareVersion(_)) => {
+            dpu_report.service[0].inventories[1].version = Some("4.5.0-12993".to_string());
+            true
+        }
+        Ok(_) | Err(_) => false,
+    };
+    assert!(handled_uefi_err);
+
+    Ok(())
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
@@ -118,6 +200,12 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                     id: "DPU_SYS_IMAGE".to_string(),
                     description: Some("Host image".to_string()),
                     version: Some("b83f:d203:0090:97a4".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-46-gf57517d".to_string()),
                     release_date: None,
                 },
             ],

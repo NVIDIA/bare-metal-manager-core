@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::IpAddr;
+use std::{collections::HashMap, net::IpAddr};
 
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
@@ -225,6 +225,25 @@ impl EndpointExplorationReport {
                 }
             }
         }
+    }
+
+    pub fn get_inventory_map(&self) -> HashMap<String, Inventory> {
+        self.service
+            .iter()
+            .find(|s| s.id == *"FirmwareInventory")
+            .map(|s| {
+                s.inventories
+                    .iter()
+                    .map(|i| (i.id.clone(), i.clone()))
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or(HashMap::new())
+    }
+
+    pub fn dpu_uefi_version(&self) -> Option<String> {
+        self.get_inventory_map()
+            .get("DPU_UEFI")
+            .and_then(|value| value.version.clone())
     }
 }
 
@@ -506,6 +525,57 @@ mod tests {
             serde_json::from_str::<ExploredManagedHost>(&serialized).unwrap(),
             host
         );
+    }
+
+    #[test]
+    fn test_firmware_inventory() {
+        let uefi_version = Some("4.5.0-46-gf57517d".to_string());
+        let uefi_inventory = Inventory {
+            id: "DPU_UEFI".to_string(),
+            description: Some("Host image".to_string()),
+            version: uefi_version.clone(),
+            release_date: None,
+        };
+        let report = EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            last_exploration_error: None,
+            vendor: Some("Nvidia".to_string()),
+            managers: vec![Manager {
+                ethernet_interfaces: vec![],
+                id: "bmc".to_string(),
+            }],
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![],
+                id: "Bluefield".to_string(),
+                manufacturer: None,
+                model: None,
+                serial_number: Some("MT2242XZ00NX".to_string()),
+            }],
+            chassis: vec![Chassis {
+                id: "NIC.Slot.1".to_string(),
+                manufacturer: None,
+                model: None,
+                serial_number: Some("MT2242XZ00NX".to_string()),
+                part_number: None,
+                network_adapters: vec![],
+            }],
+            service: vec![
+                Service {
+                    id: "FirmwareInventory".to_string(),
+                    inventories: vec![uefi_inventory],
+                },
+                Service {
+                    id: "SoftwareInventory".to_string(),
+                    inventories: vec![],
+                },
+            ],
+            machine_id: None,
+        };
+
+        let inventory_map = report.get_inventory_map();
+        // SoftwareInventory doesn't have inventories in it. So map should have only FW inventory.
+        assert_eq!(inventory_map.len(), 1);
+        assert_eq!(report.dpu_uefi_version(), uefi_version);
     }
 
     #[test]
