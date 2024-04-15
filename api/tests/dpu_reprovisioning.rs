@@ -1415,3 +1415,90 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     ));
     txn.commit().await.unwrap();
 }
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_clear_with_function_call(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    txn.commit().await.unwrap();
+    assert!(dpu.reprovisioning_requested().is_none(),);
+
+    env.api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 0,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .unwrap();
+
+    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    assert!(
+        Machine::clear_dpu_reprovisioning_request(&mut txn, dpu.id(), true)
+            .await
+            .is_ok()
+    );
+    txn.rollback().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
+    Machine::update_dpu_reprovision_start_time(dpu.id(), &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    assert!(
+        Machine::clear_dpu_reprovisioning_request(&mut txn, dpu.id(), true)
+            .await
+            .is_err()
+    );
+    txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    txn.commit().await.unwrap();
+    assert!(dpu.reprovisioning_requested().is_none(),);
+
+    env.api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 0,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .unwrap();
+
+    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
+
+    assert!(env
+        .api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 1,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .is_err());
+}

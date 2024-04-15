@@ -3825,8 +3825,17 @@ where
                 };
                 MaintenanceMode::On { reference }
             }
-            rpc::MaintenanceOperation::Disable => MaintenanceMode::Off,
+            rpc::MaintenanceOperation::Disable => {
+                if dpu_machine.reprovisioning_requested().is_some() {
+                    return Err(Status::invalid_argument(format!(
+                        "Reprovisioning request is set on DPU: {}. Clear it first.",
+                        dpu_machine.id()
+                    )));
+                }
+                MaintenanceMode::Off
+            }
         };
+
         Machine::set_maintenance_mode(&mut txn, host_machine.id(), mode.clone())
             .await
             .map_err(CarbideError::from)?;
