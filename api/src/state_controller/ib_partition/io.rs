@@ -19,12 +19,11 @@ use crate::{
         ib_partition::{IBPartition, IBPartitionSearchConfig},
         DatabaseError, UuidKeyedObjectFilter,
     },
+    model::controller_outcome::PersistentStateHandlerOutcome,
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
-        ib_partition::context::IBPartitionStateHandlerContextObjects,
-        io::{PersistentStateHandlerOutcome, StateControllerIO},
-        metrics::NoopMetricsEmitter,
-        snapshot_loader::SnapshotLoaderError,
+        ib_partition::context::IBPartitionStateHandlerContextObjects, io::StateControllerIO,
+        metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
     },
 };
 

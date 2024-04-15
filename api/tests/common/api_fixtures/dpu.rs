@@ -14,8 +14,6 @@
 
 use std::net::IpAddr;
 
-use tonic::Request;
-
 use carbide::{
     cfg::DpuFwUpdateConfig,
     db::{
@@ -39,6 +37,7 @@ use rpc::{
     },
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
+use tonic::Request;
 
 use crate::common::api_fixtures::{
     discovery_completed, managed_host::ManagedHostConfig, network_configured, update_bmc_metadata,

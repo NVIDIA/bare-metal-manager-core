@@ -16,12 +16,13 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     db::{host_machine::HostMachine, machine::Machine, DatabaseError},
+    model::controller_outcome::PersistentStateHandlerOutcome,
     model::machine::{
         machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState, ManagedHostState,
         ManagedHostStateSnapshot,
     },
     state_controller::{
-        io::{PersistentStateHandlerOutcome, StateControllerIO},
+        io::StateControllerIO,
         machine::{context::MachineStateHandlerContextObjects, metrics::MachineMetricsEmitter},
         snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError},
     },
