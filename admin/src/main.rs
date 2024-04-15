@@ -87,6 +87,9 @@ pub enum CarbideCliError {
     #[error("Error while handling json: {0}")]
     JsonError(#[from] serde_json::Error),
 
+    #[error("Error while handling yaml: {0}")]
+    YamlError(#[from] serde_yaml::Error),
+
     #[error("Unexpected machine type.  expected {0:?} but found {1:?}")]
     UnexpectedMachineType(MachineType, MachineType),
 
