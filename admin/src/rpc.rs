@@ -352,16 +352,16 @@ pub async fn machine_admin_force_delete(
     .await
 }
 
-pub async fn set_uefi_password(
+pub async fn set_host_uefi_password(
     query: MachineQuery,
     api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<::rpc::forge::SetUefiPasswordResponse> {
+) -> CarbideCliResult<::rpc::forge::SetHostUefiPasswordResponse> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::SetUefiPasswordRequest {
-            machine_id: Some(rpc::MachineId { id: query.query }),
+        let request = tonic::Request::new(rpc::SetHostUefiPasswordRequest {
+            host_id: Some(rpc::MachineId { id: query.query }),
         });
         let response = client
-            .set_uefi_password(request)
+            .set_host_uefi_password(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;

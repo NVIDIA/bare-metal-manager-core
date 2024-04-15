@@ -4812,21 +4812,21 @@ where
         Ok(tonic::Response::new(()))
     }
 
-    async fn set_uefi_password(
+    async fn set_host_uefi_password(
         &self,
-        request: tonic::Request<rpc::SetUefiPasswordRequest>,
-    ) -> Result<tonic::Response<rpc::SetUefiPasswordResponse>, tonic::Status> {
+        request: tonic::Request<rpc::SetHostUefiPasswordRequest>,
+    ) -> Result<tonic::Response<rpc::SetHostUefiPasswordResponse>, tonic::Status> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
                 line!(),
-                "begin set_uefi_password",
+                "begin set_host_uefi_password",
                 e,
             ))
         })?;
 
         let request = request.into_inner();
-        let machine_id = match &request.machine_id {
+        let machine_id = match &request.host_id {
             Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
             None => {
                 return Err(Status::invalid_argument("A machine UUID is required"));
@@ -4834,16 +4834,18 @@ where
         };
         log_machine_id(&machine_id);
 
+        if !machine_id.machine_type().is_host() {
+            return Err(Status::invalid_argument(
+                "Carbide only supports setting the UEFI password on discovered hosts",
+            ));
+        }
+
         let loader = DbSnapshotLoader {};
         let snapshot = loader
             .load_machine_snapshot(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?;
-        if snapshot.instance.is_none() {
-            return Err(Status::invalid_argument(format!(
-                "Supplied invalid UUID: {machine_id}"
-            )));
-        }
+
         let bmc_ip = snapshot.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
             CarbideError::NotFoundError {
                 kind: "bmc_ip",
@@ -4865,7 +4867,7 @@ where
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
         self.redfish_pool
-            .uefi_setup(client.as_ref(), true)
+            .uefi_setup(client.as_ref(), false)
             .await
             .map_err(|e| {
                 tracing::error!(%e, "Failed to run uefi_setup call");
@@ -4882,7 +4884,7 @@ where
         )
         .await?;
 
-        Ok(Response::new(rpc::SetUefiPasswordResponse {}))
+        Ok(Response::new(rpc::SetHostUefiPasswordResponse {}))
     }
 }
 

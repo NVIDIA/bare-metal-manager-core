@@ -30,6 +30,7 @@ use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuAction::Versions;
 use cfg::carbide_options::DpuReprovision;
+use cfg::carbide_options::HostAction;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::MachineInterfaces;
 use cfg::carbide_options::RouteServer;
@@ -40,6 +41,7 @@ use cfg::carbide_options::{
     MigrateAction, NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
 };
 use clap::CommandFactory; // for CarbideOptions::command()
+use forge_secrets::credentials::Credentials;
 use forge_tls::client_config::get_carbide_api_url;
 use forge_tls::client_config::get_client_cert_info;
 use forge_tls::client_config::get_config_from_file;
@@ -267,9 +269,6 @@ async fn main() -> color_eyre::Result<()> {
                 rpc::reboot(api_config, c.address, c.port, bmc_auth).await?;
             }
             Machine::ForceDelete(query) => machine::force_delete(query, api_config).await?,
-            Machine::SetUefiPassword(query) => {
-                rpc::set_uefi_password(query, api_config).await?;
-            }
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {
@@ -428,6 +427,11 @@ async fn main() -> color_eyre::Result<()> {
                 dpu::handle_dpu_status(&mut output_file, config.format, api_config).await?
             }
         },
+        CarbideCommand::Host(host_action) => match host_action {
+            HostAction::SetUefiPassword(query) => {
+                rpc::set_host_uefi_password(query, api_config).await?;
+            }
+        },
         CarbideCommand::Redfish(_) => {
             // Handled earlier
             unreachable!();
@@ -524,7 +528,11 @@ async fn main() -> color_eyre::Result<()> {
                 rpc::add_credential(api_config, req).await?;
             }
             CredentialAction::AddUefi(c) => {
-                let password = password_validator(c.password.clone()).await?;
+                let mut password = password_validator(c.password.clone()).await?;
+                if c.password.is_empty() {
+                    password = Credentials::generate_password_no_special_char();
+                }
+
                 let req = forgerpc::CredentialCreationRequest {
                     credential_type: CredentialType::from(c.kind).into(),
                     username: None,

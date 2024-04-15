@@ -96,6 +96,8 @@ pub enum CarbideCommand {
     Ip(IpAction),
     #[clap(about = "DPU specific handling", subcommand)]
     Dpu(DpuAction),
+    #[clap(about = "Host specific handling", subcommand)]
+    Host(HostAction),
     #[clap(about = "Generate Ansible Inventory")]
     Inventory(InventoryAction),
     #[clap(about = "Machine boot override", subcommand)]
@@ -181,6 +183,12 @@ pub struct DpuReprovisionData {
 pub struct DpuVersionOptions {
     #[clap(short, long, help = "Only show DPUs that need upgrades")]
     pub updates_only: bool,
+}
+
+#[derive(Parser, Debug)]
+pub enum HostAction {
+    #[clap(about = "Set Host UEFI password")]
+    SetUefiPassword(MachineQuery),
 }
 
 #[derive(Parser, Debug)]
@@ -517,8 +525,6 @@ pub enum Machine {
     Reboot(BMCConfigForReboot),
     #[clap(about = "Force delete a machine")]
     ForceDelete(ForceDeleteMachineQuery),
-    #[clap(about = "Set UEFI Password")]
-    SetUefiPassword(MachineQuery),
 }
 
 #[derive(Parser, Debug)]
@@ -920,7 +926,7 @@ pub struct AddUefiCredential {
     #[clap(long, require_equals(true), required(true), help = "The UEFI kind")]
     pub kind: UefiCredentialType,
 
-    #[clap(long, require_equals(true), required(true), help = "The UEFI password")]
+    #[clap(long, require_equals(true), help = "The UEFI password")]
     pub password: String,
 }
 

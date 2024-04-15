@@ -190,8 +190,8 @@ service Forge {
   // Phone Home
   rpc UpdateInstancePhoneHomeLastContact(InstancePhoneHomeLastContactRequest) returns (InstancePhoneHomeLastContactResponse);
 
-  // Set UEFI password
-  rpc SetUefiPassword(SetUefiPasswordRequest) returns (SetUefiPasswordResponse);
+  // Set Host UEFI password
+  rpc SetHostUefiPassword(SetHostUefiPasswordRequest) returns (SetHostUefiPasswordResponse);
 }
 
 enum CredentialType {
@@ -2021,8 +2021,8 @@ message MachineIdList {
   repeated MachineId machine_ids = 1;
 }
 
-message SetUefiPasswordRequest {
-  MachineId machine_id = 1;
+message SetHostUefiPasswordRequest {
+  MachineId host_id = 1;
 }
 
-message SetUefiPasswordResponse {}
+message SetHostUefiPasswordResponse {}
