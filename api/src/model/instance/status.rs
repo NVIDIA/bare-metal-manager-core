@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     instance::config::{
-        infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig, InstanceConfig,
+        infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
+        storage::InstanceStorageConfig, InstanceConfig,
     },
     machine::{InstanceState, ManagedHostState, ReprovisionRequest},
     RpcDataConversionError,
@@ -23,6 +24,7 @@ use crate::model::{
 
 pub mod infiniband;
 pub mod network;
+pub mod storage;
 pub mod tenant;
 
 /// Instance status
@@ -39,6 +41,8 @@ pub struct InstanceStatus {
 
     /// Status of the infiniband subsystem of an instance
     pub infiniband: infiniband::InstanceInfinibandStatus,
+
+    pub storage: storage::InstanceStorageStatus,
 
     /// Whether all configurations related to an instance are in-sync.
     /// This is a logical AND for the settings of all sub-configurations.
@@ -60,6 +64,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
             tenant: status.tenant.map(|status| status.try_into()).transpose()?,
             network: Some(status.network.try_into()?),
             infiniband: Some(status.infiniband.try_into()?),
+            storage: Some(status.storage.try_into()?),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
             update: status.reprovision_request.map(|request| request.into()),
         })
@@ -81,9 +86,9 @@ impl InstanceStatus {
         let tenant_state = match machine_state {
             ManagedHostState::Ready => tenant::TenantState::Provisioning,
             ManagedHostState::Assigned { instance_state } => match instance_state {
-                InstanceState::Init | InstanceState::WaitingForNetworkConfig => {
-                    tenant::TenantState::Provisioning
-                }
+                InstanceState::Init
+                | InstanceState::WaitingForNetworkConfig
+                | InstanceState::WaitingForStorageConfig => tenant::TenantState::Provisioning,
                 InstanceState::Ready => {
                     let phone_home_pending =
                         phone_home_enrolled && phone_home_last_contact.is_none();
@@ -130,10 +135,12 @@ impl InstanceStatus {
     /// forwarding the last observed status without taking `Config` into account,
     /// because the observation might have been related to a different config,
     /// and the interfaces therefore won't match.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_config_and_observation(
         instance_config: Versioned<&InstanceConfig>,
         network_config: Versioned<&InstanceNetworkConfig>,
         ib_config: Versioned<&InstanceInfinibandConfig>,
+        storage_config: Versioned<&InstanceStorageConfig>,
         observations: &InstanceStatusObservations,
         machine_state: ManagedHostState,
         delete_requested: bool,
@@ -164,6 +171,10 @@ impl InstanceStatus {
         let infiniband = infiniband::InstanceInfinibandStatus::from_config_and_observation(
             ib_config,
             observations.infiniband.as_ref(),
+        );
+        let storage = storage::InstanceStorageStatus::from_config_and_observation(
+            storage_config,
+            observations.storage.as_ref(),
         );
 
         let phone_home_last_contact = observations.phone_home_last_contact;
@@ -202,6 +213,7 @@ impl InstanceStatus {
             tenant: Some(tenant),
             network,
             infiniband,
+            storage,
             configs_synced,
             reprovision_request,
         })
@@ -239,6 +251,8 @@ pub struct InstanceStatusObservations {
 
     /// Observed status of the infiniband subsystem
     pub infiniband: Option<infiniband::InstanceInfinibandStatusObservation>,
+
+    pub storage: Option<storage::InstanceStorageStatusObservation>,
 
     /// Has the instance phoned home?
     pub phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,

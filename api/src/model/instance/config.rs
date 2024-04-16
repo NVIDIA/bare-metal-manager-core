@@ -12,15 +12,15 @@
 
 pub mod infiniband;
 pub mod network;
+pub mod storage;
 pub mod tenant_config;
 
-use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
     instance::config::{
         infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
-        tenant_config::TenantConfig,
+        storage::InstanceStorageConfig, tenant_config::TenantConfig,
     },
     os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
     ConfigValidationError, RpcDataConversionError,
@@ -45,6 +45,9 @@ pub struct InstanceConfig {
 
     /// Configures instance infiniband
     pub infiniband: InstanceInfinibandConfig,
+
+    /// Configures instance storage
+    pub storage: InstanceStorageConfig,
 }
 
 impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
@@ -89,11 +92,18 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             .transpose()?
             .unwrap_or(InstanceInfinibandConfig::default());
 
+        // it should always be okay to create an instance without any storage volumes specified
+        let storage = match config.storage {
+            Some(storage) => InstanceStorageConfig::try_from(storage)?,
+            None => InstanceStorageConfig::default(),
+        };
+
         Ok(InstanceConfig {
             tenant,
             os,
             network,
             infiniband,
+            storage,
         })
     }
 }
@@ -114,12 +124,17 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
         tenant.always_boot_with_custom_ipxe = config.os.run_provisioning_instructions_on_every_boot;
         tenant.phone_home_enabled = config.os.phone_home_enabled;
 
-        let os = rpc::OperatingSystem::try_from(config.os)?;
+        let os = rpc::forge::OperatingSystem::try_from(config.os)?;
         let network = rpc::InstanceNetworkConfig::try_from(config.network)?;
         let infiniband = rpc::InstanceInfinibandConfig::try_from(config.infiniband)?;
         let infiniband = match infiniband.ib_interfaces.is_empty() {
             true => None,
             false => Some(infiniband),
+        };
+        let storage = rpc::forge::InstanceStorageConfig::try_from(config.storage)?;
+        let storage = match storage.volumes.is_empty() {
+            true => None,
+            false => Some(storage),
         };
 
         Ok(rpc::InstanceConfig {
@@ -127,6 +142,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             os: Some(os),
             network: Some(network),
             infiniband,
+            storage,
         })
     }
 }
@@ -141,6 +157,8 @@ impl InstanceConfig {
         self.network.validate()?;
 
         self.infiniband.validate()?;
+
+        self.storage.validate()?;
 
         Ok(())
     }

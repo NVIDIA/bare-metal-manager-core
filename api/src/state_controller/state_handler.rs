@@ -15,6 +15,7 @@ use std::sync::Arc;
 use libredfish::RedfishError;
 use opentelemetry::metrics::Meter;
 
+use crate::storage::StorageError;
 use crate::{
     db::DatabaseError,
     ib::IBFabricManager,
@@ -22,6 +23,7 @@ use crate::{
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::{RedfishClientCreationError, RedfishClientPool},
     resource_pool::{DbResourcePool, ResourcePoolError},
+    storage::NvmeshClientPool,
 };
 
 /// Services that are accessible to the `StateHandler`
@@ -40,6 +42,9 @@ pub struct StateHandlerServices {
 
     /// API for interaction with Forge IBFabricManager
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
+
+    /// API for interaction with NVMesh storage cluster
+    pub nvmesh_client_pool: Arc<dyn NvmeshClientPool>,
 
     /// Resource pool for ib pkey allocate/release.
     pub pool_pkey: Option<Arc<DbResourcePool<u16>>>,
@@ -135,6 +140,9 @@ pub enum StateHandlerError {
     #[error("Failed to call IBFabricManager: {0}")]
     IBFabricError(String),
 
+    #[error("Storage error {0}")]
+    StorageError(#[from] StorageError),
+
     #[error("Failed to create redfish client: {0}")]
     RedfishClientCreationError(#[from] RedfishClientCreationError),
 
@@ -180,6 +188,7 @@ impl StateHandlerError {
             StateHandlerError::PoolAllocateError { .. } => "pool_allocate_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
             StateHandlerError::IBFabricError(_) => "ib_fabric_error",
+            StateHandlerError::StorageError(_) => "storage_error",
             StateHandlerError::InvalidState(_) => "invalid_state",
             StateHandlerError::RedfishClientCreationError(_) => "redfish_client_creation_error",
             StateHandlerError::RedfishError { operation, .. } => match *operation {

@@ -42,6 +42,7 @@ pub mod resource_pool;
 pub mod resource_record;
 pub mod route_servers;
 pub mod site_exploration_report;
+pub mod storage;
 pub mod tenant;
 pub mod vpc;
 

@@ -38,6 +38,7 @@ pub mod network_segment;
 pub mod os;
 pub mod resource_pool;
 pub mod site_explorer;
+pub mod storage;
 pub mod tenant;
 
 /// Enumerates errors that can occur when converting from the RPC data format
@@ -64,6 +65,8 @@ pub enum RpcDataConversionError {
     InvalidInterfaceFunctionType(i32),
     #[error("Invalid UUID for field of type {0}: {1}")]
     InvalidUuid(&'static str, String),
+    #[error("Invalid value {1} for {0}")]
+    InvalidValue(String, String),
     #[error("Argument {0} is missing")]
     MissingArgument(&'static str),
     #[error("Machine state {0} is invalid")]
@@ -128,6 +131,12 @@ pub enum ConfigValidationError {
 
     #[error("More than {0} Tenant KeySet IDs are not allowed")]
     TenantKeysetIdsOverMax(usize),
+
+    #[error("Storage Volumes defined {0} > 8")]
+    StorageVolumeCountExceeded(usize),
+
+    #[error("Instance cannot connect to multiple storage clusters")]
+    StorageClusterInvalid,
 }
 
 impl ConfigValidationError {

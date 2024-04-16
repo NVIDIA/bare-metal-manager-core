@@ -57,6 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.InstanceInfinibandConfig",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.InstanceStorageConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TenantConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceConfig", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -72,6 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.InstanceInfinibandStatus",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.InstanceStorageStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceTenantStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Instance", "#[derive(serde::Serialize)]")
@@ -150,6 +152,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.ResourcePool", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcList", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.StorageClusterAttributes",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.StorageCluster", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.StoragePoolAttributes", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.StoragePool", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.StorageVolumeStatus", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.StorageVolumeAttributes",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.StorageVolume", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.DeleteStoragePoolRequest",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ListStoragePoolRequest",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ListStoragePoolResponse",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.DeleteStorageVolumeRequest",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ListStorageVolumeRequest",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ListStorageVolumeResponse",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.OsImageAttributes", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.OsImage", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.ListOsImageRequest", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.ListOsImageResponse", "#[derive(serde::Serialize)]")
+        .type_attribute("DeleteOsImageRequest", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineDiscoveryInfo",
             "#[derive(serde::Deserialize, serde::Serialize)]",

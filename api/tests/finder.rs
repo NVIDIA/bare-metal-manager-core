@@ -46,6 +46,7 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
+        None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
     )
     .await;
@@ -155,6 +156,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         &dpu_machine_id,
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
     )

@@ -15,6 +15,7 @@ use std::sync::Arc;
 use opentelemetry::metrics::Meter;
 use tokio::sync::oneshot;
 
+use crate::storage::NvmeshClientPool;
 use crate::{
     ib::IBFabricManager,
     ipmitool::IPMITool,
@@ -51,6 +52,7 @@ pub enum StateControllerBuildError {
 pub struct Builder<IO: StateControllerIO> {
     database: Option<sqlx::PgPool>,
     redfish_client_pool: Option<Arc<dyn RedfishClientPool>>,
+    nvmesh_client_pool: Option<Arc<dyn NvmeshClientPool>>,
     ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
     iteration_config: IterationConfig,
     object_type_for_metrics: Option<String>,
@@ -74,6 +76,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
         Self {
             database: None,
             redfish_client_pool: None,
+            nvmesh_client_pool: None,
             ib_fabric_manager: None,
             iteration_config: IterationConfig::default(),
             state_handler: Arc::new(NoopStateHandler::<
@@ -137,6 +140,12 @@ impl<IO: StateControllerIO> Builder<IO> {
                 .ok_or(StateControllerBuildError::MissingArgument(
                     "redfish_client_pool",
                 ))?;
+        let nvmesh_client_pool =
+            self.nvmesh_client_pool
+                .take()
+                .ok_or(StateControllerBuildError::MissingArgument(
+                    "nvmesh_client_pool",
+                ))?;
 
         let forge_api = self
             .forge_api
@@ -168,6 +177,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             pool: database,
             ib_fabric_manager,
             redfish_client_pool,
+            nvmesh_client_pool,
             forge_api,
             meter: meter.clone(),
             pool_pkey: self.pool_pkey.take(),
@@ -235,6 +245,12 @@ impl<IO: StateControllerIO> Builder<IO> {
     /// Configures the utilized Redfish client pool
     pub fn redfish_client_pool(mut self, redfish_client_pool: Arc<dyn RedfishClientPool>) -> Self {
         self.redfish_client_pool = Some(redfish_client_pool);
+        self
+    }
+
+    /// Configures the nvmesh client pool
+    pub fn nvmesh_client_pool(mut self, nvmesh_client_pool: Arc<dyn NvmeshClientPool>) -> Self {
+        self.nvmesh_client_pool = Some(nvmesh_client_pool);
         self
     }
 

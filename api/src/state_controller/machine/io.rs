@@ -162,6 +162,7 @@ impl StateControllerIO for MachineStateControllerIO {
             match instance_state {
                 InstanceState::Init => "init",
                 InstanceState::WaitingForNetworkConfig => "waitingfornetworkconfig",
+                InstanceState::WaitingForStorageConfig => "waitingforstorageconfig",
                 InstanceState::Ready => "ready",
                 InstanceState::BootingWithDiscoveryImage { .. } => "bootingwithdiscoveryimage",
                 InstanceState::SwitchToAdminNetwork => "switchtoadminnetwork",

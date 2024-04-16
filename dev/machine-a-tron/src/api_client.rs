@@ -462,6 +462,7 @@ pub async fn allocate_instance(
                 interfaces: vec![interface_config],
             }),
             infiniband: None,
+            storage: None,
         };
 
         let instance_request = tonic::Request::new(rpc::InstanceAllocationRequest {

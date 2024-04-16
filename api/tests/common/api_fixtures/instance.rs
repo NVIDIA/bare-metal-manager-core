@@ -37,6 +37,7 @@ pub async fn create_instance(
     host_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
     infiniband: Option<rpc::InstanceInfinibandConfig>,
+    storage: Option<rpc::forge::InstanceStorageConfig>,
     keyset_ids: Vec<String>,
 ) -> (InstanceId, rpc::Instance) {
     let mut tenant_config = default_tenant_config();
@@ -47,17 +48,20 @@ pub async fn create_instance(
         os: Some(default_os_config()),
         network,
         infiniband,
+        storage,
     };
 
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_instance_with_labels(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
     infiniband: Option<rpc::InstanceInfinibandConfig>,
+    storage: Option<rpc::forge::InstanceStorageConfig>,
     keyset_ids: Vec<String>,
     instance_metadata: rpc::Metadata,
 ) -> (InstanceId, rpc::Instance) {
@@ -69,6 +73,7 @@ pub async fn create_instance_with_labels(
         os: Some(default_os_config()),
         network,
         infiniband,
+        storage,
     };
     create_instance_with_config(
         env,
@@ -87,6 +92,7 @@ pub async fn create_instance_with_hostname(
     host_machine_id: &MachineId,
     network: Option<rpc::InstanceNetworkConfig>,
     infiniband: Option<rpc::InstanceInfinibandConfig>,
+    storage: Option<rpc::forge::InstanceStorageConfig>,
     keyset_ids: Vec<String>,
     hostname: String,
     tenant_org: String,
@@ -101,6 +107,7 @@ pub async fn create_instance_with_hostname(
         os: Some(default_os_config()),
         network,
         infiniband,
+        storage,
     };
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
 }
@@ -157,6 +164,7 @@ pub fn config_for_ib_config(
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: Some(ib_config),
+        storage: None,
     }
 }
 

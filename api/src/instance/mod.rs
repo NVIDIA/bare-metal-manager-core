@@ -112,6 +112,7 @@ pub async fn allocate_instance(
 
     let network_config_version = ConfigVersion::initial();
     let ib_config_version = ConfigVersion::initial();
+    let storage_config_version = ConfigVersion::initial();
     let config_version = ConfigVersion::initial();
 
     tenant_consistent_check(
@@ -129,6 +130,7 @@ pub async fn allocate_instance(
         config_version,
         network_config_version,
         ib_config_version,
+        storage_config_version,
     };
 
     let machine_id = new_instance.machine_id.clone();
@@ -224,6 +226,15 @@ pub async fn allocate_instance(
         instance.id,
         ib_config_version,
         &updated_ib_config,
+        false,
+    )
+    .await?;
+
+    Instance::update_storage_config(
+        &mut txn,
+        instance.id.into(),
+        storage_config_version,
+        &request.config.storage,
         false,
     )
     .await?;

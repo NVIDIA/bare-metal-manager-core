@@ -26,6 +26,7 @@ use carbide::{
             config::{
                 infiniband::InstanceInfinibandConfig,
                 network::{InstanceNetworkConfig, InterfaceFunctionId},
+                storage::InstanceStorageConfig,
                 InstanceConfig,
             },
             status::network::{
@@ -101,6 +102,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         &dpu_machine_id,
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
         None,
         vec![],
     )
@@ -288,6 +290,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
+        None,
         vec![],
         instance_metadata.clone(),
     )
@@ -393,6 +396,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
+        None,
         vec![],
         instance_hostname.to_string(),
         "org-nebulon".to_string(),
@@ -432,6 +436,7 @@ async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOpt
         &new_host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
+        None,
         vec![],
         instance_hostname.to_string(),
         "org-nvidia".to_string(), //different org, should fail on the same one
@@ -465,6 +470,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         &dpu_machine_id,
         &host_machine_id,
         network,
+        None,
         None,
         vec![],
         "test-hostname".to_string(),
@@ -518,6 +524,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
+        storage: None,
     };
 
     let (_instance_id, _instance) = create_instance_with_config(
@@ -569,6 +576,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
             &dpu_machine_id,
             &host_machine_id,
             Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+            None,
             None,
             vec![],
             rpc::forge::Metadata {
@@ -673,6 +681,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
         tenant: Some(default_tenant_config()),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
+        storage: None,
     };
 
     let instance_id = uuid::Uuid::new_v4();
@@ -721,6 +730,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
         tenant: Some(default_tenant_config()),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: Default::default(),
+        storage: None,
     };
 
     let instance = env
@@ -819,6 +829,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
+        None,
         vec![],
     )
     .await;
@@ -882,6 +893,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
+        storage: None,
     };
 
     let instance_id = uuid::Uuid::new_v4();
@@ -964,6 +976,7 @@ async fn test_instance_cloud_init_metadata(
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
+        None,
         vec![],
     )
     .await;
@@ -1000,6 +1013,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         &dpu_machine_id,
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
         None,
         vec![],
     )
@@ -1273,6 +1287,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+
 async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -1287,6 +1302,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             tenant: default_tenant_config().try_into().unwrap(),
             network: InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID),
             infiniband: InstanceInfinibandConfig::default(),
+            storage: InstanceStorageConfig::default(),
         },
         metadata: Metadata {
             name: "test_instance".to_string(),
@@ -1357,6 +1373,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         &dpu_machine_id,
         &host_machine_id,
         network,
+        None,
         None,
         vec![],
     )
@@ -1450,6 +1467,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
                 tenant: Some(default_tenant_config()),
                 network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
                 infiniband: None,
+                storage: None,
             }),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -1484,6 +1502,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         os: Some(os),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
+        storage: None,
     };
 
     let (instance_id, _instance) = create_instance_with_config(
@@ -1536,6 +1555,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &dpu_machine_id,
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
         None,
         vec![],
     )
@@ -1652,6 +1672,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         }),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
+        storage: None,
     };
 
     let instance_id = uuid::Uuid::new_v4();
@@ -1709,6 +1730,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         }),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
+        storage: None,
     };
 
     let instance_id = uuid::Uuid::new_v4();

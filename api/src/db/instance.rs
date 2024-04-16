@@ -32,17 +32,19 @@ use crate::{
         instance::{
             config::{
                 infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
-                tenant_config::TenantConfig, InstanceConfig,
+                storage::InstanceStorageConfig, tenant_config::TenantConfig, InstanceConfig,
             },
             snapshot::InstanceSnapshot,
             status::{
                 infiniband::InstanceInfinibandStatusObservation,
-                network::InstanceNetworkStatusObservation, InstanceStatusObservations,
+                network::InstanceNetworkStatusObservation,
+                storage::InstanceStorageStatusObservation, InstanceStatusObservations,
             },
         },
         machine::machine_id::MachineId,
         metadata::Metadata,
         os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
+        storage::StorageVolume,
         tenant::TenantOrganizationId,
         RpcDataConversionError,
     },
@@ -162,6 +164,7 @@ pub struct NewInstance<'a> {
     pub config_version: ConfigVersion,
     pub network_config_version: ConfigVersion,
     pub ib_config_version: ConfigVersion,
+    pub storage_config_version: ConfigVersion,
 }
 
 pub struct DeleteInstance {
@@ -180,6 +183,8 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
         struct OptionalNetworkStatusObservation(Option<InstanceNetworkStatusObservation>);
         #[derive(serde::Deserialize)]
         struct OptionalIbStatusObservation(Option<InstanceInfinibandStatusObservation>);
+        #[derive(serde::Deserialize)]
+        struct OptionalStorageStatusObservation(Option<InstanceStorageStatusObservation>);
 
         let machine_id: DbMachineId = row.try_get("machine_id")?;
         let tenant_org_str = row.try_get::<String, _>("tenant_org")?;
@@ -228,6 +233,15 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
+        let storage_config_version_str: &str = row.try_get("storage_config_version")?;
+        let storage_config_version = storage_config_version_str
+            .parse()
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let storage_config: sqlx::types::Json<InstanceStorageConfig> =
+            row.try_get("storage_config")?;
+        let storage_status_observation: sqlx::types::Json<OptionalStorageStatusObservation> =
+            row.try_get("storage_status_observation")?;
+
         let instance_labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
 
         let metadata = Metadata {
@@ -241,6 +255,7 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             os,
             network: network_config.0,
             infiniband: ib_config.0,
+            storage: storage_config.0,
         };
 
         Ok(InstanceSnapshot {
@@ -255,9 +270,11 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             config_version,
             network_config_version,
             ib_config_version,
+            storage_config_version,
             observations: InstanceStatusObservations {
                 network: network_status_observation.0 .0,
                 infiniband: ib_status_observation.0 .0,
+                storage: storage_status_observation.0 .0,
                 phone_home_last_contact: row.try_get("phone_home_last_contact")?,
             },
             metadata,
@@ -683,6 +700,74 @@ WHERE s.network_config->>'loopback_ip'=$1";
         }
     }
 
+    /// Updates the storage configuration for an instance
+    pub async fn update_storage_config(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+        expected_version: ConfigVersion,
+        new_state: &InstanceStorageConfig,
+        increment_version: bool,
+    ) -> Result<(), DatabaseError> {
+        let expected_version_str = expected_version.version_string();
+        let next_version = if increment_version {
+            expected_version.increment()
+        } else {
+            expected_version
+        };
+        let next_version_str = next_version.version_string();
+
+        // check if volumes need to be allocated, currently only supporting pre-created volumes
+        // todo: handle volume creation as part of instance allocation
+        for attrs in new_state.volumes.iter() {
+            // let mut volume =
+            match attrs.use_existing_volume {
+                Some(x) => {
+                    if x {
+                        StorageVolume::get(txn, attrs.id).await?
+                    } else {
+                        return Err(DatabaseError::new(
+                            file!(),
+                            line!(),
+                            "instance update_storage_config",
+                            sqlx::Error::ColumnNotFound("volume must exist".to_string()),
+                        ));
+                    }
+                }
+                None => {
+                    return Err(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "instance update_storage_config",
+                        sqlx::Error::ColumnNotFound("volume must exist".to_string()),
+                    ))
+                }
+            };
+            // update the volume in the db, associate this instance and dpu to it
+            // for now we will do the backend nvmesh client attach and then update the db
+            // in the machine state handler attach_storage_volumes()
+            // volume.attach(txn, &instance_id, dpu_id).await?;
+        }
+
+        // update the db. for now storing the attrs as is, could optimize and only store volume ids
+        // instance volumes config is an ordered list of volumes to attach to the instance
+        // the actual volume details are stored in storage_volumes like other storage objects
+        let query = "UPDATE instances SET storage_config_version=$1, storage_config=$2::json
+            WHERE id=$3 AND storage_config_version=$4
+            RETURNING id";
+        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+            .bind(&next_version_str)
+            .bind(sqlx::types::Json(new_state))
+            .bind(instance_id)
+            .bind(&expected_version_str)
+            .fetch_one(&mut **txn)
+            .await;
+
+        match query_result {
+            Ok((_instance_id,)) => Ok(()),
+            Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
+        }
+    }
+
     /// Updates the latest network status observation for an instance
     pub async fn update_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
@@ -746,6 +831,37 @@ WHERE s.network_config->>'loopback_ip'=$1";
 
         Ok(())
     }
+
+    pub async fn update_storage_status_observation(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: InstanceId,
+        status: &InstanceStorageStatusObservation,
+    ) -> Result<(), DatabaseError> {
+        // TODO: This might rather belong into the API layer
+        // We will move move it there once that code is in place
+        status.validate().map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "ioerror",
+                sqlx::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                )),
+            )
+        })?;
+
+        let query =
+            "UPDATE instances SET storage_status_observation=$1::json where id = $2::uuid returning id";
+        let (_,): (uuid::Uuid,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(status))
+            .bind(instance_id)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
 }
 
 impl<'a> NewInstance<'a> {
@@ -771,6 +887,9 @@ impl<'a> NewInstance<'a> {
             }
         }
 
+        let storage_config_version = self.storage_config_version.version_string();
+        let storage_status_observation = Option::<InstanceStorageStatusObservation>::None;
+
         let query = "INSERT INTO instances (
                         id,
                         machine_id,
@@ -791,9 +910,12 @@ impl<'a> NewInstance<'a> {
                         description,
                         labels,
                         config_version,
-                        hostname
+                        hostname,
+                        storage_config,
+                        storage_config_version,
+                        storage_status_observation
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17::json, $18, $19)
+                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17::json, $18, $19, $20::json, $21, $22::json)
                     RETURNING *";
         sqlx::query_as::<_, InstanceSnapshot>(query)
             .bind(self.instance_id)
@@ -815,7 +937,10 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(&self.metadata.labels))
             .bind(self.config_version.version_string())
             .bind(&self.config.tenant.hostname)
-            .fetch_one(txn.deref_mut())
+            .bind(sqlx::types::Json(&self.config.storage))
+            .bind(&storage_config_version)
+            .bind(sqlx::types::Json(storage_status_observation))
+            .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

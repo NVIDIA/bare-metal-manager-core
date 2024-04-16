@@ -247,6 +247,7 @@ async fn test_machine_validation_get_results(
         &host_machine_id,
         Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
+        None,
         vec![],
     )
     .await;
