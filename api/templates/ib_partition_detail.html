@@ -16,6 +16,9 @@
 <h3>Status</h3>
 <table>
 	<tr><th>State</th><td>{{ state }}</td></tr>
+	{% if !state_reason.is_empty() %}
+	<tr><th>State machine is blocked</th><td>{{ state_reason }}</td></tr>
+	{% endif %}
 	<tr><th>Pkey</th><td>{{ pkey }}</td></tr>
 	<tr><th>Service Level</th><td>{{ service_level }}</td></tr>
 	<tr><th>Rate Limit</th><td>{{ rate_limit }}</td></tr>

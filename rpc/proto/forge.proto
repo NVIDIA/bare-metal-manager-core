@@ -475,6 +475,8 @@ message IBPartitionConfig {
 message IBPartitionStatus {
   // Provisioning state of this partition
   TenantState state = 1;
+  // The result of last state controller run - it's outcome and an optional reason for that outcome
+  optional ControllerStateReason state_reason = 8;
 
   // The pkey of IB Partition
   optional string pkey = 2;

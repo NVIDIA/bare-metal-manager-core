@@ -154,6 +154,7 @@ struct IbPartitionDetail {
     tenant_organization_id: String,
     name: String,
     state: String,
+    state_reason: String,
     pkey: String,
     service_level: String,
     rate_limit: String,
@@ -181,6 +182,12 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
                 .as_ref()
                 .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
                 .map(|state| format!("{:?}", state))
+                .unwrap_or_default(),
+            state_reason: partition
+                .status
+                .as_ref()
+                .and_then(|s| s.state_reason.as_ref())
+                .and_then(utils::reason_to_user_string)
                 .unwrap_or_default(),
             pkey: partition
                 .status

@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 use super::machine::Machine;
 use crate::ib::IBFabricManagerConfig;
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::InfinibandInterface;
 use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
@@ -123,6 +124,9 @@ pub struct IBPartition {
     pub deleted: Option<DateTime<Utc>>,
 
     pub controller_state: Versioned<IBPartitionControllerState>,
+
+    /// The result of the last attempt to change state
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -140,6 +144,8 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let controller_state: sqlx::types::Json<IBPartitionControllerState> =
             row.try_get("controller_state")?;
+        let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
+            row.try_get("controller_state_outcome")?;
 
         let status: Option<sqlx::types::Json<IBPartitionStatus>> = row.try_get("status")?;
         let status = status.map(|s| s.0);
@@ -167,6 +173,7 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             deleted: row.try_get("deleted")?,
 
             controller_state: Versioned::new(controller_state.0, controller_state_version),
+            controller_state_outcome: state_outcome.map(|x| x.0),
         })
     }
 }
@@ -244,6 +251,7 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
 
         let status = Some(rpc::IbPartitionStatus {
             state: state as i32,
+            state_reason: src.controller_state_outcome.map(|r| r.into()),
             enable_sharp: Some(false),
             partition,
             pkey: src.config.pkey.map(|k| k.to_string()),
@@ -426,6 +434,21 @@ impl IBPartition {
         }
     }
 
+    pub async fn update_controller_state_outcome(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        partition_id: uuid::Uuid,
+        outcome: PersistentStateHandlerOutcome,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE ib_partitions SET controller_state_outcome=$1::json WHERE id=$2::uuid";
+        sqlx::query(query)
+            .bind(sqlx::types::Json(outcome))
+            .bind(partition_id.to_string())
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
     pub async fn mark_as_deleted(
         &self,
         txn: &mut Transaction<'_, Postgres>,
@@ -475,6 +498,11 @@ impl IBPartition {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(segment)
+    }
+
+    /// The result of the most recent state controller iteration, if any
+    pub fn current_state_iteration_outcome(&self) -> Option<PersistentStateHandlerOutcome> {
+        self.controller_state_outcome.clone()
     }
 }
 

@@ -98,12 +98,11 @@ impl StateControllerIO for IBPartitionStateControllerIO {
 
     async fn persist_outcome(
         &self,
-        _txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        _object_id: &Self::ObjectId,
-        _outcome: PersistentStateHandlerOutcome,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        object_id: &Self::ObjectId,
+        outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        // TODO: IBPartition::update_controller_state_outcome(txn, object_id, outcome).await
-        Ok(())
+        IBPartition::update_controller_state_outcome(txn, *object_id, outcome).await
     }
 
     fn metric_state_names(state: &IBPartitionControllerState) -> (&'static str, &'static str) {
