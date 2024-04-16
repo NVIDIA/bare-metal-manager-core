@@ -91,6 +91,8 @@ impl StateHandler for NetworkSegmentStateHandler {
                     tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
                     *controller_state.modify() = new_state.clone();
                     return Ok(StateHandlerOutcome::Transition(new_state));
+                } else {
+                    return Ok(StateHandlerOutcome::DoNothing);
                 }
             }
             NetworkSegmentControllerState::Deleting { deletion_state } => {
@@ -132,6 +134,11 @@ impl StateHandler for NetworkSegmentStateHandler {
                             tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
                             *controller_state.modify() = new_state.clone();
                             return Ok(StateHandlerOutcome::Transition(new_state));
+                        } else {
+                            return Ok(StateHandlerOutcome::Wait(format!(
+                                "Cannot delete from database until draining completes at {}",
+                                delete_at.to_rfc3339()
+                            )));
                         }
                     }
                     NetworkSegmentDeletionState::DBDelete => {
@@ -146,11 +153,10 @@ impl StateHandler for NetworkSegmentStateHandler {
                             "Network Segment getting removed from the database",
                         );
                         NetworkSegment::final_delete(*segment_id, txn).await?;
+                        return Ok(StateHandlerOutcome::DoNothing);
                     }
                 }
             }
         }
-
-        Ok(StateHandlerOutcome::Todo)
     }
 }

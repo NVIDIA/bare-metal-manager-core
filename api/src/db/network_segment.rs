@@ -26,6 +26,7 @@ use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
+use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use crate::model::RpcDataConversionError;
 use crate::{
@@ -66,6 +67,9 @@ pub struct NetworkSegment {
     pub mtu: i32,
 
     pub controller_state: Versioned<NetworkSegmentControllerState>,
+
+    /// The result of the last attempt to change state
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
 
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
@@ -166,6 +170,8 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let controller_state: sqlx::types::Json<NetworkSegmentControllerState> =
             row.try_get("controller_state")?;
+        let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
+            row.try_get("controller_state_outcome")?;
 
         Ok(NetworkSegment {
             id: row.try_get("id")?,
@@ -174,6 +180,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
             subdomain_id: row.try_get("subdomain_id")?,
             vpc_id: row.try_get("vpc_id")?,
             controller_state: Versioned::new(controller_state.0, controller_state_version),
+            controller_state_outcome: state_outcome.map(|x| x.0),
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
@@ -296,6 +303,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                 .collect_vec(),
             vpc_id: src.vpc_id.map(rpc::Uuid::from),
             state: state as i32,
+            state_reason: src.controller_state_outcome.map(|r| r.into()),
             history,
             segment_type: src.segment_type as i32,
         })
@@ -574,6 +582,22 @@ impl NetworkSegment {
         }
     }
 
+    pub async fn update_controller_state_outcome(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        segment_id: uuid::Uuid,
+        outcome: PersistentStateHandlerOutcome,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE network_segments SET controller_state_outcome=$1::json WHERE id=$2::uuid";
+        sqlx::query(query)
+            .bind(sqlx::types::Json(outcome))
+            .bind(segment_id.to_string())
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
+
     pub fn subdomain_id(&self) -> Option<&uuid::Uuid> {
         self.subdomain_id.as_ref()
     }
@@ -683,6 +707,11 @@ WHERE network_prefixes.circuit_id=$1";
         .await?;
 
         Ok(segments.remove(0))
+    }
+
+    /// The result of the last state controller iteration, if any
+    pub fn current_state_iteration_outcome(&self) -> Option<PersistentStateHandlerOutcome> {
+        self.controller_state_outcome.clone()
     }
 }
 

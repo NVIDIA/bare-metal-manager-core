@@ -149,7 +149,7 @@ pub fn get_managed_host_output(
         managed_host_output.state_reason = machine
             .state_reason
             .as_ref()
-            .and_then(reason_to_user_string)
+            .and_then(super::reason_to_user_string)
             .unwrap_or_default();
         managed_host_output.host_serial_number =
             get_dmi_data_from_machine!(machine, chassis_serial);
@@ -312,18 +312,5 @@ fn to_time(t: Option<Timestamp>, machine_id: &MachineId) -> Option<String> {
                 None
             }
         },
-    }
-}
-
-/// A string to display to the user. Either the 'reason' or 'err' field, or None.
-pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<String> {
-    use rpc::forge::ControllerStateOutcome::*;
-    let Ok(outcome) = rpc::forge::ControllerStateOutcome::try_from(p.outcome) else {
-        tracing::error!("Invalid rpc::forge::ControllerStateOutcome i32, should be impossible.");
-        return None;
-    };
-    match outcome {
-        Transition | DoNothing | Todo => None,
-        Wait | Error => p.outcome_msg.clone(),
     }
 }
