@@ -401,7 +401,7 @@ impl From<forgerpc::Machine> for MachineDetail {
 pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
     AxumState(state): AxumState<Arc<Api<C1, C2>>>,
     AxumPath(machine_id): AxumPath<String>,
-) -> impl IntoResponse {
+) -> Response {
     let rpc_machine_id = forgerpc::MachineId {
         id: machine_id.clone(),
     };
@@ -414,11 +414,11 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
     {
         Ok(m) => m,
         Err(err) if err.code() == tonic::Code::NotFound => {
-            return (StatusCode::NOT_FOUND, Html(machine_id.to_string()));
+            return super::not_found_response(machine_id);
         }
         Err(err) => {
             tracing::error!(%err, %machine_id, "get_machine");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new()));
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(String::new())).into_response();
         }
     };
 
@@ -438,7 +438,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
                 .unwrap_or_else(|_| "\"Invalid\"".to_string());
         }
     }
-    (StatusCode::OK, Html(display.render().unwrap()))
+    (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
 fn get_machine_type(machine_id: &str) -> String {

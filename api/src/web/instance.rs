@@ -361,7 +361,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
     {
         Ok(x) => x,
         Err(err) if err.code() == tonic::Code::NotFound => {
-            return (StatusCode::NOT_FOUND, Html(instance_id)).into_response();
+            return super::not_found_response(instance_id);
         }
         Err(err) => {
             tracing::error!(%err, %instance_id, "find_instances");
