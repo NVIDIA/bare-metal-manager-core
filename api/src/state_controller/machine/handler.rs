@@ -325,12 +325,12 @@ impl MachineStateHandler {
                 ))
             }
             ManagedHostState::ForceDeletion => {
-                // Just ignore.
+                // Just ignore. Delete is done directly in api.rs::admin_force_delete_machine.
                 tracing::info!(
                     machine_id = %host_machine_id,
                     "Machine is marked for forced deletion. Ignoring.",
                 );
-                Ok(StateHandlerOutcome::DoNothing)
+                Ok(StateHandlerOutcome::Deleted)
             }
             ManagedHostState::Failed {
                 details,

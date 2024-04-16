@@ -160,6 +160,7 @@ pub enum StateHandlerOutcome<S> {
     Wait(String),  // String is reason we're waiting
     Transition(S), // S is the next state
     DoNothing,     // Nothing to do. Typically in Ready or Assigned/Ready
+    Deleted,       // The object was removed from the database
     Todo,          // State handler not ported to StateHandlerOutcome yet
 }
 
@@ -170,6 +171,7 @@ impl<S> std::fmt::Display for StateHandlerOutcome<S> {
             Wait(s) => s.as_str(),
             Transition(_) => "Transition to next state",
             DoNothing => "Do nothing",
+            Deleted => "Deleted",
             Todo => "TODO",
         };
         write!(f, "{msg}")
