@@ -160,7 +160,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         }
     };
     if vpcs.vpcs.is_empty() {
-        return (StatusCode::NOT_FOUND, "No matching VPC").into_response();
+        return super::not_found_response(vpc_id);
     }
     if vpcs.vpcs.len() != 1 {
         tracing::error!(%vpc_id, "Expected exactly 1 match, found {}", vpcs.vpcs.len());

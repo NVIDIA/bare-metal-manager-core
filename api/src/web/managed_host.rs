@@ -283,7 +283,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
     {
         Ok(m) => m,
         Err(err) if err.code() == tonic::Code::NotFound => {
-            return (StatusCode::NOT_FOUND, Html(machine_id.to_string())).into_response();
+            return super::not_found_response(machine_id);
         }
         Err(err) => {
             tracing::error!(%err, %machine_id, "find_machines");
@@ -291,7 +291,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         }
     };
     let Some(host_machine) = machine_details.machines.first() else {
-        return (StatusCode::NOT_FOUND, "Machine not found").into_response();
+        return super::not_found_response(machine_id);
     };
 
     let mut machines = vec![];

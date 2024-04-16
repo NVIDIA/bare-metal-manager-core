@@ -194,6 +194,15 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
     (StatusCode::OK, Html(index.render().unwrap()))
 }
 
+/// Creates a response that describes that `resource` was not found
+pub(crate) fn not_found_response(resource: String) -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Html(format!("Not found: {resource}")),
+    )
+        .into_response()
+}
+
 pub(crate) fn invalid_machine_id() -> rpc::forge::MachineId {
     rpc::forge::MachineId {
         id: "INVALID_MACHINE".to_string(),
