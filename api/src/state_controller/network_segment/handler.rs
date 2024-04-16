@@ -153,7 +153,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                             "Network Segment getting removed from the database",
                         );
                         NetworkSegment::final_delete(*segment_id, txn).await?;
-                        return Ok(StateHandlerOutcome::DoNothing);
+                        return Ok(StateHandlerOutcome::Deleted);
                     }
                 }
             }

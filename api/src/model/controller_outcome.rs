@@ -40,6 +40,7 @@ impl<S> From<Result<&StateHandlerOutcome<S>, &StateHandlerError>>
             Ok(StateHandlerOutcome::Transition(_)) => PersistentStateHandlerOutcome::Transition,
             Ok(StateHandlerOutcome::DoNothing) => PersistentStateHandlerOutcome::DoNothing,
             Ok(StateHandlerOutcome::Todo) => PersistentStateHandlerOutcome::Todo,
+            Ok(StateHandlerOutcome::Deleted) => unreachable!(),
             Err(err) => PersistentStateHandlerOutcome::Error {
                 err: err.to_string(),
             },

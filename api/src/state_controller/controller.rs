@@ -322,8 +322,10 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 )
                                 .await?;
                             }
-                            let db_outcome = handler_outcome.as_ref().into();
-                            io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
+                            if !matches!(handler_outcome, Ok(StateHandlerOutcome::Deleted)) {
+                                let db_outcome = handler_outcome.as_ref().into();
+                                io.persist_outcome(&mut txn, &object_id, db_outcome).await?;
+                            }
                             txn.commit()
                                 .await
                                 .map_err(StateHandlerError::TransactionError)?;
