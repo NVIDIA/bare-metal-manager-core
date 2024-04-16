@@ -21,7 +21,6 @@ use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent};
-use utils::managed_host_display::reason_to_user_string;
 
 use super::filters;
 use crate::api::Api;
@@ -373,7 +372,8 @@ impl From<forgerpc::Machine> for MachineDetail {
             state_version: m.state_version,
             state_reason: m
                 .state_reason
-                .and_then(|r| reason_to_user_string(&r))
+                .as_ref()
+                .and_then(utils::reason_to_user_string)
                 .unwrap_or_default(),
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,

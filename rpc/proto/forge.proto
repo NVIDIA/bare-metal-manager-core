@@ -554,6 +554,8 @@ message NetworkSegment {
   string version = 99;
   TenantState state = 100;
   repeated NetworkSegmentStateHistory history = 101;
+  // The result of last state controller run - it's outcome and an optional reason for that outcome
+  optional ControllerStateReason state_reason = 102;
 
 
   // Not sure if we actually still need those

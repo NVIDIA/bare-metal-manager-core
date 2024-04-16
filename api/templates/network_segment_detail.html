@@ -13,6 +13,9 @@
 	<tr><th>Updated</th><td>{{ updated }}</td></tr>
 	<tr><th>Deleted</th><td>{{ deleted }}</td></tr>
 	<tr><th>State</th><td>{{ state }}</td></tr>
+	{% if !state_reason.is_empty() %}
+	<tr><th>State machine is blocked</th><td>{{ state_reason }}</td></tr>
+	{% endif %}
 	<tr><th>Domain id</th><td><a href="/admin/domain">{{ domain_id }}</a></td></tr>
 	<tr><th>Domain name</th><td>{{ domain_name }}</td></tr>
 	<tr><th>Type</th><td>{{ segment_type }}</td></tr>

@@ -193,6 +193,7 @@ struct NetworkSegmentDetail {
     updated: String,
     deleted: String,
     state: String,
+    state_reason: String,
     domain_id: String,
     domain_name: String,
     segment_type: String,
@@ -254,6 +255,11 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 "{:?}",
                 forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
             ),
+            state_reason: segment
+                .state_reason
+                .as_ref()
+                .and_then(utils::reason_to_user_string)
+                .unwrap_or_default(),
             domain_id: segment
                 .subdomain_id
                 .unwrap_or_else(super::default_uuid)

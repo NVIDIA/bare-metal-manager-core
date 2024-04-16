@@ -311,7 +311,10 @@ mod tests {
     use config_version::{ConfigVersion, Versioned};
 
     use super::*;
-    use crate::model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+    use crate::model::{
+        controller_outcome::PersistentStateHandlerOutcome,
+        instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
+    };
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {
         let vpc_id = uuid::uuid!("11609f10-c11d-1101-3261-6293ea0c0100");
@@ -335,6 +338,7 @@ mod tests {
                         value: NetworkSegmentControllerState::Ready,
                         version,
                     },
+                    controller_state_outcome: Some(PersistentStateHandlerOutcome::DoNothing),
                     history: Vec::new(),
                     vlan_id: None,
                     vni: None,
