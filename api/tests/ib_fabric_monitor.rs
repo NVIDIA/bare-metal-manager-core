@@ -39,7 +39,7 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         env.test_meter
             .formatted_metric("forge_ib_monitor_ufm_version_count")
             .unwrap(),
-        r#"{fabric="ib_default",version="mock_ufm_1.0"} 1"#
+        r#"{fabric="default",version="mock_ufm_1.0"} 1"#
     );
     assert_eq!(
         env.test_meter

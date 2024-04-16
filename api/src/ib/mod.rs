@@ -31,7 +31,7 @@ mod ufmclient;
 
 pub mod types;
 
-pub const DEFAULT_IB_FABRIC_NAME: &str = "ib_default";
+pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 pub enum IBFabricManagerType {
