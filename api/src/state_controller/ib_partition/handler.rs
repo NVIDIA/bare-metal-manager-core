@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -55,19 +55,23 @@ impl StateHandler for IBPartitionStateHandler {
         match read_state {
             IBPartitionControllerState::Provisioning => {
                 // TODO(k82cn): get IB network from IB Fabric Manager to avoid duplication.
-                *controller_state.modify() = IBPartitionControllerState::Ready;
+                let new_state = IBPartitionControllerState::Ready;
+                *controller_state.modify() = new_state.clone();
+                Ok(StateHandlerOutcome::Transition(new_state))
             }
 
             IBPartitionControllerState::Deleting => {
                 match state.config.pkey {
                     None => {
                         tracing::error!("The pkey is None when deleting an IBPartition.");
-                        *controller_state.modify() = IBPartitionControllerState::Error;
+                        let new_state = IBPartitionControllerState::Error;
+                        *controller_state.modify() = new_state.clone();
+                        Ok(StateHandlerOutcome::Transition(new_state))
                     }
                     Some(pkey) => {
-                        // When ib_partition is deleting, it should waiting for all instances are
+                        // When ib_partition is deleting, it should wait until all instances are
                         // released. As releasing instance will also remove ib_port from ib_network,
-                        // and the ib_network will be removed when no ports in it.
+                        // and the ib_network will be removed when no ports are in it.
                         let res = ib_fabric.get_ib_network(pkey.to_string().as_ref()).await;
                         if let Err(e) = res {
                             match e {
@@ -78,13 +82,16 @@ impl StateHandler for IBPartitionStateHandler {
                                     if let Some(pool_pkey) = ctx.services.pool_pkey.as_ref() {
                                         pool_pkey.release(txn, pkey).await?;
                                     }
+                                    Ok(StateHandlerOutcome::Deleted)
                                 }
-                                _ => {
-                                    return Err(StateHandlerError::IBFabricError(format!(
-                                        "get_ib_network: {e}"
-                                    )))
-                                }
+                                _ => Err(StateHandlerError::IBFabricError(format!(
+                                    "get_ib_network: {e}"
+                                ))),
                             }
+                        } else {
+                            Ok(StateHandlerOutcome::Wait(
+                                "Waiting for all IB instances are released".to_string(),
+                            ))
                         }
                     }
                 }
@@ -93,11 +100,15 @@ impl StateHandler for IBPartitionStateHandler {
             IBPartitionControllerState::Ready => match state.config.pkey {
                 None => {
                     tracing::error!("The pkey is None when IBPartition is ready.");
-                    *controller_state.modify() = IBPartitionControllerState::Error;
+                    let new_state = IBPartitionControllerState::Error;
+                    *controller_state.modify() = new_state.clone();
+                    Ok(StateHandlerOutcome::Transition(new_state))
                 }
                 Some(pkey) => {
                     if state.is_marked_as_deleted() {
-                        *controller_state.modify() = IBPartitionControllerState::Deleting;
+                        let new_state = IBPartitionControllerState::Deleting;
+                        *controller_state.modify() = new_state.clone();
+                        Ok(StateHandlerOutcome::Transition(new_state))
                     } else {
                         let pkey = pkey.to_string();
                         let ibnetwork = ib_fabric.get_ib_network(&pkey).await.map_err(|e| {
@@ -110,26 +121,30 @@ impl StateHandler for IBPartitionStateHandler {
                         state.status = Some(IBPartitionStatus::from(&ibnetwork));
                         state.update(txn).await?;
 
-                        if !is_valid_status(&state.config, &ibnetwork) {
+                        if is_valid_status(&state.config, &ibnetwork) {
+                            Ok(StateHandlerOutcome::DoNothing)
+                        } else {
                             *controller_state.modify() = IBPartitionControllerState::Error;
-                            return Err(StateHandlerError::IBFabricError(format!(
+                            Err(StateHandlerError::IBFabricError(format!(
                                 "invalid status: the status in UFM is '{:?}'",
                                 ibnetwork
-                            )));
+                            )))
                         }
                     }
                 }
             },
 
             IBPartitionControllerState::Error => {
-                // If pkey is none, keep it in error state.
                 if state.config.pkey.is_some() && state.is_marked_as_deleted() {
-                    *controller_state.modify() = IBPartitionControllerState::Deleting;
+                    let new_state = IBPartitionControllerState::Deleting;
+                    *controller_state.modify() = new_state.clone();
+                    Ok(StateHandlerOutcome::Transition(new_state))
+                } else {
+                    // If pkey is none, keep it in error state.
+                    Ok(StateHandlerOutcome::DoNothing)
                 }
             }
         }
-
-        Ok(StateHandlerOutcome::Todo)
     }
 }
 
