@@ -128,31 +128,29 @@ WHERE mi.machine_id=$1";
 
     pub async fn update_state(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: &MachineId,
+        host_id: &MachineId,
         new_state: ManagedHostState,
     ) -> CarbideResult<()> {
-        let machine = Machine::find_one(
+        let host = Machine::find_one(
             txn,
-            machine_id,
+            host_id,
             crate::db::machine::MachineSearchConfig::default(),
         )
         .await?
         .ok_or(CarbideError::NotFoundError {
             kind: "machine",
-            id: machine_id.to_string(),
+            id: host_id.to_string(),
         })?;
 
-        let version = machine.current_version().increment();
-        tracing::info!(machine_id = %machine.id(), %new_state, "Updating host state");
-        machine
-            .advance(txn, new_state.clone(), Some(version))
-            .await?;
+        let version = host.current_version().increment();
+        tracing::info!(machine_id = %host.id(), %new_state, "Updating host state");
+        host.advance(txn, new_state.clone(), Some(version)).await?;
 
         // Keep both host and dpu's states in sync.
-        let Some(host) = Machine::find_dpu_by_host_machine_id(txn, machine_id).await? else {
+        let Some(dpu) = Machine::find_dpu_by_host_machine_id(txn, host_id).await? else {
             return Ok(());
         };
-        host.advance(txn, new_state, Some(version)).await?;
+        dpu.advance(txn, new_state, Some(version)).await?;
         Ok(())
     }
 }
