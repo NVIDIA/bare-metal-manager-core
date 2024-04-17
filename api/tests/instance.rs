@@ -15,7 +15,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::common::api_fixtures::instance::create_instance_with_config;
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
     cfg::DpuFwUpdateConfig,
@@ -63,7 +62,9 @@ use common::api_fixtures::{
 };
 use mac_address::MacAddress;
 use rpc::InstanceReleaseRequest;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
+use crate::common::api_fixtures::instance::create_instance_with_config;
 use crate::common::api_fixtures::update_time_params;
 
 pub mod common;
@@ -74,7 +75,8 @@ fn setup() {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_allocate_and_release_instance(pool: sqlx::PgPool) {
+async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -247,7 +249,8 @@ async fn test_allocate_and_release_instance(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_allocate_instance_with_labels(pool: sqlx::PgPool) {
+async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -311,7 +314,8 @@ async fn test_allocate_instance_with_labels(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_create_instance_with_provided_id(pool: sqlx::PgPool) {
+async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
@@ -353,7 +357,11 @@ async fn test_create_instance_with_provided_id(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_deletion_before_provisioning_finishes(pool: sqlx::PgPool) {
+async fn test_instance_deletion_before_provisioning_finishes(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -449,7 +457,8 @@ async fn test_instance_deletion_before_provisioning_finishes(pool: sqlx::PgPool)
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_deletion_is_idempotent(pool: sqlx::PgPool) {
+async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -511,7 +520,8 @@ async fn test_instance_deletion_is_idempotent(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
+async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
     let (host_machine_id_2, _dpu_machine_id_2) = create_managed_host(&env).await;
@@ -566,7 +576,11 @@ async fn test_can_not_create_2_instances_with_same_id(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_cloud_init_metadata(pool: sqlx::PgPool) -> eyre::Result<()> {
+async fn test_instance_cloud_init_metadata(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> eyre::Result<()> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -621,7 +635,8 @@ async fn test_instance_cloud_init_metadata(pool: sqlx::PgPool) -> eyre::Result<(
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
+async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -819,7 +834,11 @@ async fn test_instance_network_status_sync(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPool) {
+async fn test_instance_snapshot_is_included_in_machine_snapshot(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -884,7 +903,8 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(pool: sqlx::PgPo
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
+async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
@@ -918,7 +938,8 @@ async fn test_can_not_create_instance_for_dpu(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_address_creation(pool: sqlx::PgPool) {
+async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -1068,7 +1089,11 @@ async fn test_instance_address_creation(pool: sqlx::PgPool) {
 
 // TODO(gk) Restore after https://jirasw.nvidia.com/browse/FORGE-2243
 //#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> eyre::Result<()> {
+async fn _test_cannot_create_instance_on_unhealthy_dpu(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> eyre::Result<()> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let mut txn = pool.begin().await?;
@@ -1134,7 +1159,8 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(pool: sqlx::PgPool) -> ey
     Ok(())
 }
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_phone_home(pool: sqlx::PgPool) {
+async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
@@ -1186,7 +1212,8 @@ async fn test_instance_phone_home(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_bootingwithdiscoveryimage_delay(pool: sqlx::PgPool) {
+async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
