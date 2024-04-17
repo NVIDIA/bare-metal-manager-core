@@ -140,6 +140,7 @@ async fn test_dns(pool: sqlx::PgPool) {
             format!("{}", interface.addresses()[0].address).as_str(),
             &adm_record.rrs[0].rdata.clone().unwrap()
         );
+        txn.rollback().await.unwrap();
     }
 
     // Database should ultimately have 10 rows:
