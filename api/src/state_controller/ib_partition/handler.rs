@@ -63,8 +63,11 @@ impl StateHandler for IBPartitionStateHandler {
             IBPartitionControllerState::Deleting => {
                 match state.config.pkey {
                     None => {
-                        tracing::error!("The pkey is None when deleting an IBPartition.");
-                        let new_state = IBPartitionControllerState::Error;
+                        let cause = "The pkey is None when deleting an IBPartition.";
+                        tracing::error!(cause);
+                        let new_state = IBPartitionControllerState::Error {
+                            cause: cause.to_string(),
+                        };
                         *controller_state.modify() = new_state.clone();
                         Ok(StateHandlerOutcome::Transition(new_state))
                     }
@@ -99,8 +102,11 @@ impl StateHandler for IBPartitionStateHandler {
 
             IBPartitionControllerState::Ready => match state.config.pkey {
                 None => {
-                    tracing::error!("The pkey is None when IBPartition is ready.");
-                    let new_state = IBPartitionControllerState::Error;
+                    let cause = "The pkey is None when IBPartition is ready";
+                    tracing::error!(cause);
+                    let new_state = IBPartitionControllerState::Error {
+                        cause: cause.to_string(),
+                    };
                     *controller_state.modify() = new_state.clone();
                     Ok(StateHandlerOutcome::Transition(new_state))
                 }
@@ -124,17 +130,19 @@ impl StateHandler for IBPartitionStateHandler {
                         if is_valid_status(&state.config, &ibnetwork) {
                             Ok(StateHandlerOutcome::DoNothing)
                         } else {
-                            *controller_state.modify() = IBPartitionControllerState::Error;
-                            Err(StateHandlerError::IBFabricError(format!(
-                                "invalid status: the status in UFM is '{:?}'",
-                                ibnetwork
-                            )))
+                            let new_state = IBPartitionControllerState::Error {
+                                cause: format!(
+                                    "invalid status: the status in UFM is '{ibnetwork:?}'"
+                                ),
+                            };
+                            *controller_state.modify() = new_state.clone();
+                            Ok(StateHandlerOutcome::Transition(new_state))
                         }
                     }
                 }
             },
 
-            IBPartitionControllerState::Error => {
+            IBPartitionControllerState::Error { .. } => {
                 if state.config.pkey.is_some() && state.is_marked_as_deleted() {
                     let new_state = IBPartitionControllerState::Deleting;
                     *controller_state.modify() = new_state.clone();
