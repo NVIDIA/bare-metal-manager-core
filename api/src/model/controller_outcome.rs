@@ -24,7 +24,6 @@ pub enum PersistentStateHandlerOutcome {
     Error { err: String },
     Transition,
     DoNothing,
-    Todo,
 }
 
 impl<S> From<Result<&StateHandlerOutcome<S>, &StateHandlerError>>
@@ -39,7 +38,6 @@ impl<S> From<Result<&StateHandlerOutcome<S>, &StateHandlerError>>
             },
             Ok(StateHandlerOutcome::Transition(_)) => PersistentStateHandlerOutcome::Transition,
             Ok(StateHandlerOutcome::DoNothing) => PersistentStateHandlerOutcome::DoNothing,
-            Ok(StateHandlerOutcome::Todo) => PersistentStateHandlerOutcome::Todo,
             Ok(StateHandlerOutcome::Deleted) => unreachable!(),
             Err(err) => PersistentStateHandlerOutcome::Error {
                 err: err.to_string(),
@@ -56,7 +54,6 @@ impl From<PersistentStateHandlerOutcome> for rpc::forge::ControllerStateReason {
             PersistentStateHandlerOutcome::Error { err } => (Error, Some(err)),
             PersistentStateHandlerOutcome::Transition => (Transition, None),
             PersistentStateHandlerOutcome::DoNothing => (DoNothing, None),
-            PersistentStateHandlerOutcome::Todo => (Todo, None),
         };
         rpc::forge::ControllerStateReason {
             outcome: outcome.into(), // into converts it to i32
