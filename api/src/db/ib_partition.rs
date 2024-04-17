@@ -143,7 +143,16 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let controller_state: sqlx::types::Json<IBPartitionControllerState> =
-            row.try_get("controller_state")?;
+            match row.try_get("controller_state") {
+                Ok(s) => s,
+                Err(err) => {
+                    // Error state's 'cause' field is new. Old DB entries may need help to de-serialize
+                    tracing::warn!(%err, "Error loading ib_partition.controller_state");
+                    sqlx::types::Json(IBPartitionControllerState::Error {
+                        cause: "unknown".to_string(),
+                    })
+                }
+            };
         let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome")?;
 
@@ -229,7 +238,7 @@ impl TryFrom<IBPartition> for rpc::IbPartition {
         let mut state = match &src.controller_state.value {
             IBPartitionControllerState::Provisioning => rpc::TenantState::Provisioning,
             IBPartitionControllerState::Ready => rpc::TenantState::Ready,
-            IBPartitionControllerState::Error => rpc::TenantState::Failed,
+            IBPartitionControllerState::Error { cause: _cause } => rpc::TenantState::Failed, // TODO include cause in rpc
             IBPartitionControllerState::Deleting => rpc::TenantState::Terminating,
         };
 

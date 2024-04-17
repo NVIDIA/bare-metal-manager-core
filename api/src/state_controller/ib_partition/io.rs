@@ -109,7 +109,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         match state {
             IBPartitionControllerState::Provisioning => ("provisioning", ""),
             IBPartitionControllerState::Ready => ("ready", ""),
-            IBPartitionControllerState::Error => ("error", ""),
+            IBPartitionControllerState::Error { .. } => ("error", ""),
             IBPartitionControllerState::Deleting => ("deleting", ""),
         }
     }
@@ -125,7 +125,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
                 time_in_state > std::time::Duration::from_secs(15 * 60)
             }
             IBPartitionControllerState::Ready => false,
-            IBPartitionControllerState::Error => false,
+            IBPartitionControllerState::Error { .. } => false,
             IBPartitionControllerState::Deleting => {
                 time_in_state > std::time::Duration::from_secs(15 * 60)
             }

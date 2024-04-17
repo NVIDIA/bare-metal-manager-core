@@ -31,7 +31,7 @@ pub enum IBPartitionControllerState {
     /// The IB subnet is ready for IB ports.
     Ready,
     /// There is error in IB subnet; IB ports can not be added into IB subnet if it's error.
-    Error,
+    Error { cause: String },
     /// The IB subnet is in the process of deleting.
     Deleting,
 }
@@ -72,9 +72,11 @@ mod tests {
             serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
             state
         );
-        let state = IBPartitionControllerState::Error {};
+        let state = IBPartitionControllerState::Error {
+            cause: "cause goes here".to_string(),
+        };
         let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"error\"}");
+        assert_eq!(serialized, r#"{"state":"error","cause":"cause goes here"}"#);
         assert_eq!(
             serde_json::from_str::<IBPartitionControllerState>(&serialized).unwrap(),
             state
