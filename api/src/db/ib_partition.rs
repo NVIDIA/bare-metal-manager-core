@@ -143,16 +143,7 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
         let controller_state: sqlx::types::Json<IBPartitionControllerState> =
-            match row.try_get("controller_state") {
-                Ok(s) => s,
-                Err(err) => {
-                    // Error state's 'cause' field is new. Old DB entries may need help to de-serialize
-                    tracing::warn!(%err, "Error loading ib_partition.controller_state");
-                    sqlx::types::Json(IBPartitionControllerState::Error {
-                        cause: "unknown".to_string(),
-                    })
-                }
-            };
+            row.try_get("controller_state")?;
         let state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome")?;
 
