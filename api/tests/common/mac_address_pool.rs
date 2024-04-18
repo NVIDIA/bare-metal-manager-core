@@ -17,9 +17,9 @@ use mac_address::MacAddress;
 #[derive(Copy, Clone, Debug)]
 pub struct MacAddressPoolConfig {
     /// The first mac address in the pool as a byte array
-    start: [u8; 6],
+    pub start: [u8; 6],
     /// The amount of addresses in the pool
-    length: usize,
+    pub length: usize,
 }
 
 #[derive(Debug)]
@@ -100,52 +100,4 @@ fn to_u64_be(bytes: [u8; 6]) -> u64 {
     u64::from_be_bytes([
         0, 0, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
     ])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn allocate_addresses() {
-        let pool = MacAddressPool::new(MacAddressPoolConfig {
-            start: [0x11, 0x12, 0x13, 0x14, 0x15, 0x1],
-            length: 256,
-        });
-        assert!(!pool.contains(MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x15, 0])));
-
-        for i in 1..=255 {
-            let expected = MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x15, i as u8]);
-            assert_eq!(pool.allocate(), expected);
-            assert!(pool.contains(expected))
-        }
-        let expected = MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x16, 0]);
-        assert_eq!(
-            pool.allocate(),
-            MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x16, 0])
-        );
-        assert!(pool.contains(expected));
-        assert!(!pool.contains(MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x16, 1])));
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Mac address pool with config MacAddressPoolConfig { start: [17, 18, 19, 20, 21, 255], length: 2 }"
-    )]
-    fn depleted_pool_panics() {
-        let pool = MacAddressPool::new(MacAddressPoolConfig {
-            start: [0x11, 0x12, 0x13, 0x14, 0x15, 0xFF],
-            length: 2,
-        });
-
-        assert_eq!(
-            pool.allocate(),
-            MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x15, 0xFF])
-        );
-        assert_eq!(
-            pool.allocate(),
-            MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x16, 0x00])
-        );
-        pool.allocate();
-    }
 }
