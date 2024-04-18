@@ -33,14 +33,14 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn machine_bmc_credential_update(pool: PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     // TODO: This probably should test with a host machine instead of a DPU,
     // since for DPUs we don't really store BMC credentials
     let host_sim = env.start_managed_host_sim();
     let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let credentials_provider = TestCredentialProvider::new();
     BmcMetaDataUpdateRequest {
@@ -68,7 +68,7 @@ async fn machine_bmc_credential_update(pool: PgPool) {
 
     let _result = txn.commit().await;
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     for d in &DATA {
         let ipmi_req = BmcMetaDataGetRequest {
@@ -90,14 +90,14 @@ async fn machine_bmc_credential_update(pool: PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn machine_bmc_credential_update_with_port(pool: PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     // TODO: This probably should test with a host machine instead of a DPU,
     // since for DPUs we don't really store BMC credentials
     let host_sim = env.start_managed_host_sim();
     let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let credentials_provider = TestCredentialProvider::new();
     BmcMetaDataUpdateRequest {
@@ -125,7 +125,7 @@ async fn machine_bmc_credential_update_with_port(pool: PgPool) {
 
     let _result = txn.commit().await;
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     for d in &DATA {
         let ipmi_req = BmcMetaDataGetRequest {

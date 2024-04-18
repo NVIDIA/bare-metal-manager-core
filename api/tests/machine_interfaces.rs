@@ -61,11 +61,11 @@ async fn get_fixture_network_segment(
 async fn only_one_primary_interface_per_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let other_host_sim = env.start_managed_host_sim();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
 
@@ -88,7 +88,7 @@ async fn only_one_primary_interface_per_machine(
 
     txn.commit().await.unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let should_failed_machine_interface = MachineInterface::create(
         &mut txn,
@@ -222,9 +222,9 @@ async fn test_rename_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
 async fn find_all_interfaces_test_cases(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
     let domain_ids = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
@@ -294,10 +294,10 @@ async fn find_all_interfaces_test_cases(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
     let domain_ids = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;

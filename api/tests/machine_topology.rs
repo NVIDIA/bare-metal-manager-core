@@ -39,10 +39,10 @@ const FIXTURE_CREATED_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9
 async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     // We can't use the fixture created Machine here, since it already has a topology attached
     // therefore we create a new one
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let segment = NetworkSegment::find(
         &mut txn,
@@ -72,13 +72,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     txn.commit().await?;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     MachineTopology::create_or_update(&mut txn, machine.id(), &hardware_info).await?;
 
     txn.commit().await?;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let topos = MachineTopology::find_by_machine_ids(&mut txn, &[machine.id().clone()])
         .await
@@ -109,7 +109,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await?;
 
     // Updating a machine topology will update the data.
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let mut new_info = hardware_info.clone();
     new_info.cpus[0].model = "SnailSpeedCpu".to_string();
@@ -161,11 +161,11 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_topology_missing_mac_field(pool: PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let query = r#"UPDATE machine_topologies SET topology = (SELECT topology::jsonb #- '{bmc_info,mac}' FROM machine_topologies WHERE machine_id=$1) where machine_id=$1;"#;
 
@@ -186,7 +186,7 @@ async fn test_topology_missing_mac_field(pool: PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -196,7 +196,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
 
     assert!(host.hardware_info().is_some());
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let query = r#"UPDATE machines SET id = $2 WHERE id=$1;"#;
 

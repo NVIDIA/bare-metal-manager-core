@@ -27,7 +27,6 @@ async fn move_machine_to_needed_state(
     pool: &sqlx::PgPool,
 ) {
     let mut txn = pool
-        .clone()
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -63,12 +62,12 @@ async fn get_pxe_instructions(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
-    move_machine_to_needed_state(dpu_id.clone(), ManagedHostState::Ready, &pool).await;
+    move_machine_to_needed_state(dpu_id.clone(), ManagedHostState::Ready, &env.pool).await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -89,7 +88,7 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let (dpu_machine_id, _) =
         common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install(
@@ -98,7 +97,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
         )
         .await;
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let machine = Machine::find_one(
         &mut txn,
@@ -128,7 +127,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let dpu_interface_id = common::api_fixtures::dpu::dpu_discover_dhcp(
         &env,
@@ -159,10 +158,10 @@ async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_host(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_id, _dpu_id) = common::api_fixtures::create_managed_host(&env).await;
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -176,7 +175,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         ManagedHostState::HostNotReady {
             machine_state: MachineState::WaitingForDiscovery,
         },
-        &pool,
+        &env.pool,
     )
     .await;
 
@@ -193,7 +192,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         ManagedHostState::HostNotReady {
             machine_state: MachineState::Discovered,
         },
-        &pool,
+        &env.pool,
     )
     .await;
 
@@ -210,7 +209,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         ManagedHostState::WaitingForCleanup {
             cleanup_state: carbide::model::machine::CleanupState::HostCleanup,
         },
-        &pool,
+        &env.pool,
     )
     .await;
 
@@ -225,9 +224,10 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_pxe_instance(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
-    let mut txn = pool
+    let mut txn = env
+        .pool
         .clone()
         .begin()
         .await
@@ -261,12 +261,11 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
-    let api = common::api_fixtures::create_test_env(pool.clone())
-        .await
-        .api;
+    let env = common::api_fixtures::create_test_env(pool).await;
 
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
-    let _ = api
+    let _ = env
+        .api
         .discover_dhcp(tonic::Request::new(DhcpDiscovery {
             mac_address: mac_address.clone(),
             relay_address: "192.0.2.1".to_string(),
@@ -280,7 +279,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
         .into_inner();
 
     // Interface is created. Let's fetch interface id.
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     let interfaces =
         MachineInterface::find_by_mac_address(&mut txn, mac_address.parse::<MacAddress>().unwrap())
             .await
@@ -288,7 +287,8 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
 
     assert_eq!(interfaces.len(), 1);
 
-    let cloud_init_cfg = api
+    let cloud_init_cfg = env
+        .api
         .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest {
             ip: interfaces[0].addresses()[0].address.to_string(),
         }))
@@ -303,7 +303,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
     move_machine_to_needed_state(
@@ -311,7 +311,7 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
         ManagedHostState::DPUNotReady {
             machine_state: MachineState::Init,
         },
-        &pool,
+        &env.pool,
     )
     .await;
 

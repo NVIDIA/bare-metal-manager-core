@@ -1,6 +1,12 @@
 pub mod common;
 
-use crate::common::api_fixtures::host::create_host_machine;
+use std::{
+    collections::HashSet,
+    fmt,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
 use async_trait::async_trait;
 use carbide::{
     cfg::CarbideConfig,
@@ -23,12 +29,8 @@ use figment::{
     Figment,
 };
 use sqlx::{Postgres, Row, Transaction};
-use std::{
-    collections::HashSet,
-    fmt,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+
+use crate::common::api_fixtures::host::create_host_machine;
 
 #[ctor::ctor]
 fn setup() {
@@ -112,7 +114,7 @@ impl fmt::Display for TestUpdateModule {
 async fn test_max_outstanding_updates(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim1 = env.start_managed_host_sim();
     let host_sim2 = env.start_managed_host_sim();
     let dpu_machine_id =
@@ -140,7 +142,7 @@ async fn test_max_outstanding_updates(
     let module2 = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
 
     let machine_update_manager = MachineUpdateManager::new_with_modules(
-        pool.clone(),
+        env.pool.clone(),
         config,
         vec![module1.clone(), module2.clone()],
     );
@@ -160,7 +162,7 @@ async fn test_max_outstanding_updates(
 async fn test_put_machine_in_maintenance(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim1 = env.start_managed_host_sim();
     let host_sim2 = env.start_managed_host_sim();
     let dpu_machine_id =
@@ -173,7 +175,11 @@ async fn test_put_machine_in_maintenance(
         try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id).await)
             .unwrap();
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     let machine_update = DpuMachineUpdate {
         host_machine_id,
@@ -193,7 +199,11 @@ async fn test_put_machine_in_maintenance(
 
     txn.commit().await.unwrap();
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
     let query = format!(
         "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = '{}'",
         reference
@@ -215,7 +225,7 @@ async fn test_put_machine_in_maintenance(
 async fn test_remove_machine_from_maintenance(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim1 = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim1.config).await).unwrap();
@@ -228,7 +238,11 @@ async fn test_remove_machine_from_maintenance(
         try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id).await)
             .unwrap();
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     let machine_update = DpuMachineUpdate {
         host_machine_id,
@@ -248,7 +262,11 @@ async fn test_remove_machine_from_maintenance(
 
     txn.commit().await.unwrap();
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
     let query = format!(
         "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference = '{}'",
         reference
@@ -269,7 +287,11 @@ async fn test_remove_machine_from_maintenance(
 
     txn.commit().await.unwrap();
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
     let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like '$1%'";
     let count: i32 = sqlx::query::<_>(query)
         .bind(AutomaticFirmwareUpdateReference::REF_NAME)
@@ -330,7 +352,7 @@ fn test_start(pool: sqlx::PgPool) {
 async fn test_get_machines_in_maintenance(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim1 = env.start_managed_host_sim();
     let host_sim2 = env.start_managed_host_sim();
     let dpu_machine_id1 =
@@ -344,7 +366,11 @@ async fn test_get_machines_in_maintenance(
         try_parse_machine_id(&create_host_machine(&env, &host_sim2.config, &dpu_machine_id2).await)
             .unwrap();
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     let machine_update = DpuMachineUpdate {
         host_machine_id: host_machine_id1.clone(),
@@ -384,7 +410,11 @@ async fn test_get_machines_in_maintenance(
 
     txn.commit().await.unwrap();
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
     let machines = MachineUpdateManager::get_machines_in_maintenance(&mut txn)
         .await
         .unwrap();

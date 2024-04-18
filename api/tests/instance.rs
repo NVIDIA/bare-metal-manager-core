@@ -77,11 +77,11 @@ fn setup() {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -116,8 +116,8 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     )
     .await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -160,8 +160,8 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     assert!(!fetched_instance.use_custom_pxe_on_boot);
     txn.commit().await.unwrap();
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -225,8 +225,8 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 
     // Address is freed during delete
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -251,11 +251,11 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let txn = pool
-        .clone()
+    let txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -285,8 +285,8 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
     )
     .await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -316,7 +316,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let config = rpc::InstanceConfig {
@@ -362,7 +362,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     // Create an instance in non-ready state
@@ -459,7 +459,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(
@@ -522,7 +522,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
     let (host_machine_id_2, _dpu_machine_id_2) = create_managed_host(&env).await;
 
@@ -581,11 +581,11 @@ async fn test_instance_cloud_init_metadata(
     options: PgConnectOptions,
 ) -> eyre::Result<()> {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -637,7 +637,7 @@ async fn test_instance_cloud_init_metadata(
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(
@@ -650,8 +650,8 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     )
     .await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -839,13 +839,13 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let snapshot_loader = DbSnapshotLoader {};
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -869,8 +869,8 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(
     )
     .await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -905,7 +905,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
 
@@ -928,7 +928,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     // resources. That's however ok - we will just ignore it and not execute
     // that task. Later we might also verify that the creation of those resources
     // is requested
-    let result = allocate_instance(request, &pool).await;
+    let result = allocate_instance(request, &env.pool).await;
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(
         error.contains("is of type Dpu and can not be converted into an instance"),
@@ -940,11 +940,11 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -986,8 +986,8 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     )
     .await;
 
-    let mut txn = pool
-        .clone()
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -1094,9 +1094,9 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
     options: PgConnectOptions,
 ) -> eyre::Result<()> {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let machine = &Machine::find(
         &mut txn,
@@ -1161,7 +1161,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut tenant_config = default_tenant_config();
@@ -1214,7 +1214,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(

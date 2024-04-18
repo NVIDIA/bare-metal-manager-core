@@ -29,13 +29,13 @@ fn setup() {
 async fn only_one_custom_pxe_per_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let new_interface_id = Uuid::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let expected_pxe = Some("custom_pxe_string".to_string());
     let expected_user_data = Some("custom_user_data_string".to_string());
@@ -59,7 +59,7 @@ async fn only_one_custom_pxe_per_interface(
     assert_eq!(machine_boot_override.custom_pxe, expected_pxe);
     assert_eq!(machine_boot_override.custom_user_data, expected_user_data);
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let output = MachineBootOverride::create(
         &mut txn,
@@ -77,13 +77,13 @@ async fn only_one_custom_pxe_per_interface(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn confirm_null_fields(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let new_interface_id = Uuid::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     MachineBootOverride::create(&mut txn, new_interface_id, None, None)
         .await?
@@ -107,13 +107,13 @@ async fn api_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_pxe = Some("custom pxe".to_owned());
     let expected_user_data = Some("custom user data".to_owned());
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let new_interface_id = Uuid::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     MachineBootOverride::create(
         &mut txn,
@@ -152,7 +152,7 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_pxe = Some("custom pxe".to_owned());
     let expected_user_data = Some("custom user data".to_owned());
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let machine_interface_id = Uuid::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
@@ -172,7 +172,7 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to set overrides via API")
         .into_inner();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let machine_boot_override = MachineBootOverride::find_optional(&mut txn, machine_interface_id)
         .await
@@ -190,13 +190,13 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
     let expected_pxe = Some("custom pxe".to_owned());
     let expected_user_data = Some("custom user data".to_owned());
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let new_interface_id = Uuid::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     MachineBootOverride::create(
         &mut txn,
@@ -217,7 +217,7 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
         .await
         .expect("Failed to clear overrides via API");
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     // ensure these stay Nones as we have code that will react to them not being None
     let machine_boot_override = MachineBootOverride::find_optional(&mut txn, new_interface_id)
@@ -233,7 +233,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let expected_pxe = Some("custom pxe".to_owned());
     let expected_user_data = Some("custom user data".to_owned());
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let machine_interface_id = Uuid::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
@@ -267,7 +267,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .expect("Failed to set overrides via API")
         .into_inner();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let machine_boot_override = MachineBootOverride::find_optional(&mut txn, machine_interface_id)
         .await

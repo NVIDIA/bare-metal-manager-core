@@ -12,7 +12,7 @@ use crate::common::api_fixtures::{create_managed_host, dpu::dpu_discover_machine
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_lldp_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let _dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
 
@@ -67,7 +67,7 @@ async fn test_lldp_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 async fn test_lldp_topology_force_delete(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (dpu_machine_id, _host_machine_id) = create_managed_host(&env).await;
 
     let topology = env
@@ -107,7 +107,7 @@ async fn test_lldp_topology_force_delete(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
@@ -129,7 +129,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         .devices
         .is_empty());
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let machine_interface_id =
         MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])

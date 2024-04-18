@@ -28,7 +28,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool.clone()).await;
+    let env = api_fixtures::create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
 
@@ -45,7 +45,7 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_status(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool.clone()).await;
+    let env = api_fixtures::create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
 
     // We have the initial status that moved DPU from WaitingForLeafCreation to WaitingForDiscovery

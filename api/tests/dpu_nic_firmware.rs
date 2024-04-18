@@ -23,7 +23,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
@@ -42,7 +42,11 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         metrics: None,
     };
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     let started_count = dpu_nic_firmware_update
         .start_updates(&mut txn, 10, &HashSet::default())
@@ -79,7 +83,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 async fn test_get_updates_in_progress(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
@@ -98,7 +102,11 @@ async fn test_get_updates_in_progress(
         metrics: None,
     };
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     let updating_count = dpu_nic_firmware_update
         .get_updates_in_progress(&mut txn)
@@ -123,7 +131,7 @@ async fn test_get_updates_in_progress(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim1 = env.start_managed_host_sim();
     let host_sim2 = env.start_managed_host_sim();
     let dpu_machine_id =
@@ -149,7 +157,11 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         metrics: None,
     };
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     let machine_updates = dpu_nic_firmware_update
         .check_for_updates(&mut txn, 10)
@@ -163,7 +175,7 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 async fn test_clear_complated_updates(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
@@ -182,7 +194,11 @@ async fn test_clear_complated_updates(
         metrics: None,
     };
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     let started_count = dpu_nic_firmware_update
         .start_updates(&mut txn, 10, &HashSet::default())
@@ -203,7 +219,11 @@ async fn test_clear_complated_updates(
     assert!(reference.starts_with(AutomaticFirmwareUpdateReference::REF_NAME));
 
     txn.commit().await.expect("commit failed");
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     dpu_nic_firmware_update
         .clear_completed_updates(&mut txn)
@@ -225,7 +245,11 @@ async fn test_clear_complated_updates(
     txn.rollback().await.unwrap();
 
     // pretend like the update happened
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
     let query = r#"UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data,Info,dpu_info,firmware_version}', '"2.0.1"', false)
      WHERE machine_id=$1"#;
     sqlx::query::<_>(query)
@@ -242,7 +266,11 @@ async fn test_clear_complated_updates(
 
     txn.commit().await.unwrap();
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
 
     dpu_nic_firmware_update
         .clear_completed_updates(&mut txn)

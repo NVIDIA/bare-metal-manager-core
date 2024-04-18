@@ -35,7 +35,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -44,7 +44,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     .await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = pool
+    let mut txn = env
+        .pool
         .clone()
         .begin()
         .await
@@ -84,7 +85,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     let (instance_id, _instance) =
         create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config).await;
 
-    let mut txn = pool
+    let mut txn = env
+        .pool
         .clone()
         .begin()
         .await
@@ -189,7 +191,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 
     // Address is freed during delete
-    let mut txn = pool
+    let mut txn = env
+        .pool
         .clone()
         .begin()
         .await
@@ -214,7 +217,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -249,7 +252,7 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -284,7 +287,7 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -329,7 +332,7 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),

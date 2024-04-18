@@ -25,7 +25,7 @@ fn setup() {
 
 #[sqlx::test()]
 async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
@@ -38,7 +38,7 @@ async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     env.api.add_route_servers(request).await?;
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -53,7 +53,7 @@ async fn test_add_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
 #[sqlx::test()]
 async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let mut expected_servers = vec![
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
@@ -66,7 +66,7 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     env.api.add_route_servers(request).await?;
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -83,7 +83,7 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     });
 
     env.api.remove_route_servers(request).await?;
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -99,7 +99,7 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     });
 
     env.api.remove_route_servers(request).await?;
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -115,7 +115,7 @@ async fn test_remove_route_servers(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
 #[sqlx::test()]
 async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
@@ -128,7 +128,7 @@ async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
     env.api.replace_route_servers(set_request).await?;
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -143,14 +143,14 @@ async fn test_initial_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
 #[sqlx::test()]
 async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
         IpAddr::from_str("3.4.5.6")?,
     ];
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await?;
     let query = r#"INSERT INTO route_servers values ($1);"#;
     for s in expected_servers.iter() {
         sqlx::query_as::<_, RouteServer>(query)
@@ -166,7 +166,7 @@ async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     env.api.replace_route_servers(set_request).await?;
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let query = r#"SELECT * from route_servers;"#;
     let actual_servers: Vec<IpAddr> = sqlx::query_as::<_, RouteServer>(query)
         .fetch_all(&mut *txn)
@@ -181,14 +181,14 @@ async fn test_subsequent_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
 #[sqlx::test()]
 async fn test_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let expected_servers = [
         IpAddr::from_str("1.2.3.4")?,
         IpAddr::from_str("2.3.4.5")?,
         IpAddr::from_str("3.4.5.6")?,
     ];
 
-    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let query = r#"INSERT INTO route_servers values ($1);"#;
     for s in expected_servers.iter() {
         sqlx::query_as::<_, RouteServer>(query)

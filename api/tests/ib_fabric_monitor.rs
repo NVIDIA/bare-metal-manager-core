@@ -21,7 +21,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let env = common::api_fixtures::create_test_env(pool).await;
     let monitor = IbFabricMonitor::new(
         env.config.ib_fabric_monitor.clone(),
         env.test_meter.meter(),

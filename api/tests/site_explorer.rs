@@ -68,7 +68,7 @@ struct FakeMachine {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let env = common::api_fixtures::create_test_env(pool).await;
 
     let underlay_segment = create_underlay_network_segment(&env).await;
     let admin_segment = create_admin_network_segment(&env).await;
@@ -129,7 +129,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         machine.ip = response.address;
     }
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     assert_eq!(
         MachineInterface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
@@ -256,7 +256,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        pool.clone(),
+        env.pool.clone(),
         Some(&explorer_config),
         test_meter.meter(),
         endpoint_explorer.clone(),
@@ -264,7 +264,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 2);
@@ -328,7 +328,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     // Running again should yield all 3 entries
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 3);
@@ -483,7 +483,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     explorer.run_single_iteration().await.unwrap();
     explorer.run_single_iteration().await.unwrap();
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 3);
@@ -556,7 +556,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 async fn test_site_explorer_creates_managed_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
 

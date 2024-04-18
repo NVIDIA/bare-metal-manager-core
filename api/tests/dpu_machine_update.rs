@@ -22,7 +22,7 @@ fn setup() {
 async fn test_find_available_outdated_dpus(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
@@ -41,7 +41,7 @@ async fn test_find_available_outdated_dpus(
         host_sims.push(host_sim);
     }
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let mut expected_dpu_firmware_versions = HashMap::new();
     expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
@@ -65,7 +65,7 @@ async fn test_find_available_outdated_dpus(
 async fn test_find_available_outdated_dpus_with_unhealthy(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
@@ -98,7 +98,11 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         client_certificate_expiry: None,
     };
 
-    let mut txn = pool.begin().await.expect("Failed to create transaction");
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Failed to create transaction");
     Machine::update_network_status_observation(
         &mut txn,
         dpu_machine_ids.first().unwrap(),
@@ -107,7 +111,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
     .await?;
 
     txn.commit().await.unwrap();
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let mut expected_dpu_firmware_versions = HashMap::new();
     expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
@@ -131,7 +135,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
 async fn test_find_available_outdated_dpus_limit(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
@@ -150,7 +154,7 @@ async fn test_find_available_outdated_dpus_limit(
         host_sims.push(host_sim);
     }
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert(
         "BlueField-3 SmartNIC Main Card".to_owned(),
@@ -173,7 +177,7 @@ async fn test_find_available_outdated_dpus_limit(
 async fn test_find_unavailable_outdated_dpus_when_none(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
@@ -192,7 +196,7 @@ async fn test_find_unavailable_outdated_dpus_when_none(
         host_sims.push(host_sim);
     }
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "24.35.2000".to_owned());
 
@@ -208,7 +212,7 @@ async fn test_find_unavailable_outdated_dpus_when_none(
 async fn test_find_unavailable_outdated_dpus(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let mut host_sims = Vec::default();
     let mut dpu_machine_ids = Vec::default();
@@ -231,7 +235,7 @@ async fn test_find_unavailable_outdated_dpus(
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(&env, &host_sim.config).await;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let mut expected_dpu_firmware_versions: HashMap<String, String> = HashMap::new();
     expected_dpu_firmware_versions.insert("BlueField SoC".to_owned(), "v9".to_owned());
 

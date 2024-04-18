@@ -36,11 +36,11 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let machine = Machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
         .await
@@ -65,12 +65,12 @@ async fn test_find_machine_by_id(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -94,12 +94,12 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
         &dpu_machine_id,
@@ -133,12 +133,12 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
         &dpu_machine_id,
@@ -169,11 +169,11 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -198,7 +198,7 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let machines = env.find_machines(None, None, true).await;
@@ -216,7 +216,7 @@ async fn test_find_machine_dpu_included(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_machine_dpu_excluded(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (_host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let machines = env.find_machines(None, None, false).await;
@@ -259,14 +259,14 @@ async fn test_find_machine_ids(pool: sqlx::PgPool) {
         exclude_hosts: false,
     };
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
     let host_machine_id =
         MachineId::host_id_from_dpu_hardware_info(&create_dpu_hardware_info(&host_sim.config))
             .unwrap();
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
 
@@ -286,14 +286,14 @@ async fn test_find_dpu_machine_ids(pool: sqlx::PgPool) {
         exclude_hosts: true,
     };
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
     let host_machine_id =
         MachineId::host_id_from_dpu_hardware_info(&create_dpu_hardware_info(&host_sim.config))
             .unwrap();
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
 
@@ -313,14 +313,14 @@ async fn test_find_predicted_host_machine_ids(pool: sqlx::PgPool) {
         exclude_hosts: true,
     };
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
     let host_machine_id =
         MachineId::host_id_from_dpu_hardware_info(&create_dpu_hardware_info(&host_sim.config))
             .unwrap();
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
 
@@ -340,11 +340,11 @@ async fn test_find_host_machine_ids_when_predicted(pool: sqlx::PgPool) {
         exclude_hosts: false,
     };
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let _dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
 
@@ -362,7 +362,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
         exclude_hosts: false,
     };
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
@@ -370,7 +370,7 @@ async fn test_find_host_machine_ids(pool: sqlx::PgPool) {
     let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
     let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     tracing::info!("finding machine ids");
     let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();
@@ -389,7 +389,7 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
         exclude_hosts: false,
     };
 
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
@@ -403,7 +403,7 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
         MachineId::host_id_from_dpu_hardware_info(&create_dpu_hardware_info(&host_sim2.config))
             .unwrap();
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     tracing::info!("finding machine ids");
     let machine_ids = Machine::find_machine_ids(&mut txn, config).await.unwrap();

@@ -101,10 +101,10 @@ async fn test_advance_network_prefix_state(
 async fn test_network_segment_delete_fails_with_associated_machine_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let api = create_test_env(pool.clone()).await.api;
-    let segment = create_network_segment_with_api(&api, false, false, None).await;
+    let env = create_test_env(pool).await;
+    let segment = create_network_segment_with_api(&env.api, false, false, None).await;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let db_segment = NetworkSegment::find(
         &mut txn,
         UuidKeyedObjectFilter::One(segment.id.clone().unwrap().try_into().unwrap()),
@@ -126,7 +126,8 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     .await?;
     txn.commit().await.unwrap();
 
-    let delete_result = api
+    let delete_result = env
+        .api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
             id: segment.id.clone(),
         }))
@@ -144,7 +145,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     // This uses prefix "192.0.2.0/24"
     let _segment = create_network_segment_with_api(&env.api, false, false, None).await;
@@ -183,7 +184,7 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
 async fn test_network_segment_max_history_length(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let segment = create_network_segment_with_api(&env.api, true, true, None).await;
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
@@ -230,7 +231,7 @@ async fn test_network_segment_max_history_length(
     // Now insert a lot of state changes, and see if the history limit is kept
     const HISTORY_LIMIT: usize = 250;
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     let mut version = NetworkSegment::find(
         &mut txn,
         UuidKeyedObjectFilter::One(segment_id),
@@ -243,7 +244,7 @@ async fn test_network_segment_max_history_length(
     txn.commit().await.unwrap();
 
     for _ in 0..HISTORY_LIMIT + 50 {
-        let mut txn = pool.begin().await.unwrap();
+        let mut txn = env.pool.begin().await.unwrap();
         assert!(NetworkSegment::try_update_controller_state(
             &mut txn,
             segment_id,
@@ -266,7 +267,7 @@ async fn test_network_segment_max_history_length(
         txn.commit().await.unwrap();
     }
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     let history = text_history(&mut txn, segment_id).await;
     assert_eq!(history.len(), HISTORY_LIMIT);
     for entry in &history {
@@ -424,12 +425,12 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let segment = create_network_segment_with_api(&env.api, false, false, None).await;
     let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let mut segments = NetworkSegment::list_segment_ids(&mut txn, None).await?;
     assert_eq!(segments.len(), 1);
     assert_eq!(segments.remove(0), segment_id);
@@ -451,7 +452,7 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let id = uuid::Uuid::new_v4();
     let segment = create_network_segment_with_api(
@@ -472,7 +473,7 @@ async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::R
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let request = rpc::forge::NetworkSegmentCreationRequest {
         id: None,
