@@ -371,12 +371,30 @@ fn get_config() -> CarbideConfig {
     }
 }
 
+/// sqlx::test shares the pool with all testcases in a file. If there are many testcases in a file,
+/// test cases will start getting PoolTimedOut error. To avoid it, each test case will be assigned
+/// its own pool.
+async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
+    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set.");
+    let db_options = current_pool.connect_options();
+    let db: &str = db_options
+        .get_database()
+        .expect("No database is set initially.");
+    let db_url = format!("{}/{}", db_url, db);
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .expect("Pool creation failed.")
+}
+
 /// Creates an environment for unit-testing
 ///
 /// This retuns the `Api` object instance which can be used to simulate calls against
 /// the Forge site controller, as well as mocks for dependent services that
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
+    let db_pool = create_pool(db_pool).await;
     let test_meter = TestMeter::default();
     let credential_provider = Arc::new(TestCredentialProvider::new());
     let certificate_provider = Arc::new(TestCertificateProvider::new());

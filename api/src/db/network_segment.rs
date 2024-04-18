@@ -19,7 +19,7 @@ use ::rpc::protos::forge::TenantState;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
-use ipnetwork::{IpNetwork, IpNetworkError};
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Transaction};
@@ -210,15 +210,13 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             ));
         }
 
-        if value
+        let prefixes = value
             .prefixes
-            .iter()
-            .map(|x| x.prefix.parse::<IpNetwork>())
-            .collect::<Result<Vec<_>, IpNetworkError>>()
-            .map_err(CarbideError::from)?
-            .iter()
-            .any(|ip| ip.ip().is_ipv6())
-        {
+            .into_iter()
+            .map(NewNetworkPrefix::try_from)
+            .collect::<Result<Vec<NewNetworkPrefix>, CarbideError>>()?;
+
+        if prefixes.iter().any(|ip| ip.prefix.ip().is_ipv6()) {
             return Err(CarbideError::InvalidArgument(
                 "IPv6 is not yet supported.".to_string(),
             ));
@@ -230,6 +228,14 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
         };
 
         let segment_type: NetworkSegmentType = value.segment_type.try_into()?;
+        if segment_type == NetworkSegmentType::Tenant
+            && prefixes.iter().any(|ip| ip.prefix.prefix() >= 31)
+        {
+            return Err(CarbideError::InvalidArgument(
+                "Prefix 31 and 32 are not allowed.".to_string(),
+            ));
+        }
+
         Ok(NewNetworkSegment {
             id,
             name: value.name,
@@ -245,11 +251,7 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
                 NetworkSegmentType::Tenant => DEFAULT_MTU_TENANT,
                 _ => DEFAULT_MTU_OTHER,
             }),
-            prefixes: value
-                .prefixes
-                .into_iter()
-                .map(NewNetworkPrefix::try_from)
-                .collect::<Result<Vec<NewNetworkPrefix>, CarbideError>>()?,
+            prefixes,
             vlan_id: None,
             vni: None,
             segment_type,
