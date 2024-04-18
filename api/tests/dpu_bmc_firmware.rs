@@ -32,7 +32,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
 
@@ -113,7 +113,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
 

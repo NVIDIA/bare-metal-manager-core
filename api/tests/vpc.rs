@@ -28,7 +28,7 @@ fn setup() {
 
 #[sqlx::test]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     // No network_virtualization_type, should default
     let forge_vpc = env
@@ -69,7 +69,8 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert!(no_org_vpc.deleted.is_none());
     let initial_no_org_vpc_version = no_org_vpc_version;
 
-    let mut txn = pool
+    let mut txn = env
+        .pool
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
@@ -138,7 +139,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     assert!(vpcs.is_empty());
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await?;
     assert_eq!(vpcs.len(), 1);
     let forge_vpc_id: uuid::Uuid = forge_vpc.id.expect("should have id").try_into()?;
@@ -148,7 +149,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert!(vpc.deleted.is_some());
     txn.commit().await?;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await?;
     assert!(vpcs.is_empty());
     txn.commit().await?;
@@ -158,7 +159,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
 #[sqlx::test]
 async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     // Create two VPCs
 
@@ -193,7 +194,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let vpc_2_id = forge_vpc_2.id.unwrap().try_into()?;
 
     // We can only update the VNI on a VPC that doesn't already have one, so clear it first
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     sqlx::query("UPDATE vpcs SET vni = NULL WHERE id = $1")
         .bind(vpc_2_id)
         .execute(&mut *txn)
@@ -201,7 +202,7 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     txn.commit().await?;
 
     // Try to set the second one's VNI to the first ones. It should fail
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
     if let Ok(()) = Vpc::set_vni(&mut txn, vpc_2_id, forge_vpc_1.vni.unwrap() as i32).await {
         panic!("VPCs should be prevented from having duplicate VNIs");
     }
@@ -240,7 +241,7 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
 #[sqlx::test]
 async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let id = uuid::Uuid::new_v4();
 
     // No network_virtualization_type, should default
@@ -265,7 +266,7 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
 #[sqlx::test]
 async fn vpc_deletion_is_idempotent(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let vpc_req = rpc::forge::VpcCreationRequest {
         id: None,

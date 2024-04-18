@@ -19,11 +19,11 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dns(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let api = &env.api;
 
     // Database should have 0 rows in the dns_records view.
-    assert_eq!(0, get_dns_record_count(&pool).await);
+    assert_eq!(0, get_dns_record_count(&env.pool).await);
 
     let mac_address = "FF:FF:FF:FF:FF:FF".to_string();
     let interface1 = api
@@ -97,7 +97,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     // of course, that they are correct.
     let machine_ids = [host_id, dpu_id];
     for machine_id in machine_ids.iter() {
-        let mut txn = pool.begin().await.unwrap();
+        let mut txn = env.pool.begin().await.unwrap();
 
         // First, check the BMC record by querying the MachineTopology
         // data for the current machine ID.
@@ -149,7 +149,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     //      - 2x fancy names
     //      - 2x admin machine ID names
     //      - 2x bmc machine ID names
-    assert_eq!(10, get_dns_record_count(&pool).await);
+    assert_eq!(10, get_dns_record_count(&env.pool).await);
 }
 
 // Get the current number of rows in the dns_records view,

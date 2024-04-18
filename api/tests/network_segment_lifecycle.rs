@@ -35,7 +35,7 @@ async fn test_network_segment_lifecycle_impl(
     use_subdomain: bool,
     use_vpc: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let segment = create_network_segment_with_api(&env.api, use_subdomain, use_vpc, None).await;
     assert!(segment.created.is_some());
@@ -137,7 +137,7 @@ async fn test_network_segment_lifecycle_impl(
         format!("network segment not found: {}", segment.id.unwrap())
     );
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     assert!(segments.is_empty());
 
     let expected_history = ["provisioning", "ready", "drainallocatedips", "dbdelete"];

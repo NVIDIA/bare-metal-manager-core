@@ -66,7 +66,7 @@ async fn get_partition_state(api: &TestApi, ib_partition_id: uuid::Uuid) -> Tena
 async fn test_ib_partition_lifecycle_impl(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
 
     let partition =
         create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
@@ -159,7 +159,7 @@ async fn test_ib_partition_lifecycle(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 async fn test_find_ib_partition_for_tenant(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let created_ib_partition =
         create_ib_partition_with_api(&env.api, FIXTURE_CREATED_IB_PARTITION_NAME.to_string())
             .await
@@ -189,7 +189,7 @@ async fn test_find_ib_partition_for_tenant(
 async fn test_create_ib_partition_over_max_limit(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     // create max number of ib partitions for the tenant
     for _i in 1..=IBFabricConfig::default_max_partition_per_tenant() {
         let _ =
@@ -217,7 +217,7 @@ async fn test_create_ib_partition_over_max_limit(
 async fn create_ib_partition_with_api_with_id(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let id = uuid::Uuid::new_v4();
     let request = rpc::forge::IbPartitionCreationRequest {
         id: Some(::rpc::Uuid {

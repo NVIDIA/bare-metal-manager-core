@@ -27,7 +27,7 @@ fn setup() {
 
 #[sqlx::test]
 async fn test_tenant(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let tenant_create = env
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
@@ -90,7 +90,7 @@ async fn create_keyset(
 
 #[sqlx::test]
 async fn test_tenant_create_keyset(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let keyset = create_keyset(
         &env,
         "Org1".to_string(),
@@ -119,7 +119,7 @@ async fn test_tenant_create_keyset(pool: sqlx::PgPool) {
 
 #[sqlx::test]
 async fn test_tenant_find_keyset(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let _ = create_keyset(
         &env,
         "Org1".to_string(),
@@ -268,7 +268,7 @@ async fn test_tenant_find_keyset(pool: sqlx::PgPool) {
 
 #[sqlx::test]
 async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let _ = create_keyset(
         &env,
         "Org1".to_string(),
@@ -317,7 +317,7 @@ async fn test_tenant_delete_keyset(pool: sqlx::PgPool) {
 
 #[sqlx::test]
 async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let _ = create_keyset(
         &env,
         "Org1".to_string(),
@@ -464,7 +464,7 @@ async fn test_tenant_update_keyset(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let _keyset = create_keyset(
         &env,
         "Tenant1".to_string(),
@@ -613,7 +613,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_keyset_in_instance(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
     let (instance_id, _instance) = create_instance(
         &env,

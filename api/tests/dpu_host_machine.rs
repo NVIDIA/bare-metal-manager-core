@@ -31,12 +31,12 @@ const UNKNOWN_MACHINE_ID: &str = "fm100htaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_dpu_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let mut machines = env
         .find_machines(Some(dpu_rpc_machine_id), None, true)
@@ -62,10 +62,10 @@ async fn test_find_dpu_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let mut machines = env
         .find_machines(Some(host_machine_id.to_string().into()), None, true)
@@ -91,12 +91,12 @@ async fn test_find_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_find_temp_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let host_machine_id = DbSnapshotLoader {}
         .load_machine_snapshot(&mut txn, &dpu_machine_id)

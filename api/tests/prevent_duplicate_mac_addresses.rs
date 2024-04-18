@@ -32,10 +32,10 @@ fn setup() {
 async fn prevent_duplicate_mac_addresses(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let network_segment = NetworkSegment::find(
         &mut txn,

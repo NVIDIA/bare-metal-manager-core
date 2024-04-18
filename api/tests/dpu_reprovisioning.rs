@@ -38,7 +38,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -119,7 +119,7 @@ async fn trigger_dpu_reprovisioning(
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -370,7 +370,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -398,7 +398,7 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id = create_dpu_machine(&env, &host_sim.config).await;
 
@@ -420,7 +420,7 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -591,7 +591,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (_instance_id, instance) = create_instance(
@@ -863,7 +863,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let (instance_id, _instance) = create_instance(
@@ -1159,7 +1159,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1238,7 +1238,7 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_reboot_retry(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1418,7 +1418,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_clear_with_function_call(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -1466,7 +1466,7 @@ async fn test_clear_with_function_call(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())

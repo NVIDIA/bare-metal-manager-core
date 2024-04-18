@@ -37,7 +37,7 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
@@ -50,7 +50,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_failed_state_host(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -99,9 +99,9 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
 /// If the DPU stops sending us health updates we eventually mark it unhealthy
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
 
     // create_dpu_machine runs record_dpu_network_status, so machine should be healthy
     let dpu_machine = Machine::find_by_query(&mut txn, &dpu_machine_id.to_string())
@@ -136,7 +136,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();
     let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
@@ -298,7 +298,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 /// are emitted correctly
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (_host_machine_id_1, _dpu_machine_id_1) =
         common::api_fixtures::create_managed_host(&env).await;
     let (_host_machine_id_2, _dpu_machine_id_2) =
@@ -350,7 +350,7 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 /// Check that controller state reason is correct as we work through the states
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_state_outcome(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let host_config = &host_sim.config;
     let (dpu_machine_id, _host_machine_id) =

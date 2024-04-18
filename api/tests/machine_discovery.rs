@@ -112,7 +112,7 @@ async fn test_machine_discovery_with_domain(
 async fn test_reject_host_machine_with_disabled_tpm(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
@@ -149,7 +149,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
 async fn test_discovery_complete_with_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env: common::api_fixtures::TestEnv = create_test_env(pool.clone()).await;
+    let env: common::api_fixtures::TestEnv = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_rpc_machine_id = create_dpu_machine_with_discovery_error(
         &env,
@@ -159,7 +159,7 @@ async fn test_discovery_complete_with_error(
     .await;
     let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
-    let mut txn = pool.begin().await?;
+    let mut txn = env.pool.begin().await?;
 
     let machine = Machine::find_one(
         &mut txn,
@@ -198,7 +198,7 @@ async fn test_discovery_complete_with_error(
 async fn test_discover_2_managed_hosts(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env: common::api_fixtures::TestEnv = create_test_env(pool.clone()).await;
+    let env: common::api_fixtures::TestEnv = create_test_env(pool).await;
     let (host1_id, dpu1_id) = create_managed_host(&env).await;
     let (host2_id, dpu2_id) = create_managed_host(&env).await;
     assert!(host1_id.machine_type().is_host());
@@ -218,7 +218,7 @@ async fn test_discover_2_managed_hosts(
 async fn test_discover_dpu_by_source_ip(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
 
     let dhcp_response = env
@@ -255,7 +255,7 @@ async fn test_discover_dpu_by_source_ip(
 async fn test_discover_dpu_not_create_machine(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
 
     let dhcp_response = env

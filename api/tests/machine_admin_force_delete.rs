@@ -41,12 +41,12 @@ fn setup() {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
 
-    let mut txn = pool.begin().await.unwrap();
+    let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
@@ -86,7 +86,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let response = force_delete(&env, &dpu_machine_id).await;
@@ -100,7 +100,7 @@ async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPo
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let response = force_delete(&env, &host_machine_id).await;
@@ -127,7 +127,7 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_machine_id =
         try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
@@ -249,7 +249,7 @@ async fn validate_machine_deletion(env: &TestEnv, machine_id: &MachineId) {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
-    let env = create_test_env(pool.clone()).await;
+    let env = create_test_env(pool).await;
     let (ib_partition_id, _ib_partition) = create_ib_partition(
         &env,
         "test_ib_partition".to_string(),
@@ -258,7 +258,8 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     .await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut txn = pool
+    let mut txn = env
+        .pool
         .clone()
         .begin()
         .await
@@ -287,7 +288,8 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let (instance_id, _instance) =
         create_instance_with_ib_config(&env, &dpu_machine_id, &host_machine_id, ib_config).await;
 
-    let mut txn = pool
+    let mut txn = env
+        .pool
         .clone()
         .begin()
         .await
