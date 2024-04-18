@@ -156,7 +156,7 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
         name: "TEST_SEGMENT_2".to_string(),
         prefixes: vec![rpc::forge::NetworkPrefix {
             id: None,
-            prefix: "192.0.2.12/31".to_string(), // is inside 192.0.2.0/24
+            prefix: "192.0.2.12/30".to_string(), // is inside 192.0.2.0/24
             gateway: Some("192.0.2.13".to_string()),
             reserve_first: 1,
             state: None,
@@ -466,6 +466,47 @@ async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::R
     let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
 
     assert_eq!(segment_id, id);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool.clone()).await;
+
+    let request = rpc::forge::NetworkSegmentCreationRequest {
+        id: None,
+        mtu: Some(1500),
+        name: "TEST_SEGMENT_1".to_string(),
+        prefixes: vec![rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: "192.0.2.12/31".to_string(),
+            gateway: Some("192.0.2.13".to_string()),
+            reserve_first: 1,
+            state: None,
+            events: vec![],
+            circuit_id: None,
+        }],
+        subdomain_id: None,
+        vpc_id: None,
+        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+    };
+
+    for prefix in &[31, 32] {
+        let mut request_ = request.clone();
+        request_.prefixes[0].prefix = format!("192.0.2.21/{}", prefix);
+        match env.api.create_network_segment(Request::new(request_)).await {
+            Ok(_) => {
+                return Err(eyre::eyre!(format!(
+                    "{prefix} prefix is not allowed, but still code created segment."
+                )));
+            }
+            Err(status) if status.code() == tonic::Code::InvalidArgument => {}
+            Err(err) => {
+                return Err(err.into());
+            } // unexpected error
+        };
+    }
 
     Ok(())
 }
