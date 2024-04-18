@@ -11,6 +11,8 @@
  */
 mod command_line;
 
+use std::net::SocketAddr;
+
 use tracing::info;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt::Layer;
@@ -40,12 +42,16 @@ async fn main() {
         .init();
 
     let args = command_line::parse_args();
+    let listen_addr = args.port.map(|p| SocketAddr::from(([0, 0, 0, 0], p)));
+
     info!("Using qemu: {}", args.use_qemu);
     info!("Using cert_path: {:?}", args.cert_path);
-    bmc_mock::run(bmc_mock::BmcState {
-        use_qemu: args.use_qemu,
-        cert_path: args.cert_path,
-        listen_port: args.port,
-    })
+    bmc_mock::run(
+        bmc_mock::default_router(bmc_mock::BmcState {
+            use_qemu: args.use_qemu,
+        }),
+        args.cert_path,
+        listen_addr,
+    )
     .await;
 }
