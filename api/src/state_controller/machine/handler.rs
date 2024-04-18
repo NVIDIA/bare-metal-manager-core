@@ -201,7 +201,6 @@ impl MachineStateHandler {
                     machine_id,
                     retry_count: 0,
                 };
-                *controller_state.modify() = next_state.clone();
                 return Ok(StateHandlerOutcome::Transition(next_state));
             }
         }
@@ -240,7 +239,6 @@ impl MachineStateHandler {
                             ReprovisionState::WaitingForNetworkInstall
                         },
                     };
-                    *controller_state.modify() = next_state.clone();
                     return Ok(StateHandlerOutcome::Transition(next_state));
                 }
 
@@ -262,7 +260,6 @@ impl MachineStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkConfig,
                     };
-                    *controller_state.modify() = next_state.clone();
                     Ok(StateHandlerOutcome::Transition(next_state))
                 } else {
                     Ok(StateHandlerOutcome::DoNothing)
@@ -302,7 +299,6 @@ impl MachineStateHandler {
                         let next_state = ManagedHostState::HostNotReady {
                             machine_state: MachineState::Discovered,
                         };
-                        *controller_state.modify() = next_state.clone();
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                     CleanupState::DisableBIOSBMCLockdown => {
@@ -360,7 +356,6 @@ impl MachineStateHandler {
                             Machine::clear_failure_details(machine_id, txn).await?;
                             let next_state =
                                 handle_host_waitingfordiscovery(txn, ctx, state).await?;
-                            *controller_state.modify() = next_state.clone();
                             return Ok(StateHandlerOutcome::Transition(next_state));
                         }
 
@@ -374,7 +369,6 @@ impl MachineStateHandler {
                                 details: details.clone(),
                                 machine_id: machine_id.clone(),
                             };
-                            *controller_state.modify() = next_state.clone();
                             return Ok(StateHandlerOutcome::Transition(next_state));
                         }
 
@@ -395,7 +389,6 @@ impl MachineStateHandler {
                                 details: details.clone(),
                                 machine_id: machine_id.clone(),
                             };
-                            *controller_state.modify() = next_state.clone();
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
                             Ok(StateHandlerOutcome::DoNothing)
@@ -429,7 +422,6 @@ impl MachineStateHandler {
                 )
                 .await?
                 {
-                    *controller_state.modify() = next_state.clone();
                     Ok(StateHandlerOutcome::Transition(next_state))
                 } else {
                     Ok(StateHandlerOutcome::DoNothing)
@@ -819,7 +811,7 @@ impl StateHandler for DpuMachineStateHandler {
         &self,
         host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -848,14 +840,12 @@ impl StateHandler for DpuMachineStateHandler {
                 {
                     let msg = format!("Failed to create forge_admin user: {}", e);
                     let next_state = self.get_discovery_failure(msg, dpu_machine_id);
-                    *controller_state.modify() = next_state.clone();
                     return Ok(StateHandlerOutcome::Transition(next_state));
                 }
 
                 let next_state = ManagedHostState::DpuDiscoveringState {
                     discovering_state: DpuDiscoveringState::Configuring,
                 };
-                *controller_state.modify() = next_state.clone();
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             ManagedHostState::DpuDiscoveringState {
@@ -939,7 +929,6 @@ impl StateHandler for DpuMachineStateHandler {
                                 substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
                             },
                         };
-                        *controller_state.modify() = next_state.clone();
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                     Some(TaskState::Exception) => {
@@ -950,7 +939,6 @@ impl StateHandler for DpuMachineStateHandler {
                                 .map_or("".to_string(), |m| m.message.clone())
                         );
                         let next_state = self.get_discovery_failure(msg, dpu_machine_id);
-                        *controller_state.modify() = next_state.clone();
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                     Some(_) => {
@@ -987,7 +975,6 @@ impl StateHandler for DpuMachineStateHandler {
                         let next_state = ManagedHostState::DpuDiscoveringState {
                             discovering_state: DpuDiscoveringState::Configuring {},
                         };
-                        *controller_state.modify() = next_state.clone();
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                     Err(_e) => {
@@ -996,7 +983,6 @@ impl StateHandler for DpuMachineStateHandler {
                                 substate: BmcFirmwareUpdateSubstate::Reboot { count: count + 1 },
                             },
                         };
-                        *controller_state.modify() = next_state.clone();
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                 }
@@ -1024,7 +1010,6 @@ impl StateHandler for DpuMachineStateHandler {
                     Err(e) => {
                         let msg = format!("Failed to instantiate redfish client: {}", e);
                         let next_state = self.get_discovery_failure(msg, dpu_machine_id);
-                        *controller_state.modify() = next_state.clone();
                         return Ok(StateHandlerOutcome::Transition(next_state));
                     }
                 }
@@ -1089,7 +1074,6 @@ impl StateHandler for DpuMachineStateHandler {
                                 },
                             },
                         };
-                        *controller_state.modify() = next_state.clone();
                         return Ok(StateHandlerOutcome::Transition(next_state));
                     }
 
@@ -1122,7 +1106,6 @@ impl StateHandler for DpuMachineStateHandler {
                                 },
                             },
                         };
-                        *controller_state.modify() = next_state.clone();
                         return Ok(StateHandlerOutcome::Transition(next_state));
                     }
                 }
@@ -1156,8 +1139,7 @@ impl StateHandler for DpuMachineStateHandler {
                 let next_state = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::Init,
                 };
-                *controller_state.modify() = next_state.clone();
-                return Ok(StateHandlerOutcome::Transition(next_state));
+                Ok(StateHandlerOutcome::Transition(next_state))
             }
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::Init,
@@ -1198,7 +1180,6 @@ impl StateHandler for DpuMachineStateHandler {
                         machine_state: MachineState::WaitingForNetworkConfig,
                     }
                 };
-                *controller_state.modify() = next_state.clone();
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             ManagedHostState::DPUNotReady {
@@ -1225,7 +1206,6 @@ impl StateHandler for DpuMachineStateHandler {
                 let next_state = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkConfig,
                 };
-                *controller_state.modify() = next_state.clone();
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             ManagedHostState::DPUNotReady {
@@ -1258,7 +1238,6 @@ impl StateHandler for DpuMachineStateHandler {
                 let next_state = ManagedHostState::HostNotReady {
                     machine_state: MachineState::WaitingForDiscovery,
                 };
-                *controller_state.modify() = next_state.clone();
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
             state => {
@@ -1520,7 +1499,7 @@ impl StateHandler for HostMachineStateHandler {
         &self,
         host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -1567,7 +1546,6 @@ impl StateHandler for HostMachineStateHandler {
                     }
 
                     let new_state = handle_host_waitingfordiscovery(txn, ctx, state).await?;
-                    *controller_state.modify() = new_state.clone();
                     Ok(StateHandlerOutcome::Transition(new_state))
                 }
 
@@ -1576,7 +1554,6 @@ impl StateHandler for HostMachineStateHandler {
                     if rebooted(&state.host_snapshot) {
                         // Machine is ready for Instance Creation.
                         let next_state = ManagedHostState::Ready;
-                        *controller_state.modify() = next_state.clone();
                         Ok(StateHandlerOutcome::Transition(next_state))
                     } else {
                         let status = trigger_reboot_if_needed(
@@ -1616,7 +1593,6 @@ impl StateHandler for HostMachineStateHandler {
                                         },
                                     },
                                 };
-                                *controller_state.modify() = next_state.clone();
                                 Ok(StateHandlerOutcome::Transition(next_state))
                             }
                         }
@@ -1633,7 +1609,6 @@ impl StateHandler for HostMachineStateHandler {
                                     let next_state = ManagedHostState::HostNotReady {
                                         machine_state: MachineState::Discovered,
                                     };
-                                    *controller_state.modify() = next_state.clone();
                                     Ok(StateHandlerOutcome::Transition(next_state))
                                 } else {
                                     // We have not implemented LockdownMode::Disabled. This is a kind of placeholder for it, but we never needed it.
@@ -1695,7 +1670,7 @@ impl StateHandler for InstanceStateHandler {
         &self,
         host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -1772,7 +1747,6 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::Ready,
                     };
-                    *controller_state.modify() = next_state.clone();
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::Ready => {
@@ -1808,7 +1782,6 @@ impl StateHandler for InstanceStateHandler {
                                 retry: RetryInfo { count: 0 },
                             },
                         };
-                        *controller_state.modify() = next_state.clone();
                         Ok(StateHandlerOutcome::Transition(next_state))
                     } else {
                         record_infiniband_status_observation(
@@ -1843,7 +1816,6 @@ impl StateHandler for InstanceStateHandler {
                                     },
                                 },
                             };
-                            *controller_state.modify() = next_state.clone();
                             StateHandlerOutcome::Transition(next_state)
                         } else {
                             StateHandlerOutcome::Wait(status.status)
@@ -1863,7 +1835,6 @@ impl StateHandler for InstanceStateHandler {
                         let next_state = ManagedHostState::Assigned {
                             instance_state: InstanceState::SwitchToAdminNetwork,
                         };
-                        *controller_state.modify() = next_state.clone();
                         return Ok(StateHandlerOutcome::Transition(next_state));
                     }
 
@@ -1887,7 +1858,6 @@ impl StateHandler for InstanceStateHandler {
                                     },
                                 },
                             };
-                            *controller_state.modify() = next_state.clone();
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
                             Ok(StateHandlerOutcome::Wait(
@@ -1915,7 +1885,6 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkReconfig,
                     };
-                    *controller_state.modify() = next_state.clone();
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::WaitingForNetworkReconfig => {
@@ -1950,7 +1919,6 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::WaitingForCleanup {
                         cleanup_state: CleanupState::HostCleanup,
                     };
-                    *controller_state.modify() = next_state.clone();
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::DPUReprovision { reprovision_state } => {
@@ -1964,10 +1932,7 @@ impl StateHandler for InstanceStateHandler {
                     )
                     .await?
                     {
-                        Some(next_state) => {
-                            *controller_state.modify() = next_state.clone();
-                            Ok(StateHandlerOutcome::Transition(next_state))
-                        }
+                        Some(next_state) => Ok(StateHandlerOutcome::Transition(next_state)),
                         None => {
                             // TODO handle_dpu_reprovision should return StateHandlerOutcome
                             // so that we can be specific here

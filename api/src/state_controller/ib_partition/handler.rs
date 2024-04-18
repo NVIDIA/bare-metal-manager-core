@@ -56,7 +56,6 @@ impl StateHandler for IBPartitionStateHandler {
             IBPartitionControllerState::Provisioning => {
                 // TODO(k82cn): get IB network from IB Fabric Manager to avoid duplication.
                 let new_state = IBPartitionControllerState::Ready;
-                *controller_state.modify() = new_state.clone();
                 Ok(StateHandlerOutcome::Transition(new_state))
             }
 
@@ -68,7 +67,6 @@ impl StateHandler for IBPartitionStateHandler {
                         let new_state = IBPartitionControllerState::Error {
                             cause: cause.to_string(),
                         };
-                        *controller_state.modify() = new_state.clone();
                         Ok(StateHandlerOutcome::Transition(new_state))
                     }
                     Some(pkey) => {
@@ -107,13 +105,11 @@ impl StateHandler for IBPartitionStateHandler {
                     let new_state = IBPartitionControllerState::Error {
                         cause: cause.to_string(),
                     };
-                    *controller_state.modify() = new_state.clone();
                     Ok(StateHandlerOutcome::Transition(new_state))
                 }
                 Some(pkey) => {
                     if state.is_marked_as_deleted() {
                         let new_state = IBPartitionControllerState::Deleting;
-                        *controller_state.modify() = new_state.clone();
                         Ok(StateHandlerOutcome::Transition(new_state))
                     } else {
                         let pkey = pkey.to_string();
@@ -135,7 +131,6 @@ impl StateHandler for IBPartitionStateHandler {
                                     "invalid status: the status in UFM is '{ibnetwork:?}'"
                                 ),
                             };
-                            *controller_state.modify() = new_state.clone();
                             Ok(StateHandlerOutcome::Transition(new_state))
                         }
                     }
@@ -145,7 +140,6 @@ impl StateHandler for IBPartitionStateHandler {
             IBPartitionControllerState::Error { .. } => {
                 if state.config.pkey.is_some() && state.is_marked_as_deleted() {
                     let new_state = IBPartitionControllerState::Deleting;
-                    *controller_state.modify() = new_state.clone();
                     Ok(StateHandlerOutcome::Transition(new_state))
                 } else {
                     // If pkey is none, keep it in error state.

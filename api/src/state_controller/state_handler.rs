@@ -73,12 +73,8 @@ pub struct StateHandlerContext<'a, T: StateHandlerContextObjects> {
 /// The state can be read accessed by default via dereferencing the holder to the
 /// state type.
 ///
-/// For write access, the `.as_mut()` method can be used.
-/// If the state is write accessed, the new state will be automatically be persisted.
 pub struct ControllerStateReader<'a, S> {
     state: &'a mut S,
-    /// Whether the state might possibly have been mutated
-    is_modified: bool,
 }
 
 impl<'a, S> std::ops::Deref for ControllerStateReader<'a, S> {
@@ -91,25 +87,7 @@ impl<'a, S> std::ops::Deref for ControllerStateReader<'a, S> {
 
 impl<'a, S> ControllerStateReader<'a, S> {
     pub fn new(state: &'a mut S) -> Self {
-        Self {
-            state,
-            is_modified: false,
-        }
-    }
-
-    /// Whether the state might have been modified
-    ///
-    /// If this flag is true, the new state will be persisted
-    pub fn is_modified(&self) -> bool {
-        self.is_modified
-    }
-
-    /// Provides write access to the controller state
-    ///
-    /// One this function is called, the state will be automatically persisted
-    pub fn modify(&mut self) -> ControllerStateModifier<'_, S> {
-        self.is_modified = true;
-        ControllerStateModifier { state: self.state }
+        Self { state }
     }
 }
 
