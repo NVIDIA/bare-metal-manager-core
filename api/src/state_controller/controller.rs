@@ -313,12 +313,14 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     &mut ctx,
                                 )
                                 .await;
-                            if handler_outcome.is_ok() && state_holder.is_modified() {
+                            if let Ok(StateHandlerOutcome::Transition(next_state)) =
+                                &handler_outcome
+                            {
                                 io.persist_controller_state(
                                     &mut txn,
                                     &object_id,
                                     controller_state.version,
-                                    controller_state.value,
+                                    next_state.clone(),
                                 )
                                 .await?;
                             }
