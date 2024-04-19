@@ -27,7 +27,6 @@ use tower_http::normalize_path::NormalizePath;
 
 use crate::api::Api;
 use crate::cfg::CarbideConfig;
-use crate::ethernet_virtualization::EthVirtData;
 
 mod domain;
 mod dpu_versions;
@@ -149,9 +148,6 @@ fn is_valid_auth(auth_str: &str) -> bool {
 struct Index {
     version: &'static str,
     agent_upgrade_policy: &'static str,
-    eth_data: EthVirtData,
-    dpu_nic_firmware_initial_update_enabled: bool,
-    dpu_nic_firmware_reprovision_update_enabled: bool,
     log_filter: String,
     carbide_config: CarbideConfig,
 }
@@ -179,13 +175,6 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
 
     let index = Index {
         version: forge_version::v!(build_version),
-        eth_data: state.eth_data.clone(),
-        dpu_nic_firmware_initial_update_enabled: state
-            .runtime_config
-            .dpu_nic_firmware_initial_update_enabled,
-        dpu_nic_firmware_reprovision_update_enabled: state
-            .runtime_config
-            .dpu_nic_firmware_reprovision_update_enabled,
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
         carbide_config: (*state.runtime_config).clone(),

@@ -3,43 +3,20 @@
 {% block title %}Root{% endblock %}
 
 {% block content %}
-<h1>Carbide administration</h1>
+<h1>Configuration</h1>
+
 <table>
   <tr>
     <th>Version</th>
     <td>{{ version }}</td>
   </tr>
+</table>
+
+<h2 style="margin-left:10%">Dynamic</h2>
+<table>
   <tr>
     <th>DPU agent upgrade policy</th>
     <td>{{ agent_upgrade_policy }}</td>
-  </tr>
-  <tr>
-    <th>ASN</th>
-    <td>{{ eth_data.asn }}</td>
-  </tr>
-  <tr>
-    <th>DHCP Servers</th>
-    <td>{{ eth_data.dhcp_servers|join(", ") }}</td>
-  </tr>
-  <tr>
-    <th>Route Servers</th>
-    <td>{{ eth_data.route_servers|join(", ") }}
-      ({% if eth_data.route_servers_enabled %}Enabled{% else %}Disabled{% endif %})
-    </td>
-  </tr>
-  {% if !eth_data.deny_prefixes.is_empty() %}
-  <tr>
-    <th>Deny Prefixes</th>
-    <td>{{ eth_data.deny_prefixes|join(", ") }}</td>
-  </tr>
-  {% endif %}
-  <tr>
-    <th>NIC Firmware update discovery</th>
-    <td>{% if dpu_nic_firmware_initial_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
-  </tr>
-  <tr>
-    <th>NIC Firmware update reprovisioning</th>
-    <td>{% if dpu_nic_firmware_reprovision_update_enabled %}Enabled{% else %}Disabled{% endif %}</td>
   </tr>
   <tr>
     <th>RUST_LOG</th>
@@ -47,7 +24,7 @@
   <tr/>
 </table>
 
-<h2 style="margin-left:10%">Carbide (API) Configuration</h2>
+<h2 style="margin-left:10%">Static</h2>
 <table>
   <tr>
     <td>Listen Address</td>
