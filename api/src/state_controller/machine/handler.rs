@@ -891,7 +891,6 @@ impl StateHandler for DpuMachineStateHandler {
                                 substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
                             },
                         };
-                        *controller_state.modify() = next_state.clone();
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                     _ => Ok(StateHandlerOutcome::Wait(format!(
@@ -973,7 +972,6 @@ impl StateHandler for DpuMachineStateHandler {
                                     substate: BmcFirmwareUpdateSubstate::HostPowerOff,
                                 },
                             };
-                            *controller_state.modify() = next_state.clone();
                             return Ok(StateHandlerOutcome::Transition(next_state));
                         }
                         client
