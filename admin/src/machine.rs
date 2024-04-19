@@ -13,25 +13,36 @@ use std::fmt::Write;
 use std::time::Duration;
 
 use ::rpc::forge as forgerpc;
+use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
 use tracing::warn;
 
 use super::cfg::carbide_options::{OutputFormat, ShowMachine};
 use super::{default_uuid, rpc, CarbideCliResult};
 use crate::cfg::carbide_options::ForceDeleteMachineQuery;
-use ::rpc::forge_tls_client::ApiConfig;
 
 fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResult<String> {
     let width = 14;
     let mut lines = String::new();
     let machine_id = machine.id.clone().unwrap_or_default().id;
 
-    let data = vec![
+    let mut data = vec![
         ("ID", machine.id.clone().unwrap_or_default().id),
         ("STATE", machine.state.clone().to_uppercase()),
         ("STATE_VERSION", machine.state_version.clone()),
         ("MACHINE TYPE", get_machine_type(&machine_id)),
     ];
+    if let Some(di) = machine.discovery_info.as_ref() {
+        if let Some(dmi) = di.dmi_data.as_ref() {
+            data.push(("VENDOR", dmi.sys_vendor.clone()));
+            data.push(("PRODUCT NAME", dmi.product_name.clone()));
+            data.push(("PRODUCT SERIAL", dmi.product_serial.clone()));
+            data.push(("BOARD SERIAL", dmi.board_serial.clone()));
+            data.push(("CHASSIS SERIAL", dmi.chassis_serial.clone()));
+            data.push(("BIOS VERSION", dmi.bios_version.clone()));
+            data.push(("BOARD VERSION", dmi.board_version.clone()));
+        }
+    }
     for (key, value) in data {
         writeln!(&mut lines, "{:<width$}: {}", key, value)?;
     }
@@ -149,7 +160,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
         "Primary Interface",
         "IP Address",
         "MAC Address",
-        "Type"
+        "Type",
+        "Vendor",
     ]);
 
     for machine in machines.machines {
@@ -181,6 +193,12 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
                     .unwrap_or_else(|| "NA".to_string()),
             )
         };
+        let mut vendor = String::new();
+        if let Some(di) = machine.discovery_info.as_ref() {
+            if let Some(dmi) = di.dmi_data.as_ref() {
+                vendor = dmi.sys_vendor.clone();
+            }
+        }
 
         table.add_row(row![
             machine_id,
@@ -190,7 +208,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             id,
             address,
             mac,
-            machine_type
+            machine_type,
+            vendor,
         ]);
     }
 
