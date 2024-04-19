@@ -235,6 +235,7 @@ pub enum BmcFirmwareUpdateSubstate {
         firmware_type: FirmwareType,
         task_id: String,
     },
+    HostPowerOff,
     Reboot {
         count: u32,
     },
