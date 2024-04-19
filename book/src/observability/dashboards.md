@@ -2,7 +2,7 @@
 
 This page provides an overview of all dashboards that Forge offers.
 
-## <span style="color:orange">⚠️ A note on editing dashboards</span>
+## <a name="edit_note"></a><span style="color:orange">⚠️ A note on editing dashboards</span>
 
 All dashboards linked on this page are editable depending on user permissions.
 Viewers however should not save edited dashboards, unless those changes are useful for other dashboard viewers.
@@ -10,6 +10,8 @@ Viewers however should not save edited dashboards, unless those changes are usef
 Users are free to make local edits in their browser window to dashboards in order to understand metrics more in detail. However in this case the edits should be discarded using the `Discard` button or by simply closing the browser window. The `Save` button should only be used if other users should also observe the changed dashboard behavior.
 
 An alternative to changing dashboards themselves is to use the "Explore" function of Grafana. All graphs on dashboards can be copied into a local "Explore" view by clicking the "Explore" button in the context menu of graphs.
+
+If permanent modifications to dashboards are required, please follow the instructions at [Modifying Dashboards](#modifying_dashboards) for details.
 
 ## Thanos Dashboards
 
@@ -87,3 +89,36 @@ This dashboard can be useful to understand the state of a Host (e.g. whether it 
 ### Additional dashboards
 
 Browse [Dashboards](https://grafana-dev3.frg.nvidia.com/dashboards) to view additional dashboards that are available for Forge.
+
+## <a name="modifying_dashboards"></a>Modifying Dashboards
+
+The process to edit a dashboard depends on the dashboards. This section provides an overview on how to edit Thanos dashboards and site local dashboards.
+Since both sets of dashboards ideally should show the same data, edits to show additional data should be applied to both locations. 
+
+### Modifying Thanos Dashboards
+
+Dashboards on Thanos are modified directly on Thanos. To modify a dashboard on Thanos
+- press edit on the dashboard you want to modify
+- make the necesary changes
+- click "Apply" on the top righ of the dashboard
+- Save the dashboard if you are satisfied with the changes
+
+When editing changes, please also follow the following best practices
+- Make sure the panels on each page show up in a uniform fashion.
+  If all panels of a dashboard had been extended before your edit, they should keep staying extended after the edit.
+  If all panels had been collapsed, they should keep staying collapsed.
+- If previous metrics are using variables (like `${ClusterName}`), then make sure that newly added metrics use the same variables.
+- Thanos dashboards cover multiple sites which run different versions of the Forge control plane. These versions might emit different sets of metrics.
+  Dashboards should be compatible with old and new version of metrics. E.g. if a dashboard shows a "gRPC availablitiy metric", and the way we emit gRPC metrics changes between versions, dashboards should show both versions in a single graph.
+
+### Modifying Site Dashboards
+
+Dashboards that are visible on the sites are deployed together with Grafana.
+They are stored at [https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/bases/forge-dashboards](https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/bases/forge-dashboards).
+
+To modify a dashboard on all sites:
+1. Try the changes to a dashboard on a single site (e.g. dev3) via a local edit
+2. Create a merge request against `forged` to modify the target dashboard
+3. Get approval for the merge request and merge it
+4. Sync the new dashboard to all sites via argocd. This step should be performed
+  by the Forge SRE team in scope of the Forge rollout process.
