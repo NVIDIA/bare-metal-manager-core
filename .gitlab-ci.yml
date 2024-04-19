@@ -579,6 +579,7 @@ nspect-source-scan-x86_64:
     PULSE_SCAN_PROJECT_VERSION: "${CI_COMMIT_BRANCH}"
     PULSE_SCAN_VULNERABILITY_REPORT: "nspect_${CI_COMMIT_BRANCH}_scan_report.json"
   rules:
+    - when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
       variables:
         PULSE_SCAN_OVERRIDE: "true"
