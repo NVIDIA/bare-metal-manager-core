@@ -102,6 +102,19 @@ impl MachineInterfaceAddress {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
+
+    pub async fn delete(
+        txn: &mut Transaction<'_, Postgres>,
+        interface_id: Uuid,
+    ) -> Result<(), DatabaseError> {
+        let query = "DELETE FROM machine_interface_addresses WHERE interface_id = $1";
+        sqlx::query(query)
+            .bind(interface_id)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

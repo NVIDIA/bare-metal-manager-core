@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use sqlx::{FromRow, Postgres, Transaction};
+use uuid::Uuid;
 
 use super::{DatabaseError, UuidKeyedObjectFilter};
 
@@ -66,6 +67,21 @@ ON CONFLICT DO NOTHING";
         let _result = sqlx::query(query)
             .bind(self.machine_interface_id)
             .bind(&self.vendor_string)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn delete(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_interface_id: &Uuid,
+    ) -> Result<(), DatabaseError> {
+        let query = "
+DELETE FROM dhcp_entries WHERE machine_interface_id=$1::uuid";
+        let _result = sqlx::query(query)
+            .bind(machine_interface_id)
             .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

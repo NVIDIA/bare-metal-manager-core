@@ -186,6 +186,8 @@ async fn force_delete(
     env.api
         .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
             host_query: machine_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
         }))
         .await
         .unwrap()

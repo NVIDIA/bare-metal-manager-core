@@ -584,6 +584,22 @@ pub struct ForceDeleteMachineQuery {
         help = "UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete"
     )]
     pub machine: String,
+
+    #[clap(
+        short = 'd',
+        long,
+        action,
+        help = "Delete interfaces. Redeploy kea after deleting machine interfaces."
+    )]
+    pub delete_interfaces: bool,
+
+    #[clap(
+        short = 'b',
+        long,
+        action,
+        help = "Delete BMC interfaces. Redeploy kea after deleting machine interfaces."
+    )]
+    pub delete_bmc_interfaces: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -940,6 +956,8 @@ pub enum RouteServer {
 pub enum MachineInterfaces {
     #[clap(about = "List of all Machine interfaces")]
     Show(ShowMachineInterfaces),
+    #[clap(about = "Delete Machine interface.")]
+    Delete(DeleteMachineInterfaces),
 }
 
 #[derive(Parser, Debug)]
@@ -961,6 +979,12 @@ pub struct ShowMachineInterfaces {
 
     #[clap(long, action)]
     pub more: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct DeleteMachineInterfaces {
+    #[clap(help = "The interface ID to delete. Redeploy kea after deleting machine interfaces.")]
+    pub interface_id: String,
 }
 
 #[derive(Parser, Debug)]

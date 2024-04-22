@@ -22,6 +22,7 @@ use super::cfg::carbide_options::{OutputFormat, ShowMachineInterfaces};
 use super::CarbideCliResult;
 
 use super::rpc;
+use crate::cfg::carbide_options::DeleteMachineInterfaces;
 use crate::default_uuid;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
@@ -223,4 +224,15 @@ fn convert_machine_to_nice_format(
         writeln!(&mut lines, "\t{:<width$}: {}", key, value)?;
     }
     Ok(lines)
+}
+
+pub async fn handle_delete(
+    args: DeleteMachineInterfaces,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    let interface_id = Some(Uuid {
+        value: args.interface_id,
+    });
+    rpc::delete_machine_interface(api_config, interface_id).await?;
+    Ok(())
 }

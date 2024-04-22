@@ -564,6 +564,9 @@ async fn main() -> color_eyre::Result<()> {
                 machine_interfaces::handle_show(machine_interfaces, config.format, api_config)
                     .await?
             }
+            MachineInterfaces::Delete(args) => {
+                machine_interfaces::handle_delete(args, api_config).await?
+            }
         },
         CarbideCommand::GenerateShellComplete(shell) => {
             let mut cmd = CarbideOptions::command();

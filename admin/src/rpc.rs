@@ -340,6 +340,8 @@ pub async fn machine_admin_force_delete(
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(::rpc::forge::AdminForceDeleteMachineRequest {
             host_query: query.machine,
+            delete_interfaces: query.delete_interfaces,
+            delete_bmc_interfaces: query.delete_bmc_interfaces,
         });
         let response = client
             .admin_force_delete_machine(request)
@@ -741,6 +743,7 @@ pub async fn remove_route_server(
 
     Ok(())
 }
+
 pub async fn get_all_machines_interfaces(
     api_config: &ApiConfig<'_>,
     id: Option<Uuid>,
@@ -754,6 +757,23 @@ pub async fn get_all_machines_interfaces(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(machine_interfaces)
+    })
+    .await
+}
+
+pub async fn delete_machine_interface(
+    api_config: &ApiConfig<'_>,
+    id: Option<Uuid>,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::InterfaceDeleteQuery { id });
+        client
+            .delete_interface(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
     })
     .await
 }

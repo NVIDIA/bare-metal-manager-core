@@ -18,7 +18,7 @@ use carbide::{
         domain::Domain, machine::Machine, machine_interface::MachineInterface,
         network_segment::NetworkSegment, UuidKeyedObjectFilter,
     },
-    model::machine::machine_id::MachineId,
+    model::machine::machine_id::{try_parse_machine_id, MachineId},
     CarbideError,
 };
 use itertools::Itertools;
@@ -32,6 +32,9 @@ use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS,
 };
 use tokio::sync::broadcast;
+use tonic::Code;
+
+use crate::common::api_fixtures::dpu::create_dpu_machine;
 
 #[ctor::ctor]
 fn setup() {
@@ -458,4 +461,138 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     assert_eq!(iface.id, interface.id);
 
     Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let interface = MachineInterface::create(
+        &mut txn,
+        &network_segment,
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        "hostname".to_string(),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await
+    .unwrap();
+
+    txn.commit().await.unwrap();
+
+    let mut txn = pool.begin().await?;
+    interface.delete(&mut txn).await?;
+    txn.commit().await?;
+
+    let mut txn = pool.begin().await?;
+    let _interface = MachineInterface::find_one(&mut txn, interface.id).await;
+    assert!(matches!(
+        CarbideError::FindOneReturnedNoResultsError(interface.id),
+        _interface
+    ));
+
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_delete_interface_with_machine(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+    let dpu_machine_id = try_parse_machine_id(&rpc_machine_id).unwrap();
+
+    let mut txn = pool.begin().await?;
+    let interface = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        .await
+        .unwrap();
+
+    let interface = &interface.get(&dpu_machine_id).unwrap()[0];
+    txn.commit().await.unwrap();
+
+    let response = env
+        .api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: Some(rpc::Uuid {
+                value: interface.id().to_string(),
+            }),
+        }))
+        .await;
+
+    match response {
+        Ok(_) => panic!("machine deletion is not failed."),
+        Err(x) => {
+            let c = x.code();
+            match c {
+                Code::InvalidArgument => {
+                    let msg = String::from(x.message());
+                    if !msg.contains("Already a machine") {
+                        panic!("machine interface deletion failed with wrong message {msg}");
+                    }
+                    return Ok(());
+                }
+                _ => {
+                    panic!("machine interface deletion failed with wrong code {c}");
+                }
+            }
+        }
+    }
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_delete_bmc_interface_with_machine(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host_sim = env.start_managed_host_sim();
+    let _rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
+
+    let mut txn = pool.begin().await?;
+    let interfaces = MachineInterface::find_all(&mut txn).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let interfaces = interfaces
+        .iter()
+        .filter(|x| x.attached_dpu_machine_id().is_none())
+        .collect::<Vec<&MachineInterface>>();
+
+    if interfaces.len() != 1 {
+        // We have only three interfaces, 2 for managed host and one for bmc.
+        panic!("Wrong interface count {}.", interfaces.len());
+    }
+
+    let bmc_interface = interfaces[0];
+
+    let response = env
+        .api
+        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+            id: Some(rpc::Uuid {
+                value: bmc_interface.id().to_string(),
+            }),
+        }))
+        .await;
+
+    match response {
+        Ok(_) => panic!("machine deletion is not failed."),
+        Err(x) => {
+            let c = x.code();
+            match c {
+                Code::InvalidArgument => {
+                    let msg = String::from(x.message());
+                    if !msg.contains("This looks like a BMC interface and attached") {
+                        panic!("machine interface deletion failed with wrong message {msg}");
+                    }
+                    return Ok(());
+                }
+                _ => {
+                    panic!("machine interface deletion failed with wrong code {c}");
+                }
+            }
+        }
+    }
 }
