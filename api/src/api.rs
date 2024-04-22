@@ -352,7 +352,7 @@ where
                 };
                 Domain::find(&mut txn, uuid).await
             }
-            (None, Some(name)) => Domain::find_by_name(&mut txn, name).await,
+            (None, Some(name)) => Domain::find_by_name(&mut txn, &name).await,
             (None, None) => Domain::find(&mut txn, UuidKeyedObjectFilter::All).await,
         };
 
@@ -491,7 +491,7 @@ where
                 };
                 Vpc::find(&mut txn, uuid).await
             }
-            (None, Some(name)) => Vpc::find_by_name(&mut txn, name).await,
+            (None, Some(name)) => Vpc::find_by_name(&mut txn, &name).await,
             (None, None) => Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await,
         };
 
