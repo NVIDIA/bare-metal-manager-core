@@ -16,9 +16,12 @@ use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{
-    hardware_info::{DmiData, HardwareInfo},
-    machine::machine_id::MachineId,
+use crate::{
+    cfg::DpuModel,
+    model::{
+        hardware_info::{DmiData, HardwareInfo},
+        machine::machine_id::MachineId,
+    },
 };
 
 /// Data that we gathered about a particular endpoint during site exploration
@@ -173,11 +176,29 @@ impl EndpointExplorationReport {
     }
 
     /// Return `true` if the explored endpoint is a DPU
-    pub fn is_dpu(&self) -> bool {
-        self.systems
-            .first()
-            .map(|system| system.id == "Bluefield")
-            .unwrap_or(false)
+    pub fn is_dpu(&self) -> (bool, DpuModel) {
+        let chassis_map = self
+            .chassis
+            .clone()
+            .into_iter()
+            .map(|x| (x.id.clone(), x))
+            .collect::<HashMap<_, _>>();
+        let model = chassis_map
+            .get("Card1")
+            .and_then(|value| value.model.as_ref())
+            .unwrap_or(&"".to_string())
+            .to_string();
+        match model.to_lowercase() {
+            value if value.contains("bluefield 2") => (true, DpuModel::BlueField2),
+            value if value.contains("bluefield 3") => (true, DpuModel::BlueField3),
+            _ => (
+                self.systems
+                    .first()
+                    .map(|system| system.id == "Bluefield")
+                    .unwrap_or(false),
+                DpuModel::Unknown,
+            ),
+        }
     }
 
     pub fn create_temporary_dmi_data(&self, serial_number: &str) -> DmiData {
@@ -202,7 +223,7 @@ impl EndpointExplorationReport {
     /// Tries to generate and store a MachineId for the discovered endpoint if
     /// enough data for generation is available
     pub fn generate_machine_id(&mut self) {
-        if let (true, Some(serial_number)) = (
+        if let ((true, _), Some(serial_number)) = (
             self.is_dpu(),
             self.systems
                 .first()

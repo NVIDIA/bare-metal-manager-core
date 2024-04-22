@@ -19,7 +19,7 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
-    cfg::SiteExplorerConfig,
+    cfg::{DpuModel, SiteExplorerConfig},
     db::{
         bmc_metadata::BmcMetaDataUpdateRequest,
         explored_endpoints::DbExploredEndpoint,
@@ -530,10 +530,10 @@ impl SiteExplorer {
             if ep.report.endpoint_type != EndpointType::Bmc {
                 continue;
             }
-            if ep.report.is_dpu() {
-                explored_dpus.insert(ep.address, ep);
-            } else {
+            if (false, DpuModel::Unknown) == ep.report.is_dpu() {
                 explored_hosts.insert(ep.address, ep);
+            } else {
+                explored_dpus.insert(ep.address, ep);
             }
         }
 

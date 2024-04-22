@@ -558,6 +558,7 @@ fn default_dpus() -> HashMap<DpuModel, DpuDesc> {
 pub enum DpuModel {
     BlueField2,
     BlueField3,
+    Unknown,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
