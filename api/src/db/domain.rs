@@ -225,7 +225,7 @@ impl Domain {
 
     pub async fn find_by_name(
         txn: &mut Transaction<'_, Postgres>,
-        name: String,
+        name: &str,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM domains WHERE name= $1 and deleted is NULL";
         sqlx::query_as(query)

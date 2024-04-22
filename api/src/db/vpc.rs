@@ -216,7 +216,7 @@ impl Vpc {
 
     pub async fn find_by_name(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        name: String,
+        name: &str,
     ) -> Result<Vec<Vpc>, DatabaseError> {
         let query = "SELECT * FROM vpcs WHERE name = $1 and deleted is NULL";
         sqlx::query_as(query)
