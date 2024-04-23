@@ -372,6 +372,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         ),
         carbide::db::network_segment::NetworkSegmentSearchConfig {
             include_history: false,
+            include_num_free_ips: false,
         },
     )
     .await

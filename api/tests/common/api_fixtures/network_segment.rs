@@ -69,6 +69,7 @@ async fn create_network_segment(
             state: None,
             events: vec![],
             circuit_id: None,
+            free_ip_count: 0,
         }],
         subdomain_id: Some(FIXTURE_CREATED_DOMAIN_UUID.into()),
         vpc_id: None,

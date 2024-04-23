@@ -34,17 +34,25 @@ async fn test_network_segment_lifecycle_impl(
     pool: sqlx::PgPool,
     use_subdomain: bool,
     use_vpc: bool,
+    seg_type: i32,
+    num_reserved: i32,
+    test_num_free_ips: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let segment = create_network_segment_with_api(&env.api, use_subdomain, use_vpc, None).await;
+    let segment = create_network_segment_with_api(
+        &env.api,
+        use_subdomain,
+        use_vpc,
+        None,
+        seg_type,
+        num_reserved,
+    )
+    .await;
     assert!(segment.created.is_some());
     assert!(segment.deleted.is_none());
     assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);
-    assert_eq!(
-        segment.segment_type,
-        rpc::forge::NetworkSegmentType::Admin as i32
-    );
+    assert_eq!(segment.segment_type, seg_type);
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
     let _: uuid::Uuid = segment
         .prefixes
@@ -76,6 +84,29 @@ async fn test_network_segment_lifecycle_impl(
         get_segment_state(&env.api, segment_id).await,
         rpc::forge::TenantState::Ready
     );
+
+    if test_num_free_ips {
+        let segments = env
+            .api
+            .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
+                id: segment.id.clone(),
+                search_config: Some(rpc::forge::NetworkSegmentSearchConfig {
+                    include_history: false,
+                    include_num_free_ips: true,
+                }),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .network_segments;
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].prefixes.len(), 1);
+        assert_eq!(
+            segments[0].prefixes[0].free_ip_count,
+            255 - num_reserved as u32
+        );
+    }
 
     env.api
         .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
@@ -154,28 +185,60 @@ async fn test_network_segment_lifecycle_impl(
 async fn test_network_segment_lifecycle(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, false, false).await
+    test_network_segment_lifecycle_impl(
+        pool,
+        false,
+        false,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+        false,
+    )
+    .await
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_vpc(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, false, true).await
+    test_network_segment_lifecycle_impl(
+        pool,
+        false,
+        true,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+        false,
+    )
+    .await
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, true, false).await
+    test_network_segment_lifecycle_impl(
+        pool,
+        true,
+        false,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+        false,
+    )
+    .await
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_network_segment_lifecycle_with_vpc_and_domain(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    test_network_segment_lifecycle_impl(pool, true, true).await
+    test_network_segment_lifecycle_impl(
+        pool,
+        true,
+        true,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+        false,
+    )
+    .await
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -187,4 +250,49 @@ async fn test_admin_network_exists(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     assert_eq!(segments.id, FIXTURE_NETWORK_SEGMENT_ID);
 
     Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_network_segment_admin_free_ips(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_network_segment_lifecycle_impl(
+        pool,
+        false,
+        true,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        2,
+        true,
+    )
+    .await
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_network_segment_tenant_free_ips(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_network_segment_lifecycle_impl(
+        pool,
+        false,
+        true,
+        rpc::forge::NetworkSegmentType::Tenant as i32,
+        10,
+        true,
+    )
+    .await
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_network_segment_underlay_free_ips(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_network_segment_lifecycle_impl(
+        pool,
+        false,
+        true,
+        rpc::forge::NetworkSegmentType::Underlay as i32,
+        6,
+        true,
+    )
+    .await
 }

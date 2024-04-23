@@ -98,6 +98,7 @@ async fn convert_network_to_nice_format(
                 ),
                 ("Reserve First", prefix.reserve_first.to_string()),
                 ("Circuit ID", prefix.circuit_id.unwrap_or_default()),
+                ("Free IP Count", prefix.free_ip_count.to_string()),
             ];
 
             for (key, value) in data {

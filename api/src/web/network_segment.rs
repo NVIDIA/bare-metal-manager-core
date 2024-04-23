@@ -149,6 +149,7 @@ async fn fetch_network_segments<
         id: None,
         search_config: Some(forgerpc::NetworkSegmentSearchConfig {
             include_history: false,
+            include_num_free_ips: false,
         }),
     });
     let mut networks = api
@@ -286,6 +287,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         }),
         search_config: Some(forgerpc::NetworkSegmentSearchConfig {
             include_history: true,
+            include_num_free_ips: true,
         }),
     });
     let mut networks = match state

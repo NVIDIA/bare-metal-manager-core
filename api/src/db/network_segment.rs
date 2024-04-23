@@ -14,6 +14,9 @@ use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
 
+use crate::db::address_selection_strategy::AddressSelectionStrategy;
+use crate::db::machine_interface::UsedAdminNetworkIpResolver;
+use crate::dhcp::allocation::IpAllocator;
 use ::rpc::forge as rpc;
 use ::rpc::protos::forge::TenantState;
 use chrono::prelude::*;
@@ -47,12 +50,14 @@ const DEFAULT_MTU_OTHER: i32 = 1500;
 #[derive(Debug, Copy, Clone, Default)]
 pub struct NetworkSegmentSearchConfig {
     pub include_history: bool,
+    pub include_num_free_ips: bool,
 }
 
 impl From<rpc::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
     fn from(value: rpc::NetworkSegmentSearchConfig) -> Self {
         NetworkSegmentSearchConfig {
             include_history: value.include_history,
+            include_num_free_ips: value.include_num_free_ips,
         }
     }
 }
@@ -525,6 +530,66 @@ impl NetworkSegment {
         for record in all_records {
             if let Some(prefixes) = grouped_prefixes.remove(&record.id) {
                 record.prefixes = prefixes;
+
+                if search_config.include_num_free_ips && !record.prefixes.is_empty() {
+                    if record.segment_type == crate::db::network_segment::NetworkSegmentType::Tenant
+                    {
+                        let dhcp_handler = UsedAdminNetworkIpResolver {
+                            segment_id: record.id,
+                        };
+
+                        let mut allocated_addresses = IpAllocator::new(
+                            txn,
+                            record,
+                            &dhcp_handler,
+                            AddressSelectionStrategy::Automatic,
+                        )
+                        .await
+                        .map_err(|e| {
+                            DatabaseError::new(
+                                file!(),
+                                line!(),
+                                "IpAllocator.new error",
+                                sqlx::Error::Io(std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    e.to_string(),
+                                )),
+                            )
+                        })?;
+
+                        let nfree = allocated_addresses.num_free();
+
+                        record.prefixes[0].num_free_ips = nfree;
+                    } else {
+                        let dhcp_handler =
+                            crate::db::instance_address::UsedOverlayNetworkIpResolver {
+                                segment_id: record.id,
+                            };
+
+                        let mut allocated_addresses = IpAllocator::new(
+                            txn,
+                            record,
+                            &dhcp_handler,
+                            AddressSelectionStrategy::Automatic,
+                        )
+                        .await
+                        .map_err(|e| {
+                            DatabaseError::new(
+                                file!(),
+                                line!(),
+                                "IpAllocator.new error",
+                                sqlx::Error::Io(std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    e.to_string(),
+                                )),
+                            )
+                        })?;
+
+                        let nfree = allocated_addresses.num_free();
+
+                        record.prefixes[0].num_free_ips = nfree;
+                    }
+                }
             } else {
                 tracing::warn!(
                     record_id = %record.id,

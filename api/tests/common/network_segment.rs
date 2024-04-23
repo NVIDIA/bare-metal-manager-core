@@ -28,6 +28,8 @@ pub async fn create_network_segment_with_api(
     use_subdomain: bool,
     use_vpc: bool,
     id: Option<Uuid>,
+    segment_type: i32,
+    num_reserved: i32,
 ) -> rpc::forge::NetworkSegment {
     let mut request = rpc::forge::NetworkSegmentCreationRequest {
         id,
@@ -37,14 +39,15 @@ pub async fn create_network_segment_with_api(
             id: None,
             prefix: "192.0.2.0/24".to_string(),
             gateway: Some("192.0.2.1".to_string()),
-            reserve_first: 1,
+            reserve_first: num_reserved,
             state: None,
             events: vec![],
             circuit_id: None,
+            free_ip_count: 0,
         }],
         subdomain_id: None,
         vpc_id: None,
-        segment_type: rpc::forge::NetworkSegmentType::Admin as i32,
+        segment_type,
     };
     if use_subdomain {
         request.subdomain_id = Some(FIXTURE_CREATED_DOMAIN_UUID.into());
@@ -65,6 +68,7 @@ pub async fn get_segment_state(api: &TestApi, segment_id: uuid::Uuid) -> rpc::fo
             id: Some(segment_id.into()),
             search_config: Some(NetworkSegmentSearchConfig {
                 include_history: false,
+                include_num_free_ips: false,
             }),
         }))
         .await

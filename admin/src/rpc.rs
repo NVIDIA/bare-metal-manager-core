@@ -247,12 +247,18 @@ pub async fn get_segments(
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<rpc::NetworkSegmentList> {
     with_forge_client(api_config, |mut client| async move {
+        // Return the number of free ips only when client is asking for segment info
+        // of a specific segment id.
+        let ret_free_ips = id.is_some();
+
         let request = tonic::Request::new(rpc::NetworkSegmentQuery {
             id,
             search_config: Some(NetworkSegmentSearchConfig {
                 include_history: true,
+                include_num_free_ips: ret_free_ips,
             }),
         });
+
         let networks = client
             .find_network_segments(request)
             .await
