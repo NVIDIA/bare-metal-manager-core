@@ -18,7 +18,7 @@ use std::{
 };
 
 use carbide::{
-    cfg::{DpuFwUpdateConfig, SiteExplorerConfig},
+    cfg::{default_dpus, DpuFwUpdateConfig, SiteExplorerConfig},
     db::{
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
@@ -144,13 +144,6 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     );
     txn.commit().await.unwrap();
 
-    let explorer_config = SiteExplorerConfig {
-        enabled: true,
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: true,
-    };
     let endpoint_explorer = Arc::new(FakeEndpointExplorer {
         reports: Arc::new(Mutex::new(HashMap::new())),
     });
@@ -254,10 +247,19 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         );
     }
 
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: true,
+    };
+    let dpu_config = default_dpus();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         env.pool.clone(),
         Some(&explorer_config),
+        &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
     );
@@ -560,6 +562,27 @@ async fn test_site_explorer_creates_managed_host(
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
 
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: true,
+    };
+    let dpu_config = default_dpus();
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        pool.clone(),
+        Some(&explorer_config),
+        &dpu_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+    );
+
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env
         .api
@@ -662,7 +685,12 @@ async fn test_site_explorer_creates_managed_host(
         host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
     };
 
-    assert!(SiteExplorer::create_machine_pair(&dpu_report, &exploration_report, &env.pool).await?);
+    assert!(
+        explorer
+            .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+            .await?
+    );
+
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -736,7 +764,11 @@ async fn test_site_explorer_creates_managed_host(
     assert!(host_machine.bmc_info().ip.is_some());
 
     // 2nd creation does nothing
-    assert!(!SiteExplorer::create_machine_pair(&dpu_report, &exploration_report, &env.pool).await?);
+    assert!(
+        !explorer
+            .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+            .await?
+    );
 
     // Run ManagedHost state iteration
     let handler = MachineStateHandler::new(

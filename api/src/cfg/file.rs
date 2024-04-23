@@ -546,13 +546,6 @@ fn default_max_database_connections() -> u32 {
 }
 
 /// DPU related config.
-fn default_dpus() -> HashMap<DpuModel, DpuDesc> {
-    HashMap::from([
-        (DpuModel::BlueField2, DpuDesc::new()),
-        (DpuModel::BlueField3, DpuDesc::new()),
-    ])
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum DpuModel {
@@ -567,18 +560,17 @@ pub enum DpuComponent {
     Uefi,
 }
 
+pub fn default_dpus() -> HashMap<DpuModel, DpuDesc> {
+    HashMap::from([
+        (DpuModel::BlueField2, DpuDesc::default()),
+        (DpuModel::BlueField3, DpuDesc::default()),
+    ])
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DpuDesc {
     #[serde(default)]
     pub min_component_version: HashMap<DpuComponent, String>,
-}
-
-impl DpuDesc {
-    pub fn new() -> Self {
-        Self {
-            ..Default::default()
-        }
-    }
 }
 
 impl Default for DpuDesc {
@@ -816,7 +808,7 @@ mod tests {
             }
         );
 
-        let value_input = DpuDesc::new();
+        let value_input = DpuDesc::default();
         assert!(value_input
             .min_component_version
             .contains_key(&DpuComponent::Bmc));

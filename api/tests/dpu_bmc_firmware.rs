@@ -1,16 +1,24 @@
-use std::{collections::HashMap, net::IpAddr, str::FromStr};
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
 use carbide::{
-    cfg::DpuFwUpdateConfig,
-    db::machine::{Machine, MachineSearchConfig},
+    cfg::{default_dpus, DpuFwUpdateConfig, SiteExplorerConfig},
+    db::{
+        machine::{Machine, MachineSearchConfig},
+        machine_interface::MachineInterface,
+    },
     model::{
         machine::{BmcFirmwareUpdateSubstate, DpuDiscoveringState, FirmwareType, ManagedHostState},
         site_explorer::{
-            Chassis, ComputerSystem, EndpointExplorationReport, EndpointType, EthernetInterface,
-            ExploredManagedHost, Inventory, Manager, Service,
+            Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
+            EndpointType, EthernetInterface, ExploredManagedHost, Inventory, Manager, Service,
         },
     },
-    site_explorer::SiteExplorer,
+    site_explorer::{EndpointExplorer, SiteExplorer},
     state_controller::machine::handler::MachineStateHandler,
     CarbideError,
 };
@@ -19,11 +27,14 @@ use rpc::forge::{forge_server::Forge, DhcpDiscovery};
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 
-use crate::common::api_fixtures::network_segment::{
-    create_admin_network_segment, create_underlay_network_segment,
-};
+mod common;
 
-pub mod common;
+use crate::common::{
+    api_fixtures::network_segment::{
+        create_admin_network_segment, create_underlay_network_segment,
+    },
+    test_meter::TestMeter,
+};
 
 #[ctor::ctor]
 fn setup() {
@@ -35,6 +46,27 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
+
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: true,
+    };
+    let dpu_config = default_dpus();
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        pool.clone(),
+        Some(&explorer_config),
+        &dpu_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+    );
 
     let mut dpu_report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
@@ -93,17 +125,11 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
     };
 
-    let handled_uefi_err = match SiteExplorer::create_machine_pair(
-        &dpu_report,
-        &exploration_report,
-        &env.pool,
-    )
-    .await
+    let handled_uefi_err = match explorer
+        .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+        .await
     {
-        Err(CarbideError::UnsupportedFirmwareVersion(_)) => {
-            dpu_report.service[0].inventories[1].version = Some("4.5.0-12993".to_string());
-            true
-        }
+        Err(CarbideError::UnsupportedFirmwareVersion(_)) => true,
         Ok(_) | Err(_) => false,
     };
     assert!(handled_uefi_err);
@@ -116,6 +142,27 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
+
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: true,
+    };
+    let dpu_config = default_dpus();
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        pool.clone(),
+        Some(&explorer_config),
+        &dpu_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+    );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env
@@ -221,7 +268,12 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
     };
 
-    assert!(SiteExplorer::create_machine_pair(&dpu_report, &exploration_report, &env.pool).await?);
+    assert!(
+        explorer
+            .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+            .await?
+    );
+
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine = Machine::find_one(
         &mut txn,
@@ -361,4 +413,24 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     fs::remove_file(bmc_fw_filename).await?;
     Ok(())
+}
+/// EndpointExplorer which returns predefined data
+struct FakeEndpointExplorer {
+    reports:
+        Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
+}
+
+#[async_trait::async_trait]
+impl EndpointExplorer for FakeEndpointExplorer {
+    async fn explore_endpoint(
+        &self,
+        address: &IpAddr,
+        _interface: &MachineInterface,
+        _last_report: Option<&EndpointExplorationReport>,
+    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        tracing::info!("Endpoint {address} is getting explored");
+        let guard = self.reports.lock().unwrap();
+        let res = guard.get(address).unwrap();
+        res.clone()
+    }
 }

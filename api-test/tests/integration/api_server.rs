@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use carbide::cfg::{
-    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuDesc, DpuFwUpdateConfig, DpuModel,
+    default_dpus, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuFwUpdateConfig,
     IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
     MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
     TlsConfig,
@@ -184,10 +184,7 @@ pub async fn start(
                 ..StateControllerConfig::default()
             },
         },
-        dpus: HashMap::from([
-            (DpuModel::BlueField2, DpuDesc::new()),
-            (DpuModel::BlueField3, DpuDesc::new()),
-        ]),
+        dpus: default_dpus(),
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
