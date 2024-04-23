@@ -125,6 +125,7 @@ pub async fn bootstrap(
             enable_metadata_service: false,
             override_machine_id: Some(dmi.to_string()),
             override_network_virtualization_type: None,
+            skip_upgrade_check: false,
         })),
     }));
 

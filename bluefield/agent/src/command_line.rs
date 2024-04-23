@@ -180,6 +180,12 @@ pub struct RunOptions {
         help = "Use this network_virtualization_type for both service network and all instances."
     )]
     pub override_network_virtualization_type: Option<NetworkVirtualizationType>,
+    #[clap(
+        long,
+        default_value = "false",
+        help = "Do not perform upgrade checks. This is for development only. Do not use in production."
+    )]
+    pub skip_upgrade_check: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy)]

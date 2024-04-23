@@ -339,33 +339,35 @@ pub async fn run(
             }
         }
 
-        // We potentially restart at this point, so make it last in the loop
-        if now > version_check_time {
-            version_check_time = now.add(version_check_period);
-            let upgrade_result = upgrade::upgrade(
-                forge_api,
-                forge_client_config.clone(),
-                machine_id,
-                agent.updates.override_upgrade_cmd.as_deref(),
-            )
-            .await;
-            match upgrade_result {
-                Ok(false) => {
-                    // did not upgrade, normal case, continue
-                }
-                Ok(true) => {
-                    // upgraded, need to exit and restart
-                    if let Err(err) = systemd::notify_stop().await {
-                        tracing::error!(error = format!("{err:#}"), "systemd::notify_stop");
+        if !options.skip_upgrade_check {
+            // We potentially restart at this point, so make it last in the loop
+            if now > version_check_time {
+                version_check_time = now.add(version_check_period);
+                let upgrade_result = upgrade::upgrade(
+                    forge_api,
+                    forge_client_config.clone(),
+                    machine_id,
+                    agent.updates.override_upgrade_cmd.as_deref(),
+                )
+                .await;
+                match upgrade_result {
+                    Ok(false) => {
+                        // did not upgrade, normal case, continue
                     }
-                    return Ok(());
-                }
-                Err(e) => {
-                    tracing::error!(
-                        forge_api,
-                        error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
-                        "upgrade_check failed"
-                    );
+                    Ok(true) => {
+                        // upgraded, need to exit and restart
+                        if let Err(err) = systemd::notify_stop().await {
+                            tracing::error!(error = format!("{err:#}"), "systemd::notify_stop");
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            forge_api,
+                            error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
+                            "upgrade_check failed"
+                        );
+                    }
                 }
             }
         }
