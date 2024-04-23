@@ -99,6 +99,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
         // "run" is the normal command
         Some(AgentCommand::Run(options)) => {
+            if options.skip_upgrade_check {
+                tracing::warn!("Upgrades disabled. Dev only");
+            }
+
             let Registration {
                 machine_id,
                 factory_mac_address,

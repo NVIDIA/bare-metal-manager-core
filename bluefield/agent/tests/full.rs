@@ -191,6 +191,7 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
             enable_metadata_service: TEST_METADATA_SERVICE,
             override_machine_id: None,
             override_network_virtualization_type: None,
+            skip_upgrade_check: false,
         })),
     };
 

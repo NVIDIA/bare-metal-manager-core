@@ -164,6 +164,7 @@ async fn test_integration() -> eyre::Result<()> {
             enable_metadata_service: false,
             override_machine_id: Some(dpu_info.machine_id.clone()),
             override_network_virtualization_type: None,
+            skip_upgrade_check: false,
         })),
     }));
     tokio::time::sleep(Duration::from_secs(1)).await;
