@@ -29,6 +29,7 @@ pub struct NetworkPrefix {
     pub gateway: Option<IpAddr>,
     pub num_reserved: i32,
     pub circuit_id: Option<String>,
+    pub num_free_ips: u32,
 }
 
 #[derive(Debug)]
@@ -47,6 +48,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
             gateway: row.try_get("gateway")?,
             num_reserved: row.try_get("num_reserved")?,
             circuit_id: row.try_get("circuit_id")?,
+            num_free_ips: 0,
         })
     }
 }
@@ -82,6 +84,7 @@ impl From<NetworkPrefix> for rpc::NetworkPrefix {
             state: None,
             events: vec![],
             circuit_id: src.circuit_id,
+            free_ip_count: src.num_free_ips,
         }
     }
 }

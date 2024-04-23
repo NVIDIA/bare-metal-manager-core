@@ -282,8 +282,8 @@ WHERE network_prefixes.segment_id = $1::uuid";
     }
 }
 
-struct UsedOverlayNetworkIpResolver {
-    segment_id: uuid::Uuid,
+pub struct UsedOverlayNetworkIpResolver {
+    pub segment_id: uuid::Uuid,
 }
 
 #[async_trait::async_trait]

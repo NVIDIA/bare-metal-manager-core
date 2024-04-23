@@ -47,8 +47,8 @@ pub struct MachineInterface {
     vendors: Vec<String>,
 }
 
-struct UsedAdminNetworkIpResolver {
-    segment_id: uuid::Uuid,
+pub struct UsedAdminNetworkIpResolver {
+    pub segment_id: uuid::Uuid,
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineInterface {

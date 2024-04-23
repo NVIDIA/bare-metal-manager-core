@@ -58,7 +58,7 @@ pub enum DhcpError {
 
 // Trying to decouple from NetworkSegment as much as possible.
 #[derive(Debug)]
-struct Prefix {
+pub struct Prefix {
     id: uuid::Uuid,
     prefix: IpNetwork,
     gateway: Option<IpAddr>,
@@ -98,38 +98,12 @@ impl IpAllocator {
             _ => Err(CarbideError::from(DhcpError::StrategyNotImplemented)),
         }
     }
-}
 
-impl Iterator for IpAllocator {
-    /// The Item is a tuple that returns the prefix ID and the allocated IP for that prefix
-    type Item = (uuid::Uuid, CarbideResult<IpAddr>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.prefixes.is_empty() {
-            return None;
-        }
-        let segment_prefix = self.prefixes.remove(0);
-        if !segment_prefix.prefix.is_ipv4() {
-            return Some((
-                segment_prefix.id,
-                Err(CarbideError::from(DhcpError::OnlyIpv4Supported(
-                    segment_prefix.prefix,
-                ))),
-            ));
-        }
-
+    // Populate and return the excluded_ips in this segment_prefix
+    // Excluded ips include currently in use ips as well as the broadcast address,
+    // gateway address and the reserved ips.
+    pub fn get_excluded(&self, segment_prefix: &Prefix) -> PatriciaMap<()> {
         let mut excluded_ips: PatriciaMap<()> = PatriciaMap::new();
-
-        /// This looks dumb, because octets() isn't on IpAddr, only on IpXAddr
-        ///
-        /// https://github.com/rust-lang/rfcs/issues/1881
-        ///
-        fn to_vec(addr: &IpAddr) -> Vec<u8> {
-            match addr {
-                IpAddr::V4(address) => address.octets().to_vec(),
-                IpAddr::V6(address) => address.octets().to_vec(),
-            }
-        }
 
         excluded_ips.extend(
             self.used_ips
@@ -165,6 +139,59 @@ impl Iterator for IpAllocator {
             excluded_ips.insert(to_vec(&segment_prefix.prefix.broadcast()), ());
         }
 
+        excluded_ips
+    }
+
+    // Return the number of available ips in this network segment
+    pub fn num_free(&mut self) -> u32 {
+        if self.prefixes.is_empty() {
+            return 0;
+        }
+
+        let segment_prefix = &self.prefixes[0];
+        if !segment_prefix.prefix.is_ipv4() {
+            return 0;
+        }
+
+        let mut nfree: u32;
+
+        let nfree_sz = segment_prefix.prefix.size();
+
+        match nfree_sz {
+            ipnetwork::NetworkSize::V4(nf) => nfree = nf,
+            ipnetwork::NetworkSize::V6(_n128) => {
+                return 0;
+            }
+        }
+
+        let excluded_ips = self.get_excluded(segment_prefix);
+
+        nfree -= excluded_ips.len() as u32;
+
+        nfree
+    }
+}
+
+impl Iterator for IpAllocator {
+    /// The Item is a tuple that returns the prefix ID and the allocated IP for that prefix
+    type Item = (uuid::Uuid, CarbideResult<IpAddr>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.prefixes.is_empty() {
+            return None;
+        }
+        let segment_prefix = self.prefixes.remove(0);
+        if !segment_prefix.prefix.is_ipv4() {
+            return Some((
+                segment_prefix.id,
+                Err(CarbideError::from(DhcpError::OnlyIpv4Supported(
+                    segment_prefix.prefix,
+                ))),
+            ));
+        }
+
+        let excluded_ips = self.get_excluded(&segment_prefix);
+
         // Iterate over all the IPs until we find one that's not in the map, that's our
         // first free IPs
         let mut maybe_first_free_ip = None;
@@ -184,6 +211,17 @@ impl Iterator for IpAllocator {
     }
 }
 
+/// This looks dumb, because octets() isn't on IpAddr, only on IpXAddr
+///
+/// https://github.com/rust-lang/rfcs/issues/1881
+///
+pub fn to_vec(addr: &IpAddr) -> Vec<u8> {
+    match addr {
+        IpAddr::V4(address) => address.octets().to_vec(),
+        IpAddr::V6(address) => address.octets().to_vec(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,10 +238,31 @@ mod tests {
             }],
             used_ips: vec![],
         };
+
+        // Prefix 24 means 256 ips in subnet.
+        //     num_reserved: 1
+        //     gateway: 1
+        //     broadcast: 1
+        // network is part of num_reserved. So nfree is 256 - 3 = 253
+        let nfree = allocator.num_free();
+        assert_eq!(nfree, 253);
+
         let result = allocator.next().unwrap();
         assert_eq!(result.0, prefix_id);
         assert_eq!("10.1.1.2".parse::<IpAddr>().unwrap(), result.1.unwrap());
         assert!(allocator.next().is_none());
+
+        let mut allocator = IpAllocator {
+            prefixes: vec![Prefix {
+                id: prefix_id,
+                prefix: IpNetwork::V4("10.1.1.0/24".parse().unwrap()),
+                gateway: Some(IpAddr::V4("10.1.1.1".parse().unwrap())),
+                num_reserved: 1,
+            }],
+            used_ips: vec![(IpAddr::V4("10.1.1.2".parse().unwrap()),)], // The address we allocated above when we called next()
+        };
+        let nfree = allocator.num_free();
+        assert_eq!(nfree, 252);
     }
 
     #[test]
@@ -266,6 +325,10 @@ mod tests {
             }],
             used_ips: vec![],
         };
+
+        let nfree = allocator.num_free();
+        assert_eq!(nfree, 0);
+
         let result = allocator.next().unwrap();
         assert_eq!(result.0, prefix_id);
         assert!(result.1.is_err());
@@ -303,7 +366,7 @@ mod tests {
     #[test]
     fn test_ip_allocation_with_used_ips() {
         let prefix_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
-        let allocator = IpAllocator {
+        let mut allocator = IpAllocator {
             prefixes: vec![Prefix {
                 id: prefix_id,
                 prefix: IpNetwork::V4("10.217.4.160/28".parse().unwrap()),
@@ -315,7 +378,36 @@ mod tests {
                 (IpAddr::V4("10.217.4.163".parse().unwrap()),),
             ],
         };
+
+        // Prefix: 28 means 16 ips in subnet
+        //     Gateway : 1
+        //     Reserved : 1
+        //     Broadcast: 1
+        //     Used_IPs: 2
+        // nfree = 16 - 5 = 11
+        let nfree = allocator.num_free();
+        assert_eq!(nfree, 11);
+
         let result = allocator.map(|x| x.1.unwrap()).collect::<Vec<IpAddr>>()[0];
         assert_eq!(result, IpAddr::V4("10.217.4.164".parse().unwrap()));
+    }
+}
+
+#[test]
+fn test_to_vec_function() {
+    let ip4_octs: Vec<u8> = vec![10, 217, 4, 160];
+    let ip4_addr: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(
+        ip4_octs[0],
+        ip4_octs[1],
+        ip4_octs[2],
+        ip4_octs[3],
+    ));
+
+    let ret_octs: Vec<u8> = to_vec(&ip4_addr);
+
+    assert_eq!(ret_octs.len(), 4);
+
+    for i in 0..4 {
+        assert_eq!(ret_octs[i], ip4_octs[i]);
     }
 }

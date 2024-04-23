@@ -102,7 +102,15 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let segment = create_network_segment_with_api(&env.api, false, false, None).await;
+    let segment = create_network_segment_with_api(
+        &env.api,
+        false,
+        false,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
 
     let mut txn = env.pool.begin().await?;
     let db_segment = NetworkSegment::find(
@@ -148,7 +156,15 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let env = create_test_env(pool).await;
 
     // This uses prefix "192.0.2.0/24"
-    let _segment = create_network_segment_with_api(&env.api, false, false, None).await;
+    let _segment = create_network_segment_with_api(
+        &env.api,
+        false,
+        false,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
 
     // Now try to create another one with a prefix that is contained within the exising prefix
     let request = rpc::forge::NetworkSegmentCreationRequest {
@@ -163,6 +179,7 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
             state: None,
             events: vec![],
             circuit_id: None,
+            free_ip_count: 0,
         }],
         subdomain_id: None,
         vpc_id: None,
@@ -186,7 +203,15 @@ async fn test_network_segment_max_history_length(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let segment = create_network_segment_with_api(&env.api, true, true, None).await;
+    let segment = create_network_segment_with_api(
+        &env.api,
+        true,
+        true,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
     let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
 
     let state_handler = NetworkSegmentStateHandler::new(
@@ -210,6 +235,7 @@ async fn test_network_segment_max_history_length(
         segment_id,
         Some(NetworkSegmentSearchConfig {
             include_history: true,
+            include_num_free_ips: false,
         }),
     )
     .await;
@@ -220,6 +246,7 @@ async fn test_network_segment_max_history_length(
         segment_id,
         Some(NetworkSegmentSearchConfig {
             include_history: false,
+            include_num_free_ips: false,
         }),
     )
     .await;
@@ -310,7 +337,15 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     txn.commit().await?;
 
     // Create a network segment rpc call
-    let segment = create_network_segment_with_api(&env.api, false, true, None).await;
+    let segment = create_network_segment_with_api(
+        &env.api,
+        false,
+        true,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
 
     // Value is allocated
     let mut txn = db_pool.begin().await?;
@@ -350,7 +385,15 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     txn.commit().await?;
 
     // Create a new segment, re-using the VLAN
-    create_network_segment_with_api(&env.api, false, true, None).await;
+    create_network_segment_with_api(
+        &env.api,
+        false,
+        true,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
 
     // Value allocated again
     let mut txn = db_pool.begin().await?;
@@ -427,7 +470,15 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
 async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(pool).await;
 
-    let segment = create_network_segment_with_api(&env.api, false, false, None).await;
+    let segment = create_network_segment_with_api(
+        &env.api,
+        false,
+        false,
+        None,
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
+    )
+    .await;
     let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
 
     let mut txn = env.pool.begin().await?;
@@ -462,6 +513,8 @@ async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::R
         Some(::rpc::Uuid {
             value: id.to_string(),
         }),
+        rpc::forge::NetworkSegmentType::Admin as i32,
+        1,
     )
     .await;
     let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
@@ -487,6 +540,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
             state: None,
             events: vec![],
             circuit_id: None,
+            free_ip_count: 0,
         }],
         subdomain_id: None,
         vpc_id: None,

@@ -596,6 +596,7 @@ message NetworkSegmentDeletionResult {
 
 message NetworkSegmentSearchConfig {
   bool include_history = 1;
+  bool include_num_free_ips = 2;
 }
 
 message NetworkSegmentQuery {
@@ -611,6 +612,7 @@ message NetworkPrefix {
   VpcResourceState state = 5;
   repeated NetworkPrefixEvent events = 6;
   optional string circuit_id = 7;
+  uint32 free_ip_count = 8;
 }
 
 message MachineState {
