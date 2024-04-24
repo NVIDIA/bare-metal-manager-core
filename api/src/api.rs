@@ -5005,8 +5005,7 @@ where
         Ok(Response::new(rpc::SetHostUefiPasswordResponse {}))
     }
 
-    /// Identify BMC vendor by querying it's TLS cert.
-    /// The BMCs all have self-issued certs.
+    /// Identify BMC vendor for given IP address
     async fn identify_bmc(
         &self,
         request: tonic::Request<rpc::IdentifyBmcRequest>,
@@ -5015,57 +5014,15 @@ where
         if request.address.is_empty() {
             return Err(Status::invalid_argument("BMC IP address is required"));
         }
-        let url = if request.address.starts_with("https") {
-            request.address.clone()
-        } else {
-            format!("https://{}", request.address)
-        };
 
-        let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .use_rustls_tls()
-            .tls_info(true)
-            .timeout(Duration::from_secs(2))
-            .https_only(true)
-            .build()
-            .map_err(|err| {
-                Status::internal(format!("HTTP error building client for {url}: {err}"))
-            })?;
-        let response = client
-            .head(&url)
-            .send()
-            .await
-            .map_err(|err| Status::internal(format!("HTTP error HEAD {url}: {err}")))?;
-
-        let tls_info = response
-            .extensions()
-            .get::<reqwest::tls::TlsInfo>()
-            .unwrap();
-        let Some(cert) = tls_info.peer_certificate() else {
-            return Err(Status::unavailable(format!(
-                "{url} did not return a TLS certificate"
-            )));
-        };
-        let Ok((_, certificate)) = x509_parser::parse_x509_certificate(cert) else {
-            return Err(Status::internal(format!(
-                "{url} returned an invalid x509 cert"
-            )));
-        };
-        let mut organization = None;
-        for rdn in certificate.issuer().iter_organization() {
-            if let Ok(org_name) = rdn.as_str() {
-                organization = Some(org_name);
-                break;
-            }
-        }
-        let (org, vendor) = match organization {
-            None => {
-                return Err(Status::internal(format!(
-                    "TLS cert for {url} did not contain an Organization field"
-                )))
-            }
-            Some(org) => (org, BMCVendor::from_tls_issuer(org)),
-        };
+        let (org, vendor) =
+            // If discovery already happened we can use scout's hardware info
+            if let Ok(Some(vendor)) = self.identify_bmc_from_db(&request.address).await {
+                ("".to_string(), vendor)
+            } else {
+                // For pre-discovery machines we use the TLS cert
+                self.identify_bmc_from_cert(&request.address).await?
+            };
 
         let resp = rpc::IdentifyBmcResponse {
             known_vendor: if !vendor.is_unknown() {
@@ -5353,6 +5310,83 @@ where
 
     pub fn log_filter_string(&self) -> String {
         self.log_filter.load().to_string()
+    }
+
+    async fn identify_bmc_from_db(&self, address: &str) -> Result<Option<BMCVendor>, CarbideError> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin identify_bmc_from_db ",
+                e,
+            ))
+        })?;
+
+        if let Some(machine_id) =
+            MachineTopology::find_machine_id_by_bmc_ip(&mut txn, address).await?
+        {
+            if let Some(machine) =
+                Machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?
+            {
+                return Ok(Some(machine.bmc_vendor()));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn identify_bmc_from_cert(
+        &self,
+        address: &str,
+    ) -> Result<(String, BMCVendor), tonic::Status> {
+        let url = if address.starts_with("https") {
+            address.to_string()
+        } else {
+            format!("https://{address}")
+        };
+
+        let client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .use_rustls_tls()
+            .tls_info(true)
+            .timeout(Duration::from_secs(2))
+            .https_only(true)
+            .build()
+            .map_err(|err| {
+                Status::internal(format!("HTTP error building client for {url}: {err}"))
+            })?;
+        let response = client
+            .head(&url)
+            .send()
+            .await
+            .map_err(|err| Status::internal(format!("HTTP error HEAD {url}: {err}")))?;
+
+        let tls_info = response
+            .extensions()
+            .get::<reqwest::tls::TlsInfo>()
+            .unwrap();
+        let Some(cert) = tls_info.peer_certificate() else {
+            return Err(Status::unavailable(format!(
+                "{url} did not return a TLS certificate"
+            )));
+        };
+        let Ok((_, certificate)) = x509_parser::parse_x509_certificate(cert) else {
+            return Err(Status::internal(format!(
+                "{url} returned an invalid x509 cert"
+            )));
+        };
+        let mut organization = None;
+        for rdn in certificate.issuer().iter_organization() {
+            if let Ok(org_name) = rdn.as_str() {
+                organization = Some(org_name);
+                break;
+            }
+        }
+        match organization {
+            None => Err(Status::internal(format!(
+                "TLS cert for {url} did not contain an Organization field"
+            ))),
+            Some(org) => Ok((org.to_string(), BMCVendor::from_tls_issuer(org))),
+        }
     }
 }
 
