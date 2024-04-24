@@ -51,6 +51,7 @@ patricia_tree = "^0"
 prometheus = "0.13"
 rand = "0.8"
 regex = "1.6"
+reqwest = { version = "*", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
 sha2 = "0.10.3"

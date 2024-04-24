@@ -565,6 +565,12 @@ pub struct BMCConfigForReboot {
     pub machine: Option<String>,
 }
 
+#[derive(Parser, Debug)]
+pub struct BMCIdentify {
+    #[clap(long, help = "Hostname or IP of machine BMC")]
+    pub address: String,
+}
+
 pub type BMCConfigForReset = BMCConfigForReboot;
 
 #[derive(Parser, Debug)]
@@ -863,6 +869,8 @@ pub struct ResourcePoolDefinition {
 pub enum BmcMachine {
     #[clap(about = "Reset a BMC machine")]
     Reset(BMCConfigForReset),
+    #[clap(about = "Identify a BMC vendor by the TLS certificate issuer")]
+    Identify(BMCIdentify),
 }
 
 #[derive(ValueEnum, Parser, Debug, Clone)]

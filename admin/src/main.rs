@@ -497,6 +497,14 @@ async fn main() -> color_eyre::Result<()> {
                 };
                 rpc::bmc_reset(api_config, c.address, c.port, bmc_auth).await?;
             }
+            BmcMachine::Identify(args) => {
+                let resp = rpc::identify_bmc(api_config, args.address).await?;
+                if !resp.known_vendor.is_empty() {
+                    println!("{}", resp.known_vendor);
+                } else {
+                    println!("Unknown: {}", resp.raw_vendor);
+                }
+            }
         },
         CarbideCommand::Inventory(action) => inventory::print_inventory(api_config, action).await?,
         CarbideCommand::Credential(credential_action) => match credential_action {
