@@ -3943,6 +3943,14 @@ where
                         "Missing reference url".to_string(),
                     ));
                 };
+
+                let reference = reference.trim().to_string();
+                if reference.len() < 5 {
+                    return Err(Status::invalid_argument(
+                        "Provide some valid reference. Minimum expected length is 5.".to_string(),
+                    ));
+                }
+
                 MaintenanceMode::On { reference }
             }
             rpc::MaintenanceOperation::Disable => {
