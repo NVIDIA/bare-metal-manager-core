@@ -644,6 +644,22 @@ pub async fn bmc_reset(
     .await
 }
 
+pub async fn identify_bmc(
+    api_config: &ApiConfig<'_>,
+    address: String,
+) -> CarbideCliResult<rpc::IdentifyBmcResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::IdentifyBmcRequest { address });
+        let out = client
+            .identify_bmc(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(out)
+    })
+    .await
+}
+
 pub async fn dpu_agent_upgrade_policy_action(
     api_config: &ApiConfig<'_>,
     new_policy: Option<rpc::AgentUpgradePolicy>,

@@ -700,6 +700,7 @@ dependencies = [
  "prometheus",
  "rand",
  "regex",
+ "reqwest",
  "rpc",
  "rustls-pemfile",
  "serde",
