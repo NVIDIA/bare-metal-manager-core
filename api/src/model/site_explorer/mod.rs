@@ -261,6 +261,18 @@ impl EndpointExplorationReport {
             .unwrap_or(HashMap::new())
     }
 
+    pub fn dpu_bmc_version(&self) -> Option<String> {
+        Some(
+            self.get_inventory_map()
+                .iter()
+                .find(|s| s.0.contains("BMC_Firmware"))
+                .and_then(|value| value.1.version.as_ref())
+                .unwrap_or(&"0".to_string())
+                .to_lowercase()
+                .replace("bf-", ""),
+        )
+    }
+
     pub fn dpu_uefi_version(&self) -> Option<String> {
         self.get_inventory_map()
             .get("DPU_UEFI")

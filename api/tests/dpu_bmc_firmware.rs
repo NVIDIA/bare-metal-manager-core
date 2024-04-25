@@ -42,6 +42,108 @@ fn setup() {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let _underlay_segment = create_underlay_network_segment(&env).await;
+    let _admin_segment = create_admin_network_segment(&env).await;
+
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: true,
+    };
+    let dpu_config = default_dpus();
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        pool.clone(),
+        Some(&explorer_config),
+        &dpu_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+    );
+
+    let mut dpu_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some("NVIDIA".to_string()),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "Bluefield_BMC".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("eth0".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("a0:88:c2:08:80:97".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: Vec::new(),
+            manufacturer: None,
+            model: None,
+            serial_number: Some("MT2328XZ185R".to_string()),
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 2 SmartNIC Main Card".to_string()),
+            part_number: Some("MBF2H536C-CECOT      ".to_string()),
+            serial_number: Some("MT2242XZ00PE            ".to_string()),
+            network_adapters: vec![],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "63b6c138_BMC_Firmware".to_string(),
+                    description: Some("BMC image".to_string()),
+                    version: Some("bf-23.05-5-0-g87a8acd1708.1701259870.8631477".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_SYS_IMAGE".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-43-geb17a52".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
+    };
+    dpu_report.generate_machine_id();
+
+    assert!(dpu_report.machine_id.as_ref().is_some());
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
+        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+    };
+
+    let handled_uefi_err = match explorer
+        .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+        .await
+    {
+        Err(CarbideError::UnsupportedFirmwareVersion(_)) => true,
+        Ok(_) | Err(_) => false,
+    };
+    assert!(handled_uefi_err);
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
@@ -100,6 +202,12 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         service: vec![Service {
             id: "FirmwareInventory".to_string(),
             inventories: vec![
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: Some("BMC image".to_string()),
+                    version: Some("BF-23.10-3".to_string()),
+                    release_date: None,
+                },
                 Inventory {
                     id: "DPU_SYS_IMAGE".to_string(),
                     description: Some("Host image".to_string()),

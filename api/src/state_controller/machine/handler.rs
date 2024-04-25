@@ -688,9 +688,6 @@ pub struct DpuMachineStateHandler {
     reachability_params: ReachabilityParams,
 }
 
-// Minimal supported DPU BMC FW version, that is capable to do BMC FW update
-const MIN_SUPPORTED_BMC_FW: &str = "23.07";
-
 impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
@@ -1109,7 +1106,7 @@ impl StateHandler for DpuMachineStateHandler {
                             .redfish_check_fw_update_needed(
                                 &*client,
                                 bmc_inventory,
-                                Some(MIN_SUPPORTED_BMC_FW),
+                                None,
                                 latest_bmc_fw_version.unwrap(),
                             )
                             .await?

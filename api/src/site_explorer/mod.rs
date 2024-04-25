@@ -312,9 +312,22 @@ impl SiteExplorer {
         if dpu_report.service.is_empty() {
             return Err(CarbideError::MissingArgument("Missing Service Info"));
         }
-
         let (_, dpu_model) = dpu_report.is_dpu();
         if let Some(dpu_desc) = self.dpus.get(&dpu_model) {
+            let dpu_component = DpuComponent::Bmc;
+            if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
+                if let Some(cur_version) = dpu_report.dpu_bmc_version() {
+                    if version_compare::compare(cur_version.clone(), min_version)
+                        .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                    {
+                        return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                            "{:?} firmware version {} is not supported. Please update to: {}",
+                            dpu_component, cur_version, min_version
+                        )));
+                    }
+                }
+            }
+
             let dpu_component = DpuComponent::Uefi;
             if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
                 if let Some(cur_version) = dpu_report.dpu_uefi_version() {
