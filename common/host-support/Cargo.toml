@@ -11,6 +11,7 @@ authors.workspace = true
 base64 = "0.21.5"
 csv = "1.2.1"
 eyre = "*"
+ipnetwork = "*"
 libudev = "0.3"
 procfs = "0.14"
 regex = "1.6"

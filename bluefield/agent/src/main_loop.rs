@@ -12,26 +12,31 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::Add;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::rpc::forge as rpc;
-use ::rpc::forge::VpcVirtualizationType;
-use ::rpc::forge_tls_client;
-use ::rpc::forge_tls_client::ApiConfig;
 use axum::Router;
 use eyre::WrapErr;
-use forge_host_support::agent_config::AgentConfig;
-use forge_host_support::registration;
+use ipnetwork::IpNetwork;
 use opentelemetry_sdk as sdk;
 use opentelemetry_sdk::metrics;
 use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
+use version_compare::Version;
+
+use ::rpc::forge as rpc;
+use ::rpc::forge::VpcVirtualizationType;
+use ::rpc::forge_tls_client;
+use ::rpc::forge_tls_client::ApiConfig;
+use forge_host_support::agent_config::AgentConfig;
+use forge_host_support::registration;
 
 use crate::command_line::NetworkVirtualizationType;
-use crate::ethernet_virtualization;
-use crate::health;
+use crate::dpu::interface::Interface;
+use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
+use crate::dpu::DpuNetworkInterfaces;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
 use crate::instance_metadata_fetcher;
 use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
@@ -42,6 +47,8 @@ use crate::systemd;
 use crate::upgrade;
 use crate::util::UrlResolver;
 use crate::{command_line, machine_inventory_updater};
+use crate::{ethernet_virtualization, hbn};
+use crate::{health, FMDS_MINIMUM_HBN_VERSION};
 
 // Main loop when running in daemon mode
 pub async fn run(
@@ -178,6 +185,12 @@ pub async fn run(
         // `read` does not block
         match *network_config_reader.read() {
             Some(ref conf) => {
+                let proposed_routes: Vec<_> = conf
+                    .tenant_interfaces
+                    .iter()
+                    .filter_map(|x| IpNetwork::from_str(x.prefix.as_str()).ok())
+                    .collect();
+
                 // i32 -> VpcVirtualizationType -> NetworkVirtualizationType
                 let nvt_from_remote = conf
                     .network_virtualization_type
@@ -193,6 +206,33 @@ pub async fn run(
                 let tenant_peers = ethernet_virtualization::tenant_peers(conf);
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {conf:?}");
+                    // Generate the fmds interface plan from the config. This doees not apply the plan.
+                    // The plan is applied when the nvue template is written
+                    let fmds_proposed_interfaces = &agent.fmds_armos_networking;
+                    let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
+                    let fmds_interface_plan = Interface::plan(
+                        &fmds_proposed_interfaces.config.interface_name,
+                        network_plan,
+                    )
+                    .await?;
+                    tracing::trace!("Interface plan: {:?}", fmds_interface_plan);
+
+                    // Generate the fmds route plan from conf.tenant_interfaces[n].address
+                    // the plan is applied when the nvue template is written
+                    let route_plan = plan_fmds_armos_routing(
+                        &fmds_proposed_interfaces.config.interface_name,
+                        &proposed_routes,
+                    )
+                    .await?;
+                    tracing::trace!("Route plan: {:?}", route_plan);
+
+                    let hbn_version = hbn::read_version().await?;
+                    let hbn_version = Version::from(hbn_version.as_str())
+                        .ok_or(eyre::eyre!("Unable to convert string to version"))?;
+                    let fmds_minimum_hbn_version =
+                        Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
+                            "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION:?} to version"
+                        ))?;
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &agent.hbn.root_dir,
@@ -215,6 +255,26 @@ pub async fn run(
                             .await
                         }
                         NetworkVirtualizationType::EtvNvue => {
+                            if hbn_version >= fmds_minimum_hbn_version {
+                                // Apply the interface plan. This is where we actually configure
+                                // the interface on the Dpu
+                                Interface::apply(fmds_interface_plan).await?;
+
+                                // If there are routes, apply the route plan. This is where we actually
+                                // add and remove routes.
+                                //
+                                // When a dpu has recently booted, there may
+                                // not be a pf0dpu0_sf interface configured yet.  So routes may
+                                // not be applied on the first tick of the loop. Once the interface
+                                // is configured, routes can be added and removed.
+
+                                // This means that routes will be added last and might take a few seconds
+                                // to appear
+                                if let Some(route_plan) = route_plan {
+                                    Route::apply(route_plan).await?;
+                                }
+                            }
+
                             ethernet_virtualization::update_nvue(
                                 &agent.hbn.root_dir,
                                 conf,
@@ -418,6 +478,40 @@ pub async fn run(
     }
 }
 
+async fn plan_fmds_armos_routing(
+    interface: &str,
+    proposed_routes: &Vec<IpNetwork>,
+) -> eyre::Result<Option<DpuRoutePlan>> {
+    let mut proposed_plan = Vec::new();
+
+    let interfaces = Interface::current_addresses(interface).await?;
+
+    // find all ipv4 addresses on interface
+    let fmds_interface = interfaces
+        .iter()
+        .find_map(|e| e.addr_info.iter().find(|i| i.family == "inet"));
+
+    tracing::trace!("fmds_interface: {:?}", fmds_interface);
+
+    if let Some(ipinterface) = fmds_interface {
+        for route in proposed_routes {
+            let new_route = IpRoute {
+                dst: *route,
+                dev: None,
+                protocol: None,
+                scope: None,
+                gateway: Some(IpAddr::from([169, 254, 169, 253])), // use gateway IP from inside HBN container
+                prefsrc: Some(ipinterface.local),
+                flags: vec![],
+            };
+            proposed_plan.push(new_route);
+        }
+        let plan = Route::plan(interface, proposed_plan).await?;
+        Ok(Some(plan))
+    } else {
+        Ok(None)
+    }
+}
 pub async fn record_network_status(
     status: rpc::DpuNetworkStatus,
     forge_api: &str,

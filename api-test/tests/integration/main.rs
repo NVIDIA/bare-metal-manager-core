@@ -44,6 +44,7 @@ async fn test_integration() -> eyre::Result<()> {
     // There is unfortunately no support for certificates in the vault dev server, so we have to disable this in code.
     env::set_var("UNSUPPORTED_CERTIFICATE_PROVIDER", "true");
     env::set_var("NO_DPU_CONTAINERS", "true");
+    env::set_var("NO_DPU_ARMOS_NETWORK", "true");
 
     // We should setup logging here but:
     // - try_init sets a global logger and can only be called once.

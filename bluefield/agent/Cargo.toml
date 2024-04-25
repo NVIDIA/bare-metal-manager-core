@@ -49,6 +49,7 @@ url = "*"
 resolv-conf = "0.7.0"
 hickory-proto = "0.24.0"
 hickory-resolver = "0.24.0"
+version-compare = "0.2.0"
 
 # [local-dependencies]
 forge-host-support = { path = "../../common/host-support" }

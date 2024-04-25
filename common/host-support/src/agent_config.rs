@@ -11,6 +11,7 @@
  */
 
 use std::path::{Path, PathBuf};
+use std::string::ToString;
 
 use forge_tls::default as tls_default;
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,8 @@ pub struct AgentConfig {
     pub period: IterationTime,
     #[serde(default)]
     pub updates: UpdateConfig,
+    #[serde(default, rename = "fmds-armos-networking")]
+    pub fmds_armos_networking: FmdsDpuNetworkingConfig,
 }
 
 impl AgentConfig {
@@ -163,6 +166,28 @@ pub struct HBNConfig {
     pub root_dir: PathBuf,
     /// Do not run the config reload commands. Local dev only.
     pub skip_reload: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DpuNetworkingInterface {
+    pub interface_name: String,
+    pub addresses: Vec<ipnetwork::IpNetwork>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FmdsDpuNetworkingConfig {
+    pub config: DpuNetworkingInterface,
+}
+
+impl Default for FmdsDpuNetworkingConfig {
+    fn default() -> Self {
+        Self {
+            config: DpuNetworkingInterface {
+                interface_name: "pf0dpu0_sf".to_string(),
+                addresses: vec!["169.254.169.254/30".to_string().parse().unwrap()],
+            },
+        }
+    }
 }
 
 impl Default for HBNConfig {
@@ -307,6 +332,10 @@ discovery-retries-max = 1000
 
 [updates]
 override-upgrade-cmd = "update"
+
+[fmds-armos-networking.config]
+interface_name = "pf0dpu0_sf"
+addresses = ["168.254.169.254/30"]
 "#;
 
         let config: AgentConfig = toml::from_str(config).unwrap();

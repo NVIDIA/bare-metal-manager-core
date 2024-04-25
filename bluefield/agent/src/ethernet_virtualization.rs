@@ -23,14 +23,10 @@ use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
 use eyre::WrapErr;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
-use tokio::sync::OnceCell;
 use tokio::time::timeout;
 
 use crate::command_line::NetworkVirtualizationType;
-use crate::containerd::container;
 use crate::{acl_rules, daemons, dhcp, frr, hbn, interfaces, nvue};
-
-static HBN_VERSION: OnceCell<String> = OnceCell::const_new();
 
 // VPC writes these to various HBN config files
 const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
@@ -100,27 +96,6 @@ fn paths(hbn_root: &Path) -> EthernetVirtualizerPaths {
     ps
 }
 
-async fn fetch_hbn_version() -> eyre::Result<String> {
-    let containers = container::Containers::list().await?;
-    let hbn_container = containers.find_by_name("doca-hbn")?;
-
-    let hbn_version = hbn_container
-        .image_ref
-        .into_iter()
-        .map(|x| x.version())
-        .next()
-        .unwrap_or_default();
-
-    Ok(hbn_version)
-}
-
-async fn get_hbn_version() -> eyre::Result<String> {
-    Ok(HBN_VERSION
-        .get_or_try_init(fetch_hbn_version)
-        .await?
-        .to_string())
-}
-
 // Update network config using nvue (`nv`). Return Ok(true) if the config change, Ok(false) if not.
 pub async fn update_nvue(
     hbn_root: &Path,
@@ -128,7 +103,7 @@ pub async fn update_nvue(
     // if true don't run the `nv` commands after writing the file
     skip_post: bool,
 ) -> eyre::Result<bool> {
-    let hbn_version = get_hbn_version().await?;
+    let hbn_version = hbn::read_version().await?;
 
     let l_ip_str = match &nc.managed_host_config {
         None => {
