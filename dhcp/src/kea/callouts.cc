@@ -330,6 +330,9 @@ int pkt4_receive(CalloutHandle &handle) {
     return 0;
   }
 
+  LOG_INFO(logger, "LOG_CARBIDE_PKT4_RECEIVE: Packet type name: %1")
+	  .arg(query4_ptr->getName());
+
   // Initialize a discovery builder object
   // Since the object needs to be freed using a Rust function, we wrap it in
   // a unique_ptr with a custom deleter
