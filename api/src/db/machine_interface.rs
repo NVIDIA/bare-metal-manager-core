@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
+use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
@@ -45,6 +46,8 @@ pub struct MachineInterface {
     primary_interface: bool,
     addresses: Vec<MachineInterfaceAddress>,
     vendors: Vec<String>,
+    created: DateTime<Utc>,
+    last_dhcp: Option<DateTime<Utc>>,
 }
 
 pub struct UsedAdminNetworkIpResolver {
@@ -68,6 +71,8 @@ impl<'r> FromRow<'r, PgRow> for MachineInterface {
             primary_interface: row.try_get("primary_interface")?,
             addresses: Vec::new(),
             vendors: Vec::new(),
+            created: row.try_get("created")?,
+            last_dhcp: row.try_get("last_dhcp")?,
         })
     }
 }
@@ -91,6 +96,8 @@ impl From<MachineInterface> for rpc::MachineInterface {
                 .map(|addr| addr.address.to_string())
                 .collect(),
             vendor: machine_interface.vendors.last().cloned(),
+            created: Some(machine_interface.created.into()),
+            last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
         }
     }
 }
@@ -725,6 +732,20 @@ impl MachineInterface {
         interface.delete(txn).await?;
 
         Ok(Some(()))
+    }
+
+    /// Record that this interface just DHCPed, so it must still exist
+    pub async fn update_last_dhcp(
+        txn: &mut Transaction<'_, Postgres>,
+        interface_id: uuid::Uuid,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machine_interfaces SET last_dhcp = NOW() WHERE id=$1::uuid";
+        sqlx::query(query)
+            .bind(interface_id)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        Ok(())
     }
 }
 

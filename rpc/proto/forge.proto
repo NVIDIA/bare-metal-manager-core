@@ -1174,6 +1174,9 @@ message MachineInterface {
 
   repeated string address = 9;
   optional string vendor = 10;
+
+  google.protobuf.Timestamp created = 11;
+  optional google.protobuf.Timestamp last_dhcp = 12;
 }
 
 message DhcpDiscovery {
