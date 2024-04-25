@@ -61,7 +61,7 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     let dpu_config = default_dpus();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        pool.clone(),
+        env.pool.clone(),
         Some(&explorer_config),
         &dpu_config,
         test_meter.meter(),
@@ -163,7 +163,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let dpu_config = default_dpus();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        pool.clone(),
+        env.pool.clone(),
         Some(&explorer_config),
         &dpu_config,
         test_meter.meter(),
@@ -265,7 +265,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let dpu_config = default_dpus();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        pool.clone(),
+        env.pool.clone(),
         Some(&explorer_config),
         &dpu_config,
         test_meter.meter(),

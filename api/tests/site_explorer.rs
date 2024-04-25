@@ -576,7 +576,7 @@ async fn test_site_explorer_creates_managed_host(
     let dpu_config = default_dpus();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        pool.clone(),
+        env.pool.clone(),
         Some(&explorer_config),
         &dpu_config,
         test_meter.meter(),
