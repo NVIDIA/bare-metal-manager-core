@@ -27,6 +27,8 @@ use forge_tls::client_config::ClientCert;
 
 use crate::frr::FrrVlanConfig;
 
+pub mod dpu;
+
 pub mod acl;
 mod acl_rules;
 mod command_line;
@@ -58,7 +60,8 @@ const UPLINKS: [&str; 2] = ["p0_sf", "p1_sf"];
 // Once NVUE is rolled out we can remove this.
 pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: NetworkVirtualizationType =
     NetworkVirtualizationType::Etv;
-
+/// Tthe minimum version of HBN that FMDS supports
+pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     if cmdline.version {
         println!("{}", forge_version::version!());

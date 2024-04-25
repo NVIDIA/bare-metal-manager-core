@@ -12,8 +12,10 @@
 
 use std::time::Duration;
 
+use crate::containerd::container;
 use eyre::WrapErr;
 use serde::Deserialize;
+use tokio::sync::OnceCell;
 use tokio::{process::Command as TokioCommand, time::timeout};
 
 /// How long to wait for `crictl ps`
@@ -22,7 +24,8 @@ const TIMEOUT_GET_CONTAINER_ID: Duration = Duration::from_secs(5);
 /// How long to wait for an arbitrary command run in the HBN container.
 /// `nv config apply` can take > 10s
 const TIMEOUT_CONTAINER_CMD: Duration = Duration::from_secs(45);
-
+/// The running version of the HBN container
+static HBN_VERSION: OnceCell<String> = OnceCell::const_new();
 // Containerd is started in the mgmt VRF.  Processes started in the MGMT VRF are not reachable
 // from the default VRF.  This means that we need to run crictl commands in the MGMT VRF in order to
 // execute commands in containers.  `RunCommandPredicate` provides abstraction over the `Command`
@@ -129,6 +132,27 @@ pub async fn run_in_container(
         tracing::trace!("{stdout}");
     }
     Ok(stdout)
+}
+
+async fn fetch_hbn_version() -> eyre::Result<String> {
+    let containers = container::Containers::list().await?;
+    let hbn_container = containers.find_by_name("doca-hbn")?;
+
+    let hbn_version = hbn_container
+        .image_ref
+        .into_iter()
+        .map(|x| x.version())
+        .next()
+        .unwrap_or_default();
+
+    Ok(hbn_version)
+}
+
+pub async fn read_version() -> eyre::Result<String> {
+    Ok(HBN_VERSION
+        .get_or_try_init(fetch_hbn_version)
+        .await?
+        .to_string())
 }
 
 #[derive(Deserialize, Debug)]
