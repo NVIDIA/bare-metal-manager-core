@@ -201,6 +201,8 @@ mod tests {
             mac_address: "01:02:03:AA:BB:CC".to_string(),
             address: vec!["192.123.184.244".to_string()],
             vendor: Some("xyz".to_string()),
+            created: None,
+            last_dhcp: None,
         };
 
         let interface_id: rpc::Uuid = interface.id.clone().unwrap();

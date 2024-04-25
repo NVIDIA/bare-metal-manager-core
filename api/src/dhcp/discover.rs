@@ -181,6 +181,8 @@ pub async fn discover_dhcp(
         }
     }
 
+    MachineInterface::update_last_dhcp(&mut txn, machine_interface.id).await?;
+
     txn.commit()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit discover_dhcp", e))?;

@@ -1171,6 +1171,9 @@ message MachineInterface {
 
   repeated string address = 9;
   optional string vendor = 10;
+
+  google.protobuf.Timestamp created = 11;
+  optional google.protobuf.Timestamp last_dhcp = 12;
 }
 
 message DhcpDiscovery {
@@ -1408,7 +1411,7 @@ message AdminForceDeleteMachineRequest {
     // Should we delete oob_net0 and host interfaces?
     bool delete_interfaces = 2;
 
-    // Should we delete BMC interfaces? Please note, this will depend on if BMC interfaces 
+    // Should we delete BMC interfaces? Please note, this will depend on if BMC interfaces
     // are associated with machine.
     bool delete_bmc_interfaces = 3;
 }

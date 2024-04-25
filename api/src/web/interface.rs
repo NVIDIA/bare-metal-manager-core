@@ -17,6 +17,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
+use chrono::{DateTime, Utc};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
@@ -158,10 +159,21 @@ struct InterfaceDetail {
     domain_id: String,
     domain_name: String,
     is_primary: bool,
+    created: String,
+    last_dhcp: String,
 }
 
 impl From<forgerpc::MachineInterface> for InterfaceDetail {
     fn from(mi: forgerpc::MachineInterface) -> Self {
+        let created: DateTime<Utc> = mi
+            .created
+            .expect("machine_interfaces.created is NOT NULL in DB, should exist")
+            .try_into()
+            .unwrap_or_default();
+        let last_dhcp: Option<DateTime<Utc>> = match mi.last_dhcp {
+            None => None,
+            Some(d) => d.try_into().ok(),
+        };
         Self {
             id: mi.id.unwrap_or_default().value,
             dpu_machine_id: mi
@@ -185,7 +197,13 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
             vendor: mi.vendor.unwrap_or_default(),
             is_primary: mi.primary_interface,
             domain_id: mi.domain_id.unwrap_or_default().to_string(),
-            domain_name: String::new(), // filled in later
+            // filled in later
+            domain_name: String::new(),
+            // e.g "2001-07-08 00:34:60	UTC"
+            created: created.format("%F %T %Z").to_string(),
+            last_dhcp: last_dhcp
+                .map(|d| d.format("%F %T %Z").to_string())
+                .unwrap_or_default(),
         }
     }
 }
