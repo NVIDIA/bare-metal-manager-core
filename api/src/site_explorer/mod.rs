@@ -63,7 +63,7 @@ pub struct SiteExplorer {
     database_connection: PgPool,
     enabled: bool,
     config: SiteExplorerConfig,
-    dpus: HashMap<DpuModel, DpuDesc>,
+    dpu_models: HashMap<DpuModel, DpuDesc>,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
 }
@@ -77,7 +77,7 @@ impl SiteExplorer {
     pub fn new(
         database_connection: sqlx::PgPool,
         config: Option<&SiteExplorerConfig>,
-        dpus: &HashMap<DpuModel, DpuDesc>,
+        dpu_models: &HashMap<DpuModel, DpuDesc>,
         meter: opentelemetry::metrics::Meter,
         endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> Self {
@@ -103,7 +103,7 @@ impl SiteExplorer {
             database_connection,
             enabled: explorer_config.enabled,
             config: explorer_config,
-            dpus: dpus.clone(),
+            dpu_models: dpu_models.clone(),
             metric_holder,
             endpoint_explorer,
         }
@@ -312,32 +312,34 @@ impl SiteExplorer {
         if dpu_report.service.is_empty() {
             return Err(CarbideError::MissingArgument("Missing Service Info"));
         }
-        let (_, dpu_model) = dpu_report.is_dpu();
-        if let Some(dpu_desc) = self.dpus.get(&dpu_model) {
-            let dpu_component = DpuComponent::Bmc;
-            if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
-                if let Some(cur_version) = dpu_report.dpu_bmc_version() {
-                    if version_compare::compare(cur_version.clone(), min_version)
-                        .is_ok_and(|c| c == version_compare::Cmp::Lt)
-                    {
-                        return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                            "{:?} firmware version {} is not supported. Please update to: {}",
-                            dpu_component, cur_version, min_version
-                        )));
+
+        if let Some(dpu_model) = dpu_report.identify_dpu() {
+            if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
+                let dpu_component = DpuComponent::Bmc;
+                if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
+                    if let Some(cur_version) = dpu_report.dpu_bmc_version() {
+                        if version_compare::compare(&cur_version, min_version)
+                            .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                        {
+                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                                "{:?} firmware version {} is not supported. Please update to: {}",
+                                dpu_component, cur_version, min_version
+                            )));
+                        }
                     }
                 }
-            }
 
-            let dpu_component = DpuComponent::Uefi;
-            if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
-                if let Some(cur_version) = dpu_report.dpu_uefi_version() {
-                    if version_compare::compare(cur_version.clone(), min_version)
-                        .is_ok_and(|c| c == version_compare::Cmp::Lt)
-                    {
-                        return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                            "{:?} firmware version {} is not supported. Please update to: {}",
-                            dpu_component, cur_version, min_version
-                        )));
+                let dpu_component = DpuComponent::Uefi;
+                if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
+                    if let Some(cur_version) = dpu_report.dpu_uefi_version() {
+                        if version_compare::compare(&cur_version, min_version)
+                            .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                        {
+                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                                "{:?} firmware version {} is not supported. Please update to: {}",
+                                dpu_component, cur_version, min_version
+                            )));
+                        }
                     }
                 }
             }
@@ -554,10 +556,10 @@ impl SiteExplorer {
             if ep.report.endpoint_type != EndpointType::Bmc {
                 continue;
             }
-            if (false, DpuModel::Unknown) == ep.report.is_dpu() {
-                explored_hosts.insert(ep.address, ep);
-            } else {
+            if ep.report.is_dpu() {
                 explored_dpus.insert(ep.address, ep);
+            } else {
+                explored_hosts.insert(ep.address, ep);
             }
         }
 

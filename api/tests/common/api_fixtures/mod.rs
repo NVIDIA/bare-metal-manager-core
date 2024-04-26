@@ -23,7 +23,7 @@ use arc_swap::ArcSwap;
 use carbide::{
     api::Api,
     cfg::{
-        default_dpus, CarbideConfig, DpuFwUpdateConfig, IbFabricMonitorConfig,
+        default_dpu_models, CarbideConfig, DpuFwUpdateConfig, IbFabricMonitorConfig,
         IbPartitionStateControllerConfig, MachineStateControllerConfig,
         NetworkSegmentStateControllerConfig, StateControllerConfig,
     },
@@ -369,7 +369,7 @@ fn get_config() -> CarbideConfig {
             enabled: true,
             run_interval: std::time::Duration::from_secs(10),
         },
-        dpus: default_dpus(),
+        dpu_models: default_dpu_models(),
     }
 }
 

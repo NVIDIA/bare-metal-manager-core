@@ -6,7 +6,7 @@ use std::{
 };
 
 use carbide::{
-    cfg::{default_dpus, DpuFwUpdateConfig, SiteExplorerConfig},
+    cfg::{default_dpu_models, DpuFwUpdateConfig, SiteExplorerConfig},
     db::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
@@ -58,7 +58,7 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
     };
-    let dpu_config = default_dpus();
+    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         env.pool.clone(),
@@ -160,7 +160,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
     };
-    let dpu_config = default_dpus();
+    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         env.pool.clone(),
@@ -262,7 +262,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
     };
-    let dpu_config = default_dpus();
+    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         env.pool.clone(),

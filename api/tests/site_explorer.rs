@@ -18,7 +18,7 @@ use std::{
 };
 
 use carbide::{
-    cfg::{default_dpus, DpuFwUpdateConfig, SiteExplorerConfig},
+    cfg::{default_dpu_models, DpuFwUpdateConfig, SiteExplorerConfig},
     db::{
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
@@ -254,7 +254,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
     };
-    let dpu_config = default_dpus();
+    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         env.pool.clone(),
@@ -573,7 +573,7 @@ async fn test_site_explorer_creates_managed_host(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
     };
-    let dpu_config = default_dpus();
+    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         env.pool.clone(),

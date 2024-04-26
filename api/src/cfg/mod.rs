@@ -15,7 +15,7 @@ mod file;
 
 pub use command_line::{Command, Daemon, Options};
 pub use file::{
-    default_dpus, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuComponent, DpuDesc,
+    default_dpu_models, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuComponent, DpuDesc,
     DpuFwUpdateConfig, DpuModel, IBFabricConfig, IbFabricMonitorConfig,
     IbPartitionStateControllerConfig, MachineStateControllerConfig,
     NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig, TlsConfig,

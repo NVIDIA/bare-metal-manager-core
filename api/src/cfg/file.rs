@@ -157,8 +157,8 @@ pub struct CarbideConfig {
     pub ib_partition_state_controller: IbPartitionStateControllerConfig,
 
     /// DPU related configuration parameter
-    #[serde(default = "default_dpus")]
-    pub dpus: HashMap<DpuModel, DpuDesc>,
+    #[serde(default = "default_dpu_models")]
+    pub dpu_models: HashMap<DpuModel, DpuDesc>,
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -560,7 +560,7 @@ pub enum DpuComponent {
     Uefi,
 }
 
-pub fn default_dpus() -> HashMap<DpuModel, DpuDesc> {
+pub fn default_dpu_models() -> HashMap<DpuModel, DpuDesc> {
     HashMap::from([
         (DpuModel::BlueField2, DpuDesc::default()),
         (DpuModel::BlueField3, DpuDesc::default()),
@@ -834,7 +834,7 @@ mod tests {
             assert_eq!(config.listen, "[::]:1081".parse().unwrap());
             assert_eq!(config.asn, 123);
             assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
-            assert_eq!(config.dpus, default_dpus());
+            assert_eq!(config.dpu_models, default_dpu_models());
             Ok(())
         });
 
@@ -845,7 +845,7 @@ mod tests {
                 database_url="postgres://a:b@postgresql"
                 listen="[::]:1081"
                 asn=123
-                [dpus.bluefield2]
+                [dpu_models.bluefield2]
                 min_component_version = {"bmc" = "23.10", "uefi" = "4.5"}
             "#,
             )?;
@@ -854,10 +854,14 @@ mod tests {
                 .extract()
                 .unwrap();
 
-            assert_eq!(1, config.dpus.keys().len());
-            assert!(config.dpus.contains_key(&DpuModel::BlueField2));
+            assert_eq!(1, config.dpu_models.keys().len());
+            assert!(config.dpu_models.contains_key(&DpuModel::BlueField2));
             assert_eq!(
-                config.dpus.get(&DpuModel::BlueField2).unwrap().clone(),
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField2)
+                    .unwrap()
+                    .clone(),
                 DpuDesc {
                     min_component_version: HashMap::from([
                         (DpuComponent::Bmc, "23.10".to_string()),
@@ -875,10 +879,10 @@ mod tests {
                 database_url="postgres://a:b@postgresql"
                 listen="[::]:1081"
                 asn=123
-                [dpus.bluefield2.min_component_version]
+                [dpu_models.bluefield2.min_component_version]
                 bmc = "23.10"
                 uefi = "4.5"
-                [dpus.bluefield3.min_component_version]
+                [dpu_models.bluefield3.min_component_version]
                 bmc = "23.07"
                 uefi = "4.2"
             "#,
@@ -888,10 +892,14 @@ mod tests {
                 .extract()
                 .unwrap();
 
-            assert_eq!(2, config.dpus.keys().len());
-            assert!(config.dpus.contains_key(&DpuModel::BlueField2));
+            assert_eq!(2, config.dpu_models.keys().len());
+            assert!(config.dpu_models.contains_key(&DpuModel::BlueField2));
             assert_eq!(
-                config.dpus.get(&DpuModel::BlueField2).unwrap().clone(),
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField2)
+                    .unwrap()
+                    .clone(),
                 DpuDesc {
                     min_component_version: HashMap::from([
                         (DpuComponent::Bmc, "23.10".to_string()),
@@ -899,9 +907,13 @@ mod tests {
                     ]),
                 }
             );
-            assert!(config.dpus.contains_key(&DpuModel::BlueField3));
+            assert!(config.dpu_models.contains_key(&DpuModel::BlueField3));
             assert_eq!(
-                config.dpus.get(&DpuModel::BlueField3).unwrap().clone(),
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField3)
+                    .unwrap()
+                    .clone(),
                 DpuDesc {
                     min_component_version: HashMap::from([
                         (DpuComponent::Bmc, "23.07".to_string()),
@@ -951,7 +963,7 @@ mod tests {
             config.ib_partition_state_controller,
             IbPartitionStateControllerConfig::default()
         );
-        assert_eq!(config.dpus, default_dpus());
+        assert_eq!(config.dpu_models, default_dpu_models());
     }
 
     #[test]
