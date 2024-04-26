@@ -12,7 +12,12 @@ use diff::Result as DiffResult;
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
 use hickory_resolver::{config::ResolverConfig, Name};
 use resolv_conf::Config;
-use rpc::forge_resolver::{self};
+use rpc::{
+    forge::InstancePhoneHomeLastContactRequest,
+    forge_resolver,
+    forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT},
+    Instance, Timestamp,
+};
 use tower::Service;
 
 pub fn compare_lines(left: &str, right: &str, strip_behavior: Option<StripType>) -> CompareResult {
@@ -127,4 +132,67 @@ impl UrlResolver {
 
         Ok(ip)
     }
+}
+
+// Forge Communication
+pub async fn create_forge_client(
+    forge_api: &str,
+    client_config: ForgeClientConfig,
+) -> Result<ForgeClientT, eyre::Error> {
+    match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(forge_api, client_config))
+        .await
+    {
+        Ok(client) => Ok(client),
+        Err(err) => Err(eyre::eyre!(
+            "Could not connect to Forge API server at {}: {err}",
+            forge_api
+        )),
+    }
+}
+
+// get_instance finds the instance associated with this dpu
+pub async fn get_instance(
+    client: &mut ForgeClientT,
+    dpu_machine_id: String,
+) -> Result<Instance, eyre::Error> {
+    let request = tonic::Request::new(rpc::MachineId {
+        id: dpu_machine_id.clone(),
+    });
+
+    let instances = match client.find_instance_by_machine_id(request).await {
+        Ok(response) => response.into_inner().instances,
+        Err(err) => {
+            return Err(eyre::eyre!(
+                "Error while executing the FindInstanceByMachineId gRPC call: {}",
+                err.to_string()
+            ));
+        }
+    };
+
+    return instances
+        .first()
+        .ok_or_else(|| eyre::eyre!("instances array is empty in response"))
+        .cloned();
+}
+
+// phone_home returns the timestamp returned from Carbide as a string
+pub async fn phone_home(
+    client: &mut ForgeClientT,
+    dpu_machine_id: String,
+) -> Result<Timestamp, eyre::Error> {
+    let instance = get_instance(client, dpu_machine_id).await?;
+
+    let request: tonic::Request<InstancePhoneHomeLastContactRequest> =
+        tonic::Request::new(InstancePhoneHomeLastContactRequest {
+            instance_id: instance.id,
+        });
+
+    let response = client
+        .update_instance_phone_home_last_contact(request)
+        .await?;
+
+    response
+        .into_inner()
+        .timestamp
+        .ok_or_else(|| eyre::eyre!("timestamp is empty in response"))
 }

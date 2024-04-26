@@ -12,10 +12,14 @@
 
 use std::sync::Arc;
 
+use crate::instance_metadata_fetcher::InstanceMetadata;
+use crate::instance_metadata_fetcher::InstanceMetadataFetcherState;
+use crate::util::{create_forge_client, phone_home};
+use ::rpc::forge_tls_client::ForgeClientConfig;
+use async_trait::async_trait;
 use axum::http::StatusCode;
-use axum::{extract::Path, extract::State, routing::get, Router};
-
-use crate::instance_metadata_fetcher::InstanceMetadataReader;
+use axum::{extract::Path, extract::State, routing::get, routing::post, Router};
+use mockall::automock;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
@@ -24,7 +28,67 @@ const GUID: &str = "guid";
 const IB_PARTITION: &str = "partition";
 const LID: &str = "lid";
 
-pub fn get_instance_metadata_router(metadata_fetcher: Arc<dyn InstanceMetadataReader>) -> Router {
+#[automock]
+#[async_trait]
+pub trait InstanceMetadataRouterState: Sync + Send {
+    fn read(&self) -> Arc<Option<InstanceMetadata>>;
+    async fn phone_home(&self) -> Result<(), eyre::Error>;
+}
+
+pub struct InstanceMetadataRouterStateImpl {
+    reader: Arc<InstanceMetadataFetcherState>,
+    machine_id: String,
+    forge_api: String,
+    forge_client_config: ForgeClientConfig,
+}
+
+#[async_trait]
+impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
+    /// Reads the latest desired instance metadata obtained from the Forge
+    /// Site controller
+    fn read(&self) -> Arc<Option<InstanceMetadata>> {
+        self.reader.read()
+    }
+
+    // Phones home to the site controller.
+    async fn phone_home(&self) -> Result<(), eyre::Error> {
+        let mut client =
+            create_forge_client(&self.forge_api, self.forge_client_config.clone()).await?;
+
+        let timestamp = phone_home(&mut client, self.machine_id.clone())
+            .await?
+            .to_string()
+            + "\n";
+
+        tracing::info!(
+            "Successfully phoned home for Machine {} at {}",
+            self.machine_id,
+            timestamp
+        );
+
+        Ok(())
+    }
+}
+
+impl InstanceMetadataRouterStateImpl {
+    pub fn new(
+        reader: Arc<InstanceMetadataFetcherState>,
+        machine_id: String,
+        forge_api: String,
+        forge_client_config: ForgeClientConfig,
+    ) -> Self {
+        Self {
+            reader,
+            machine_id,
+            forge_api,
+            forge_client_config,
+        }
+    }
+}
+
+pub fn get_instance_metadata_router(
+    metadata_router_state: Arc<dyn InstanceMetadataRouterState>,
+) -> Router {
     // TODO add handling for non-supported URIs
     let ib_router = Router::new()
         .route("/devices", get(get_devices))
@@ -42,12 +106,13 @@ pub fn get_instance_metadata_router(metadata_fetcher: Arc<dyn InstanceMetadataRe
 
     Router::new()
         .nest("/infiniband", ib_router)
+        .route("/phone_home", post(post_phone_home))
         .route("/:category", get(get_metadata_parameter))
-        .with_state(metadata_fetcher)
+        .with_state(metadata_router_state)
 }
 
 async fn get_metadata_parameter(
-    State(state): State<Arc<dyn InstanceMetadataReader>>,
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path(category): Path<String>,
 ) -> (StatusCode, String) {
     if let Some(metadata) = state.read().as_ref() {
@@ -68,8 +133,10 @@ async fn get_metadata_parameter(
     }
 }
 
-async fn get_devices(State(state): State<Arc<dyn InstanceMetadataReader>>) -> (StatusCode, String) {
-    let read_guard = state.read();
+async fn get_devices(
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
+) -> (StatusCode, String) {
+    let read_guard: Arc<Option<InstanceMetadata>> = state.read();
     let metadata = match read_guard.as_ref() {
         Some(metadata) => metadata,
         None => {
@@ -93,10 +160,10 @@ async fn get_devices(State(state): State<Arc<dyn InstanceMetadataReader>>) -> (S
 }
 
 async fn get_instances(
-    State(state): State<Arc<dyn InstanceMetadataReader>>,
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path(device_index): Path<usize>,
 ) -> (StatusCode, String) {
-    let read_guard = state.read();
+    let read_guard: Arc<Option<crate::instance_metadata_fetcher::InstanceMetadata>> = state.read();
     let metadata = match read_guard.as_ref() {
         Some(metadata) => metadata,
         None => {
@@ -131,7 +198,7 @@ async fn get_instances(
 }
 
 async fn get_instance_attributes(
-    State(state): State<Arc<dyn InstanceMetadataReader>>,
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path((device_index, instance_index)): Path<(usize, usize)>,
 ) -> (StatusCode, String) {
     println!("Got here!");
@@ -181,7 +248,7 @@ async fn get_instance_attributes(
 }
 
 async fn get_instance_attribute(
-    State(state): State<Arc<dyn InstanceMetadataReader>>,
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path((device_index, instance_index, attribute)): Path<(usize, usize, String)>,
 ) -> (StatusCode, String) {
     let read_guard = state.read();
@@ -239,30 +306,37 @@ async fn get_instance_attribute(
     }
 }
 
+async fn post_phone_home(
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
+) -> (StatusCode, String) {
+    match state.phone_home().await {
+        Ok(()) => (StatusCode::OK, "successfully phoned home".to_string()),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use ::rpc::Uuid;
     use axum::http;
-    use rpc::Uuid;
     use uuid::uuid;
 
-    use crate::instance_metadata_fetcher::{
-        IBDeviceConfig, IBInstanceConfig, InstanceMetadata, MockInstanceMetadataReader,
-    };
+    use crate::instance_metadata_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
 
     use super::*;
 
     async fn setup_server(
         metadata: Option<InstanceMetadata>,
     ) -> (tokio::task::JoinHandle<()>, u16) {
-        let mut _mock_reader = MockInstanceMetadataReader::new();
-        _mock_reader
+        let mut mock_router_state = MockInstanceMetadataRouterState::new();
+        mock_router_state
             .expect_read()
             .times(1)
             .return_const(Arc::new(metadata.clone()));
 
-        let mock_reader = Arc::new(_mock_reader);
+        let arc_mock_router_state = Arc::new(mock_router_state);
 
-        let router = get_instance_metadata_router(mock_reader.clone());
+        let router = get_instance_metadata_router(arc_mock_router_state);
 
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
