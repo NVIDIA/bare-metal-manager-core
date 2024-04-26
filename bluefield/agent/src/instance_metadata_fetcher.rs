@@ -16,13 +16,13 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use mockall::*;
 use tracing::{error, trace};
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::Instance;
 use ::rpc::Uuid as uuid;
+
+use crate::util::{create_forge_client, get_instance};
 
 /// The instance metadata - as fetched from the
 /// Forge Site Controller
@@ -47,29 +47,16 @@ pub struct IBInstanceConfig {
     pub lid: u32,
 }
 
-/// An interface for reading the latest received network configuration for
-/// a Forge host
-#[automock]
-pub trait InstanceMetadataReader: Sync + Send {
-    fn read(&self) -> Arc<Option<InstanceMetadata>>;
-}
-
-struct InstanceMetadataReaderImpl {
-    state: Arc<InstanceMetadataFetcherState>,
-}
-
-impl InstanceMetadataReader for InstanceMetadataReaderImpl {
-    /// Reads the latest desired instance metadata obtained from the Forge
-    /// Site controller
-    fn read(&self) -> Arc<Option<InstanceMetadata>> {
-        self.state.current.load_full()
-    }
-}
-
-struct InstanceMetadataFetcherState {
+pub struct InstanceMetadataFetcherState {
     current: ArcSwap<Option<InstanceMetadata>>,
     config: InstanceMetadataFetcherConfig,
     is_cancelled: AtomicBool,
+}
+
+impl InstanceMetadataFetcherState {
+    pub fn read(&self) -> Arc<Option<InstanceMetadata>> {
+        self.current.load_full()
+    }
 }
 
 /// Fetches the desired network configuration for a managed host in regular intervals
@@ -114,10 +101,8 @@ impl InstanceMetadataFetcher {
     }
 
     /// Returns a reader for fetching the latest retrieved instance metadata
-    pub fn reader(&self) -> Arc<dyn InstanceMetadataReader> {
-        Arc::new(InstanceMetadataReaderImpl {
-            state: self.state.clone(),
-        })
+    pub fn reader(&self) -> Arc<InstanceMetadataFetcherState> {
+        self.state.clone()
     }
 }
 
@@ -167,39 +152,15 @@ async fn fetch_latest_ip_addresses(
     client_config: ForgeClientConfig,
     state: &InstanceMetadataFetcherState,
 ) -> Result<InstanceMetadata, eyre::Error> {
-    let mut client = match forge_tls_client::ForgeTlsClient::retry_build(&ApiConfig::new(
-        &state.config.forge_api,
-        client_config,
-    ))
-    .await
-    {
-        Ok(client) => client,
-        Err(err) => {
-            return Err(eyre::eyre!(
-                "Could not connect to Forge API server at {}: {err}",
-                state.config.forge_api
-            ));
-        }
-    };
-    let request = tonic::Request::new(rpc::MachineId {
-        id: state.config.machine_id.clone(),
-    });
+    let mut client = create_forge_client(&state.config.forge_api, client_config).await?;
+    let instance = get_instance(&mut client, state.config.machine_id.clone()).await?;
 
-    let instances = match client.find_instance_by_machine_id(request).await {
-        Ok(response) => response.into_inner().instances,
-        Err(err) => {
-            return Err(eyre::eyre!(
-                "Error while executing the FindInstanceByMachineId gRPC call: {}",
-                err.to_string()
-            ));
-        }
+    let hostname = match instance.id.clone() {
+        Some(name) => name.to_string(),
+        None => return Err(eyre::eyre!("host name is not present in tenant config")),
     };
 
-    let first_instance = instances
-        .first()
-        .ok_or_else(|| eyre::eyre!("instances array is empty in response"))?;
-    let hostname = first_instance.id.clone().unwrap().to_string();
-    let pf_address = first_instance
+    let pf_address = instance
         .status
         .as_ref()
         .and_then(|status| status.network.as_ref())
@@ -211,14 +172,14 @@ async fn fetch_latest_ip_addresses(
                 .and_then(|interface| interface.addresses.first().cloned())
         })
         .ok_or_else(|| eyre::eyre!("No suitable address found"))?;
-    let user_data = first_instance
+    let user_data = instance
         .config
         .as_ref()
         .and_then(|config| config.tenant.as_ref())
         .and_then(|tenant_config| tenant_config.user_data.clone())
         .ok_or_else(|| eyre::eyre!("user data is not present in tenant config"))?;
 
-    let devices = match extract_instance_ib_config(first_instance) {
+    let devices = match extract_instance_ib_config(&instance) {
         Ok(value) => Some(value),
         Err(e) => {
             trace!("Failed to fetch IB config: {}", e.to_string());

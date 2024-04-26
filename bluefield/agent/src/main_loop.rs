@@ -37,6 +37,7 @@ use crate::command_line::NetworkVirtualizationType;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
+use crate::instance_metadata_endpoint;
 use crate::instance_metadata_endpoint::get_instance_metadata_router;
 use crate::instance_metadata_fetcher;
 use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
@@ -640,11 +641,18 @@ fn spawn_metadata_service(
                 config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
                 machine_id: machine_id.to_string(),
                 forge_api: forge_api.to_string(),
-                forge_client_config,
+                forge_client_config: forge_client_config.clone(),
             },
         ));
 
-    let instance_metadata_reader = instance_metadata_fetcher.reader();
+    let instance_metadata_state = Arc::new(
+        instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
+            instance_metadata_fetcher.reader(),
+            machine_id.to_string(),
+            forge_api.to_string(),
+            forge_client_config.clone(),
+        ),
+    );
 
     let metrics_state = create_metrics(meter);
 
@@ -652,7 +660,7 @@ fn spawn_metadata_service(
         metadata_service_address,
         Router::new().nest(
             "/latest/meta-data",
-            get_instance_metadata_router(instance_metadata_reader.clone())
+            get_instance_metadata_router(instance_metadata_state.clone())
                 .with_tracing_layer(metrics_state),
         ),
     )
