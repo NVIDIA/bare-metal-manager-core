@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Systems/Bluefield/BootOptions/Boot0000",
+  "@odata.type": "#BootOption.v1_0_4.BootOption",
+  "BootOptionEnabled": true,
+  "BootOptionReference": "Boot0000",
+  "Description": "",
+  "DisplayName": "NET-OOB-IPV4-HTTP",
+  "Id": "Boot0000",
+  "Name": "Boot0000",
+  "UefiDevicePath": "MAC(B83FD2909552,0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"
+}

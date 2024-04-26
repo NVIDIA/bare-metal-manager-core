@@ -1,0 +1,18 @@
+{
+  "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/Bluefield_FW_ERoT",
+  "@odata.type": "#SoftwareInventory.v1_4_0.SoftwareInventory",
+  "Description": "Other image",
+  "Id": "Bluefield_FW_ERoT",
+  "Name": "Software Inventory",
+  "RelatedItem": [],
+  "RelatedItem@odata.count": 0,
+  "SoftwareId": "",
+  "Status": {
+    "Conditions": [],
+    "Health": "OK",
+    "HealthRollup": "OK",
+    "State": "Enabled"
+  },
+  "Updateable": true,
+  "Version": "4-15"
+}

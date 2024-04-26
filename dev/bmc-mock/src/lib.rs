@@ -64,7 +64,7 @@ pub fn default_router(state: BmcState) -> Router {
             post(set_system_power),
         )
         .route(rf!("Systems/:manager_id/Bios"), get(get_bios))
-        .with_state(state.clone())
+        .with_state(state)
 }
 
 pub async fn run(router: Router, cert_path: Option<String>, listen_addr: Option<SocketAddr>) {
