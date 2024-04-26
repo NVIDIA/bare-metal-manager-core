@@ -1,78 +1,207 @@
 pub mod api_client;
-pub mod machine;
+pub mod config;
+pub mod dhcp_relay;
+pub mod dpu_machine;
+pub mod host_machine;
+pub mod machine_a_tron;
+pub mod machine_utils;
+pub mod tui;
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::{collections::HashMap, error::Error, path::Path};
+
+use axum::http::Uri;
+use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 
 use clap::Parser;
+use figment::providers::{Format, Toml};
+use figment::Figment;
 use forge_tls::client_config::{
     get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
     get_proxy_info,
 };
+use machine_a_tron::MachineATron;
 use rpc::forge_tls_client::ForgeClientConfig;
 
+use serde_json::Value;
+use tokio::io::AsyncReadExt;
+use tokio::sync::Mutex;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
-use crate::machine::HostMachine;
+use crate::config::{MachineATronArgs, MachineATronConfig, MachineATronContext};
+use crate::dhcp_relay::DhcpRelayService;
 
-#[derive(Parser, Debug)]
-#[clap(name = "machine-sim")]
-pub struct MachineSimArgs {
-    #[clap(help = "The number of host machines to create")]
-    num_hosts: u32,
-    // #[clap(help = "The number of DPUs per host to create")]
-    // num_dpus_per_host: u32,
-    #[clap(help = "the api url")]
-    pub carbide_api: Option<String>,
-    #[clap(long, env = "FORGE_ROOT_CA_PATH")]
-    #[clap(
-        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
-    )]
-    pub forge_root_ca_path: Option<String>,
-
-    #[clap(long, env = "CLIENT_CERT_PATH")]
-    #[clap(
-        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
-    )]
-    pub client_cert_path: Option<String>,
-
-    #[clap(long, env = "CLIENT_KEY_PATH")]
-    #[clap(
-        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
-    )]
-    pub client_key_path: Option<String>,
-    #[clap(long)]
-    #[clap(help = "directory containing template files.")]
-    pub template_dir: Option<String>,
-    #[clap(long)]
-    #[clap(help = "relay address for env.")]
-    pub relay_address: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct AppConfig {
-    carbide_api_url: String,
-    forge_client_config: ForgeClientConfig,
-    pub template_dir: String,
-    pub relay_address: String,
-    pub num_hosts: u32,
-    pub num_dpus_per_host: u32,
-    pub circuit_id: Option<String>,
-}
-
-#[tokio::main]
-async fn main() {
+fn init_log(filename: &Option<String>) -> Result<(), Box<dyn Error>> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
 
-    registry()
-        .with(fmt::Layer::default().compact().with_writer(std::io::stderr))
-        .with(env_filter)
-        .try_init()
-        .unwrap();
+    match filename {
+        Some(filename) => {
+            let log_file = std::sync::Arc::new(std::fs::File::create(filename)?);
+            registry()
+                .with(fmt::Layer::default().compact().with_writer(log_file))
+                .with(env_filter)
+                .try_init()
+                .unwrap();
+        }
+        None => {
+            registry()
+                .with(fmt::Layer::default().compact().with_writer(std::io::stdout))
+                .with(env_filter)
+                .try_init()
+                .unwrap();
+        }
+    }
+    Ok(())
+}
 
-    let args = MachineSimArgs::parse();
+#[derive(Clone, Default)]
+struct MatBmcState {
+    response_map: Arc<Mutex<HashMap<String, String>>>,
+}
+
+async fn get_response(
+    filename: &str,
+    response_file: &mut tokio::fs::File,
+) -> (StatusCode, Json<Value>) {
+    let mut buf = [0u8; 10240];
+    match response_file.read(&mut buf).await {
+        Ok(data_size) => {
+            let data = String::from_utf8_lossy(&buf[..data_size]).trim().to_owned();
+            match serde_json::from_str::<Value>(&data) {
+                Ok(value) => (StatusCode::OK, Json(value)),
+                Err(e) => {
+                    let err_str = format!("Could not pase response data {data}: {e}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(err_str.as_str().into()),
+                    )
+                }
+            }
+        }
+        Err(e) => {
+            let err_str = format!("Could not read response file {filename}: {e}");
+            tracing::info!(err_str);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err_str.as_str().into()),
+            )
+        }
+    }
+}
+
+async fn get_not_found_response(response_path: &str) -> (StatusCode, Json<Value>) {
+    let filename: String = format!("{}/not_found.json", response_path);
+
+    match tokio::fs::OpenOptions::new()
+        .read(true)
+        .open(&filename)
+        .await
+    {
+        Ok(mut response_file) => {
+            let mut buf = [0u8; 10240];
+            match response_file.read(&mut buf).await {
+                Ok(data_size) => {
+                    let data = String::from_utf8_lossy(&buf[..data_size]).trim().to_owned();
+                    match serde_json::from_str::<Value>(&data) {
+                        Ok(value) => (StatusCode::NOT_FOUND, Json(value)),
+                        Err(e) => {
+                            let err_str = format!("Could not parse response data {data}: {e}");
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(err_str.as_str().into()),
+                            )
+                        }
+                    }
+                }
+                Err(e) => {
+                    let err_str = format!("Could not read response file {filename}: {e}");
+                    tracing::info!(err_str);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(err_str.as_str().into()),
+                    )
+                }
+            }
+        }
+        Err(e) => {
+            let err_str = format!("Could not open not found response file {filename}: {e}");
+            tracing::info!(err_str);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err_str.as_str().into()),
+            )
+        }
+    }
+}
+
+async fn handle_request(
+    uri: Uri,
+    axum::extract::State(state): axum::extract::State<MatBmcState>,
+) -> impl IntoResponse {
+    tracing::trace!("bmc request path: {uri}");
+    if let Some(host) = uri.host() {
+        let response_map = state.response_map.lock().await;
+        if let Some(response_path) = response_map.get(host) {
+            // TODO: replace any URL encoding or special characters
+            let filename = uri.path().trim_matches('/').replace('/', "_");
+            let filename: String = format!("{}/{}.json", response_path, filename);
+            match tokio::fs::OpenOptions::new()
+                .read(true)
+                .open(&filename)
+                .await
+            {
+                Ok(mut response_file) => get_response(&filename, &mut response_file).await,
+                Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    tracing::error!("curl -k -x socks5://localhost:8888/  \"https://${{USER}}:${{PASS}}@${{BMC_IP}}{}\" > {}", uri.path(), filename);
+                    get_not_found_response(response_path).await
+                }
+                Err(e) => {
+                    let err_str = format!("Could not open response file {filename}: {e}");
+                    tracing::info!(err_str);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(err_str.as_str().into()),
+                    )
+                }
+            }
+        } else {
+            tracing::info!("No response found for host: {host}");
+            (
+                StatusCode::NOT_FOUND,
+                Json("Failed to find response for host".into()),
+            )
+        }
+    } else {
+        tracing::info!("No host in request uri: {:?}", uri);
+        (
+            StatusCode::NOT_FOUND,
+            Json("Failed to find response for host".into()),
+        )
+    }
+}
+
+fn bmc_router(state: MatBmcState) -> Router {
+    Router::new()
+        .fallback(get(handle_request))
+        .with_state(state)
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let args = MachineATronArgs::parse();
+
+    let fig = Figment::new().merge(Toml::file(args.config_file.as_str()));
+    let mut app_config: MachineATronConfig = fig.extract().unwrap();
+    init_log(&app_config.log_file).unwrap();
 
     let file_config = get_config_from_file();
-    let carbide_api_url = get_carbide_api_url(args.carbide_api, file_config.as_ref());
+    let carbide_api_url =
+        get_carbide_api_url(app_config.carbide_api_url.clone(), file_config.as_ref());
+    app_config.carbide_api_url = Some(carbide_api_url);
+
     let forge_root_ca_path = get_forge_root_ca_path(args.forge_root_ca_path, file_config.as_ref());
     let forge_client_cert = get_client_cert_info(
         args.client_cert_path,
@@ -82,45 +211,66 @@ async fn main() {
     let proxy = get_proxy_info().expect("Failed to get proxy info");
 
     let mut forge_client_config =
-        ForgeClientConfig::new(forge_root_ca_path, Some(forge_client_cert));
+        ForgeClientConfig::new(forge_root_ca_path.clone(), Some(forge_client_cert));
     forge_client_config.socks_proxy(proxy);
 
-    let mut app_config = AppConfig {
-        carbide_api_url,
+    let cert_path = Path::new(&forge_root_ca_path)
+        .parent()
+        .expect("Could not get cert path from root ca path")
+        .to_owned()
+        .to_str()
+        .map(|p| p.to_owned());
+
+    let mat_bmc_state = MatBmcState::default();
+
+    let mut app_context = MachineATronContext {
+        app_config,
         forge_client_config,
-        template_dir: args.template_dir.unwrap_or("templates".to_owned()),
-        relay_address: args.relay_address,
-        num_hosts: args.num_hosts,
-        num_dpus_per_host: 1, //args.num_dpus_per_host,
         circuit_id: None,
+        bmc_response_map: mat_bmc_state.response_map.clone(),
     };
 
-    let segments = api_client::find_network_segments(&app_config)
+    let (mut dhcp_client, mut dhcp_service) =
+        DhcpRelayService::new(app_context.clone(), app_context.app_config.clone());
+    let dhcp_handle = tokio::spawn(async move {
+        dhcp_service.run().await;
+    });
+
+    let segments = api_client::find_network_segments(&app_context)
         .await
         .unwrap();
+
+    for s in segments.network_segments.iter() {
+        tracing::info!("segment: {:?}", s);
+    }
+
     let circuit_id = segments
         .network_segments
         .iter()
         .find_map(|s| s.prefixes.iter().find_map(|p| p.circuit_id.clone()));
+    app_context.circuit_id = circuit_id;
 
-    app_config.circuit_id = circuit_id;
-
-    let mut machines = Vec::default();
-    for _ in 0..app_config.num_hosts {
-        let m = HostMachine::new(app_config.clone());
-        machines.push(m);
-    }
-
-    let info = api_client::version(&app_config).await.unwrap();
+    let info = api_client::version(&app_context).await.unwrap();
     tracing::info!("version: {}", info.build_version);
 
-    loop {
-        let mut work_done = false;
-        for m in machines.iter_mut() {
-            work_done |= m.process_state().await;
-        }
-        if !work_done {
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-        }
-    }
+    let listen_addr = app_context
+        .app_config
+        .bmc_port
+        .map(|p| SocketAddr::from(([0, 0, 0, 0], p)));
+
+    tracing::info!("Starting bmc mock on {:?}", listen_addr);
+
+    let bmc_mock_handle = tokio::spawn(bmc_mock::run(
+        bmc_router(mat_bmc_state),
+        cert_path,
+        listen_addr,
+    ));
+
+    let mut mat = MachineATron::new(app_context, dhcp_client.clone());
+    mat.run().await;
+
+    bmc_mock_handle.abort();
+    dhcp_client.stop_service().await;
+    dhcp_handle.await.unwrap();
+    Ok(())
 }

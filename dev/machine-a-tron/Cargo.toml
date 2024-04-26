@@ -15,13 +15,24 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 uuid = { version = "1.6.1", features = ["v4"] }
 serde = "1.0.195"
 serde_json = "1.0.111"
-tokio = { workspace=true}
-tonic = {workspace=true}
+tokio = { workspace=true }
+tonic = { workspace=true }
 socket2 = "0.5.5"
 base64 = "0.21.7"
 chrono = "0.4.34"
 thiserror = "1"
+axum = "0.6.18"
+crossterm = { version = "0.25.0", features = ["event-stream"] }
+ratatui = "0.26.1"
+dhcproto = "0.11.0"
+mac_address = "1.1.5"
+futures = "0.3.30"
+figment = { version = "0.10.16", features = ["toml"] }
+libredfish = { version = "0.16.3", registry = "sw-ngc-forge-cargo-local" }
 
 # [local-dependencies]
-rpc = {path = "../../rpc"}
-forge-tls = {path = "../../common/tls"}
+rpc = { path = "../../rpc" }
+bmc-mock = { path = "../bmc-mock" }
+forge-tls = { path = "../../common/tls" }
+utils = { path = "../../common/utils" }
+

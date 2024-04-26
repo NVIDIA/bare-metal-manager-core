@@ -1,0 +1,84 @@
+{
+  "@odata.id": "/redfish/v1",
+  "@odata.type": "#ServiceRoot.v1_15_0.ServiceRoot",
+  "AccountService": {
+    "@odata.id": "/redfish/v1/AccountService"
+  },
+  "Cables": {
+    "@odata.id": "/redfish/v1/Cables"
+  },
+  "CertificateService": {
+    "@odata.id": "/redfish/v1/CertificateService"
+  },
+  "Chassis": {
+    "@odata.id": "/redfish/v1/Chassis"
+  },
+  "ComponentIntegrity": {
+    "@odata.id": "/redfish/v1/ComponentIntegrity"
+  },
+  "EventService": {
+    "@odata.id": "/redfish/v1/EventService"
+  },
+  "Fabrics": {
+    "@odata.id": "/redfish/v1/Fabrics"
+  },
+  "Id": "RootService",
+  "JsonSchemas": {
+    "@odata.id": "/redfish/v1/JsonSchemas"
+  },
+  "Links": {
+    "ManagerProvidingService": {
+      "@odata.id": "/redfish/v1/Managers/Bluefield_BMC"
+    },
+    "Sessions": {
+      "@odata.id": "/redfish/v1/SessionService/Sessions"
+    }
+  },
+  "Managers": {
+    "@odata.id": "/redfish/v1/Managers"
+  },
+  "Name": "Root Service",
+  "Product": "Nvidia-BMCMezz",
+  "ProtocolFeaturesSupported": {
+    "DeepOperations": {
+      "DeepPATCH": false,
+      "DeepPOST": false
+    },
+    "ExcerptQuery": false,
+    "ExpandQuery": {
+      "ExpandAll": true,
+      "Levels": true,
+      "Links": true,
+      "MaxLevels": 6,
+      "NoLinks": true
+    },
+    "FilterQuery": false,
+    "OnlyMemberQuery": true,
+    "SelectQuery": true
+  },
+  "RedfishVersion": "1.9.0",
+  "Registries": {
+    "@odata.id": "/redfish/v1/Registries"
+  },
+  "ServiceConditions": {
+    "@odata.id": "/redfish/v1/ServiceConditions"
+  },
+  "SessionService": {
+    "@odata.id": "/redfish/v1/SessionService"
+  },
+  "Systems": {
+    "@odata.id": "/redfish/v1/Systems"
+  },
+  "Tasks": {
+    "@odata.id": "/redfish/v1/TaskService"
+  },
+  "TelemetryService": {
+    "@odata.id": "/redfish/v1/TelemetryService"
+  },
+  "UUID": "e12216c9-80ad-44aa-8ef5-8dd4fcb8309c",
+  "UpdateService": {
+    "@odata.id": "/redfish/v1/UpdateService"
+  },
+  "Vendor": "Nvidia"
+}
+

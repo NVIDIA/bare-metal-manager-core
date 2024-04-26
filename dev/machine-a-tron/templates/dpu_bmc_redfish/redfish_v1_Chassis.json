@@ -1,0 +1,17 @@
+{
+  "@odata.id": "/redfish/v1/Chassis",
+  "@odata.type": "#ChassisCollection.ChassisCollection",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/Bluefield_BMC"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/Bluefield_EROT"
+    },
+    {
+      "@odata.id": "/redfish/v1/Chassis/Card1"
+    }
+  ],
+  "Members@odata.count": 3,
+  "Name": "Chassis Collection"
+}

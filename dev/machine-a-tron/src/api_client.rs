@@ -6,7 +6,7 @@ use rpc::{
     forge_tls_client::{self, ApiConfig, ForgeClientT},
 };
 
-use crate::AppConfig;
+use crate::config::MachineATronContext;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
@@ -20,15 +20,15 @@ pub enum ClientApiError {
 type ClientApiResult<T> = Result<T, ClientApiError>;
 
 pub async fn with_forge_client<T, F>(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
     callback: impl FnOnce(ForgeClientT) -> F,
 ) -> ClientApiResult<T>
 where
     F: Future<Output = ClientApiResult<T>>,
 {
     let api_config = ApiConfig::new(
-        &app_config.carbide_api_url,
-        app_config.forge_client_config.clone(),
+        app_context.app_config.carbide_api_url.as_ref().unwrap(),
+        app_context.forge_client_config.clone(),
     );
 
     let client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
@@ -38,8 +38,8 @@ where
     callback(client).await
 }
 
-pub async fn version(app_config: &AppConfig) -> ClientApiResult<rpc::forge::BuildInfo> {
-    with_forge_client(app_config, |mut client| async move {
+pub async fn version(app_context: &MachineATronContext) -> ClientApiResult<rpc::forge::BuildInfo> {
+    with_forge_client(app_context, |mut client| async move {
         let out = client
             .version(tonic::Request::new(rpc::forge::VersionRequest {
                 display_config: false,
@@ -53,25 +53,27 @@ pub async fn version(app_config: &AppConfig) -> ClientApiResult<rpc::forge::Buil
 }
 
 pub async fn discover_dhcp(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
     mac_address: String,
+    template_dir: String,
+    relay_address: String,
     circuit_id: Option<String>,
 ) -> ClientApiResult<rpc::forge::DhcpRecord> {
-    tracing::info!("dhcp request for {}", mac_address);
-    let dhcp_string =
-        std::fs::read_to_string(app_config.template_dir.clone() + "/dhcp_discovery.json")
-            .expect("Unable to read dhcp_discovery.json");
+    let dhcp_string = std::fs::read_to_string(template_dir.clone() + "/dhcp_discovery.json")
+        .expect("Unable to read dhcp_discovery.json");
     let default_data: rpc::forge::DhcpDiscovery = serde_json::from_str(&dhcp_string)
         .expect("dhcp_discovery.json does not have correct format.");
 
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
+        let dhcp_discovery = rpc::forge::DhcpDiscovery {
+            mac_address,
+            circuit_id,
+            relay_address,
+            ..default_data
+        };
+        //        tracing::info!("dhcp_discovery: {:?}", dhcp_discovery);
         let out = client
-            .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
-                mac_address,
-                circuit_id,
-                relay_address: app_config.relay_address.clone(),
-                ..default_data
-            }))
+            .discover_dhcp(tonic::Request::new(dhcp_discovery))
             .await
             .map(|response| response.into_inner())
             .map_err(ClientApiError::InvocationError)?;
@@ -82,24 +84,27 @@ pub async fn discover_dhcp(
 }
 
 pub async fn discover_machine(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
+    template_dir: &str,
     machine_type: MachineType,
     machine_interface_id: rpc::Uuid,
     network_interface_macs: Vec<String>,
     product_serial: String,
     host_mac_address: String,
 ) -> ClientApiResult<rpc::forge::MachineDiscoveryResult> {
+    /*
     tracing::info!(
-        "sending discover info for {:?} {} ({})",
+        "sending discover info for {:?} {} ({:?})",
         machine_type,
         machine_interface_id,
-        host_mac_address
+        network_interface_macs.get(0)
     );
+    */
     let dhcp_string = if machine_type == MachineType::Dpu {
-        std::fs::read_to_string(app_config.template_dir.clone() + "/dpu_discovery_info.json")
+        std::fs::read_to_string(format!("{}/dpu_discovery_info.json", template_dir))
             .expect("Unable to read dpu_discovery_info.json")
     } else {
-        std::fs::read_to_string(app_config.template_dir.clone() + "/host_discovery_info.json")
+        std::fs::read_to_string(format!("{}/host_discovery_info.json", template_dir))
             .expect("Unable to read host_discovery_info.json")
     };
     let mut discovery_data: rpc::machine_discovery::DiscoveryInfo =
@@ -132,7 +137,7 @@ pub async fn discover_machine(
         create_machine: true,
     };
 
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
         let out = client
             .discover_machine(tonic::Request::new(mdi))
             .await
@@ -144,24 +149,25 @@ pub async fn discover_machine(
 }
 
 pub async fn update_bmc_metadata(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
+    template_dir: &str,
     machine_type: MachineType,
     machine_id: rpc::MachineId,
 ) -> ClientApiResult<rpc::forge::BmcMetaDataUpdateResponse> {
     let machine_id = Some(machine_id);
     let md_request_string = if machine_type == MachineType::Dpu {
-        std::fs::read_to_string(app_config.template_dir.clone() + "/dpu_metadata_update.json")
+        std::fs::read_to_string(format!("{}/dpu_metadata_update.json", template_dir))
             .expect("Unable to read dpu_metadata_update.json")
     } else {
-        std::fs::read_to_string(app_config.template_dir.clone() + "/host_metadata_update.json")
-            .expect("Unable to read host_metadata_update.json")
+        std::fs::read_to_string(format!("{}/host_metadata_update.json", template_dir))
+            .expect("Unable to read dpu_metadata_update.json")
     };
 
     let default_data: rpc::forge::BmcMetaDataUpdateRequest =
         serde_json::from_str(&md_request_string)
             .expect("metadata_update json does not have correct format.");
 
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
         let out = client
             .update_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataUpdateRequest {
                 machine_id,
@@ -176,12 +182,12 @@ pub async fn update_bmc_metadata(
 }
 
 pub async fn forge_agent_control(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
     machine_id: rpc::MachineId,
 ) -> ClientApiResult<rpc::forge::ForgeAgentControlResponse> {
     let machine_id = Some(machine_id);
 
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
         let out = client
             .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
                 machine_id,
@@ -195,12 +201,12 @@ pub async fn forge_agent_control(
 }
 
 pub async fn discovery_complete(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
     machine_id: rpc::MachineId,
 ) -> ClientApiResult<rpc::forge::MachineDiscoveryCompletedResponse> {
     let machine_id = Some(machine_id);
 
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
         let out = client
             .discovery_completed(tonic::Request::new(
                 rpc::forge::MachineDiscoveryCompletedRequest {
@@ -217,12 +223,12 @@ pub async fn discovery_complete(
 }
 
 pub async fn get_machine(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
     machine_id: rpc::MachineId,
 ) -> ClientApiResult<Option<rpc::forge::Machine>> {
     let machine_id = Some(machine_id);
 
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
         let out = client
             .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
                 id: machine_id,
@@ -246,12 +252,12 @@ pub async fn get_machine(
 }
 
 pub async fn get_managed_host_network_config(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
     dpu_machine_id: rpc::MachineId,
 ) -> ClientApiResult<rpc::forge::ManagedHostNetworkConfigResponse> {
     let dpu_machine_id = Some(dpu_machine_id);
 
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
         let out = client
             .get_managed_host_network_config(tonic::Request::new(
                 rpc::forge::ManagedHostNetworkConfigRequest { dpu_machine_id },
@@ -266,13 +272,13 @@ pub async fn get_managed_host_network_config(
 }
 
 pub async fn record_dpu_network_status(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
     dpu_machine_id: rpc::MachineId,
     version: Option<String>,
 ) -> ClientApiResult<()> {
     let dpu_machine_id = Some(dpu_machine_id);
 
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
         client
             .record_dpu_network_status(tonic::Request::new(rpc::forge::DpuNetworkStatus {
                 dpu_machine_id,
@@ -299,9 +305,9 @@ pub async fn record_dpu_network_status(
 }
 
 pub async fn find_network_segments(
-    app_config: &AppConfig,
+    app_context: &MachineATronContext,
 ) -> ClientApiResult<rpc::forge::NetworkSegmentList> {
-    with_forge_client(app_config, |mut client| async move {
+    with_forge_client(app_context, |mut client| async move {
         client
             .find_network_segments(tonic::Request::new(rpc::forge::NetworkSegmentQuery {
                 id: None,

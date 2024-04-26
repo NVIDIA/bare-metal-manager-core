@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Chassis/Bluefield_BMC/NetworkAdapters",
+  "@odata.type": "#NetworkAdapterCollection.NetworkAdapterCollection",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Chassis/Bluefield_BMC/NetworkAdapters/NvidiaNetworkAdapter"
+    }
+  ],
+  "Members@odata.count": 1,
+  "Name": "Network Adapter Collection"
+}
