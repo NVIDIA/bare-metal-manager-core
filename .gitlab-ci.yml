@@ -10,6 +10,7 @@ variables:
   ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-aarch64
   ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-x86_64
 
+
   FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
   ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
   CACHE_COMPRESSION_LEVEL: fastest
@@ -69,6 +70,7 @@ include:
 
 prepare-ci:
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       needs:
         - job: "lint:commit-merge-request"
@@ -143,8 +145,9 @@ build-build-container-x86_64:
     - echo "CONTAINER_BUILD_X86_64=$CONTAINER_REGISTRY_X86_64/build-container:$VERSION" > build-container-x86_64.env
     - echo "CONTAINER_BUILD_X86_64_WAS_BUILT=true" >> build-container-x86_64.env
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
-    - changes:
+      changes:
         - dev/docker/Dockerfile.build-container-x86_64
   artifacts:
     reports:
@@ -173,8 +176,9 @@ build-build-container-aarch64:
   tags:
     - aarch64
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
-    - changes:
+      changes:
         - dev/docker/Dockerfile.build-container-aarch64
   after_script:
     - echo "CONTAINER_BUILD_AARCH64=$CONTAINER_REGISTRY_AARCH64/build-container:$VERSION" > build-container-aarch64.env
@@ -199,8 +203,9 @@ build-artifacts-build-container-x86_64:
     - echo "CONTAINER_BUILD_ARTIFACTS_X86_64=$CONTAINER_REGISTRY_X86_64/build-artifacts-container:$VERSION" > build-artifacts-container-x86_64.env
     - echo "CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT=true" >> build-artifacts-container-x86_64.env
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
-    - changes:
+      changes:
         - dev/docker/Dockerfile.build-artifacts-container-x86_64
   artifacts:
     reports:
@@ -229,8 +234,9 @@ build-artifacts-build-container-aarch64:
   tags:
     - aarch64
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
-    - changes:
+      changes:
         - dev/docker/Dockerfile.build-artifacts-container-aarch64
   after_script:
     - echo "CONTAINER_BUILD_ARTIFACTS_AARCH64=$CONTAINER_REGISTRY_AARCH64/build-artifacts-container:$VERSION" > build-artifacts-container-aarch64.env
@@ -252,8 +258,9 @@ build-runtime-container-x86_64:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.runtime-container-x86_64
     BUILD_DOCKER_IMAGE: urm.nvidia.com/swngc-ngcc-docker-local/forge/$CI_PROJECT_NAME/x86-64/runtime-container
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
-    - changes:
+      changes:
         - dev/docker/Dockerfile.runtime-container-x86_64
   after_script:
     - echo "CONTAINER_RUNTIME_X86_64=$CONTAINER_REGISTRY_X86_64/runtime-container:$VERSION" > runtime-container-x86_64.env
@@ -278,6 +285,7 @@ build-runtime-container-aarch64:
   script: /bin/true
   rules:
     - when: never # TODO - we don't run carbide on ARM yet
+    - if: $CI_PIPELINE_SOURCE != "schedule"
 #    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
 #    - changes:
 #        - dev/docker/Dockerfile.runtime-container-aarch64
@@ -347,6 +355,7 @@ tag-build-and-runtime-containers:
     fi
 
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
 
 #
@@ -380,6 +389,7 @@ build-release-container-x86_64:
         fi
     - docker rmi intermediate-container-$CI_COMMIT_SHORT_SHA
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
       variables:
         DEPLOY_BUILT_CONTAINER: "true"
@@ -399,6 +409,8 @@ build-release-container-x86_64:
   stage: build
   variables:
     FORGE_CA: "prod"
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
 
 build-boot-artifacts-x86_64:
   extends: .build-boot-artifacts
@@ -418,6 +430,8 @@ build-boot-artifacts-x86_64:
       - target/debug/forge-scout
     when: always
     expire_in: 1 day
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
 
 build-boot-artifacts-aarch64:
   extends: .build-boot-artifacts
@@ -443,6 +457,8 @@ build-boot-artifacts-aarch64:
       - target/debug/forge-scout
     when: always
     expire_in: 1 day
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
 
 # This just builds the mkosi container and uses artifacts from a previous build
 build-boot-artifacts-ephemeral-image-x86-64:
@@ -470,6 +486,8 @@ build-boot-artifacts-ephemeral-image-x86-64:
       - pxe/static/blobs/internal/x86_64/qcow-imager.efi
     when: always
     expire_in: 1 day
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
 
 build-release-artifacts-x86_64:
   stage: build
@@ -501,6 +519,7 @@ build-release-artifacts-x86_64:
           echo "Skipping deployment of intermediate-artifacts-$CI_COMMIT_SHORT_SHA"
         fi
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
       variables:
         DEPLOY_BUILT_CONTAINER: "true"
@@ -547,6 +566,7 @@ build-release-artifacts-aarch64:
       /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $DOCKER_FILE --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA" --build-arg "CONTAINER_RUNTIME_AARCH64=$CONTAINER_ARTIFACTS_X86_64" --no-push
     fi
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
       variables:
         DEPLOY_BUILT_CONTAINER: "true"
@@ -568,6 +588,8 @@ get-crane:
       - crane
     when: always
     expire_in: 1 day
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
 
 nspect-source-scan-x86_64:
   stage: .pre
@@ -614,6 +636,7 @@ nspect-container-scan-x86_64:
     - ./crane pull ${CONTAINER_IMAGE} /tmp/archive.tar
     - pulse-cli -n $NSPECT_ID --ssa $SSA_TOKEN -p .gitlab/runtime-container-policy.json scan --override=true --program-version="Forge-LPR" --is-release=true -i /tmp/archive.tar --sbom json -o
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
 
 promote-images-to-production:
@@ -640,6 +663,7 @@ promote-images-to-production:
     crane copy $ARTIFACTS_DOCKER_IMAGE_AARCH64:$VERSION $ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION:$VERSION
     crane copy $ARTIFACTS_DOCKER_IMAGE_X86_64:$VERSION $ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION:$VERSION
   rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
 
 license-checks:
@@ -648,6 +672,7 @@ license-checks:
     name: $CONTAINER_BUILD_X86_64
   rules:
     - when: never
+    - if: $CI_PIPELINE_SOURCE != "schedule"
     - changes:
         - Cargo.lock
         - .license-config.yml
@@ -671,7 +696,91 @@ pages:
     paths:
       - public
   rules:
-    - changes:
+    - if: $CI_COMMIT_TAG || ($CI_PIPELINE_SOURCE != "merge_request_event" && $CI_PIPELINE_SOURCE != "schedule")
+      changes:
         - book/
-    - if: $CI_COMMIT_TAG
-    - if: $CI_PIPELINE_SOURCE != 'merge_request_event'
+
+scheduled-test:get-latest-versions:
+  needs:
+    - job: export-docker-json-config
+      optional: false
+      artifacts: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  image:
+    name: golang:1.22
+    entrypoint: [ "" ]
+  variables:
+    TESTABLE_VERSION_PATTERN: '^v\d{4}\.\d{2}-\w+(-\d+-g\w+)*$'
+  before_script:
+    - set -xeuo pipefail
+    - mkdir -p /root/.docker
+    - cp .docker/config.json /root/.docker/config.json
+    - go install github.com/google/go-containerregistry/cmd/crane@v0.19.1
+  script:
+    - CARBIDE_VERSIONS="$(crane ls "${APPLICATION_DOCKER_IMAGE}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 10 | tac)"
+    - BOOT_AARCH64_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_AARCH64}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 10 | tac)"
+    - BOOT_X86_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_X86_64}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 10 | tac)"
+    - |
+      LATEST_COMMON_VERSION=""
+      for version in $(echo "${CARBIDE_VERSIONS}"); do
+        if [[ $(echo "${BOOT_AARCH64_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]] && [[ $(echo "${BOOT_X86_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]]; then
+          LATEST_COMMON_VERSION=$version
+          break
+        fi
+      done
+      if [[ -z "${LATEST_COMMON_VERSION}" ]]; then
+        echo "Error: There is no common version across the last 10 versions of nvmetal-carbide, boot-artifacts-aarch64 and boot-artifacts-x86_64."
+        exit 1
+      fi
+    - SSH_CONSOLE_VERSION="$(crane ls "${DEV_NVCR_BASE}"/ssh-console | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 1)"
+    - |
+      if [[ -z "${SSH_CONSOLE_VERSION}" ]]; then
+        echo "Error: SSH_CONSOLE_VERSION is empty."
+        exit 1
+      fi
+    - echo "LATEST_COMMON_VERSION=${LATEST_COMMON_VERSION}" >> versions.env
+    - echo "SSH_CONSOLE_VERSION=${SSH_CONSOLE_VERSION}" >> versions.env
+  artifacts:
+    reports:
+      dotenv: versions.env
+
+scheduled-test:update-site-controller:
+  needs:
+    - job: scheduled-test:get-latest-versions
+      optional: false
+      artifacts: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  retry:
+    when:
+      - runner_system_failure
+    max: 2
+  image:
+    name: registry.gitlab.com/python-gitlab/python-gitlab:v4.4.0-slim-bullseye
+    entrypoint: [ "" ]
+  variables:
+    VAULT_ADDR: https://prod.vault.nvidia.com
+    VAULT_NAMESPACE: ngc-forge
+    GITLAB_SERVER_URL_NO_PORT: $CI_SERVER_PROTOCOL://$CI_SERVER_HOST
+    FORGED_PROJECT_ID: 90150
+    FORGED_BRANCH: "auto-deploy-from-carbide-pipeline-${CI_PIPELINE_IID}"
+    FORGED_COMMIT_MSG: "chore: Auto-update ${SCHEDULED_TEST_SITE} to site-controller ${LATEST_COMMON_VERSION}"
+    ARGOCD_SITE_URL: argocd-demo1.frg.nvidia.com
+    ARGOCD_SITE_USERNAME: admin
+  before_script:
+    - set -euo pipefail
+    # Cannot overwrite predefined GitLab variables using the 'variables' section, so do it here:
+    - export VAULT_JWT_PATH="auth/jwt/nvidia/gitlab-master/login"
+    - export VAULT_JWT_ROLE="gitlab-ci"
+    - apt-get update && apt-get install -y wget unzip git
+    - wget -qO /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v2.10.7/argocd-linux-amd64 && chmod +x /usr/local/bin/argocd
+    - wget -qO kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.1/kustomize_v5.4.1_linux_amd64.tar.gz && tar -zxf kustomize.tar.gz && mv kustomize /usr/local/bin/kustomize
+    - wget -qO vault.zip https://releases.hashicorp.com/vault/1.16.1/vault_1.16.1_linux_amd64.zip && unzip vault.zip && mv vault /usr/local/bin/vault
+    - export VAULT_TOKEN="$(vault write -field=token "${VAULT_JWT_PATH}" role="${VAULT_JWT_ROLE}" jwt="${CI_JOB_JWT}")"
+    - export GROUP_ACCESS_TOKEN="$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)"
+    # export ARGOCD_SITE_PASSWORD="$(vault kv get -field argocd-admin-password secrets/${SCHEDULED_TEST_SITE})"
+    # `carbide` project is unauthorized to access `gitlab-ci` vault role in `ngc-forge` namespace, so get password directly for now:
+    - export ARGOCD_SITE_PASSWORD="${PDX_DEMO1_ARGO_PASSWORD}"
+  script:
+    - bash .gitlab/update-site-controller.sh
