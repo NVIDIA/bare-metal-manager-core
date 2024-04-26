@@ -77,7 +77,6 @@ async fn only_one_primary_interface_per_machine(
         &network_segment,
         &host_sim.config.dpu_oob_mac_address,
         None,
-        "peppersmacker2".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -98,7 +97,6 @@ async fn only_one_primary_interface_per_machine(
         &network_segment,
         &other_host_sim.config.dpu_oob_mac_address,
         None,
-        "peppersmacker2".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -128,7 +126,6 @@ async fn many_non_primary_interfaces_per_machine(
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         None,
-        "peppersmacker2".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -143,7 +140,6 @@ async fn many_non_primary_interfaces_per_machine(
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ef").as_ref().unwrap(),
         None,
-        "peppersmacker2".to_string(),
         false,
         AddressSelectionStrategy::Automatic,
     )
@@ -197,7 +193,6 @@ async fn test_rename_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         None,
-        "peppersmacker2".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -207,7 +202,15 @@ async fn test_rename_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     let mut txn = pool.begin().await?;
 
     let mut updated_interface = MachineInterface::find_one(&mut txn, interface.id).await?;
-    assert_eq!(updated_interface.hostname(), "peppersmacker2");
+    let hostname = updated_interface
+        .addresses()
+        .iter()
+        .map(|x| x.address)
+        .find(|x| x.is_ipv4())
+        .unwrap()
+        .to_string()
+        .replace('.', "-");
+    assert_eq!(updated_interface.hostname(), hostname);
 
     let new_hostname = "peppersmacker400";
     updated_interface
@@ -241,7 +244,6 @@ async fn find_all_interfaces_test_cases(
                 .as_ref()
                 .unwrap(),
             Some(domain_id),
-            format!("peppersmacker{}", i),
             true,
             AddressSelectionStrategy::Automatic,
         )
@@ -310,7 +312,6 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &network_segment,
         &host_sim.config.dpu_oob_mac_address,
         Some(domain_id),
-        "peppersmacker2".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -386,7 +387,6 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     for i in 0..max_interfaces {
         let n = network.clone();
         let mac = format!("ff:ff:ff:ff:{:02}:{:02}", i / 100, i % 100);
-        let hostname = format!("host{:02}", i);
         let db_pool = pool.clone();
         let mut rx = tx.subscribe();
         let h = tokio::spawn(async move {
@@ -398,7 +398,6 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 &n,
                 &MacAddress::from_str(&mac).unwrap(),
                 Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
-                hostname,
                 true,
                 AddressSelectionStrategy::Automatic,
             )
@@ -442,7 +441,6 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
-        "hostname".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -474,7 +472,6 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
-        "hostname".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -596,4 +593,34 @@ async fn test_delete_bmc_interface_with_machine(
             }
         }
     }
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
+    let interface = MachineInterface::create(
+        &mut txn,
+        &network_segment,
+        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
+        Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        true,
+        AddressSelectionStrategy::Automatic,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        interface.hostname(),
+        interface
+            .addresses()
+            .iter()
+            .map(|x| x.address)
+            .find(|x| x.is_ipv4())
+            .unwrap()
+            .to_string()
+            .replace('.', "-")
+    );
+    Ok(())
 }

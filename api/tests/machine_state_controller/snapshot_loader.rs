@@ -63,7 +63,6 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
         &segment,
         &MacAddress::new([0xa, 0xb, 0xc, 0xd, 0xe, 0xf]),
         Some(FIXTURE_CREATED_DOMAIN_ID),
-        "myhost".to_string(),
         true,
         carbide::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
     )

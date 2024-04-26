@@ -354,7 +354,6 @@ impl MachineInterface {
                             &segment,
                             &mac_address,
                             segment.subdomain_id,
-                            Machine::generate_hostname_from_uuid(&uuid::Uuid::new_v4()),
                             true,
                             AddressSelectionStrategy::Automatic,
                         )
@@ -397,7 +396,6 @@ impl MachineInterface {
         segment: &NetworkSegment,
         macaddr: &MacAddress,
         domain_id: Option<uuid::Uuid>,
-        hostname: String,
         primary_interface: bool,
         addresses: AddressSelectionStrategy<'_>,
     ) -> CarbideResult<Self> {
@@ -415,11 +413,23 @@ impl MachineInterface {
         let dhcp_handler = UsedAdminNetworkIpResolver {
             segment_id: segment.id,
         };
-
+        let mut hostname: String = "".to_string();
         // If either requested addresses are auto-generated, we lock the entire table.
-        let allocated_addresses =
+        let addresses_allocator =
             IpAllocator::new(&mut inner_txn, segment, &dhcp_handler, addresses).await?;
-
+        let mut allocated_addresses = Vec::new();
+        for (_, maybe_address) in addresses_allocator {
+            let address = maybe_address?;
+            allocated_addresses.push(address);
+            if hostname.is_empty() && address.is_ipv4() {
+                hostname = address.to_string().replace('.', "-");
+            }
+        }
+        if hostname.is_empty() {
+            return Err(CarbideError::GenericError(
+                "Could not generate hostname".to_string(),
+            ));
+        }
         let query = "INSERT INTO machine_interfaces
             (segment_id, mac_address, hostname, domain_id, primary_interface)
             VALUES
@@ -445,8 +455,7 @@ impl MachineInterface {
             })?;
 
         let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
-        for (_prefix_id, maybe_address) in allocated_addresses {
-            let address = maybe_address?;
+        for address in allocated_addresses {
             sqlx::query(query)
                 .bind(interface_id)
                 .bind(address)

@@ -51,7 +51,6 @@ async fn prevent_duplicate_mac_addresses(
         &network_segment,
         &host_sim.config.dpu_oob_mac_address,
         None,
-        "foobar".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -66,7 +65,6 @@ async fn prevent_duplicate_mac_addresses(
         &network_segment,
         &host_sim.config.dpu_oob_mac_address,
         None,
-        "foobar".to_string(),
         true,
         AddressSelectionStrategy::Automatic,
     )
