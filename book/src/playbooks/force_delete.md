@@ -2,7 +2,8 @@
 
 In various cases it might be necessary to force-delete knowledge about hosts from
 the Forge database, and to restart the discovery process for those. Examples for
-use-cases where force-delete can be helpful are:
+use-cases where force-delete can be helpful:
+
 - If a host managed by Forge has entered an errorenous state from which it can not
 automatically recover
 - If a non backward compatible software update requires the host to go through the discovery phase again
@@ -22,7 +23,7 @@ The following steps can be used to force-delete knowledge about a a Forge host:
 
 ### 1. Obtain access to `forge-admin-cli`
 
-See [forge-admin-cli access on a Forge cluster](forge_admin_cli.md).
+See [forge-admin-cli access on a Forge cluster](../sites/forge_admin_cli.md).
 
 ### 2. Execute the `forge-admin-cli machine force-delete` command
 
@@ -51,3 +52,29 @@ Once a reboot is triggered, the DPU of the Machine should boot into the
 Forge discovery image again. This should initiate DPU discovery. A second
 reboot is required to initiate host discovery. After those steps, the host
 should be fully rebuilt and available.
+
+## Reinstall OS Steps
+
+Deleting and recreating a Forge instance can take upwards of 1.5 hours. However, if you do not need to change the
+PXE image you can reinstall the OS in place and reuse your allocated system. All the other information about your
+instance will stay the same. *This proceedure will delete any data on the host!*
+
+The following steps can be used to reinstall the host OS on a Forge host:
+
+### 1. Obtain access to the `forge-admin-cli` tool
+
+See [forge-admin-cli access on a Forge cluster](../sites/forge_admin_cli.md).
+
+### 2. Get the instance ID
+
+This can be found by logging into https://forge.stg.ngc.nvidia.com/ then navigating to VPCs > `{your vpc}`> `{your instance name}`.
+In the URL for this page will be the instance ID.
+
+![Instance ID](../static/playbooks/forge_instance_id.png)
+
+### 3. Execute the `forge-admin-cli instance reboot --custom-pxe` command
+
+```
+forge-admin-cli -f json -c https://api-dev4.frg.nvidia.com/ instance reboot --custom-pxe -i 26204c21-83ac-445e-8ea7-b9130deb6315
+Reboot for instance 26204c21-83ac-445e-8ea7-b9130deb6315 (machine fm100hti4deucakqqgteo692efnfo7egh7pq1lkl7vkgas4o6e0c42hnb80) is requested successfully!
+```
