@@ -427,9 +427,13 @@ pub async fn host_power_control(
             .await
             .map_err(CarbideError::RedfishError)?;
     }
+
+    let is_reboot = (action == SystemPowerControl::GracefulRestart)
+        || (action == SystemPowerControl::ForceRestart);
+
     // vikings reboot their DPU's if redfish reset is used. \
     // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
-    if machine_snapshot.bmc_vendor.is_viking() {
+    if is_reboot && machine_snapshot.bmc_vendor.is_viking() {
         ipmi_tool
             .restart(&machine_snapshot.machine_id, bmc_ip.to_string(), false)
             .await
