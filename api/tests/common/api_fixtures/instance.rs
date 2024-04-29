@@ -190,6 +190,7 @@ pub async fn advance_created_instance_into_ready_state(
     env.api
         .find_instances(tonic::Request::new(rpc::InstanceSearchQuery {
             id: Some(instance_id.into()),
+            label: None,
         }))
         .await
         .expect("Find instance failed.")

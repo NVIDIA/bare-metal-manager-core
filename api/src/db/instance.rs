@@ -76,6 +76,11 @@ pub struct DeleteInstance {
     pub instance_id: uuid::Uuid,
 }
 
+pub enum FindInstanceTypeFilter<'a> {
+    Id(&'a UuidKeyedObjectFilter<'a>),
+    Label(&'a rpc::Label),
+}
+
 impl<'r> FromRow<'r, PgRow> for Instance {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         /// This is wrapper to allow implementing FromRow on the Option
@@ -164,31 +169,69 @@ impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
 impl Instance {
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
-    ) -> Result<Vec<Instance>, DatabaseError> {
-        let base_query = "SELECT * FROM instances m {where} GROUP BY m.id".to_owned();
+        filter: FindInstanceTypeFilter<'_>,
+    ) -> Result<Vec<Instance>, CarbideError> {
+        let base_query_for_id = "SELECT * FROM instances m {where} GROUP BY m.id".to_owned();
 
         let all_instances: Vec<Instance> = match filter {
-            UuidKeyedObjectFilter::All => {
-                sqlx::query_as::<_, Instance>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "instances All", e))?
-            }
-            UuidKeyedObjectFilter::One(uuid) => {
-                sqlx::query_as::<_, Instance>(&base_query.replace("{where}", "WHERE m.id=$1"))
-                    .bind(uuid)
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "instances One", e))?
-            }
-            UuidKeyedObjectFilter::List(list) => {
-                sqlx::query_as::<_, Instance>(&base_query.replace("{where}", "WHERE m.id=ANY($1)"))
-                    .bind(list)
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?
-            }
+            FindInstanceTypeFilter::Id(id) => match id {
+                UuidKeyedObjectFilter::All => {
+                    sqlx::query_as::<_, Instance>(&base_query_for_id.replace("{where}", ""))
+                        .fetch_all(&mut **txn)
+                        .await
+                        .map_err(|e| DatabaseError::new(file!(), line!(), "instances All", e))?
+                }
+                UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, Instance>(
+                    &base_query_for_id.replace("{where}", "WHERE m.id=$1"),
+                )
+                .bind(uuid)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "instances One", e))?,
+                UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, Instance>(
+                    &base_query_for_id.replace("{where}", "WHERE m.id=ANY($1)"),
+                )
+                .bind(list)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
+            },
+
+            FindInstanceTypeFilter::Label(label) => match (label.key.is_empty(), &label.value) {
+                (true, Some(value)) => sqlx::query_as::<_, Instance>(
+                    "SELECT * FROM instances WHERE EXISTS (
+                        SELECT 1 
+                        FROM jsonb_each_text(labels) AS kv 
+                        WHERE kv.value = $1
+                    );",
+                )
+                .bind(value)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
+                (true, None) => {
+                    return Err(CarbideError::InvalidArgument(
+                        "finding instances based on label needs either key or a value.".to_string(),
+                    ));
+                }
+
+                (false, None) => sqlx::query_as::<_, Instance>(
+                    "SELECT * FROM instances WHERE labels ->> $1 IS NOT NULL",
+                )
+                .bind(label.key.clone())
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
+
+                (false, Some(value)) => sqlx::query_as::<_, Instance>(
+                    "SELECT * FROM instances WHERE labels ->> $1 = $2",
+                )
+                .bind(label.key.clone())
+                .bind(value)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
+            },
         };
 
         Ok(all_instances)

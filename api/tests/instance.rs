@@ -261,29 +261,48 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         .expect("Unable to create transaction on database pool");
     txn.commit().await.unwrap();
 
-    let (_instance_id, _instance) = create_instance_with_labels(
+    let instance_metadata = rpc::forge::Metadata {
+        name: "test_instance_with_labels".to_string(),
+        description: "this instance must have labels.".to_string(),
+        labels: vec![
+            rpc::forge::Label {
+                key: "key1".to_string(),
+                value: Some("value1".to_string()),
+            },
+            rpc::forge::Label {
+                key: "key2".to_string(),
+                value: None,
+            },
+        ],
+    };
+
+    let (instance_id, _instance) = create_instance_with_labels(
         &env,
         &dpu_machine_id,
         &host_machine_id,
         Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
-        rpc::forge::Metadata {
-            name: "test_instance_with_labels".to_string(),
-            description: "this instance must have labels.".to_string(),
-            labels: vec![
-                rpc::forge::Label {
-                    key: "key1".to_string(),
-                    value: Some("value1".to_string()),
-                },
-                rpc::forge::Label {
-                    key: "key2".to_string(),
-                    value: None,
-                },
-            ],
-        },
+        instance_metadata.clone(),
     )
     .await;
+
+    // Test searching based on instance id.
+    let mut instance_matched_by_id = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+
+    instance_matched_by_id.metadata = instance_matched_by_id.metadata.take().map(|mut metadata| {
+        metadata.labels.sort_by(|l1, l2| l1.key.cmp(&l2.key));
+        metadata
+    });
+
+    assert_eq!(
+        instance_matched_by_id.metadata,
+        Some(instance_metadata.clone())
+    );
 
     let mut txn = env
         .pool
@@ -311,6 +330,145 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         "value1"
     );
     assert_eq!(fetched_instance.metadata.labels.get("key2").unwrap(), "");
+
+    let request = tonic::Request::new(rpc::InstanceSearchQuery {
+        id: None,
+        label: {
+            Some(rpc::forge::Label {
+                key: "key1".to_string(),
+                value: None,
+            })
+        },
+    });
+
+    let mut instance_matched_by_label = env
+        .api
+        .find_instances(request)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap()
+        .instances
+        .remove(0);
+    instance_matched_by_label.metadata =
+        instance_matched_by_label
+            .metadata
+            .take()
+            .map(|mut metadata| {
+                metadata.labels.sort_by(|l1, l2| l1.key.cmp(&l2.key));
+                metadata
+            });
+
+    assert_eq!(
+        instance_matched_by_label.machine_id.unwrap().id,
+        host_machine_id.to_string()
+    );
+
+    assert_eq!(instance_matched_by_label.metadata, Some(instance_metadata));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    for i in 0..=9 {
+        let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+        let (_instance_id, _instance) = create_instance_with_labels(
+            &env,
+            &dpu_machine_id,
+            &host_machine_id,
+            Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+            None,
+            vec![],
+            rpc::forge::Metadata {
+                name: format!("instance_{}{}{}", i, i, i).to_string(),
+                description: format!("instance_{}{}{} have labels", i, i, i).to_string(),
+                labels: vec![
+                    rpc::forge::Label {
+                        key: format!("key_A_{}{}{}", i, i, i).to_string(),
+                        value: Some(format!("value_A_{}{}{}", i, i, i).to_string()),
+                    },
+                    rpc::forge::Label {
+                        key: format!("key_B_{}{}{}", i, i, i).to_string(),
+                        value: None,
+                    },
+                ],
+            },
+        )
+        .await;
+    }
+
+    // Test searching based on value.
+    let request = tonic::Request::new(rpc::InstanceSearchQuery {
+        id: None,
+        label: {
+            Some(rpc::forge::Label {
+                key: "".to_string(),
+                value: Some("value_A_444".to_string()),
+            })
+        },
+    });
+    let instance_matched_by_label = env
+        .api
+        .find_instances(request)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap()
+        .instances
+        .remove(0);
+
+    assert_eq!(
+        instance_matched_by_label.metadata.unwrap().name,
+        "instance_444"
+    );
+
+    // Test searching based on key.
+    let request = tonic::Request::new(rpc::InstanceSearchQuery {
+        id: None,
+        label: {
+            Some(rpc::forge::Label {
+                key: "key_A_111".to_string(),
+                value: None,
+            })
+        },
+    });
+    let instance_matched_by_label = env
+        .api
+        .find_instances(request)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap()
+        .instances
+        .remove(0);
+
+    assert_eq!(
+        instance_matched_by_label.metadata.unwrap().name,
+        "instance_111"
+    );
+
+    // Test searching based on key and value.
+    let request = tonic::Request::new(rpc::InstanceSearchQuery {
+        id: None,
+        label: {
+            Some(rpc::forge::Label {
+                key: "key_A_888".to_string(),
+                value: Some("value_A_888".to_string()),
+            })
+        },
+    });
+    let instance_matched_by_label = env
+        .api
+        .find_instances(request)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap()
+        .instances
+        .remove(0);
+
+    assert_eq!(
+        instance_matched_by_label.metadata.unwrap().name,
+        "instance_888"
+    );
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -1070,6 +1228,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .api
         .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
             id: Some(instance_id.into()),
+            label: None,
         }))
         .await
         .unwrap()

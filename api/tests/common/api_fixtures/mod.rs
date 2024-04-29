@@ -307,7 +307,10 @@ impl TestEnv {
     // Returns all instances using FindInstances call.
     pub async fn find_instances(&self, id: Option<rpc::forge::Uuid>) -> rpc::forge::InstanceList {
         self.api
-            .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery { id }))
+            .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
+                id,
+                label: None,
+            }))
             .await
             .unwrap()
             .into_inner()

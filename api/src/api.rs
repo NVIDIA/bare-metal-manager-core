@@ -78,7 +78,7 @@ use crate::{
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         domain::Domain,
         domain::NewDomain,
-        instance::{DeleteInstance, Instance},
+        instance::{DeleteInstance, FindInstanceTypeFilter, Instance},
         machine::Machine,
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
@@ -915,24 +915,38 @@ where
             ))
         })?;
 
-        let rpc::InstanceSearchQuery { id, .. } = request.into_inner();
+        let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
         // TODO: We load more information here than necessary - Instance::find()
         // and InstanceSnapshotLoader do redundant jobs
-        let raw_instances = match id {
-            Some(id) => {
+        let raw_instances = match (id, label) {
+            (Some(id), None) => {
                 let uuid = match Uuid::try_from(id) {
                     Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                     Err(_err) => {
                         return Err(CarbideError::InvalidArgument("id".to_string()).into());
                     }
                 };
-                Instance::find(&mut txn, uuid)
+                Instance::find(&mut txn, FindInstanceTypeFilter::Id(&uuid))
                     .await
                     .map_err(CarbideError::from)
             }
-            None => Instance::find(&mut txn, UuidKeyedObjectFilter::All)
+            (None, None) => Instance::find(
+                &mut txn,
+                FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::All),
+            )
+            .await
+            .map_err(CarbideError::from),
+
+            (None, Some(label)) => Instance::find(&mut txn, FindInstanceTypeFilter::Label(&label))
                 .await
                 .map_err(CarbideError::from),
+
+            (Some(_id), Some(_label)) => {
+                return Err(CarbideError::InvalidArgument(
+                    "Searching instances based on both id and labels is not supported.".to_string(),
+                )
+                .into());
+            }
         }?;
 
         let loader = DbSnapshotLoader {};
@@ -1031,7 +1045,7 @@ where
 
         let instance = Instance::find(
             &mut txn,
-            UuidKeyedObjectFilter::One(delete_instance.instance_id),
+            FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(delete_instance.instance_id)),
         )
         .await
         .map_err(CarbideError::from)?;
@@ -1138,14 +1152,17 @@ where
             ))
         })?;
 
-        let instance = Instance::find(&mut txn, UuidKeyedObjectFilter::One(instance_id))
-            .await
-            .map_err(CarbideError::from)?
-            .pop()
-            .ok_or(CarbideError::NotFoundError {
-                kind: "instance",
-                id: instance_id.to_string(),
-            })?;
+        let instance = Instance::find(
+            &mut txn,
+            FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(instance_id)),
+        )
+        .await
+        .map_err(CarbideError::from)?
+        .pop()
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
 
         log_machine_id(&instance.machine_id);
 
@@ -3215,7 +3232,9 @@ where
             Some(instance_address) => {
                 let instance = Instance::find(
                     &mut txn,
-                    UuidKeyedObjectFilter::One(instance_address.instance_id),
+                    FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(
+                        instance_address.instance_id,
+                    )),
                 )
                 .await
                 .map_err(CarbideError::from)?
@@ -3543,17 +3562,20 @@ where
         })?;
 
         if let Some(instance_id) = instance_id {
-            let instance = Instance::find(&mut txn, UuidKeyedObjectFilter::One(instance_id))
-                .await
-                .map_err(CarbideError::from)?
-                .first()
-                .ok_or_else(|| {
-                    CarbideError::GenericError(format!(
-                        "Could not find an instance for {}",
-                        instance_id
-                    ))
-                })?
-                .to_owned();
+            let instance = Instance::find(
+                &mut txn,
+                FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(instance_id)),
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .first()
+            .ok_or_else(|| {
+                CarbideError::GenericError(format!(
+                    "Could not find an instance for {}",
+                    instance_id
+                ))
+            })?
+            .to_owned();
 
             let ib_fabric = self
                 .ib_fabric_manager
