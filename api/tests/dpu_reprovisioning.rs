@@ -926,6 +926,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
             id: Some(rpc::Uuid {
                 value: instance_id.to_string(),
             }),
+            label: None,
         }))
         .await
         .unwrap()

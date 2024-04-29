@@ -631,6 +631,7 @@ async fn test_keyset_in_instance(pool: sqlx::PgPool) {
             id: Some(::rpc::forge::Uuid {
                 value: instance_id.to_string(),
             }),
+            label: None,
         }))
         .await
         .unwrap()

@@ -12,6 +12,7 @@
 
 use config_version::{ConfigVersion, Versioned};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::model::{
     instance::{
@@ -53,6 +54,12 @@ pub struct InstanceSnapshot {
 
     /// Is delete requested
     pub delete_requested: bool,
+
+    pub name: String,
+    /// optional user-defined resource description                    
+    pub description: String,
+    /// optional user-defined key/ value pairs             
+    pub labels: HashMap<String, String>,
 }
 
 impl TryFrom<InstanceSnapshot> for rpc::Instance {
@@ -68,6 +75,24 @@ impl TryFrom<InstanceSnapshot> for rpc::Instance {
             status: Some(status.try_into()?),
             network_config_version: snapshot.network_config_version.version_string(),
             ib_config_version: snapshot.ib_config_version.version_string(),
+            metadata: {
+                Some(rpc::Metadata {
+                    name: snapshot.name,
+                    description: snapshot.description,
+                    labels: snapshot
+                        .labels
+                        .iter()
+                        .map(|(key, value)| rpc::forge::Label {
+                            key: key.clone(),
+                            value: if value.clone().is_empty() {
+                                None
+                            } else {
+                                Some(value.clone())
+                            },
+                        })
+                        .collect(),
+                })
+            },
         })
     }
 }

@@ -150,7 +150,10 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
 async fn fetch_instances<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
     api: Arc<Api<C1, C2>>,
 ) -> Result<forgerpc::InstanceList, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::InstanceSearchQuery { id: None });
+    let request = tonic::Request::new(forgerpc::InstanceSearchQuery {
+        id: None,
+        label: None,
+    });
     api.find_instances(request)
         .await
         .map(|response| response.into_inner())
@@ -353,6 +356,7 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         id: Some(rpc::Uuid {
             value: instance_id.clone(),
         }),
+        label: None,
     });
     let mut instances = match state
         .find_instances(request)

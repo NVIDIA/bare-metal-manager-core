@@ -213,6 +213,7 @@ pub async fn get_instances(
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::InstanceSearchQuery {
             id: id.map(|x| rpc::Uuid { value: x }),
+            label: None,
         });
         let instance_details = client
             .find_instances(request)

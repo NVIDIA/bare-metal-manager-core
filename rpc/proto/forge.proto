@@ -650,6 +650,7 @@ message InstancePowerResult {
 
 message InstanceSearchQuery {
   optional UUID id = 1;
+  optional Label label = 2;
 }
 
 message InstanceList {
@@ -862,6 +863,7 @@ message Instance {
   UUID id = 1;
   // The ID of the host machine which is utilized for this Instance (host_machine_id)
   MachineId machine_id = 2;
+  Metadata metadata = 3;
 
   // The desired configuration on the instance
   InstanceConfig config = 103;

@@ -225,8 +225,14 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
         instance_id: uuid::Uuid,
         machine_state: ManagedHostState,
     ) -> Result<InstanceSnapshot, SnapshotLoaderError> {
-        let mut instances =
-            Instance::find(txn, crate::db::UuidKeyedObjectFilter::One(instance_id)).await?;
+        let mut instances = Instance::find(
+            txn,
+            crate::db::instance::FindInstanceTypeFilter::Id(
+                &crate::db::UuidKeyedObjectFilter::One(instance_id),
+            ),
+        )
+        .await
+        .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
         if instances.is_empty() {
             return Err(SnapshotLoaderError::InstanceNotFound(instance_id));
         } else if instances.len() != 1 {
@@ -254,6 +260,9 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
                 phone_home_last_contact: instance.phone_home_last_contact,
             },
             delete_requested: instance.deleted.is_some(),
+            name: instance.metadata.name,
+            description: instance.metadata.description,
+            labels: instance.metadata.labels,
         };
 
         Ok(snapshot)
