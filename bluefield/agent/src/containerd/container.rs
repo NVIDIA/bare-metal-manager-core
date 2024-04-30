@@ -235,7 +235,7 @@ mod tests {
             ImageNameComponent {
                 repository: "nvcr.io/nvidia/doca".to_string(),
                 name: "doca_hbn".to_string(),
-                version: "1.5.0-doca2.2.0".to_string(),
+                version: "2.0.0-doca2.5.0".to_string(),
             }
         );
         assert_eq!(
@@ -265,7 +265,7 @@ mod tests {
         assert_eq!(filtered.images.len(), 1);
         assert_eq!(
             filtered.images[0].names[0].version(),
-            "1.5.0-doca2.2.0".to_string()
+            "2.0.0-doca2.5.0".to_string()
         );
     }
 
@@ -273,6 +273,6 @@ mod tests {
     async fn test_find_and_image_version() {
         let container_images = Images::list().await.unwrap();
         let filtered = container_images.find_by_name("doca_hbn").unwrap();
-        assert_eq!(filtered.names[0].version(), "1.5.0-doca2.2.0".to_string());
+        assert_eq!(filtered.names[0].version(), "2.0.0-doca2.5.0".to_string());
     }
 }

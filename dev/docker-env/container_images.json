@@ -16,7 +16,7 @@
     {
       "id": "sha256:83b3a5f36555f77a49f2f9223f9e90640139b652bab6b929bcd5801ad9893921",
       "repoTags": [
-        "nvcr.io/nvidia/doca/doca_hbn:1.5.0-doca2.2.0"
+        "nvcr.io/nvidia/doca/doca_hbn:2.0.0-doca2.5.0"
       ],
       "repoDigests": [
       ],

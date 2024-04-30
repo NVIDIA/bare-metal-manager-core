@@ -133,7 +133,10 @@ impl Interface {
                     }
                 }
             } else {
-                tracing::error!("forge-dpu-agent is attempting to add an IP address to Interface {interface:?}, but interface {interface:?} does not exist on the system");
+                tracing::error!(
+                    interface,
+                    "FMDS cannot add IP address to non-existent interface"
+                );
             }
         }
         Ok(interface_plan)
@@ -233,10 +236,9 @@ impl Interface {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::dpu::interface::IpInterface;
     use crate::dpu::DpuNetworkInterfaces;
-
-    use super::*;
 
     struct TestInterfaceData {
         pub current: Vec<IpInterface>,
