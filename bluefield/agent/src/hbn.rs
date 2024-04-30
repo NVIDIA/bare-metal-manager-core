@@ -12,11 +12,12 @@
 
 use std::time::Duration;
 
-use crate::containerd::container;
 use eyre::WrapErr;
 use serde::Deserialize;
 use tokio::sync::OnceCell;
 use tokio::{process::Command as TokioCommand, time::timeout};
+
+use crate::containerd::container;
 
 /// How long to wait for `crictl ps`
 const TIMEOUT_GET_CONTAINER_ID: Duration = Duration::from_secs(5);
@@ -144,6 +145,7 @@ async fn fetch_hbn_version() -> eyre::Result<String> {
         .map(|x| x.version())
         .next()
         .unwrap_or_default();
+    tracing::info!(hbn_version, "HBN version from doca-hbn container");
 
     Ok(hbn_version)
 }

@@ -16,8 +16,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use ::rpc::forge as rpc;
+use ::rpc::forge::VpcVirtualizationType;
+use ::rpc::forge_tls_client;
+use ::rpc::forge_tls_client::ApiConfig;
 use axum::Router;
 use eyre::WrapErr;
+use forge_host_support::agent_config::AgentConfig;
+use forge_host_support::registration;
 use ipnetwork::IpNetwork;
 use opentelemetry_sdk as sdk;
 use opentelemetry_sdk::metrics;
@@ -25,13 +31,6 @@ use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
 use version_compare::Version;
-
-use ::rpc::forge as rpc;
-use ::rpc::forge::VpcVirtualizationType;
-use ::rpc::forge_tls_client;
-use ::rpc::forge_tls_client::ApiConfig;
-use forge_host_support::agent_config::AgentConfig;
-use forge_host_support::registration;
 
 use crate::command_line::NetworkVirtualizationType;
 use crate::dpu::interface::Interface;
@@ -49,7 +48,7 @@ use crate::upgrade;
 use crate::util::UrlResolver;
 use crate::{command_line, machine_inventory_updater};
 use crate::{ethernet_virtualization, hbn};
-use crate::{health, FMDS_MINIMUM_HBN_VERSION};
+use crate::{health, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION};
 
 // Main loop when running in daemon mode
 pub async fn run(
@@ -75,6 +74,12 @@ pub async fn run(
             return Err(eyre::eyre!("Failed to run metadata service: {:#}", e));
         }
     }
+    let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
+        "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to Version"
+    ))?;
+    let nvue_minimum_hbn_version = Version::from(NVUE_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
+        "Unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to Version"
+    ))?;
 
     let version_check_period = Duration::from_secs(agent.period.version_check_secs);
     let main_loop_period_active = Duration::from_secs(agent.period.main_loop_active_secs);
@@ -197,13 +202,15 @@ pub async fn run(
                     .network_virtualization_type
                     .and_then(|vi| VpcVirtualizationType::try_from(vi).ok())
                     .map(|v| v.into());
-                let nvt = options
+                // If HBN is too old, this will be overriden once we are sure HBN is up
+                let mut nvt = options
                     .override_network_virtualization_type // dev
                     .or(nvt_from_remote)
                     .unwrap_or_else(|| {
                         tracing::warn!("Missing network_virtualization_type, defaulting");
                         super::DEFAULT_NETWORK_VIRTUALIZATION_TYPE
                     });
+
                 let tenant_peers = ethernet_virtualization::tenant_peers(conf);
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {conf:?}");
@@ -230,10 +237,13 @@ pub async fn run(
                     let hbn_version = hbn::read_version().await?;
                     let hbn_version = Version::from(hbn_version.as_str())
                         .ok_or(eyre::eyre!("Unable to convert string to version"))?;
-                    let fmds_minimum_hbn_version =
-                        Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
-                            "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION:?} to version"
-                        ))?;
+
+                    if hbn_version < nvue_minimum_hbn_version
+                        && matches!(nvt, NetworkVirtualizationType::EtvNvue)
+                    {
+                        tracing::trace!("Site does not support NVUE, HBN version {hbn_version} is too old. Using ETV.");
+                        nvt = NetworkVirtualizationType::Etv;
+                    }
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &agent.hbn.root_dir,
