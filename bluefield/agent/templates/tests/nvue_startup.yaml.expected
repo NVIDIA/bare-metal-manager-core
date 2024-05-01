@@ -95,6 +95,10 @@
                   deny: {}
                 match:
                   interface: vlan196
+              '20':
+                action:
+                  deny: {}
+                match:
                   interface: vlan185
               '1000':
                 action:
