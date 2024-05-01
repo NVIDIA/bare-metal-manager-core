@@ -40,6 +40,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
         port_configs.push(TmplConfigPort {
             Name: network.interface_name.clone(),
+            Index: format!("{}", (base_i + 1) * 10),
             VlanID: network.vlan,
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
             IP: network.gateway_cidr.clone(),
@@ -298,6 +299,7 @@ struct TmplConfigVLAN {
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplConfigPort {
     Name: String,
+    Index: String,
     VlanID: u16,
 
     /// Format: 24bit integer (usable range: 4096 to 16777215).
