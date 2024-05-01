@@ -14,6 +14,7 @@ use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, RetryConfig};
 
 pub mod cloud_init;
 pub mod ipxe;
+pub mod tls;
 
 pub struct RpcContext;
 
