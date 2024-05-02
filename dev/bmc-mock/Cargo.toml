@@ -9,7 +9,7 @@ authors.workspace = true
 [dependencies]
 axum = "0.6.18"
 axum-server = { version = "0.4.4", features = ["tls-rustls"] }
-libredfish = { version = "0.16.4", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.17.0", registry = "sw-ngc-forge-cargo-local" }
 clap = { workspace = true }
 tokio.workspace = true
 tracing = "0.1.37"

@@ -11,6 +11,7 @@
  */
 
 use color_eyre::eyre::eyre;
+use forge_secrets::credentials::Credentials;
 use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::task::Task;
 use libredfish::model::LinkStatus;
@@ -23,7 +24,6 @@ use tracing::warn;
 
 use super::cfg::carbide_options::RedfishCommand;
 use crate::cfg::carbide_options::{DpuOperations, FwCommand, RedfishAction, ShowFw, ShowPort};
-use forge_secrets::credentials::Credentials;
 
 pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     let endpoint = libredfish::Endpoint {
@@ -74,6 +74,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         ForgeSetup => {
             redfish.forge_setup().await?;
+        }
+        SetForgePasswordPolicy => {
+            redfish.set_forge_password_policy().await?;
         }
         GetPowerState => {
             println!("{}", redfish.get_power_state().await?);
@@ -172,6 +175,11 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         GetSecureBoot => {
             println!("{:#?}", redfish.get_secure_boot().await?);
         }
+        GetBmcAccounts => {
+            for u in redfish.get_accounts().await? {
+                println!("{u:?}");
+            }
+        }
         CreateBmcUser(bmc_user) => {
             let role: RoleId = match bmc_user
                 .role_id
@@ -188,6 +196,15 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             redfish
                 .create_user(&bmc_user.user, &bmc_user.new_password, role)
                 .await?;
+        }
+        ChangeBmcUsername(bmc_username) => {
+            redfish
+                .change_username(&bmc_username.old_user, &bmc_username.new_user)
+                .await?;
+            println!(
+                "User {} renamed to {}",
+                bmc_username.old_user, bmc_username.new_user
+            );
         }
         ChangeBmcPassword(bmc_password) => {
             redfish

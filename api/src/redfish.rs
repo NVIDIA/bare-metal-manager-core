@@ -831,7 +831,7 @@ impl Redfish for RedfishSimClient {
                 "HealthRollup": "OK",
                 "State": "Starting"
               },
-              "UUID": "0b623306-fa7f-42d2-809d-a63a13d49c8d"                          
+              "UUID": "0b623306-fa7f-42d2-809d-a63a13d49c8d"
         }"##,
         )
         .unwrap())
@@ -856,6 +856,18 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn enable_secure_boot(&self) -> Result<(), RedfishError> {
+        todo!()
+    }
+
+    async fn change_username(&self, _old_name: &str, _new_name: &str) -> Result<(), RedfishError> {
+        todo!()
+    }
+    async fn get_accounts(
+        &self,
+    ) -> Result<Vec<libredfish::model::account_service::ManagerAccount>, RedfishError> {
+        todo!()
+    }
+    async fn set_forge_password_policy(&self) -> Result<(), RedfishError> {
         todo!()
     }
 }
