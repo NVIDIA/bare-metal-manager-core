@@ -320,6 +320,8 @@ pub enum RedfishCommand {
     CreateBmcUser(BmcUser),
     /// Setup host for Forge use
     ForgeSetup,
+    /// Set our password policy
+    SetForgePasswordPolicy,
     /// List one or all BIOS boot options
     GetBootOption(BootOptionSelector),
     /// Is this thing on?
@@ -374,6 +376,10 @@ pub enum RedfishCommand {
     GetBmcEthernetInterfaces,
     /// Show System Ethernet interface information
     GetSystemEthernetInterfaces,
+    /// List of existing BMC accounts
+    GetBmcAccounts,
+    /// Rename an account
+    ChangeBmcUsername(BmcUsername),
     /// Change password for a BMC user
     ChangeBmcPassword(BmcPassword),
     /// Change UEFI password
@@ -425,6 +431,14 @@ pub struct UefiPassword {
     pub current_password: String,
     #[clap(long, help = "New UEFI password")]
     pub new_password: String,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct BmcUsername {
+    #[clap(long, help = "Old username")]
+    pub old_user: String,
+    #[clap(long, help = "New username")]
+    pub new_user: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
