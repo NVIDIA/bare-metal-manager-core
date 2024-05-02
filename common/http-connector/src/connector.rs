@@ -20,7 +20,7 @@ use hyper::service::Service;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Sleep;
 use tokio_socks::tcp::Socks5Stream;
-use tracing::{debug, info, trace, warn};
+use tracing::{info, trace, warn};
 use tryhard::RetryFutureConfig;
 
 use crate::resolver;
@@ -139,7 +139,7 @@ impl ConnectorMetricsInner {
         self.connect_attempt(addr, connect_start);
         self.total_successes.fetch_add(1, Ordering::SeqCst);
         self.addr_maps.lock().unwrap().add_success_by_addr(addr);
-        debug!("connected to {}", addr);
+        trace!("connected to {addr}");
     }
 
     // connect_error is the "inner" function for handling a
@@ -943,7 +943,7 @@ impl ForgeHttpConnector {
             );
 
         tryhard::retry_fn(|| {
-            debug!("establishing new tcp connection for {}", dst.to_string());
+            trace!("establishing new tcp connection for {dst}");
             let c = ConnectingTcp::new(addrs.clone(), config, self.metrics.clone());
             c.connect()
         })
