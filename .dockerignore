@@ -1,5 +1,6 @@
 forged/
 target/*
+!target/release/forge-admin-cli
 .git/
 book/
 pxe/mkiso/

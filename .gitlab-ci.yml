@@ -8,6 +8,8 @@ variables:
   NSPECT_ID: NSPECT-K66V-JJ0K
   DOCKER_IMG: nvmetal-carbide
 
+
+  FORGE_ADMIN_CLI_IMAGE: nvcr.io/nvidian/nvforge-devel/forge-admin-cli
   APPLICATION_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/nvmetal-carbide
   ARTIFACTS_DOCKER_IMAGE_AARCH64: nvcr.io/nvidian/nvforge-devel/boot-artifacts-aarch64
   ARTIFACTS_DOCKER_IMAGE_X86_64: nvcr.io/nvidian/nvforge-devel/boot-artifacts-x86_64
@@ -15,6 +17,8 @@ variables:
   APPLICATION_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/nvmetal-carbide
   ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-aarch64
   ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-x86_64
+
+  FORGE_ADMIN_CLI_DOCKER_IMAGE: nvcr.io/nvidian/nvforge/forge-admin-cli
 
   FF_USE_FASTZIP: "true" # enable fastzip - a faster zip implementation that also supports level configuration.
   ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
@@ -37,6 +41,7 @@ variables:
   CONTAINER_REGISTRY_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8"
   CONTAINER_REGISTRY_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64"
 
+  
   # Canonical versions - will be overridden if you touch one of the dockerfiles that builds them
   #
   # How to update a build or runtime container.
@@ -49,6 +54,7 @@ variables:
   #
   CONTAINER_BUILD_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest"
   CONTAINER_BUILD_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest"
+  CONTAINER_FORGE_ADMIN_CLI_URM: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/tools/forge-admin-cli:latest"
   CONTAINER_RUNTIME_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/runtime-container:latest"
   CONTAINER_RUNTIME_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/runtime-container:latest"
   CONTAINER_BUILD_ARTIFACTS_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-artifacts-container:latest"
@@ -351,7 +357,7 @@ tag-build-and-runtime-containers:
       crane copy "${CONTAINER_BUILD_AARCH64}" "${CONTAINER_REGISTRY_AARCH64}/build-container:latest"
     fi
 
-    if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT:-}" ]; then
+    if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT:-}" ]; thenMerge
       crane copy "${CONTAINER_BUILD_ARTIFACTS_X86_64}" "${CONTAINER_REGISTRY_X86_64}/build-artifacts-container:latest"
     fi
 
@@ -416,6 +422,152 @@ build-release-container-x86_64:
   artifacts:
     reports:
       dotenv: release-container-x86_64.env
+
+
+build-container-forge-cli-x86_64:
+  stage: build
+  extends: build-push-container
+  needs:
+    - job: prepare-ci
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+    - job: build-build-artifacts-container-x86_64
+      optional: true
+  before_script: |
+    mkdir -p /kaniko/.docker
+    cp .docker/config.json /kaniko/.docker/config.json
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-forge-cli
+  dependencies:
+    - prepare-ci
+    - export-docker-json-config  
+  tags:
+    - x86_64
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+    - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$CI_JOB_JWT)"
+    - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
+    - >-
+      /kaniko/executor --context "${CI_PROJECT_DIR}" --dockerfile "${DOCKER_FILE}" --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA" --build-arg "CONTAINER_BUILD=$CONTAINER_BUILD_ARTIFACTS_X86_64" --destination "${FORGE_ADMIN_CLI_IMAGE}-${VERSION}:amd64"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+      variables:
+        DEPLOY_BUILT_CONTAINER: "true"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+      variables:
+        DEPLOY_BUILT_CONTAINER: "false"
+
+build-container-forge-cli-aarch64:
+  stage: build
+  extends: build-push-container
+  needs:
+    - job: prepare-ci
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+    - job: build-build-artifacts-container-aarch64
+      optional: true
+  before_script: |
+    mkdir -p /kaniko/.docker
+    cp .docker/config.json /kaniko/.docker/config.json
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-forge-cli
+  dependencies:
+    - prepare-ci
+    - export-docker-json-config  
+  tags:
+    - aarch64
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+    - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$CI_JOB_JWT)"
+    - export GROUP_ACCESS_TOKEN=$(vault kv get -field GROUP_ACCESS_TOKEN secrets/forge/tokens)
+    - >-
+      /kaniko/executor --context "${CI_PROJECT_DIR}" --dockerfile "${DOCKER_FILE}" --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA" --build-arg "CONTAINER_BUILD=$CONTAINER_BUILD_ARTIFACTS_AARCH64" --destination "${FORGE_ADMIN_CLI_IMAGE}-${VERSION}:arm64"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+      variables:
+        DEPLOY_BUILT_CONTAINER: "true"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+      variables:
+        DEPLOY_BUILT_CONTAINER: "false"
+
+merge-manifests-forge-cli:
+  stage: build
+  # all containers must be build before merging them
+  # alternatively the job may be configured to run in a later stage
+  needs:
+    - job: prepare-ci
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+    - job: build-container-forge-cli-aarch64
+      artifacts: false
+    - job: build-container-forge-cli-x86_64
+      artifacts: false
+  before_script: |
+    mkdir -p /kaniko/.docker
+    cp .docker/config.json /kaniko/.docker/config.json
+  tags:
+    # may run on any architecture supported by manifest-tool image
+    - x86_64
+  image:
+    name: mplatform/manifest-tool:alpine
+    entrypoint: [""]
+  script:
+    - >-
+      manifest-tool --docker-cfg .docker/config.json push from-args --platforms linux/amd64,linux/arm64 --template "${FORGE_ADMIN_CLI_IMAGE}-${VERSION}:ARCH" --tags latest --target "${FORGE_ADMIN_CLI_IMAGE}:${VERSION}"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+      variables:
+        DEPLOY_BUILT_CONTAINER: "true"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+      variables:
+        DEPLOY_BUILT_CONTAINER: "false"
+
+# Copy the final multi-arch container to urm for use in QA automation
+copy-forge-admin-cli-to-urm:
+  stage: build
+  needs:
+    - job: prepare-ci
+      optional: false
+    - job: export-docker-json-config
+      optional: false
+    - job: merge-manifests-forge-cli
+      optional: false
+    - job: get-crane
+      optional: false
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  tags:
+    - x86_64
+  before_script:
+    - mkdir -p /root/.docker
+    - cp .docker/config.json /root/.docker/config.json
+  script:
+    - echo "Copying ${FORGE_ADMIN_CLI_IMAGE}:latest to ${CONTAINER_FORGE_ADMIN_CLI_URM}"
+    - ./crane copy "${FORGE_ADMIN_CLI_IMAGE}:latest" "${CONTAINER_FORGE_ADMIN_CLI_URM}"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+      variables:
+        DEPLOY_BUILT_CONTAINER: "true"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+      variables:
+        DEPLOY_BUILT_CONTAINER: "false"
+
 
 #
 # Build the final container that releases our code

@@ -1,15 +1,40 @@
 # forge-admin-cli setup
 
-You can use `forge-admin-cli` from any host that has connectivity to the
-carbide-api service for a site.
-
-## Root certificate setup
+## Docker container
+In order to run the container you must authenticate with `nvcr.io` docker registry
+there are several pre-requisites that must be met
 
 First, `forge-admin-cli` will need the root certificate that site certificates
 are signed with. Currently this can be found here: <https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs#certificate-authority>.
 Copy and paste this into a file on your host (we will assume this is `~/.config/forge/forge-root-ca.pem`
 in these instructions). This is a one-time step and shouldn't need to be
 revisited unless the root certificate changes.
+
+1. nvinit must be installed
+2. You must be a member of the AD group `swngc-forge-admins` - Can request through https://dlrequest
+3. Ask in `#swngc-forge-dev` slack channel for an invite to the `nvidian/nvidian-devl` organization in ngc webui
+4. Once you accept the invite you should be able to login to `https://ngc.nvidia.com`
+5. Follow the directions here - https://docs.nvidia.com/ngc/gpu-cloud/ngc-user-guide/index.html#generating-api-key to generate an api key.
+   On the screen where you generate an API key, under "Usage" there are instructions for authenticating with the docker cli
+6. Follow the directions for [nvinit user certificates](#nvinit-user-certificates)
+7. `docker run -v ~/.nvinit:/root/.nvinit nvcr.io/nvidian/nvforge-devel/forge-admin-cli:latest`
+
+The docker image runs on both x86 and ARM based processors. 
+
+To update to the latest version: `docker pull nvcr.io/nvidian/nvforge-devel/forge-admin-cli:latest`
+
+You can substiture `docker run -v ~/.nvinit:/root/.nvinit nvcr.io/nvidian/nvforge-devel/forge-admin-cli:latest`
+wherever you see `/forge-admin-cli` in the documentation 
+
+## Root certificate setup
+*NOTE* If using the docker container you do not need to do this. The root cert is already present in the container
+
+First, `forge-admin-cli` will need the root certificate that site certificates
+are signed with. Currently this can be found here: <https://gitlab-master.nvidia.com/nvmetal/forged/-/tree/main/envs#certificate-authority>.
+Copy and paste this into a file on your host (we will assume this is `~/.config/forge/forge-root-ca.pem`
+in these instructions). This is a one-time step and shouldn't need to be
+revisited unless the root certificate changes.
+
 
 ## nvinit user certificates
 
@@ -35,6 +60,8 @@ paths to your liking, but we'll be assuming they look like the above for these
 instructions.
 
 ## carbide_api_cli.json config file
+*NOTE* If you are using the docker container, this step is not required. The config file and directory structure
+are already present in the container.
 
 Run this (or manually substitute the `$HOME` variable). `forge-admin-cli` will look for this config file in that location by default.
 
