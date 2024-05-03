@@ -62,7 +62,32 @@ impl TestMeter {
                 result.push(line.strip_prefix(' ').unwrap_or(line).to_string());
             }
         }
+        result.sort();
         result
+    }
+
+    /// Returns the value of multiple metrics with the given name in a parsed
+    /// format. In case the metric is emitted with attributes, the first element in
+    /// the tuple contains the attribute map (e.g. `{attribute1="abc"}`).
+    /// The 2nd element in the tuple contains the metric value.
+    pub fn parsed_metrics(&self, metric_name: &str) -> Vec<(String, String)> {
+        let metric_lines = self.formatted_metrics(metric_name);
+        let mut parsed = Vec::new();
+        for metric_line in metric_lines.into_iter() {
+            // Metrics line look like "$value" if without attributes
+            // and "{$attrs} value" if with attributes
+            if metric_line.starts_with('{') {
+                let end_idx = metric_line.find("} ").unwrap_or_else(|| {
+                    panic!("Expected to find end of metric line of {}", metric_line)
+                });
+                let (attribute, amount) = metric_line.split_at(end_idx + 1);
+                let amount = &amount[1..];
+                parsed.push((attribute.to_string(), amount.to_string()));
+            } else {
+                parsed.push(("".to_string(), metric_line));
+            }
+        }
+        parsed
     }
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -14,7 +14,7 @@ use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
 use arc_swap::ArcSwapOption;
 use opentelemetry::{
-    metrics::{self, Histogram, Meter, ObservableGauge, Unit},
+    metrics::{self, Counter, Histogram, Meter, ObservableGauge, Unit},
     KeyValue,
 };
 
@@ -28,11 +28,14 @@ use crate::{
 /// These metrics are emitted for all types of state controllers
 #[derive(Debug)]
 pub struct CommonObjectHandlerMetrics<IO: StateControllerIO> {
-    /// The state the object was in after the iteration ended
-    pub state: Option<IO::ControllerState>,
-    /// The time the object was in the this state
+    /// The state the object was in when the iteration started
+    pub initial_state: Option<IO::ControllerState>,
+    /// When a state transition occured and `initial_state` was exited during state handling,
+    /// this field tracks the next state
+    pub next_state: Option<IO::ControllerState>,
+    /// The time the object was in `initial_state` at the start of the iteration
     pub time_in_state: Duration,
-    /// Whether the object was in the state for longer than allowed by the SLA
+    /// Whether the object was in `initial_state` for longer than allowed by the SLA
     pub time_in_state_above_sla: bool,
     /// How long we took to execute the state handler
     pub handler_latency: Duration,
@@ -43,7 +46,8 @@ pub struct CommonObjectHandlerMetrics<IO: StateControllerIO> {
 impl<IO: StateControllerIO> Default for CommonObjectHandlerMetrics<IO> {
     fn default() -> Self {
         Self {
-            state: None,
+            initial_state: None,
+            next_state: None,
             handler_latency: Duration::from_secs(0),
             time_in_state: Duration::from_secs(0),
             time_in_state_above_sla: false,
@@ -85,18 +89,14 @@ impl CommonIterationMetrics {
         // The `unknown` state can occur if loading the current object state fails
         // or if the state is not deserializable
         let (state, substate) = object_metrics
-            .state
+            .initial_state
             .as_ref()
             .map(IO::metric_state_names)
             .unwrap_or(("unknown", ""));
 
         let state_metrics = self.state_metrics.entry((state, substate)).or_default();
 
-        state_metrics.num_objects += 1;
-        if object_metrics.time_in_state_above_sla {
-            state_metrics.num_objects_above_sla += 1;
-        }
-
+        // The first set of metrics is always related to the intial state
         state_metrics
             .time_in_state
             .push(object_metrics.time_in_state);
@@ -110,6 +110,30 @@ impl CommonIterationMetrics {
                 .handling_errors_per_type
                 .entry(error_label)
                 .or_default() += 1;
+        }
+
+        // If the object is still in the current state, track its presence there
+        // If the object has moved into a next state, record it there
+        if object_metrics.next_state.is_none() {
+            state_metrics.num_objects += 1;
+            if object_metrics.time_in_state_above_sla {
+                state_metrics.num_objects_above_sla += 1;
+            }
+        }
+
+        // If a follow-up state is defined, we exited the state and entered the next state
+        if let Some(next_state) = object_metrics.next_state.as_ref() {
+            // We exited the initial state
+            state_metrics.num_exited += 1;
+
+            // We have to emit additional metrics for the next state
+            let (state, substate) = IO::metric_state_names(next_state);
+
+            let state_metrics = self.state_metrics.entry((state, substate)).or_default();
+            state_metrics.num_entered += 1;
+            state_metrics.num_objects += 1;
+            // The object will never be above sla in the new state,
+            // given it just entered this state
         }
     }
 }
@@ -127,6 +151,10 @@ pub struct StateMetrics {
     pub handler_latencies: Vec<Duration>,
     /// Counts the errors per error type in this state
     pub handling_errors_per_type: HashMap<&'static str, usize>,
+    /// The amount of objects which entered this state
+    pub num_entered: usize,
+    /// The amount of objects which exited this state
+    pub num_exited: usize,
 }
 
 /// Metrics that are produced by a state controller iteration
@@ -273,6 +301,8 @@ pub struct CommonMetricsEmitter<IO> {
     objects_per_state_gauge: ObservableGauge<u64>,
     objects_per_state_above_sla_gauge: ObservableGauge<u64>,
     errors_per_state_gauge: ObservableGauge<u64>,
+    state_entered_counter: Counter<u64>,
+    state_exited_counter: Counter<u64>,
     time_in_state_histogram: Histogram<f64>,
     handler_latency_in_state_histogram: Histogram<f64>,
     _phantom_io: PhantomData<IO>,
@@ -319,6 +349,22 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                 object_type
             ))
             .init();
+
+        let state_entered_counter = meter
+            .u64_counter(format!("{}_state_entered", object_type))
+            .with_description(format!(
+                "The amount of types that objects of type {} have entered a certain state",
+                object_type
+            ))
+            .init();
+        let state_exited_counter = meter
+            .u64_counter(format!("{}_state_exited", object_type))
+            .with_description(format!(
+                "The amount of types that objects of type {} have exited a certain state",
+                object_type
+            ))
+            .init();
+
         let time_in_state_histogram = meter
             .f64_histogram(format!("{}_time_in_state", object_type))
             .with_description(format!(
@@ -342,6 +388,8 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             objects_per_state_above_sla_gauge,
             total_objects_gauge,
             errors_per_state_gauge,
+            state_entered_counter,
+            state_exited_counter,
             handler_latency_in_state_histogram,
             time_in_state_histogram,
             _phantom_io: PhantomData,
@@ -423,6 +471,15 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
             let substate_attr = KeyValue::new("substate", substate.to_string());
             let attrs = &[state_attr.clone(), substate_attr.clone()];
 
+            // Record how often this state was entered and exited from in the current
+            // controller iteration
+            if m.num_entered != 0 {
+                self.state_entered_counter.add(m.num_entered as u64, attrs);
+            }
+            if m.num_exited != 0 {
+                self.state_exited_counter.add(m.num_exited as u64, attrs);
+            }
+
             for time_in_state in m.time_in_state.iter() {
                 self.time_in_state_histogram
                     .record(time_in_state.as_secs_f64(), attrs);
@@ -464,16 +521,21 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
                 state.to_string()
             };
 
-            times_in_state.insert(
-                state_name.clone(),
-                LatencyStats::from_latencies(&m.time_in_state, Duration::as_secs),
-            );
-            handler_latencies.insert(
-                state_name.clone(),
-                LatencyStats::from_latencies(&m.handler_latencies, |duration| {
-                    duration.as_micros().min(u64::MAX as u128) as u64
-                }),
-            );
+            if !m.time_in_state.is_empty() {
+                times_in_state.insert(
+                    state_name.clone(),
+                    LatencyStats::from_latencies(&m.time_in_state, Duration::as_secs),
+                );
+            };
+
+            if !m.handler_latencies.is_empty() {
+                handler_latencies.insert(
+                    state_name.clone(),
+                    LatencyStats::from_latencies(&m.handler_latencies, |duration| {
+                        duration.as_micros().min(u64::MAX as u128) as u64
+                    }),
+                );
+            }
 
             for (error, &count) in m.handling_errors_per_type.iter() {
                 total_errors += count;
@@ -658,7 +720,10 @@ impl LatencyStats {
             max_latency = max_latency.max(l);
         }
         min_latency = min_latency.min(max_latency);
-        let avg_latency = total_latency / latencies.len() as u64;
+        let avg_latency = match latencies.is_empty() {
+            false => total_latency / latencies.len() as u64,
+            true => 0,
+        };
 
         Self {
             min: min_latency,

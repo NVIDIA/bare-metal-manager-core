@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -46,6 +46,89 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
         .unwrap();
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
+
+    assert!(env
+        .test_meter
+        .parsed_metrics("forge_machines_per_state")
+        .contains(&(
+            "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
+            "1".to_string()
+        )));
+
+    let expected_states_entered = &[
+        (
+            r#"{state="dpunotready",substate="waitingfornetworkconfig"}"#,
+            1,
+        ),
+        (
+            r#"{state="dpunotready",substate="waitingfornetworkinstall"}"#,
+            1,
+        ),
+        (r#"{state="hostnotready",substate="discovered"}"#, 1),
+        (
+            r#"{state="hostnotready",substate="waitingfordiscovery"}"#,
+            1,
+        ),
+        (r#"{state="hostnotready",substate="waitingforlockdown"}"#, 2),
+        (r#"{state="ready",substate=""}"#, 1),
+    ];
+
+    let states_entered = env
+        .test_meter
+        .parsed_metrics("forge_machines_state_entered_total");
+
+    for expected in expected_states_entered.iter() {
+        let actual = states_entered
+            .iter()
+            .find(|s| s.0 == expected.0)
+            .unwrap_or_else(|| panic!("Did not enter state {}", expected.0));
+        assert_eq!(
+            actual.1.parse::<i64>().unwrap(),
+            expected.1,
+            "Did not enter state {} {} times",
+            expected.0,
+            expected.1
+        );
+    }
+
+    let expected_states_exited = &[
+        ("{state=\"dpunotready\",substate=\"init\"}", 1),
+        (
+            "{state=\"dpunotready\",substate=\"waitingfornetworkconfig\"}",
+            1,
+        ),
+        (
+            "{state=\"dpunotready\",substate=\"waitingfornetworkinstall\"}",
+            1,
+        ),
+        ("{state=\"hostnotready\",substate=\"discovered\"}", 1),
+        (
+            "{state=\"hostnotready\",substate=\"waitingfordiscovery\"}",
+            1,
+        ),
+        (
+            "{state=\"hostnotready\",substate=\"waitingforlockdown\"}",
+            2,
+        ),
+    ];
+
+    let states_exited = env
+        .test_meter
+        .parsed_metrics("forge_machines_state_exited_total");
+
+    for expected in expected_states_exited.iter() {
+        let actual = states_exited
+            .iter()
+            .find(|s| s.0 == expected.0)
+            .unwrap_or_else(|| panic!("Did not exit state {}", expected.0));
+        assert_eq!(
+            actual.1.parse::<i64>().unwrap(),
+            expected.1,
+            "Did not exit state {} {} times",
+            expected.0,
+            expected.1
+        );
+    }
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
