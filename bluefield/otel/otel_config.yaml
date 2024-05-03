@@ -1,0 +1,59 @@
+extensions:
+  file_storage/cursors:
+    directory: /var/lib/otelcol-contrib/cursors
+    fsync: true
+
+receivers:
+  journald:
+    directory: /var/log/journal
+    units:
+      - forge-dpu-agent
+    storage: file_storage/cursors
+
+processors:
+  batch: {}
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 50
+    spike_limit_percentage: 20
+  # Add hostname at the resource level
+  resourcedetection:
+    detectors: ["system"]
+    system:
+      hostname_sources: ["os"]
+      resource_attributes:
+        host.name:
+          enabled: true
+        os.type:
+          enabled: false
+        host.id:
+          enabled: false
+  # Remove all but the "MESSAGE" and "_SYSTEMD_UNIT" keys from each log record
+  transform:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(cache["MESSAGE"], body["MESSAGE"])
+          - set(cache["_SYSTEMD_UNIT"], body["_SYSTEMD_UNIT"])
+          - set(body, cache)
+
+exporters:
+  file:
+    path: /tmp/otel-out.json
+    rotation:
+      max_megabytes: 1
+      max_backups: 2
+
+service:
+  pipelines:
+    logs:
+      receivers: [journald]
+      processors: [memory_limiter, batch, resourcedetection, transform]
+      exporters: [file]
+  extensions: [file_storage/cursors]
+  # Turn off otel collector metrics (which by default are exposed on port 8888,
+  # already in use by Forge, and cause the service to terminate with an error)
+  telemetry:
+    metrics:
+      level: none
