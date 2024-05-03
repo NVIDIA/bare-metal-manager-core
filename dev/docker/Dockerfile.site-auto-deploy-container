@@ -1,0 +1,21 @@
+# This image contains the dependencies required by job 'scheduled-test:auto-deploy-site-controller'
+#
+# Note: If you change this file it will only build and publish once you create an MR.
+
+FROM registry.gitlab.com/python-gitlab/python-gitlab:v4.4.0-slim-bullseye
+
+RUN apt-get update && \
+    apt-get install -y \
+    wget \
+    unzip \
+    git
+RUN wget -qO /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v2.10.7/argocd-linux-amd64 &&  \
+    chmod +x /usr/local/bin/argocd
+RUN wget -qO kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.1/kustomize_v5.4.1_linux_amd64.tar.gz && \
+    tar -zxf kustomize.tar.gz && \
+    mv kustomize /usr/local/bin/kustomize && \
+    rm kustomize.tar.gz
+RUN wget -qO vault.zip https://releases.hashicorp.com/vault/1.16.1/vault_1.16.1_linux_amd64.zip && \
+    unzip vault.zip && \
+    mv vault /usr/local/bin/vault && \
+    rm vault.zip
