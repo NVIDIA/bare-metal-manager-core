@@ -287,7 +287,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                             let mut controller_state = io
                                 .load_controller_state(&mut txn, &object_id, &snapshot)
                                 .await?;
-                            metrics.common.state = Some(controller_state.value.clone());
+                            metrics.common.initial_state = Some(controller_state.value.clone());
                             // Unwrap uses a very large duration as default to show something is wrong
                             metrics.common.time_in_state = chrono::Utc::now()
                                 .signed_duration_since(controller_state.version.timestamp())
@@ -313,14 +313,16 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     &mut ctx,
                                 )
                                 .await;
-                            if let Ok(StateHandlerOutcome::Transition(next_state)) =
-                                &handler_outcome
-                            {
+
+                            let mut next_state = None;
+                            if let Ok(StateHandlerOutcome::Transition(next)) = &handler_outcome {
+                                next_state = Some(next.clone());
+
                                 io.persist_controller_state(
                                     &mut txn,
                                     &object_id,
                                     controller_state.version,
-                                    next_state.clone(),
+                                    next.clone(),
                                 )
                                 .await?;
                             }
@@ -331,6 +333,10 @@ impl<IO: StateControllerIO> StateController<IO> {
                             txn.commit()
                                 .await
                                 .map_err(StateHandlerError::TransactionError)?;
+
+                            // Only emit the next state as metric if the transaction was actually
+                            // committed and we are sure we reached the next state
+                            metrics.common.next_state = next_state;
 
                             handler_outcome
                         })
@@ -344,7 +350,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 object_id: object_id.to_string(),
                                 state: metrics
                                     .common
-                                    .state
+                                    .initial_state
                                     .as_ref()
                                     .map(|state| format!("{:?}", state))
                                     .unwrap_or_default(),
