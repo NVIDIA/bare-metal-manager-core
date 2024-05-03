@@ -14,6 +14,19 @@ DPU_AGENT_PKG_VERSION = { script = [
   "echo $(git describe --tags --first-parent --always | cut -c 2-)",
 ] }
 
+[tasks.cleanup-local-pkg-files]
+category = "Build"
+workspace = false
+description = "clean up locally built forge-dpu-agent files"
+script = '''
+  echo Removing locally built forge-dpu-agent files ...
+  rm -rf forge-dpu_*
+  echo Cleanup completed.
+'''
+
+[tasks.clean]
+dependencies = ["cleanup-local-pkg-files"]
+
 [tasks.build-dpu-agent]
 category = "Build"
 description = "cross compile forge-dpu-agent locally"
@@ -37,6 +50,46 @@ description = "Referring to the prebuilt 'build' task doesn't work here, since i
 command = "cargo"
 args = ["build", "--bin", "forge-dpu-agent"]
 
+[tasks.download-otelcol]
+category = "Build"
+description = "Download otelcol-contrib"
+workspace = false
+command = "wget"
+args = [
+    "--input-file=${REPO_ROOT}/bluefield/otel/wget_otelcol_url",
+    "--directory-prefix=${REPO_ROOT}/bluefield/otel",
+    "--tries=5",
+    "--continue",
+]
+
+[tasks.extract-otelcol]
+category = "Build"
+description = "Extract and stage the downloaded otelcol-contrib binary"
+workspace = false
+script = '''
+  export vers=${DPU_AGENT_PKG_VERSION}
+  export otelcol=`cat ${REPO_ROOT}/bluefield/otel/wget_otelcol_url | sed 's#.*/##'`
+  mkdir -p "forge-dpu_${vers}/usr/bin"
+  tar xzf otel/${otelcol} -C otel otelcol-contrib
+  cp otel/otelcol-contrib "forge-dpu_${vers}/usr/bin/"
+  rm otel/otelcol-contrib
+  rm otel/${otelcol}
+'''
+dependencies = [
+  "download-otelcol",
+]
+
+[tasks.stage-otelcol]
+category = "Build"
+description = "Stage the inclusion of otelcol-contrib binary in forge-dpu-agent.deb package"
+condition = { files_modified = { input = [
+  "${REPO_ROOT}/bluefield/Makefile.toml",
+  "${REPO_ROOT}/bluefield/otel/wget_otelcol_url",
+], output = [
+  "${REPO_ROOT}/bluefield/forge-dpu_${DPU_AGENT_PKG_VERSION}/usr/bin/otelcol-contrib",
+] } }
+run_task = "extract-otelcol"
+
 [tasks.setup-dpu-agent-deb-local]
 category = "Build"
 description = "Build the forge-dpu-agent.deb package locally"
@@ -48,18 +101,23 @@ script = '''
   mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin"
   mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/conf"
   mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
+  mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
+  mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
   cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
   cp ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
   cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
   cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
   cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
   cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
+  cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
+  cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
   cp -r misc/DEBIAN "forge-dpu_${vers}/"
   sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
 dependencies = [
   "build-dpu-agent",
   { name = "build-dhcp-server", path = "${REPO_ROOT}/dhcp-server" },
+  "stage-otelcol"
 ]
 
 [tasks.setup-forge-dpu-deb]
@@ -72,18 +130,23 @@ script = '''
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin"
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/conf"
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
+    mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
+    mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
     cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
     cp ${REPO_ROOT}/target/debug/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
     cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
 dependencies = [
   "build-dpu-agent-ci",
   { name = "build-dhcp-server-ci", path = "${REPO_ROOT}/dhcp-server" },
+  "stage-otelcol"
 ]
 
 [tasks.setup-forge-dpu-deb-ci]
@@ -96,18 +159,23 @@ script = '''
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin"
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/conf"
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
+    mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
+    mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
     cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
     cp ${REPO_ROOT}/target/debug/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
     cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/clean_core_files.sh "forge-dpu_${vers}/usr/bin/" && chmod u+x "forge-dpu_${vers}/usr/bin/clean_core_files.sh"
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
 '''
 dependencies = [
   "build-dpu-agent-ci",
   { name = "build-dhcp-server-ci", path = "${REPO_ROOT}/dhcp-server" },
+  "stage-otelcol"
 ]
 
 [tasks.build-forge-dpu-deb-local]
