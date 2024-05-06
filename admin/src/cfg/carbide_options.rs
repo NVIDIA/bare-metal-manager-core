@@ -770,6 +770,12 @@ pub struct ShowInstance {
 
     #[clap(short, long, action)]
     pub extrainfo: bool,
+
+    #[clap(long, help = "The key of label instance to query")]
+    pub label_key: Option<String>,
+
+    #[clap(long, help = "The value of label instance to query")]
+    pub label_value: Option<String>,
 }
 
 #[derive(Parser, Debug)]

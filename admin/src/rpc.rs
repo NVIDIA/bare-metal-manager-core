@@ -209,11 +209,20 @@ pub async fn release_instance(
 pub async fn get_instances(
     api_config: &ApiConfig<'_>,
     id: Option<String>,
+    label_key: Option<String>,
+    label_value: Option<String>,
 ) -> CarbideCliResult<rpc::InstanceList> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::InstanceSearchQuery {
             id: id.map(|x| rpc::Uuid { value: x }),
-            label: None,
+            label: if label_key.is_none() && label_value.is_none() {
+                None
+            } else {
+                Some(rpc::Label {
+                    key: label_key.unwrap_or_default().to_string(),
+                    value: label_value,
+                })
+            },
         });
         let instance_details = client
             .find_instances(request)
