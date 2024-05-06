@@ -389,6 +389,7 @@ pub enum RedfishCommand {
     /// Generates a string that can be a site-default host UEFI password in Vault
     /// - the generated string will meet the uefi password requirements of all vendors
     GenerateHostUefiPassword,
+    GetManager,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
