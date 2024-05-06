@@ -213,7 +213,7 @@ pub async fn print_inventory(
     action: InventoryAction,
 ) -> CarbideCliResult<()> {
     let all_machines = rpc::get_all_machines(api_config, None, false).await?;
-    let all_instances = rpc::get_instances(api_config, None).await?;
+    let all_instances = rpc::get_instances(api_config, None, None, None).await?;
 
     let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines)?;
 

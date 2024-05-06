@@ -248,7 +248,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 }
 
 async fn show_all_instances(json: bool, api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
-    let instances = rpc::get_instances(api_config, None).await?;
+    let instances = rpc::get_instances(api_config, None, None, None).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&instances).unwrap());
     } else {
@@ -259,19 +259,25 @@ async fn show_all_instances(json: bool, api_config: &ApiConfig<'_>) -> CarbideCl
 
 async fn show_instance_details(
     id: String,
+    label_key: Option<String>,
+    label_value: Option<String>,
     json: bool,
     api_config: &ApiConfig<'_>,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
     let instance = if id.starts_with("fm100") {
         rpc::get_instances_by_machine_id(api_config, id).await?
+    } else if id.is_empty() {
+        rpc::get_instances(api_config, None, label_key, label_value).await?
     } else {
-        rpc::get_instances(api_config, Some(id)).await?
+        rpc::get_instances(api_config, Some(id), None, None).await?
     };
 
     if instance.instances.len() != 1 {
-        println!("Unknown UUID.");
-        return Err(CarbideCliError::GenericError("Unknow UUID".to_string()));
+        println!("Unknown UUID or label.");
+        return Err(CarbideCliError::GenericError(
+            "Unknow UUID or label".to_string(),
+        ));
     }
 
     let instance = &instance.instances[0];
@@ -293,7 +299,7 @@ pub async fn handle_show(
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.all || args.id.is_empty() {
+    if args.all || (args.id.is_empty() && args.label_key.is_none() && args.label_value.is_none()) {
         show_all_instances(is_json, api_config).await?;
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
@@ -304,7 +310,15 @@ pub async fn handle_show(
         }
         return Ok(());
     }
-    show_instance_details(args.id, is_json, api_config, args.extrainfo).await?;
+    show_instance_details(
+        args.id,
+        args.label_key,
+        args.label_value,
+        is_json,
+        api_config,
+        args.extrainfo,
+    )
+    .await?;
     Ok(())
 }
 
@@ -312,7 +326,7 @@ pub async fn handle_reboot(
     args: RebootInstance,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
-    let machine_id = rpc::get_instances(api_config, Some(args.instance.clone()))
+    let machine_id = rpc::get_instances(api_config, Some(args.instance.clone()), None, None)
         .await?
         .instances
         .last()
