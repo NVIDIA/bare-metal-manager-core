@@ -19,7 +19,15 @@ use ::rpc::forge_tls_client::ForgeClientConfig;
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::{extract::Path, extract::State, routing::get, routing::post, Router};
+use eyre::eyre;
+use governor::clock;
+use governor::middleware::NoOpMiddleware;
+use governor::state::InMemoryState;
+use governor::state::NotKeyed;
+use governor::Quota;
+use governor::RateLimiter;
 use mockall::automock;
+use nonzero_ext::nonzero;
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
@@ -27,6 +35,7 @@ const USER_DATA_CATEGORY: &str = "user-data";
 const GUID: &str = "guid";
 const IB_PARTITION: &str = "partition";
 const LID: &str = "lid";
+const PHONE_HOME_RATE_LIMIT: Quota = Quota::per_minute(nonzero!(10u32));
 
 #[automock]
 #[async_trait]
@@ -40,6 +49,8 @@ pub struct InstanceMetadataRouterStateImpl {
     machine_id: String,
     forge_api: String,
     forge_client_config: ForgeClientConfig,
+    outbound_governor:
+        Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
 }
 
 #[async_trait]
@@ -52,6 +63,11 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
 
     // Phones home to the site controller.
     async fn phone_home(&self) -> Result<(), eyre::Error> {
+        match self.outbound_governor.clone().check() {
+            Ok(_) => {}
+            Err(e) => return Err(eyre!("rate limit exceeded for phone_home; {}\n", e)),
+        };
+
         let mut client =
             create_forge_client(&self.forge_api, self.forge_client_config.clone()).await?;
 
@@ -82,6 +98,7 @@ impl InstanceMetadataRouterStateImpl {
             machine_id,
             forge_api,
             forge_client_config,
+            outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
         }
     }
 }
@@ -310,7 +327,7 @@ async fn post_phone_home(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
     match state.phone_home().await {
-        Ok(()) => (StatusCode::OK, "successfully phoned home".to_string()),
+        Ok(()) => (StatusCode::OK, "successfully phoned home\n".to_string()),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
     }
 }
