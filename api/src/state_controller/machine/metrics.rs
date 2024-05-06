@@ -302,7 +302,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
         }
     }
 
-    fn update_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
+    fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
         iteration_metrics
             .machine_reboot_attempts_in_booting_with_discovery_image
             .iter()
