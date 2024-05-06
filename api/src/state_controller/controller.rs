@@ -183,7 +183,11 @@ impl<IO: StateControllerIO> StateController<IO> {
         // latter case doesn't handle any objects it will be a no-op apart
         // from emitting the latency for not getting the lock.
         if let Some(emitter) = self.metric_holder.emitter.as_ref() {
-            emitter.emit_latency_metrics(IO::LOG_SPAN_CONTROLLER_NAME, &metrics, &db_query_metrics);
+            emitter.emit_counters_and_histograms(
+                IO::LOG_SPAN_CONTROLLER_NAME,
+                &metrics,
+                &db_query_metrics,
+            );
             emitter.set_iteration_span_attributes(&controller_span, &metrics);
         }
 
@@ -389,10 +393,6 @@ impl<IO: StateControllerIO> StateController<IO> {
                     iteration_metrics.merge_object_handling_metrics(&metrics);
                 }
             }
-        }
-
-        if let Some(emitter) = self.metric_holder.emitter.as_ref() {
-            emitter.update_histograms(iteration_metrics);
         }
 
         if let Some(err) = last_join_error.take() {

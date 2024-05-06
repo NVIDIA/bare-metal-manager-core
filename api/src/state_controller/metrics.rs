@@ -75,10 +75,21 @@ impl<IO: StateControllerIO> Default for ObjectHandlerMetrics<IO> {
 }
 
 /// Metrics that are produced by a state controller iteration
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CommonIterationMetrics {
+    /// When the metrics have been recorded
+    pub recorded_at: std::time::Instant,
     /// Aggregated metrics per state
     pub state_metrics: HashMap<(&'static str, &'static str), StateMetrics>,
+}
+
+impl Default for CommonIterationMetrics {
+    fn default() -> Self {
+        Self {
+            recorded_at: std::time::Instant::now(),
+            state_metrics: Default::default(),
+        }
+    }
 }
 
 impl CommonIterationMetrics {
@@ -160,8 +171,6 @@ pub struct StateMetrics {
 /// Metrics that are produced by a state controller iteration
 #[derive(Debug)]
 pub struct IterationMetrics<IO: StateControllerIO> {
-    /// When the metrics have been recorded
-    pub recorded_at: std::time::Instant,
     /// Metrics that are emitted for all types of state controllers
     pub common: CommonIterationMetrics,
     /// Metrics that are specific to the type of object this state handler is processing
@@ -171,7 +180,6 @@ pub struct IterationMetrics<IO: StateControllerIO> {
 impl<IO: StateControllerIO> Default for IterationMetrics<IO> {
     fn default() -> Self {
         Self {
-            recorded_at: std::time::Instant::now(),
             common: CommonIterationMetrics::default(),
             specific: <IO::MetricsEmitter as MetricsEmitter>::IterationMetrics::default(),
         }
@@ -182,7 +190,7 @@ impl<IO: StateControllerIO> IterationMetrics<IO> {
     /// Returns the time that has elapsed since `IterationMetrics` has been
     /// constructed.
     pub fn elapsed(&self) -> std::time::Duration {
-        self.recorded_at.elapsed()
+        self.common.recorded_at.elapsed()
     }
 
     pub fn merge_object_handling_metrics(&mut self, object_metrics: &ObjectHandlerMetrics<IO>) {
@@ -252,8 +260,9 @@ pub trait MetricsEmitter: std::fmt::Debug + Send + Sync + 'static {
     /// Used for opentelemetry callback registration
     fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>>;
 
-    /// Once IterationMetrics are merged, call this to record these values into histograms.
-    fn update_histograms(&self, iteration_metrics: &Self::IterationMetrics);
+    /// This function is called on called `IterationMetrics` in every state controller
+    /// iteration to emit captured counters and histograms
+    fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics);
 }
 
 /// A [MetricsEmitter] that can be used if no custom metrics are required.
@@ -289,7 +298,7 @@ impl MetricsEmitter for NoopMetricsEmitter {
         Vec::new()
     }
 
-    fn update_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
+    fn emit_counters_and_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
 }
 
 /// Holds the OpenTelemetry data structures that are used to submit
@@ -453,20 +462,13 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         observer.observe_u64(&self.total_objects_gauge, total_objects as u64, attributes);
     }
 
-    fn update_histograms(&self, _iteration_metrics: &Self::IterationMetrics) {}
-}
-
-impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
-    /// Emits the latency metrics that are captured during a single state handler
-    /// iteration. Those are emitted immediately as histograms, whereas the
-    /// amount of objects in states is emitted as gauges.
-    pub fn emit_latency_metrics(&self, iteration_metrics: &IterationMetrics<IO>) {
+    fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
         self.controller_iteration_latency.record(
             1000.0 * iteration_metrics.recorded_at.elapsed().as_secs_f64(),
             &[],
         );
 
-        for ((state, substate), m) in iteration_metrics.common.state_metrics.iter() {
+        for ((state, substate), m) in iteration_metrics.state_metrics.iter() {
             let state_attr = KeyValue::new("state", state.to_string());
             let substate_attr = KeyValue::new("substate", substate.to_string());
             let attrs = &[state_attr.clone(), substate_attr.clone()];
@@ -490,7 +492,9 @@ impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
             }
         }
     }
+}
 
+impl<IO: StateControllerIO> CommonMetricsEmitter<IO> {
     /// Emits the metrics that had been collected during a state controller iteration
     /// as attributes on the tracing/OpenTelemetry span.
     ///
@@ -616,16 +620,19 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
         instruments
     }
 
-    /// Emits the latency metrics that are captured during a single state handler
-    /// iteration. Those are emitted immediately as histograms, whereas the
-    /// amount of objects in states is emitted as gauges.
-    pub fn emit_latency_metrics(
+    /// Emits counters and histogram metrics that are captured during a single state handler
+    /// iteration. Those are emitted immediately, whereas the values of gauges
+    /// is cached and emitted when queried.
+    pub fn emit_counters_and_histograms(
         &self,
         log_span_name: &str,
         iteration_metrics: &IterationMetrics<IO>,
         db_metrics: &sqlx_query_tracing::SqlxQueryDataAggregation,
     ) {
-        self.common.emit_latency_metrics(iteration_metrics);
+        self.common
+            .emit_counters_and_histograms(&iteration_metrics.common);
+        self.specific
+            .emit_counters_and_histograms(&iteration_metrics.specific);
 
         // We use an attribute to distinguish the query counter from the
         // ones that are used for other state controller and for gRPC requests
@@ -646,7 +653,7 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
         const MAX_FRESH_DURATION: Duration = Duration::from_secs(60);
         let fresh_attr = KeyValue::new(
             "fresh",
-            iteration_metrics.recorded_at.elapsed() <= MAX_FRESH_DURATION,
+            iteration_metrics.common.recorded_at.elapsed() <= MAX_FRESH_DURATION,
         );
 
         let attributes = &[fresh_attr];
@@ -671,11 +678,6 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
     ) {
         self.common
             .set_iteration_span_attributes(span, iteration_metrics)
-    }
-
-    /// Update histograms
-    pub fn update_histograms(&self, iteration_metrics: &IterationMetrics<IO>) {
-        self.specific.update_histograms(&iteration_metrics.specific);
     }
 }
 
