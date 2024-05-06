@@ -357,7 +357,7 @@ tag-build-and-runtime-containers:
       crane copy "${CONTAINER_BUILD_AARCH64}" "${CONTAINER_REGISTRY_AARCH64}/build-container:latest"
     fi
 
-    if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT:-}" ]; thenMerge
+    if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT:-}" ]; then 
       crane copy "${CONTAINER_BUILD_ARTIFACTS_X86_64}" "${CONTAINER_REGISTRY_X86_64}/build-artifacts-container:latest"
     fi
 
