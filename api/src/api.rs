@@ -4721,6 +4721,45 @@ where
                         ))
                     })?
             }
+            rpc::CredentialType::HostBmcFactoryDefault => {
+                let Some(username) = req.username else {
+                    return Err(tonic::Status::invalid_argument("missing username"));
+                };
+                let Some(vendor) = req.vendor else {
+                    return Err(tonic::Status::invalid_argument("missing vendor"));
+                };
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::HostRedfish {
+                            credential_type: CredentialType::HostHardwareDefault { vendor },
+                        },
+                        Credentials::UsernamePassword { username, password },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error setting Host factory default credential: {e:?}"
+                        ))
+                    })?
+            }
+            rpc::CredentialType::DpuBmcFactoryDefault => {
+                let Some(username) = req.username else {
+                    return Err(tonic::Status::invalid_argument("missing username"));
+                };
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::DpuHardwareDefault,
+                        },
+                        Credentials::UsernamePassword { username, password },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error setting DPU factory default credential: {e:?}"
+                        ))
+                    })?
+            }
         };
 
         Ok(Response::new(rpc::CredentialCreationResult {}))
@@ -4768,7 +4807,9 @@ where
             rpc::CredentialType::HostBmc
             | rpc::CredentialType::Dpubmc
             | rpc::CredentialType::DpuUefi
-            | rpc::CredentialType::HostUefi => {
+            | rpc::CredentialType::HostUefi
+            | rpc::CredentialType::HostBmcFactoryDefault
+            | rpc::CredentialType::DpuBmcFactoryDefault => {
                 // Not support delete credential for these types
             }
         };

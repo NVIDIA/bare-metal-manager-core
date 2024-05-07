@@ -204,6 +204,8 @@ enum CredentialType {
   UFM = 2;
   DpuUefi = 3;
   HostUefi = 4;
+  HostBMCFactoryDefault = 5;
+  DpuBMCFactoryDefault = 6;
 }
 
 message CredentialCreationRequest {
@@ -216,6 +218,8 @@ message CredentialCreationRequest {
   // The password of credential for HostBMC, DPUBMC, DpuUefi.
   // For UFM, the password is the token of UFM.
   string password = 3;
+  // For the BMC factory default credential: "dell", "lenovo", "hpe", "supermicro", etc
+  optional string vendor = 4;
 }
 
 message CredentialDeletionRequest {

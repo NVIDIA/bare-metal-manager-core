@@ -86,7 +86,8 @@ pub trait CredentialProvider: Send + Sync {
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialType {
-    HardwareDefault,
+    DpuHardwareDefault,
+    HostHardwareDefault { vendor: String },
     SiteDefault,
     Machine { machine_id: String },
 }
@@ -136,7 +137,7 @@ impl CredentialKey {
                 format!("machines/{machine_id}/dpu-hbn")
             }
             CredentialKey::DpuRedfish { credential_type } => match credential_type {
-                CredentialType::HardwareDefault => {
+                CredentialType::DpuHardwareDefault => {
                     "machines/all_dpus/factory_default/bmc-metadata-items/root".to_string()
                 }
                 CredentialType::SiteDefault => {
@@ -145,10 +146,15 @@ impl CredentialKey {
                 CredentialType::Machine { machine_id } => {
                     format!("machines/{machine_id}/bmc-metadata-items/administrator")
                 }
+                CredentialType::HostHardwareDefault { .. } => {
+                    unreachable!(
+                        "DpuRedfish / HostHardwareDefault is an invalid credential combination"
+                    );
+                }
             },
             CredentialKey::HostRedfish { credential_type } => match credential_type {
-                CredentialType::HardwareDefault => {
-                    "machines/all_hosts/factory_default/bmc-metadata-items/root".to_string()
+                CredentialType::HostHardwareDefault { vendor } => {
+                    format!("machines/all_hosts/factory_default/bmc-metadata-items/{vendor}")
                 }
                 CredentialType::SiteDefault => {
                     "machines/all_hosts/site_default/bmc-metadata-items/root".to_string()
@@ -156,12 +162,17 @@ impl CredentialKey {
                 CredentialType::Machine { machine_id } => {
                     format!("machines/{machine_id}/host-redfish-admin")
                 }
+                CredentialType::DpuHardwareDefault => {
+                    unreachable!(
+                        "HostRedfish / DpuHardwareDefault is an invalid credential combination"
+                    );
+                }
             },
             CredentialKey::UfmAuth { fabric } => {
                 format!("ufm/{fabric}/auth")
             }
             CredentialKey::DpuUefi { credential_type } => match credential_type {
-                CredentialType::HardwareDefault => {
+                CredentialType::DpuHardwareDefault => {
                     "machines/all_dpus/factory_default/uefi-metadata-items/auth".to_string()
                 }
                 CredentialType::SiteDefault => {

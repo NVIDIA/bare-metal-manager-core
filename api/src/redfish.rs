@@ -206,7 +206,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         let credentials = self
             .credential_provider
             .get_credentials(CredentialKey::DpuRedfish {
-                credential_type: CredentialType::HardwareDefault,
+                credential_type: CredentialType::DpuHardwareDefault,
             })
             .await
             .map_err(RedfishClientCreationError::MissingCredentials)?;
@@ -333,7 +333,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             let credentials = self
                 .credential_provider
                 .get_credentials(CredentialKey::DpuUefi {
-                    credential_type: CredentialType::HardwareDefault,
+                    credential_type: CredentialType::DpuHardwareDefault,
                 })
                 .await
                 .unwrap_or(Credentials::UsernamePassword {

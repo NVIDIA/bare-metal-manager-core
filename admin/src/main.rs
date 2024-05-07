@@ -515,6 +515,7 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::Ufm.into(),
                     username: Some(username),
                     password,
+                    vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;
             }
@@ -532,6 +533,7 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::from(c.kind).into(),
                     username: None,
                     password,
+                    vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;
             }
@@ -545,6 +547,25 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::from(c.kind).into(),
                     username: None,
                     password,
+                    vendor: None,
+                };
+                rpc::add_credential(api_config, req).await?;
+            }
+            CredentialAction::AddHostFactoryDefault(c) => {
+                let req = forgerpc::CredentialCreationRequest {
+                    credential_type: CredentialType::HostBmcFactoryDefault.into(),
+                    username: Some(c.username),
+                    password: c.password,
+                    vendor: Some(c.vendor.to_string()),
+                };
+                rpc::add_credential(api_config, req).await?;
+            }
+            CredentialAction::AddDpuFactoryDefault(c) => {
+                let req = forgerpc::CredentialCreationRequest {
+                    credential_type: CredentialType::DpuBmcFactoryDefault.into(),
+                    username: Some(c.username),
+                    password: c.password,
+                    vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;
             }
