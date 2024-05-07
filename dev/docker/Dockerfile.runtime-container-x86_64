@@ -45,6 +45,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt-get update && \
 		iproute2 \
 		iputils-ping \
 		kea-dhcp4-server \
+    kea-ctrl-agent \
 		libaio1 \
 		libc-ares2 \
 		libgrpc++1.51 \
