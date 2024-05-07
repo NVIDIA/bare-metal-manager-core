@@ -16,9 +16,12 @@ use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{
-    hardware_info::{DmiData, HardwareInfo},
-    machine::machine_id::MachineId,
+use crate::{
+    cfg::DpuModel,
+    model::{
+        hardware_info::{DmiData, HardwareInfo},
+        machine::machine_id::MachineId,
+    },
 };
 
 /// Data that we gathered about a particular endpoint during site exploration
@@ -174,10 +177,36 @@ impl EndpointExplorationReport {
 
     /// Return `true` if the explored endpoint is a DPU
     pub fn is_dpu(&self) -> bool {
-        self.systems
+        self.identify_dpu().is_some()
+    }
+
+    /// Return `DpuModel` if the explored endpoint is a DPU
+    pub fn identify_dpu(&self) -> Option<DpuModel> {
+        if !self
+            .systems
             .first()
             .map(|system| system.id == "Bluefield")
             .unwrap_or(false)
+        {
+            return None;
+        }
+
+        let chassis_map = self
+            .chassis
+            .clone()
+            .into_iter()
+            .map(|x| (x.id.clone(), x))
+            .collect::<HashMap<_, _>>();
+        let model = chassis_map
+            .get("Card1")
+            .and_then(|value| value.model.as_ref())
+            .unwrap_or(&"".to_string())
+            .to_string();
+        match model.to_lowercase() {
+            value if value.contains("bluefield 2") => Some(DpuModel::BlueField2),
+            value if value.contains("bluefield 3") => Some(DpuModel::BlueField3),
+            _ => Some(DpuModel::Unknown),
+        }
     }
 
     pub fn create_temporary_dmi_data(&self, serial_number: &str) -> DmiData {
@@ -237,7 +266,19 @@ impl EndpointExplorationReport {
                     .map(|i| (i.id.clone(), i.clone()))
                     .collect::<HashMap<_, _>>()
             })
-            .unwrap_or(HashMap::new())
+            .unwrap_or_default()
+    }
+
+    pub fn dpu_bmc_version(&self) -> Option<String> {
+        Some(
+            self.get_inventory_map()
+                .iter()
+                .find(|s| s.0.contains("BMC_Firmware"))
+                .and_then(|value| value.1.version.as_ref())
+                .unwrap_or(&"0".to_string())
+                .to_lowercase()
+                .replace("bf-", ""),
+        )
     }
 
     pub fn dpu_uefi_version(&self) -> Option<String> {

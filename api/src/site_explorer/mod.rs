@@ -19,7 +19,7 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
-    cfg::SiteExplorerConfig,
+    cfg::{DpuComponent, DpuDesc, DpuModel, SiteExplorerConfig},
     db::{
         bmc_metadata::BmcMetaDataUpdateRequest,
         explored_endpoints::DbExploredEndpoint,
@@ -63,6 +63,7 @@ pub struct SiteExplorer {
     database_connection: PgPool,
     enabled: bool,
     config: SiteExplorerConfig,
+    dpu_models: HashMap<DpuModel, DpuDesc>,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
 }
@@ -71,12 +72,12 @@ impl SiteExplorer {
     const DB_LOCK_NAME: &'static str = "site_explorer_lock";
     const DB_LOCK_QUERY: &'static str =
         "SELECT pg_try_advisory_xact_lock((SELECT 'site_explorer_lock'::regclass::oid)::integer);";
-    const MIN_SUPPORTED_UEFI_FW: &'static str = "4.5.0";
 
     /// Create a SiteExplorer with the default modules.
     pub fn new(
         database_connection: sqlx::PgPool,
         config: Option<&SiteExplorerConfig>,
+        dpu_models: &HashMap<DpuModel, DpuDesc>,
         meter: opentelemetry::metrics::Meter,
         endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> Self {
@@ -102,6 +103,7 @@ impl SiteExplorer {
             database_connection,
             enabled: explorer_config.enabled,
             config: explorer_config,
+            dpu_models: dpu_models.clone(),
             metric_holder,
             endpoint_explorer,
         }
@@ -269,7 +271,10 @@ impl SiteExplorer {
                 None => continue,
             };
 
-            match Self::create_machine_pair(&dpu_ep.report, host, &self.database_connection).await {
+            match self
+                .create_machine_pair(&dpu_ep.report, host, &self.database_connection)
+                .await
+            {
                 Ok(true) => metrics.created_machines += 1,
                 Ok(false) => {}
                 Err(error) => tracing::error!(%error, "Failed to create managed host"),
@@ -283,6 +288,7 @@ impl SiteExplorer {
     ///
     /// Returns `true` if new `Machine` objects have been created or `false` otherwise
     pub async fn create_machine_pair(
+        &self,
         dpu_report: &EndpointExplorationReport,
         explored_host: &ExploredManagedHost,
         pool: &PgPool,
@@ -307,16 +313,36 @@ impl SiteExplorer {
             return Err(CarbideError::MissingArgument("Missing Service Info"));
         }
 
-        let uefi_version = dpu_report.dpu_uefi_version().unwrap_or("0".to_string());
+        if let Some(dpu_model) = dpu_report.identify_dpu() {
+            if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
+                let dpu_component = DpuComponent::Bmc;
+                if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
+                    if let Some(cur_version) = dpu_report.dpu_bmc_version() {
+                        if version_compare::compare(&cur_version, min_version)
+                            .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                        {
+                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                                "{:?} firmware version {} is not supported. Please update to: {}",
+                                dpu_component, cur_version, min_version
+                            )));
+                        }
+                    }
+                }
 
-        if version_compare::compare(uefi_version.clone(), Self::MIN_SUPPORTED_UEFI_FW)
-            .is_ok_and(|c| c == version_compare::Cmp::Lt)
-        {
-            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                "UEFI firmware of version {} is not supported. Please update to: {}",
-                uefi_version,
-                Self::MIN_SUPPORTED_UEFI_FW
-            )));
+                let dpu_component = DpuComponent::Uefi;
+                if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
+                    if let Some(cur_version) = dpu_report.dpu_uefi_version() {
+                        if version_compare::compare(&cur_version, min_version)
+                            .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                        {
+                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                                "{:?} firmware version {} is not supported. Please update to: {}",
+                                dpu_component, cur_version, min_version
+                            )));
+                        }
+                    }
+                }
+            }
         }
 
         let stable_machine_id = dpu_report.machine_id.as_ref().unwrap();

@@ -688,9 +688,6 @@ pub struct DpuMachineStateHandler {
     reachability_params: ReachabilityParams,
 }
 
-// Minimal supported DPU BMC FW version, that is capable to do BMC FW update
-const MIN_SUPPORTED_BMC_FW: &str = "23.07";
-
 impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
@@ -708,7 +705,6 @@ impl DpuMachineStateHandler {
         &self,
         redfish: &dyn Redfish,
         firmware_type: &str,
-        minimal_supported_version: Option<&str>,
         latest_available_version: &str,
     ) -> Result<bool, StateHandlerError> {
         // For BF2 BMC FW inventory has different name
@@ -739,20 +735,6 @@ impl DpuMachineStateHandler {
         match inventory.version {
             Some(version_str) => {
                 let version = version_str.to_uppercase().replace("BF-", "");
-
-                if minimal_supported_version.is_some_and(|minimal_supported_version| {
-                    version_compare::compare(version.as_str(), minimal_supported_version)
-                        .is_ok_and(|c| c == version_compare::Cmp::Lt)
-                }) {
-                    let msg = format!(
-                        "Current {} FW version: {}, minimal supported version: {}",
-                        firmware_type,
-                        version.as_str(),
-                        minimal_supported_version.unwrap(),
-                    );
-                    tracing::error!(msg);
-                    return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
-                }
                 tracing::info!(
                     "Version: {}, latest available_version: {}",
                     version,
@@ -1109,7 +1091,6 @@ impl StateHandler for DpuMachineStateHandler {
                             .redfish_check_fw_update_needed(
                                 &*client,
                                 bmc_inventory,
-                                Some(MIN_SUPPORTED_BMC_FW),
                                 latest_bmc_fw_version.unwrap(),
                             )
                             .await?
@@ -1143,7 +1124,6 @@ impl StateHandler for DpuMachineStateHandler {
                             .redfish_check_fw_update_needed(
                                 &*client,
                                 cec_inventory,
-                                None,
                                 latest_cec_fw_version.unwrap(),
                             )
                             .await?

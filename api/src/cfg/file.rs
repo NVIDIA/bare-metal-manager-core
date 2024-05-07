@@ -155,6 +155,10 @@ pub struct CarbideConfig {
     /// IbPartitionStateController related configuration parameter
     #[serde(default)]
     pub ib_partition_state_controller: IbPartitionStateControllerConfig,
+
+    /// DPU related configuration parameter
+    #[serde(default = "default_dpu_models")]
+    pub dpu_models: HashMap<DpuModel, DpuDesc>,
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -541,6 +545,45 @@ fn default_max_database_connections() -> u32 {
     1000
 }
 
+/// DPU related config.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum DpuModel {
+    BlueField2,
+    BlueField3,
+    Unknown,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum DpuComponent {
+    Bmc,
+    Uefi,
+}
+
+pub fn default_dpu_models() -> HashMap<DpuModel, DpuDesc> {
+    HashMap::from([
+        (DpuModel::BlueField2, DpuDesc::default()),
+        (DpuModel::BlueField3, DpuDesc::default()),
+    ])
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DpuDesc {
+    #[serde(default)]
+    pub min_component_version: HashMap<DpuComponent, String>,
+}
+
+impl Default for DpuDesc {
+    fn default() -> Self {
+        Self {
+            min_component_version: HashMap::from([
+                (DpuComponent::Bmc, "23.07".to_string()),
+                (DpuComponent::Uefi, "4.2".to_string()),
+            ]),
+        }
+    }
+}
+
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -740,6 +783,149 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_serialize_dpu_config() {
+        let value_input = DpuDesc {
+            min_component_version: HashMap::from([
+                (DpuComponent::Bmc, "x1.y1.z1".to_string()),
+                (DpuComponent::Uefi, "x2.y2.z2".to_string()),
+            ]),
+        };
+
+        let value_json = serde_json::to_string(&value_input).unwrap();
+        let value_output: DpuDesc = serde_json::from_str(&value_json).unwrap();
+
+        assert_eq!(value_output, value_input);
+
+        let value_json = r#"{"min_component_version": {"bmc": "x1.y1.z1"}}"#;
+        let value_output: DpuDesc = serde_json::from_str(value_json).unwrap();
+
+        assert_eq!(
+            value_output,
+            DpuDesc {
+                min_component_version: HashMap::from(
+                    [(DpuComponent::Bmc, "x1.y1.z1".to_string()),]
+                ),
+            }
+        );
+
+        let value_input = DpuDesc::default();
+        assert!(value_input
+            .min_component_version
+            .contains_key(&DpuComponent::Bmc));
+        assert!(value_input
+            .min_component_version
+            .contains_key(&DpuComponent::Uefi));
+        assert_eq!(2, value_input.min_component_version.keys().len());
+
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "Test.toml",
+                r#"
+                database_url="postgres://a:b@postgresql"
+                listen="[::]:1081"
+                asn=123
+            "#,
+            )?;
+            let config: CarbideConfig = Figment::new()
+                .merge(Toml::file("Test.toml"))
+                .extract()
+                .unwrap();
+
+            assert_eq!(config.listen, "[::]:1081".parse().unwrap());
+            assert_eq!(config.asn, 123);
+            assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
+            assert_eq!(config.dpu_models, default_dpu_models());
+            Ok(())
+        });
+
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "Test.toml",
+                r#"
+                database_url="postgres://a:b@postgresql"
+                listen="[::]:1081"
+                asn=123
+                [dpu_models.bluefield2]
+                min_component_version = {"bmc" = "23.10", "uefi" = "4.5"}
+            "#,
+            )?;
+            let config: CarbideConfig = Figment::new()
+                .merge(Toml::file("Test.toml"))
+                .extract()
+                .unwrap();
+
+            assert_eq!(1, config.dpu_models.keys().len());
+            assert!(config.dpu_models.contains_key(&DpuModel::BlueField2));
+            assert_eq!(
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField2)
+                    .unwrap()
+                    .clone(),
+                DpuDesc {
+                    min_component_version: HashMap::from([
+                        (DpuComponent::Bmc, "23.10".to_string()),
+                        (DpuComponent::Uefi, "4.5".to_string()),
+                    ]),
+                }
+            );
+            Ok(())
+        });
+
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "Test.toml",
+                r#"
+                database_url="postgres://a:b@postgresql"
+                listen="[::]:1081"
+                asn=123
+                [dpu_models.bluefield2.min_component_version]
+                bmc = "23.10"
+                uefi = "4.5"
+                [dpu_models.bluefield3.min_component_version]
+                bmc = "23.07"
+                uefi = "4.2"
+            "#,
+            )?;
+            let config: CarbideConfig = Figment::new()
+                .merge(Toml::file("Test.toml"))
+                .extract()
+                .unwrap();
+
+            assert_eq!(2, config.dpu_models.keys().len());
+            assert!(config.dpu_models.contains_key(&DpuModel::BlueField2));
+            assert_eq!(
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField2)
+                    .unwrap()
+                    .clone(),
+                DpuDesc {
+                    min_component_version: HashMap::from([
+                        (DpuComponent::Bmc, "23.10".to_string()),
+                        (DpuComponent::Uefi, "4.5".to_string()),
+                    ]),
+                }
+            );
+            assert!(config.dpu_models.contains_key(&DpuModel::BlueField3));
+            assert_eq!(
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField3)
+                    .unwrap()
+                    .clone(),
+                DpuDesc {
+                    min_component_version: HashMap::from([
+                        (DpuComponent::Bmc, "23.07".to_string()),
+                        (DpuComponent::Uefi, "4.2".to_string()),
+                    ]),
+                }
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
     fn deserialize_min_config() {
         let config: CarbideConfig = Figment::new()
             .merge(Toml::file(format!("{}/min_config.toml", TEST_DATA_DIR)))
@@ -777,6 +963,7 @@ mod tests {
             config.ib_partition_state_controller,
             IbPartitionStateControllerConfig::default()
         );
+        assert_eq!(config.dpu_models, default_dpu_models());
     }
 
     #[test]

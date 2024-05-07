@@ -388,6 +388,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     let site_explorer = SiteExplorer::new(
         db_pool.clone(),
         carbide_config.site_explorer.as_ref(),
+        &carbide_config.dpu_models,
         meter.clone(),
         Arc::new(RedfishEndpointExplorer::new(shared_redfish_pool.clone())),
     );

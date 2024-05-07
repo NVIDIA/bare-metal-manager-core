@@ -13,9 +13,10 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use carbide::cfg::{
-    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuFwUpdateConfig, IBFabricConfig,
-    IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
-    NetworkSegmentStateControllerConfig, StateControllerConfig, TlsConfig,
+    default_dpu_models, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuFwUpdateConfig,
+    IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
+    MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
+    TlsConfig,
 };
 use carbide::logging::sqlx_query_tracing;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -183,6 +184,7 @@ pub async fn start(
                 ..StateControllerConfig::default()
             },
         },
+        dpu_models: default_dpu_models(),
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
