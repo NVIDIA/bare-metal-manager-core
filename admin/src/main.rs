@@ -190,7 +190,7 @@ async fn main() -> color_eyre::Result<()> {
     // Command do talk to Carbide API
     match command {
         CarbideCommand::Version(version) => {
-            version::handle_show_version(version, api_config).await?
+            version::handle_show_version(version, config.format, api_config).await?
         }
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
