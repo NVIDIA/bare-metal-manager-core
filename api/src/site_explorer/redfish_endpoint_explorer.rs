@@ -56,7 +56,7 @@ impl RedfishEndpointExplorer {
         address: &IpAddr,
     ) -> Result<(), RedfishClientCreationError> {
         let credential_key = CredentialKey::DpuRedfish {
-            credential_type: CredentialType::HardwareDefault,
+            credential_type: CredentialType::DpuHardwareDefault,
         };
 
         let client = match self
@@ -66,7 +66,9 @@ impl RedfishEndpointExplorer {
             Ok(c) => c,
             Err(_) => {
                 let credential_key = CredentialKey::HostRedfish {
-                    credential_type: CredentialType::HardwareDefault,
+                    credential_type: CredentialType::HostHardwareDefault {
+                        vendor: "not-used-yet".to_string(), // TODO caller should use IdentifyBMC to find this
+                    },
                 };
                 self.try_get_client_with_hardware_cred(address, credential_key)
                     .await?

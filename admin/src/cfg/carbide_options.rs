@@ -924,6 +924,10 @@ pub enum CredentialAction {
         about = "Add site-wide DPU UEFI default credential (NOTE: this parameter can be set only once)"
     )]
     AddUefi(AddUefiCredential),
+    #[clap(about = "Add manufacturer factory default BMC user/pass for a given vendor")]
+    AddHostFactoryDefault(AddHostFactoryDefaultCredential),
+    #[clap(about = "Add manufacturer factory default BMC user/pass for the DPUs")]
+    AddDpuFactoryDefault(AddDpuFactoryDefaultCredential),
 }
 
 #[derive(Parser, Debug)]
@@ -972,6 +976,42 @@ pub struct AddUefiCredential {
     pub kind: UefiCredentialType,
 
     #[clap(long, require_equals(true), help = "The UEFI password")]
+    pub password: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct AddHostFactoryDefaultCredential {
+    #[clap(long, required(true), help = "Default username: root, ADMIN, etc")]
+    pub username: String,
+    #[clap(long, required(true), help = "Manufacturer default password")]
+    pub password: String,
+    #[clap(long, required(true))]
+    pub vendor: BMCVendor,
+}
+
+#[derive(ValueEnum, Parser, Debug, Clone)]
+pub enum BMCVendor {
+    Lenovo,
+    Dell,
+    Mellanox,
+    Supermicro,
+    NvidiaViking,
+    Hpe,
+}
+
+impl fmt::Display for BMCVendor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // enums are a special case where their debug impl is their name ("Off")
+        let s = format!("{self:?}").to_lowercase();
+        write!(f, "{s}")
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct AddDpuFactoryDefaultCredential {
+    #[clap(long, required(true), help = "Default username: root, ADMIN, etc")]
+    pub username: String,
+    #[clap(long, required(true), help = "DPU manufacturer default password")]
     pub password: String,
 }
 
