@@ -15,12 +15,12 @@ prompt --key p --timeout 4000 Hit the ${bold}p${boldoff} key to open forge menu.
 
 :whoami
 ifconf -c dhcp
-isset ${43.70} && chain --autofree http://${next-server}:8080/api/v0/pxe/whoami?uuid=${43.70}
+isset ${43.70} && time chain --autofree http://${next-server}:8080/api/v0/pxe/whoami?uuid=${43.70}
 goto forge_menu
 
 :carbide
 ifconf -c dhcp
-isset ${43.70} && chain --autofree http://${next-server}:8080/api/v0/pxe/boot?uuid=${43.70}&buildarch=${buildarch} && exit 1 || goto error_handler
+isset ${43.70} && time chain --autofree http://${next-server}:8080/api/v0/pxe/boot?uuid=${43.70}&buildarch=${buildarch} && exit 1 || goto error_handler
 
 :forge_menu
 menu NGC Forge - ${hostname}

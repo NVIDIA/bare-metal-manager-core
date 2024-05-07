@@ -210,8 +210,6 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
-	"ipxe-patch-mlnx",
-	"ipxe-patch-asm",
 	"ipxe-install-efi-x86_64",
 ]
 
@@ -220,8 +218,6 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
-	"ipxe-patch-mlnx",
-	"ipxe-patch-asm",
 	"ipxe-install-efi-x86_64",
 ]
 
@@ -229,21 +225,6 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Copy the Carbide specific iPXE config headers to the input directory"
 script = "cp ipxe/local/*.h ipxe/upstream/src/config/local/"
-
-[tasks.ipxe-patch-asm]
-category = "iPXE Kernel"
-description = "Patch the iPXE to fix compilation on later compilers"
-cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
-script = '''
-    PATCH="${REPO_ROOT}/pxe/ipxe/local/0002-librm-Use-explicit-operand-size-when-pushing-a-label.patch"
-    echo "Testing if patch is reversible (i.e. already applied)"
-    if ! patch --dry-run -p1 --reverse --forward -i "${PATCH}" >/dev/null; then
-      echo "Reversing the patch failed, forward applying it."
-      patch -p1 --forward -i "${PATCH}"
-    else
-      echo "Reversing would be successful, assuming patch is already applied"
-    fi
-'''
 
 [tasks.ipxe-patch-mlnx]
 category = "iPXE Kernel"
@@ -264,7 +245,7 @@ script = '''
 category = "iPXE Kernel"
 description = "Copy the x86_64 EFI iPXE kernel to the boot controller static files directory"
 command = "mv"
-args = ["ipxe/upstream/src/bin-x86_64-efi/ipxe.efi", "static/blobs/internal/x86_64/ipxe.efi"]
+args = ["ipxe/upstream/src/bin-x86_64-efi/snponly.efi", "static/blobs/internal/x86_64/ipxe.efi"]
 dependencies = [
 	"ipxe-build-efi-x86_64",
 ]
@@ -275,7 +256,6 @@ description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide stati
 dependencies = [
     "ipxe-config",
     "ipxe-patch-mlnx",
-    "ipxe-patch-asm",
     "ipxe-install-efi-aarch64",
 ]
 
@@ -292,14 +272,14 @@ dependencies = [
 category = "iPXE Kernel"
 description = "Build the x86_64 EFI iPXE kernel"
 command = "make"
-args = [ "bin-x86_64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=tls"]
+args = [ "bin-x86_64-efi/snponly.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=tls"]
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
-args = [ "bin-arm64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=tls"]
+args = [ "bin-arm64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=snp,tls"]
 cwd = "ipxe/upstream/src"
 
 [tasks.bfb-aarch64-ci]
