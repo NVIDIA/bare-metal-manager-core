@@ -515,6 +515,10 @@ pub(crate) async fn run(config: &Options, machine_id: &str) -> CarbideClientResu
 }
 
 pub fn run_no_api() {
+    if !is_host() {
+        tracing::info!("No cleanup needed on DPU.");
+        return;
+    }
     tracing::info!("no_api deprovision starts.");
     let stdin_link = match fs::read_link("/proc/self/fd/0") {
         Ok(o) => o.to_string_lossy().to_string(),
