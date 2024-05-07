@@ -53,6 +53,7 @@
   - [Local Playground](development/database_local_playground.md)
 - [DPU/Bluefield](dpu-operations.md)
 - [Baby Forge](babyforge.md)
+- [Hot Fix Process](hotfix.md)
 
 # Kubernetes
 

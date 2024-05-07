@@ -82,8 +82,7 @@ include:
 
 prepare-ci:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH =~ /^release\//
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       needs:
         - job: "lint:commit-merge-request"
@@ -376,7 +375,7 @@ tag-build-and-runtime-containers:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/ || $CI_COMMIT_BRANCH =~ /^release\//
 
 #
 # Build the final container that releases our code
@@ -411,6 +410,9 @@ build-release-container-x86_64:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH =~ /^release\//  # Run for default and those starting with "release/"
+      variables:
+        DEPLOY_BUILT_CONTAINER: "true"
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
       variables:
         DEPLOY_BUILT_CONTAINER: "true"
@@ -684,7 +686,7 @@ build-release-artifacts-x86_64:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/ || $CI_COMMIT_BRANCH =~ /^release\//
       variables:
         DEPLOY_BUILT_CONTAINER: "true"
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
@@ -732,7 +734,7 @@ build-release-artifacts-aarch64:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/ || $CI_COMMIT_BRANCH =~ /^release\//
       variables:
         DEPLOY_BUILT_CONTAINER: "true"
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
@@ -807,7 +809,7 @@ nspect-container-scan-x86_64:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH|| $CI_COMMIT_BRANCH =~ /^release\//
 
 promote-images-to-production:
   stage: promote
@@ -835,7 +837,7 @@ promote-images-to-production:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH =~ /^release\//
 
 license-checks:
   stage: security
