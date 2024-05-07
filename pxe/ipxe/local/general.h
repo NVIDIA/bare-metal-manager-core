@@ -1,4 +1,5 @@
 #define CONSOLE_CMD           /* Console command */
+#define CONSOLE_SYSLOG	CONSOLE_USAGE_LOG
 #define DIGEST_CMD            /* Image crypto digest commands */
 #define DOWNLOAD_PROTO_HTTPS  /* Secure Hypertext Transfer Protocol */
 //#define IMAGE_COMBOOT         /* COMBOOT */
@@ -6,6 +7,7 @@
 #define IMAGE_GZIP            /* GZIP image support */
 #define IMAGE_PNG             /* PNG image support */
 #define IMAGE_ZLIB            /* ZLIB image support */
+#define IPSTAT_CMD            /* IP statistics commands */
 #define NET_PROTO_IPV6        /* IPv6 protocol */
 #define NSLOOKUP_CMD          /* DNS resolving command */
 #define NTP_CMD               /* NTP commands */
