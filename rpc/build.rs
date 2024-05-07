@@ -187,6 +187,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "ControllerStateReason",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute(
+            "RuntimeConfig",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "BuildInfo",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")
