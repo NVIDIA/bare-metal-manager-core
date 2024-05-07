@@ -19,6 +19,11 @@ export RUST_WRAPPER=sccache && \
 cargo build --release -p admin
 
 FROM debian:12-slim
+
+RUN apt update && \
+    apt install -y \
+    jq
+
 WORKDIR /app
 COPY --from=builder /carbide/target/release/forge-admin-cli ./
 RUN mkdir -p /root/.nvinit/certs && \
