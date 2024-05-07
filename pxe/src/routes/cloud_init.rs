@@ -68,6 +68,11 @@ fn user_data_handler(
         seconds_since_epoch.to_string(),
     );
 
+    context.insert(
+        "download_root_ca".to_string(),
+        config.download_root_ca.to_string(),
+    );
+
     ("user-data".to_string(), context)
 }
 

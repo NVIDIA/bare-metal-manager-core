@@ -52,6 +52,7 @@ pub struct RuntimeConfig {
     forge_root_ca_path: String,
     server_cert_path: String,
     server_key_path: String,
+    download_root_ca: bool,
 }
 
 pub enum RPCError<'a> {
@@ -269,6 +270,7 @@ async fn main() -> Result<(), rocket::Error> {
     rocket::build()
         .mount("/api/v0/pxe", routes::ipxe::routes())
         .mount("/api/v0/cloud-init", routes::cloud_init::routes())
+        .mount("/api/v0/tls", routes::tls::routes())
         .mount("/public", FileServer::from(opts.static_dir))
         .attach(logging::RequestLogger)
         .attach(Template::fairing())
@@ -315,6 +317,9 @@ fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
         pxe_url: figment
             .extract_inner::<String>("carbide_pxe_url")
             .map_err(|_| "Could not extract carbide_pxe_url from config")?,
+        download_root_ca: figment
+            .extract_inner::<bool>("download_root_ca")
+            .unwrap_or(false),
         forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH")
             .map_err(|_| "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string())?,
         server_cert_path: env::var("FORGE_CLIENT_CERT_PATH")
