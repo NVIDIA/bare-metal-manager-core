@@ -4028,6 +4028,106 @@ where
         }))
     }
 
+    /// Trigger DPU reset.
+
+    // This is temporary command added to support MC team. It must be removed once site-explorer
+    // is enabled on all the envs. This command modifies state directly, which can cause conflicts
+    // with state machine.
+    async fn trigger_dpu_reset(
+        &self,
+        request: tonic::Request<rpc::DpuResetRequest>,
+    ) -> Result<tonic::Response<rpc::DpuResetResponse>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let dpu_id = try_parse_machine_id(
+            req.dpu_id
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("DPU ID is missing"))?,
+        )
+        .map_err(CarbideError::from)?;
+
+        log_machine_id(&dpu_id);
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin trigger_dpu_reset ",
+                e,
+            ))
+        })?;
+
+        let dpu = Machine::find_one(
+            &mut txn,
+            &dpu_id,
+            MachineSearchConfig {
+                include_dpus: true,
+                ..MachineSearchConfig::default()
+            },
+        )
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| Status::not_found(format!("DPU not found with machine id: {dpu_id}")))?;
+
+        if !dpu.machine_type().is_dpu() {
+            return Err(Status::invalid_argument("Only DPU id is expected."));
+        }
+
+        let host = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_id)
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| {
+                Status::not_found(format!("Host not found attached with dpu id: {dpu_id}"))
+            })?;
+
+        let state = ManagedHostState::DPUNotReady {
+            machine_state: MachineState::Init,
+        };
+
+        let mut message = "Success";
+
+        match dpu.current_state() {
+            ManagedHostState::DPUNotReady { .. } => {
+                MachineTopology::set_topology_update_needed(&mut txn, &dpu_id, true)
+                    .await
+                    .map_err(CarbideError::from)?;
+                dpu.advance(&mut txn, state.clone(), None)
+                    .await
+                    .map_err(CarbideError::from)?;
+                host.advance(&mut txn, state, None)
+                    .await
+                    .map_err(CarbideError::from)?;
+
+                if let Some(ip) = dpu.bmc_info().ip.as_ref() {
+                    self.ipmi_tool
+                        .restart(&dpu_id, ip.to_string(), true)
+                        .await
+                        .map_err(|e: eyre::ErrReport| {
+                            CarbideError::GenericError(format!("Failed to restart DPU: {}", e))
+                        })?;
+                } else {
+                    message = "Can't fetch BMC IP. Reboot DPU manually to continue."
+                }
+            }
+            _ => {
+                return Err(Status::invalid_argument("DPU state is not DPUInit."));
+            }
+        }
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "end trigger_dpu_reset",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(rpc::DpuResetResponse {
+            msg: message.to_string(),
+        }))
+    }
+
     /// Trigger DPU reprovisioning
     async fn trigger_dpu_reprovisioning(
         &self,
