@@ -1253,12 +1253,37 @@ where
                 vpc_vni = vpc.vni;
 
                 let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
+
+                //Get IP address of physical interface
+                let physical_iface = interfaces.iter().find(|x| {
+                    rpc::InterfaceFunctionType::from(x.function_id.function_type())
+                        == rpc::InterfaceFunctionType::Physical
+                });
+
+                let Some(physical_iface) = physical_iface else {
+                    return Err(CarbideError::GenericError(String::from(
+                        "Physical interface not found",
+                    ))
+                    .into());
+                };
+
+                let physical_ip: IpAddr = match physical_iface.ip_addrs.iter().next() {
+                    Some((_, ip_addr)) => *ip_addr,
+                    None => {
+                        return Err(CarbideError::GenericError(String::from(
+                            "Physical IP address not found",
+                        ))
+                        .into())
+                    }
+                };
+
                 for iface in interfaces {
                     tenant_interfaces.push(
                         ethernet_virtualization::tenant_network(
                             &mut txn,
                             instance.instance_id,
                             iface,
+                            physical_ip,
                         )
                         .await?,
                     );

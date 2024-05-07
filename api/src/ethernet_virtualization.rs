@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::IpAddr;
+
 pub use ::rpc::forge as rpc;
 use ipnetwork::Ipv4Network;
 use sqlx::{Postgres, Transaction};
@@ -100,6 +102,7 @@ pub async fn tenant_network(
     txn: &mut Transaction<'_, Postgres>,
     instance_id: uuid::Uuid,
     iface: &InstanceInterfaceConfig,
+    physical_ip: IpAddr,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     let segments = &NetworkSegment::find(
         txn,
@@ -147,6 +150,13 @@ pub async fn tenant_network(
     };
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
+
+    let dashed_ip: String = physical_ip
+        .to_string()
+        .split('.')
+        .collect::<Vec<&str>>()
+        .join("-");
+
     Ok(rpc::FlatInterfaceConfig {
         function_type: rpc_ft.into(),
         virtual_function_id: match iface.function_id {
@@ -159,9 +169,9 @@ pub async fn tenant_network(
         ip: address.to_string(),
         vpc_prefixes,
         prefix: v4_prefix.prefix.to_string(),
-        // FIXME: Right now we are sending instance id as hostname. This should be replaced by
+        // FIXME: Right now we are sending instance IP as hostname. This should be replaced by
         // user's provided fqdn later.
-        fqdn: instance_id.to_string(),
+        fqdn: dashed_ip,
         booturl: None,
     })
 }

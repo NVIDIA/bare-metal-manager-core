@@ -1474,3 +1474,46 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         "1"
     );
 }
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_instance_hostname(db_pool: sqlx::PgPool) {
+    let env = create_test_env(db_pool.clone()).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
+            },
+        ],
+    });
+
+    let (_instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+    )
+    .await;
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!("192-0-2-3", response.tenant_interfaces[0].fqdn);
+    assert_eq!("192-0-2-3", response.tenant_interfaces[1].fqdn);
+}
