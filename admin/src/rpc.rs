@@ -17,7 +17,8 @@ use std::str::FromStr;
 
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{
-    self as rpc, MachineBootOverride, MachineSearchConfig, MachineType, NetworkSegmentSearchConfig,
+    self as rpc, DpuResetResponse, MachineBootOverride, MachineSearchConfig, MachineType,
+    NetworkSegmentSearchConfig,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use ::rpc::{MachineId, Uuid};
@@ -888,6 +889,23 @@ pub async fn set_log_filter(
             .await
             .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(())
+    })
+    .await
+}
+
+pub async fn trigger_dpu_reset(
+    id: String,
+    api_config: &ApiConfig<'_>,
+) -> Result<DpuResetResponse, CarbideCliError> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::DpuResetRequest {
+            dpu_id: Some(rpc::MachineId { id }),
+        });
+        client
+            .trigger_dpu_reset(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
     })
     .await
 }

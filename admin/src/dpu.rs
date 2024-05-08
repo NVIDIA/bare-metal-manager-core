@@ -439,3 +439,11 @@ pub async fn generate_dpu_status_table(
 
     Ok(Box::new(table))
 }
+
+pub async fn trigger_reset(id: String, api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
+    println!("Note this is just an temporary command. It will be removed in future releases.");
+    let response = rpc::trigger_dpu_reset(id, api_config).await?;
+    println!("{}", response.msg);
+
+    Ok(())
+}

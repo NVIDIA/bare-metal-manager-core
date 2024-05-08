@@ -148,12 +148,20 @@ pub struct InventoryAction {
 pub enum DpuAction {
     #[clap(subcommand, about = "DPU Reprovisioning handling")]
     Reprovision(DpuReprovision),
+    #[clap(about = "DPU Reset handling")]
+    Reset(DpuReset),
     #[clap(about = "Get or set forge-dpu-agent upgrade policy")]
     AgentUpgradePolicy(AgentUpgrade),
     #[clap(about = "View DPU firmware status")]
     Versions(DpuVersionOptions),
     #[clap(about = "View DPU Status")]
     Status,
+}
+
+#[derive(Parser, Debug)]
+pub struct DpuReset {
+    #[clap(help = "DPU Machine ID for which reset is needed.")]
+    pub id: String,
 }
 
 #[derive(Parser, Debug)]

@@ -163,6 +163,12 @@ service Forge {
   // List DPUs waiting for reprovisioning
   rpc ListDpuWaitingForReprovisioning(DpuReprovisioningListRequest) returns (DpuReprovisioningListResponse);
 
+  // Trigger DPU reset. It works only if DPU is in DPU Not Ready state.
+  // This is temporary command added to support MC team. It must be removed once site-explorere
+  // is enabled on all the envs. This command modifies state directly, which can cause conflicts
+  // with state machine.
+  rpc TriggerDpuReset(DpuResetRequest) returns (DpuResetResponse);
+
   rpc GetMachineBootOverride(UUID) returns (MachineBootOverride);
   rpc SetMachineBootOverride(MachineBootOverride) returns (google.protobuf.Empty);
   rpc ClearMachineBootOverride(UUID) returns (google.protobuf.Empty);
@@ -1972,6 +1978,14 @@ message FindIpAddressResponse {
 enum UpdateInitiator {
   AdminCli = 0;
   Automatic = 1;
+}
+
+message DpuResetRequest {
+  MachineId dpu_id = 1;
+}
+
+message DpuResetResponse {
+  string msg = 1;
 }
 
 message DpuReprovisioningRequest {

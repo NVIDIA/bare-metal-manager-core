@@ -3,7 +3,8 @@
     "id": "$HOST_MACHINE_ID"
   },
   "bmc_info": {
-    "ip": "host.docker.internal"
+    "ip": "host.docker.internal",
+    "port": 1266
   },
   "data": [
     {
