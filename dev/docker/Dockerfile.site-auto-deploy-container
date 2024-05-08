@@ -8,7 +8,8 @@ RUN apt-get update && \
     apt-get install -y \
     wget \
     unzip \
-    git
+    git \
+    jq
 RUN wget -qO /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v2.10.7/argocd-linux-amd64 &&  \
     chmod +x /usr/local/bin/argocd
 RUN wget -qO kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.1/kustomize_v5.4.1_linux_amd64.tar.gz && \
