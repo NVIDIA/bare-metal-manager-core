@@ -68,8 +68,8 @@ async fn test_upgrade_check() -> eyre::Result<()> {
 async fn dpu_agent_upgrade_check() -> impl axum::response::IntoResponse {
     common::respond(rpc::DpuAgentUpgradeCheckResponse {
         should_upgrade: true,
-        package_version: "2023.06-rc2-1-gc5c05de3".to_string(),
-        server_version: "v2023.06-rc2-1-gc5c05de3".to_string(),
+        package_version: "2024.05-rc3-0".to_string(),
+        server_version: "v2024.05-rc3-0".to_string(),
     })
 }
 
