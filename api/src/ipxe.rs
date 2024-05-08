@@ -72,6 +72,7 @@ impl PxeInstructions {
     ) -> String {
         match arch {
             rpc::MachineArchitecture::Arm => {
+                    // For the DPUs, bfks => BlueField Kick Start script
                     InstructionGenerator::Arm {
                         kernel: "${base-url}/internal/aarch64/carbide.efi".to_string(),
                         command_line: format!("console=tty0 console=ttyS0,115200 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=auto-detect bfnet=oob_net0:dhcp bfks=${{cloudinit-url}}/user-data machine_id={uuid} server_uri=[api_url] ", uuid = machine_interface_id),

@@ -11,8 +11,11 @@ NUM_VFs_PHYS_PORT0=16
 NUM_VFs_PHYS_PORT1=0
 {% endif %}
 
+# This function is called by install.sh script embedded in the BFB
 bfb_modify_os()
 {
+# set errexit so that if any command fails, we exit the script
+set -e
 # move the files out of the installer and into the installed OS
 mkdir -p /mnt/opt/forge
 mv /forge-scout /mnt/opt/forge
@@ -89,6 +92,7 @@ write_files:
     content: |
       #!/bin/bash
       # When updating firmware, HBN is not installed and have no VRF.
+      set -e
 {% if update_firmware == "false" %}
       CMD_PREFIX="ip vrf exec mgmt"
 {% endif %}
@@ -199,42 +203,51 @@ write_files:
   - path: /var/log/forge/forge-scout.log
     permissions: '0644'
     content: Not Started
+  - path: /opt/forge/runcmds.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+      date -s '@{{ seconds_since_epoch }}'
+      hwclock --systohc
+      /usr/bin/systemctl daemon-reload
+      /usr/bin/bfcfg
+      curl -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
+{% if update_firmware == "true" %}
+      systemctl start ntp
+      /opt/forge/run-scout.sh
+{% else %}
+      systemctl start ntp@mgmt
+      /usr/bin/mlxprivhost -d /dev/mst/mt*_pciconf0 r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner
+      bash -c '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1'
+      dpkg -i /opt/forge/forge-dpu.deb
+      mkdir -p /etc/apt/sources.list.d
+      bash -c 'echo "deb [trusted=yes] {{ pxe_url }}/public/blobs/internal/apt/ focal main" > /etc/apt/sources.list.d/forge.list'
+      chmod +x /opt/forge/doca_container_configs/scripts/hbn-dpu-setup.sh
+      cd /opt/forge/doca_container_configs/scripts/
+      ip vrf exec mgmt /bin/bash hbn-dpu-setup.sh
+      /usr/bin/systemctl enable ssh@mgmt
+      ctr -n=k8s.io image import /opt/forge/pause.tar
+      ctr -n=k8s.io image import /opt/forge/doca_telemetry.tar
+      ctr -n=k8s.io image import /opt/forge/doca_hbn.tar
+      cp /opt/forge/doca_container_configs/configs/doca_hbn.yaml /etc/kubelet.d/
+      sum /etc/kubelet.d/doca_hbn.yaml
+      cp /opt/forge/doca_container_configs/configs/doca_telemetry.yaml /etc/kubelet.d/
+      sum /etc/kubelet.d/doca_telemetry.yaml
+      sync
+      mv /etc/systemd/system/sfc.service.tmp /etc/systemd/system/sfc.service
+      systemctl daemon-reload
+      ovs-vsctl --no-wait del-br br-hbn
+      /opt/forge/run-scout.sh
+{% endif %}
+
 # run these commands (last)
 runcmd:
-  - [ date, -s , '@{{ seconds_since_epoch }}' ]
-  - [ hwclock, --systohc ]
-  - [ /usr/bin/systemctl, daemon-reload ]
-  - [ /usr/bin/bfcfg ]
-  - [ curl, -v, -o, /opt/forge/forge_root.pem, {{ pxe_url }}/api/v0/tls/root_ca ]
-{% if update_firmware == "true" %}
-  - [ systemctl, start, ntp ]
-  - [ /opt/forge/run-scout.sh ]
-{% else %}
-  - [ systemctl, start, ntp@mgmt ]
-  - [ /usr/bin/mlxprivhost, -d, /dev/mst/mt*_pciconf0, r, --disable_rshim, --disable_tracer, --disable_counter_rd, --disable_port_owner ]
-  - [ bash, -c, '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1' ]
-  - [ dpkg, -i, /opt/forge/forge-dpu.deb ]
-  - [ mkdir, -p, /etc/apt/sources.list.d ]
-  - [ bash, -c, 'echo "deb [trusted=yes] {{ pxe_url }}/public/blobs/internal/apt/ focal main" > /etc/apt/sources.list.d/forge.list' ]
-  - [ chmod, +x, /opt/forge/doca_container_configs/scripts/hbn-dpu-setup.sh]
-  - [ cd, /opt/forge/doca_container_configs/scripts/ ]
-  - [ ip, vrf, exec, mgmt, /bin/bash, hbn-dpu-setup.sh ]
-  - [ /usr/bin/systemctl, enable, ssh@mgmt ]
-  - [ ctr, -n=k8s.io, image, import, /opt/forge/pause.tar ]
-  - [ ctr, -n=k8s.io, image, import, /opt/forge/doca_telemetry.tar ]
-  - [ ctr, -n=k8s.io, image, import, /opt/forge/doca_hbn.tar ]
-  - [ cp, /opt/forge/doca_container_configs/configs/doca_hbn.yaml, /etc/kubelet.d/ ]
-  - [ sum, /etc/kubelet.d/doca_hbn.yaml ]
-  - [ cp, /opt/forge/doca_container_configs/configs/doca_telemetry.yaml, /etc/kubelet.d/ ]
-  - [ sum, /etc/kubelet.d/doca_telemetry.yaml ]
-  - [ sync ]
-  - [ mv, /etc/systemd/system/sfc.service.tmp, /etc/systemd/system/sfc.service ] # the following commands are temporary for https://jirasw.nvidia.com/browse/FORGE-2921
-  - [ systemctl, daemon-reload ]
-  - [ ovs-vsctl, --no-wait, del-br, br-hbn ]
-  - [ /opt/forge/run-scout.sh ]
-{% endif %}
+  - [ bash, -c, '/opt/forge/runcmds.sh' ]
 EOF
 
+# restore previous errexit behavior
+set +e
 }
 
 ZOF
