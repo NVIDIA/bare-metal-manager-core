@@ -3099,6 +3099,7 @@ where
             .map(Response::new)?)
     }
 
+    // The carbide pxe server makes this RPC call
     async fn get_pxe_instructions(
         &self,
         request: Request<rpc::PxeInstructionRequest>,
