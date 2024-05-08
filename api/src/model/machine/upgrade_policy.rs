@@ -132,6 +132,7 @@ impl From<crate::cfg::AgentUpgradePolicyChoice> for AgentUpgradePolicy {
 pub struct BuildVersion<'a> {
     date: &'a str,
     rc: &'a str,
+    hotfix: usize,
     commits: usize,
     git_hash: &'a str,
 }
@@ -140,7 +141,8 @@ impl fmt::Display for BuildVersion<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "v{}", self.date)?;
         if !self.rc.is_empty() {
-            write!(f, "-{}", self.rc)?;
+            // rc and hotfix must either both appear, or neither
+            write!(f, "-{}-{}", self.rc, self.hotfix)?;
         }
         if self.commits != 0 {
             write!(f, "-{}", self.commits)?;
@@ -172,6 +174,7 @@ impl<'a> TryFrom<&'a str> for BuildVersion<'a> {
             1 => Ok(BuildVersion {
                 date: parts[0],
                 rc: "",
+                hotfix: 0,
                 commits: 0,
                 git_hash: "",
             }),
@@ -180,27 +183,53 @@ impl<'a> TryFrom<&'a str> for BuildVersion<'a> {
             2 => Ok(BuildVersion {
                 date: parts[0],
                 rc: parts[1],
+                hotfix: 0,
                 commits: 0,
                 git_hash: "",
             }),
-            // Date-only tag, commits
-            // v2023.08-92-g1b48e8b6
-            3 => Ok(BuildVersion {
-                date: parts[0],
-                rc: "",
-                commits: parts[1].parse().unwrap(),
-                git_hash: parts[2],
-            }),
+            // Date-only tag, commits OR new style date-rc-hostfix
+            // v2023.08-92-g1b48e8b6 OR v2024.05.02-rc3-0
+            3 => {
+                if parts[1].chars().next().unwrap().is_numeric() {
+                    // v2023.08-92-g1b48e8b6
+                    Ok(BuildVersion {
+                        date: parts[0],
+                        rc: "",
+                        hotfix: 0,
+                        commits: parts[1].parse().unwrap(),
+                        git_hash: parts[2],
+                    })
+                } else {
+                    // v2024.05.02-rc3-0
+                    Ok(BuildVersion {
+                        date: parts[0],
+                        rc: parts[1],
+                        hotfix: parts[2].parse().unwrap(),
+                        commits: 0,
+                        git_hash: "",
+                    })
+                }
+            }
             // Date-and-rc tag, commits
             // v2023.09-rc1-27-gc3ce4d5d
             4 => Ok(BuildVersion {
                 date: parts[0],
                 rc: parts[1],
+                hotfix: 0,
                 commits: parts[2].parse().unwrap(),
                 git_hash: parts[3],
             }),
+            // date, rc, hotfix, commits and hash
+            // v2024.05.02-rc4-0-27-gc3ce4d5d
+            5 => Ok(BuildVersion {
+                date: parts[0],
+                rc: parts[1],
+                hotfix: parts[2].parse().unwrap(),
+                commits: parts[3].parse().unwrap(),
+                git_hash: parts[4],
+            }),
             n => {
-                eyre::bail!("Invalid build version. Has {n} dashes, max 3")
+                eyre::bail!("Invalid build version. Has {n} dash-separated parts.")
             }
         }
     }
@@ -211,6 +240,7 @@ impl Ord for BuildVersion<'_> {
         self.date
             .cmp(other.date)
             .then(self.rc.cmp(other.rc))
+            .then(self.hotfix.cmp(&other.hotfix))
             .then(self.commits.cmp(&other.commits))
     }
 }
@@ -228,6 +258,7 @@ fn test_parse_version() -> eyre::Result<()> {
         BuildVersion {
             date: "2023.08",
             rc: "",
+            hotfix: 0,
             commits: 92,
             git_hash: "g1b48e8b6",
         }
@@ -238,6 +269,7 @@ fn test_parse_version() -> eyre::Result<()> {
         BuildVersion {
             date: "2023.09",
             rc: "rc1",
+            hotfix: 0,
             commits: 27,
             git_hash: "gc3ce4d5d",
         }
@@ -248,13 +280,14 @@ fn test_parse_version() -> eyre::Result<()> {
         BuildVersion {
             date: "2023.08",
             rc: "",
+            hotfix: 0,
             commits: 0,
             git_hash: "",
         }
     );
 
     // Too many dashes
-    assert!(BuildVersion::try_from("v2023.08-1-2-3-45").is_err());
+    assert!(BuildVersion::try_from("v2023.08-rc1-0-3-g123eff-x").is_err());
 
     // No date
     assert!(BuildVersion::try_from("v-rc1").is_err());
@@ -271,31 +304,47 @@ mod tests {
         use rand::prelude::SliceRandom;
 
         // In the correct order
-        const VERSIONS: &[&str] = &[
-            "v2023.04",
-            "v2023.04.01",
-            "v2023.04.01-1-g17e5c956",
-            "v2023.06-rc2-1-gc5c05de3",
-            "v2023.08",
-            "v2023.08-14-gbc549a66",
-            "v2023.08-89-gd73315bc",
-            "v2023.08-92-g1b48e8b6",
-            "v2023.09-89-gd73315bc",
-            "v2023.09-rc1",
-            "v2023.09-rc1-1-g681e499f",
-            "v2023.09-rc1-27-gc3ce4d5d",
+        const VERSIONS: &[(&str, Option<&str>)] = &[
+            // Left is input, Right is output if different
+            // Due to Debian version numbering contraints, we changed the rules in May 2024 to
+            // force a "hotfix" number to appear if and only if the rc number appears.
+            ("v2023.04", None),
+            ("v2023.04.01", None),
+            ("v2023.04.01-1-g17e5c956", None),
+            (
+                "v2023.06-rc2-1-gc5c05de3",
+                Some("v2023.06-rc2-0-1-gc5c05de3"),
+            ),
+            ("v2023.08", None),
+            ("v2023.08-14-gbc549a66", None),
+            ("v2023.08-89-gd73315bc", None),
+            ("v2023.08-92-g1b48e8b6", None),
+            ("v2023.09-89-gd73315bc", None),
+            ("v2023.09-rc1", Some("v2023.09-rc1-0")),
+            (
+                "v2023.09-rc1-1-g681e499f",
+                Some("v2023.09-rc1-0-1-g681e499f"),
+            ),
+            (
+                "v2023.09-rc1-27-gc3ce4d5d",
+                Some("v2023.09-rc1-0-27-gc3ce4d5d"),
+            ),
+            ("v2024.05-rc3-0", None),
+            ("v2024.05.02-rc3-0", None),
+            ("v2024.05.02-rc4-0-27-gc3ce4d5d", None),
         ];
         let mut rng = rand::thread_rng();
 
         // What we're testing
-        let mut t: Vec<BuildVersion> = VERSIONS.iter().map(|v| (*v).try_into().unwrap()).collect();
+        let mut t: Vec<BuildVersion> = VERSIONS.iter().map(|v| (v.0).try_into().unwrap()).collect();
         t.shuffle(&mut rng);
         t.sort();
 
         // 't' should now be in the original order again
-        for (i, expect) in VERSIONS.iter().enumerate() {
+        for (i, (expect_normal, expect_different)) in VERSIONS.iter().enumerate() {
             let got = t[i].to_string();
-            if &got != expect {
+            let expect = expect_different.unwrap_or(expect_normal);
+            if got != expect {
                 panic!("Pos {i} does not match. Got {got} expected {expect}.");
             }
         }
