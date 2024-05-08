@@ -52,7 +52,6 @@ pub struct RuntimeConfig {
     forge_root_ca_path: String,
     server_cert_path: String,
     server_key_path: String,
-    download_root_ca: bool,
 }
 
 pub enum RPCError<'a> {
@@ -317,9 +316,6 @@ fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
         pxe_url: figment
             .extract_inner::<String>("carbide_pxe_url")
             .map_err(|_| "Could not extract carbide_pxe_url from config")?,
-        download_root_ca: figment
-            .extract_inner::<bool>("download_root_ca")
-            .unwrap_or(false),
         forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH")
             .map_err(|_| "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string())?,
         server_cert_path: env::var("FORGE_CLIENT_CERT_PATH")
