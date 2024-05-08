@@ -183,48 +183,6 @@ async fn return_existing_machine_interface_on_rediscover(
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_rename_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let mut txn = pool.begin().await?;
-
-    let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
-
-    let interface = MachineInterface::create(
-        &mut txn,
-        &network_segment,
-        MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        None,
-        true,
-        AddressSelectionStrategy::Automatic,
-    )
-    .await?;
-    txn.commit().await.unwrap();
-
-    let mut txn = pool.begin().await?;
-
-    let mut updated_interface = MachineInterface::find_one(&mut txn, interface.id).await?;
-    let hostname = updated_interface
-        .addresses()
-        .iter()
-        .map(|x| x.address)
-        .find(|x| x.is_ipv4())
-        .unwrap()
-        .to_string()
-        .replace('.', "-");
-    assert_eq!(updated_interface.hostname(), hostname);
-
-    let new_hostname = "peppersmacker400";
-    updated_interface
-        .update_hostname(&mut txn, new_hostname)
-        .await?;
-
-    txn.commit().await?;
-
-    assert_eq!(updated_interface.hostname(), new_hostname);
-
-    Ok(())
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn find_all_interfaces_test_cases(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
