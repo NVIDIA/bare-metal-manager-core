@@ -14,11 +14,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
-use rpc::forge::{MachineInterface, MachineType};
+use rpc::forge::{ConnectedDevice, MachineInterface, MachineType, NetworkDevice};
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::ExploredManagedHost;
 use rpc::{Machine, MachineId, Timestamp};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 macro_rules! get_dmi_data_from_machine {
@@ -51,7 +51,7 @@ macro_rules! get_bmc_info_from_machine {
     };
 }
 
-#[derive(Default, Serialize, PartialEq)]
+#[derive(Default, Serialize, Deserialize, PartialEq)]
 pub struct ManagedHostOutput {
     pub hostname: Option<String>,
     pub machine_id: Option<String>,
@@ -77,29 +77,129 @@ pub struct ManagedHostOutput {
     pub is_network_healthy: bool,
     pub network_err_message: Option<String>,
 
-    pub dpu_machine_id: Option<String>,
-    pub dpu_serial_number: Option<String>,
-    pub dpu_bios_version: Option<String>,
-    pub dpu_bmc_ip: Option<String>,
-    pub dpu_bmc_mac: Option<String>,
-    pub dpu_bmc_version: Option<String>,
-    pub dpu_bmc_firmware_version: Option<String>,
-    pub dpu_oob_ip: Option<String>,
-    pub dpu_oob_mac: Option<String>,
-    pub dpu_last_reboot_time: Option<String>,
-    pub dpu_last_reboot_requested_time_and_mode: Option<String>,
-    pub dpu_last_observation_time: Option<String>,
+    pub dpus: Vec<ManagedHostAttachedDpu>,
+}
+
+#[derive(Default, Serialize, Deserialize, PartialEq)]
+pub struct ManagedHostAttachedDpu {
+    pub machine_id: Option<String>,
+    pub serial_number: Option<String>,
+    pub bios_version: Option<String>,
+    pub bmc_ip: Option<String>,
+    pub bmc_mac: Option<String>,
+    pub bmc_version: Option<String>,
+    pub bmc_firmware_version: Option<String>,
+    pub oob_ip: Option<String>,
+    pub oob_mac: Option<String>,
+    pub last_reboot_time: Option<String>,
+    pub last_reboot_requested_time_and_mode: Option<String>,
+    pub last_observation_time: Option<String>,
+    pub switch_connections: Vec<DpuSwitchConnection>,
+}
+
+#[derive(Default, Serialize, Deserialize, PartialEq)]
+pub struct DpuSwitchConnection {
+    pub dpu_port: Option<String>,
+    pub switch_id: Option<String>,
+    pub switch_port: Option<String>,
+    pub switch_name: Option<String>,
+    pub switch_description: Option<String>,
+}
+
+impl DpuSwitchConnection {
+    fn from(connected_device: &ConnectedDevice, network_device: Option<&NetworkDevice>) -> Self {
+        Self {
+            dpu_port: Some(connected_device.local_port.clone()),
+            switch_id: connected_device.network_device_id.clone(),
+            switch_port: Some(connected_device.remote_port.clone()),
+            switch_name: network_device.map(|n| n.name.clone()),
+            switch_description: network_device.and_then(|n| n.description.clone()),
+        }
+    }
+}
+
+impl ManagedHostAttachedDpu {
+    pub fn new_from_dpu_machine(
+        dpu_machine: &Machine,
+        connected_devices: &[ConnectedDevice],
+        network_device_map: &HashMap<String, NetworkDevice>,
+    ) -> Option<Self> {
+        let (oob_ip, oob_mac) = match dpu_machine.interfaces.iter().find(|x| x.primary_interface) {
+            Some(primary_interface) => (
+                Some(primary_interface.address.join(",")),
+                Some(primary_interface.mac_address.to_owned()),
+            ),
+            None => (None, None),
+        };
+
+        let Some(ref dpu_machine_id) = dpu_machine.id else {
+            warn!("dpu_machine has no id? {:?}", dpu_machine);
+            return None;
+        };
+
+        let result = ManagedHostAttachedDpu {
+            machine_id: Some(dpu_machine_id.to_string()),
+            serial_number: get_dmi_data_from_machine!(dpu_machine, chassis_serial),
+            bios_version: get_dmi_data_from_machine!(dpu_machine, bios_version),
+            bmc_ip: get_bmc_info_from_machine!(dpu_machine, ip),
+            bmc_mac: get_bmc_info_from_machine!(dpu_machine, mac),
+            bmc_version: get_bmc_info_from_machine!(dpu_machine, version),
+            bmc_firmware_version: get_bmc_info_from_machine!(dpu_machine, firmware_version),
+            last_reboot_time: to_time(dpu_machine.last_reboot_time.clone(), dpu_machine_id),
+            last_reboot_requested_time_and_mode: Some(format!(
+                "{}/{}",
+                to_time(
+                    dpu_machine.last_reboot_requested_time.clone(),
+                    dpu_machine_id
+                )
+                .unwrap_or("Unknown".to_string()),
+                dpu_machine.last_reboot_requested_mode()
+            )),
+            last_observation_time: to_time(
+                dpu_machine.last_observation_time.clone(),
+                dpu_machine_id,
+            ),
+            oob_ip,
+            oob_mac,
+            switch_connections: connected_devices
+                .iter()
+                .map(|d| {
+                    DpuSwitchConnection::from(
+                        d,
+                        d.network_device_id
+                            .as_ref()
+                            .and_then(|id| network_device_map.get(id)),
+                    )
+                })
+                .collect(),
+        };
+
+        Some(result)
+    }
 }
 
 pub fn get_managed_host_output(
-    machines: Vec<Machine>,
-    site_explorer_managed_host: Vec<ExploredManagedHost>,
+    machines: &[Machine],
+    site_explorer_managed_host: &[ExploredManagedHost],
+    connected_devices: &[ConnectedDevice],
+    network_devices: &[NetworkDevice],
 ) -> Vec<ManagedHostOutput> {
     let mut result = Vec::default();
 
     let managed_host_map: HashMap<String, String> = site_explorer_managed_host
         .iter()
         .map(|x| (x.dpu_bmc_ip.clone(), x.host_bmc_ip.clone()))
+        .collect();
+    let mut connected_device_map = HashMap::<String, Vec<ConnectedDevice>>::new();
+    for d in connected_devices.iter() {
+        let Some(id) = d.id.as_ref().map(MachineId::to_string) else {
+            continue;
+        };
+        connected_device_map.entry(id).or_default().push(d.clone());
+    }
+    let network_device_map: HashMap<String, NetworkDevice> = network_devices
+        .iter()
+        .map(|n| (n.id.clone(), n.clone()))
         .collect();
 
     for machine in machines.iter() {
@@ -203,54 +303,33 @@ pub fn get_managed_host_output(
                         None => None,
                     };
 
-                    managed_host_output.dpu_machine_id = Some(dpu_machine_id.to_string());
-                    managed_host_output.dpu_serial_number =
-                        get_dmi_data_from_machine!(dpu_machine, chassis_serial);
-                    managed_host_output.dpu_bios_version =
-                        get_dmi_data_from_machine!(dpu_machine, bios_version);
-                    managed_host_output.dpu_bmc_ip = get_bmc_info_from_machine!(dpu_machine, ip);
-                    managed_host_output.dpu_bmc_mac = get_bmc_info_from_machine!(dpu_machine, mac);
-                    managed_host_output.dpu_bmc_version =
-                        get_bmc_info_from_machine!(dpu_machine, version);
-                    managed_host_output.dpu_bmc_firmware_version =
-                        get_bmc_info_from_machine!(dpu_machine, firmware_version);
-                    managed_host_output.dpu_last_reboot_time =
-                        to_time(dpu_machine.last_reboot_time.clone(), dpu_machine_id);
-                    managed_host_output.dpu_last_reboot_requested_time_and_mode = Some(format!(
-                        "{}/{}",
-                        to_time(
-                            dpu_machine.last_reboot_requested_time.clone(),
-                            dpu_machine_id
-                        )
-                        .unwrap_or("Unknown".to_string()),
-                        dpu_machine.last_reboot_requested_mode()
-                    ));
-                    managed_host_output.dpu_last_observation_time =
-                        to_time(dpu_machine.last_observation_time.clone(), dpu_machine_id);
-
-                    if let Some(primary_interface) =
-                        dpu_machine.interfaces.iter().find(|x| x.primary_interface)
-                    {
-                        managed_host_output.dpu_oob_ip = Some(primary_interface.address.join(","));
-                        managed_host_output.dpu_oob_mac =
-                            Some(primary_interface.mac_address.to_owned());
-                    }
-
-                    if let Some(dpu_bmc_ip) = &managed_host_output.dpu_bmc_ip {
-                        if let Some(host_bmc_ip) = &managed_host_output.host_bmc_ip {
-                            if let Some(site_host_bmc_ip) = managed_host_map.get(dpu_bmc_ip) {
-                                if host_bmc_ip != site_host_bmc_ip {
-                                    // If somehow these both ips are different, display error.
-                                    managed_host_output.host_bmc_ip = Some(format!(
-                                        "Error: M-{}/S-{}",
-                                        host_bmc_ip, site_host_bmc_ip
-                                    ));
+                    if let Some(attached_dpu) = ManagedHostAttachedDpu::new_from_dpu_machine(
+                        dpu_machine,
+                        connected_device_map
+                            .get(&dpu_machine_id.id)
+                            .unwrap_or(&vec![]),
+                        &network_device_map,
+                    ) {
+                        if let Some(dpu_bmc_ip) = &attached_dpu.bmc_ip {
+                            if let Some(host_bmc_ip) = &attached_dpu.bmc_ip {
+                                if let Some(site_host_bmc_ip) = managed_host_map.get(dpu_bmc_ip) {
+                                    if host_bmc_ip != site_host_bmc_ip {
+                                        // If somehow these both ips are different, display error.
+                                        managed_host_output.host_bmc_ip = Some(format!(
+                                            "Error: M-{}/S-{}",
+                                            host_bmc_ip, site_host_bmc_ip
+                                        ));
+                                    }
                                 }
+                            } else {
+                                managed_host_output.host_bmc_ip =
+                                    managed_host_map.get(dpu_bmc_ip).cloned();
                             }
-                        } else {
-                            managed_host_output.host_bmc_ip =
-                                managed_host_map.get(dpu_bmc_ip).cloned();
                         }
+
+                        // Multiple-DPU support is not ready yet, as of now we're emulating it,
+                        // with only one DPU possible.
+                        managed_host_output.dpus = vec![attached_dpu];
                     }
                 };
             }

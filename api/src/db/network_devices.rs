@@ -253,6 +253,20 @@ impl DpuToNetworkDeviceMap {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_device_id", e))
     }
+
+    pub async fn find_by_dpu_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        dpu_ids: &[String],
+    ) -> Result<Vec<Self>, DatabaseError> {
+        let base_query = "SELECT * FROM port_to_network_device_map l WHERE dpu_id=ANY($1)";
+
+        let str_list: Vec<String> = dpu_ids.iter().map(|id| id.to_string()).collect();
+        sqlx::query_as::<_, DpuToNetworkDeviceMap>(base_query)
+            .bind(str_list)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "port_to_network_device_map", e))
+    }
 }
 
 impl NetworkTopologyData {

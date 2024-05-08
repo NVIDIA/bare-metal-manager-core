@@ -32,38 +32,29 @@ struct ManagedHostOutputWrapper {
     managed_host_output: utils::ManagedHostOutput,
 }
 
+macro_rules! concat_host_and_dpu_props {
+    ($host:ident, $host_prop:ident, $dpu_prop:ident) => {
+        [
+            vec![$host.$host_prop.unwrap_or(UNKNOWN.to_owned())],
+            $host
+                .dpus
+                .iter()
+                .map(|d| d.$dpu_prop.clone().unwrap_or(UNKNOWN.to_owned()))
+                .collect(),
+        ]
+        .concat()
+        .join("\n")
+    };
+}
+
 impl From<ManagedHostOutputWrapper> for Row {
     fn from(src: ManagedHostOutputWrapper) -> Self {
         let value = src.managed_host_output;
-        let machine_ids = format!(
-            "{}\n{}",
-            value.machine_id.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_machine_id.unwrap_or(UNKNOWN.to_owned())
-        );
-
-        let bmc_ip = format!(
-            "{}\n{}",
-            value.host_bmc_ip.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_bmc_ip.unwrap_or(UNKNOWN.to_owned()),
-        );
-
-        let bmc_mac = format!(
-            "{}\n{}",
-            value.host_bmc_mac.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_bmc_mac.unwrap_or(UNKNOWN.to_owned()),
-        );
-
-        let ips = format!(
-            "{}\n{}",
-            value.host_admin_ip.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_oob_ip.unwrap_or(UNKNOWN.to_owned())
-        );
-
-        let macs = format!(
-            "{}\n{}",
-            value.host_admin_mac.unwrap_or(UNKNOWN.to_owned()),
-            value.dpu_oob_mac.unwrap_or(UNKNOWN.to_owned())
-        );
+        let machine_ids = concat_host_and_dpu_props!(value, machine_id, machine_id);
+        let bmc_ip = concat_host_and_dpu_props!(value, host_bmc_ip, bmc_ip);
+        let bmc_mac = concat_host_and_dpu_props!(value, host_bmc_mac, bmc_mac);
+        let ips = concat_host_and_dpu_props!(value, host_admin_ip, oob_ip);
+        let macs = concat_host_and_dpu_props!(value, host_admin_mac, oob_mac);
 
         let state = value
             .state
@@ -160,7 +151,10 @@ async fn show_managed_hosts(
     more_details: bool,
     site_explorer_managed_host: Vec<ExploredManagedHost>,
 ) -> CarbideCliResult<()> {
-    let managed_hosts = utils::get_managed_host_output(machines, site_explorer_managed_host);
+    // TODO: get_managed_host_output takes two arrays of attached devices for rendering switch
+    // connections, but we don't render those in the CLI as of today, so pass an empty slice.
+    let managed_hosts =
+        utils::get_managed_host_output(&machines, &site_explorer_managed_host, &[], &[]);
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&managed_hosts).unwrap()),
@@ -269,35 +263,37 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         "\nDPU:\n----------------------------------------"
     )?;
 
-    let data = vec![
-        ("  ID", m.dpu_machine_id.clone()),
-        ("  Last reboot", m.dpu_last_reboot_time),
-        (
-            "  Last reboot requested",
-            m.dpu_last_reboot_requested_time_and_mode,
-        ),
-        ("  Last seen", m.dpu_last_observation_time),
-        ("  Serial Number", m.dpu_serial_number.clone()),
-        ("  BIOS Version", m.dpu_bios_version.clone()),
-        ("  Admin IP", m.dpu_oob_ip.clone()),
-        ("  Admin MAC", m.dpu_oob_mac.clone()),
-        ("  BMC", Some("".to_string())),
-        ("    Version", m.dpu_bmc_version.clone()),
-        ("    Firmware Version", m.dpu_bmc_firmware_version.clone()),
-        ("    IP", m.dpu_bmc_ip.clone()),
-        ("    MAC", m.dpu_bmc_mac.clone()),
-    ];
+    for dpu in m.dpus {
+        let data = vec![
+            ("  ID", dpu.machine_id.clone()),
+            ("  Last reboot", dpu.last_reboot_time),
+            (
+                "  Last reboot requested",
+                dpu.last_reboot_requested_time_and_mode,
+            ),
+            ("  Last seen", dpu.last_observation_time),
+            ("  Serial Number", dpu.serial_number.clone()),
+            ("  BIOS Version", dpu.bios_version.clone()),
+            ("  Admin IP", dpu.oob_ip.clone()),
+            ("  Admin MAC", dpu.oob_mac.clone()),
+            ("  BMC", Some("".to_string())),
+            ("    Version", dpu.bmc_version.clone()),
+            ("    Firmware Version", dpu.bmc_firmware_version.clone()),
+            ("    IP", dpu.bmc_ip.clone()),
+            ("    MAC", dpu.bmc_mac.clone()),
+        ];
 
-    for (key, value) in data {
-        if matches!(&value, Some(x) if x.is_empty()) {
-            writeln!(&mut lines, "{:<width$}", key)?;
-        } else {
-            writeln!(
-                &mut lines,
-                "{:<width$}: {}",
-                key,
-                value.unwrap_or(UNKNOWN.to_string())
-            )?;
+        for (key, value) in data {
+            if matches!(&value, Some(x) if x.is_empty()) {
+                writeln!(&mut lines, "{:<width$}", key)?;
+            } else {
+                writeln!(
+                    &mut lines,
+                    "{:<width$}: {}",
+                    key,
+                    value.unwrap_or(UNKNOWN.to_string())
+                )?;
+            }
         }
     }
 
@@ -357,7 +353,11 @@ pub async fn handle_show(
     if args.fix {
         machines.retain(|m| m.maintenance_reference.is_some());
     }
-    for m in utils::get_managed_host_output(machines, site_report_managed_hosts).into_iter() {
+    // TODO: get_managed_host_output takes two arrays of attached devices for rendering switch
+    // connections, but we don't render those in the CLI as of today, so pass an empty slice.
+    for m in
+        utils::get_managed_host_output(&machines, &site_report_managed_hosts, &[], &[]).into_iter()
+    {
         show_managed_host_details_view(m)?;
     }
 

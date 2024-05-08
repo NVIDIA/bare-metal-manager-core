@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use askama::Template;
@@ -19,14 +20,31 @@ use axum::{Form, Json};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
+use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, GetSiteExplorationRequest};
+use rpc::MachineId;
 use serde::Deserialize;
+use utils::managed_host_display::{DpuSwitchConnection, ManagedHostAttachedDpu};
 
 use super::filters;
 use crate::api::Api;
 
 const UNKNOWN: &str = "Unknown";
+
+macro_rules! get_info_from_first_dpu {
+    ($machine:ident, $prop:ident) => {
+        || -> Option<&str> {
+            let Some(ref dpu) = $machine.dpus.first() else {
+                return None;
+            };
+            let Some(ref $prop) = dpu.$prop else {
+                return None;
+            };
+            Some($prop)
+        }()
+    };
+}
 
 #[derive(Template)]
 #[template(path = "managed_host_show.html")]
@@ -67,16 +85,26 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
         ManagedHostRowDisplay {
             hostname: o.hostname.unwrap_or(UNKNOWN.to_string()),
             machine_id: o.machine_id.unwrap_or(UNKNOWN.to_string()),
-            dpu_machine_id: o.dpu_machine_id.unwrap_or(UNKNOWN.to_string()),
+            dpu_machine_id: get_info_from_first_dpu!(o, machine_id)
+                .unwrap_or(UNKNOWN)
+                .to_string(),
             state: o.state,
             time_in_state: o.time_in_state,
             state_reason: o.state_reason,
             is_network_healthy: o.is_network_healthy,
             network_err_message: o.network_err_message.unwrap_or_default(),
-            dpu_bmc_ip: o.dpu_bmc_ip.unwrap_or_default(),
-            dpu_bmc_mac: o.dpu_bmc_mac.unwrap_or_default(),
-            dpu_oob_ip: o.dpu_oob_ip.unwrap_or_default(),
-            dpu_oob_mac: o.dpu_oob_mac.unwrap_or_default(),
+            dpu_bmc_ip: get_info_from_first_dpu!(o, bmc_ip)
+                .unwrap_or_default()
+                .to_string(),
+            dpu_bmc_mac: get_info_from_first_dpu!(o, bmc_mac)
+                .unwrap_or_default()
+                .to_string(),
+            dpu_oob_ip: get_info_from_first_dpu!(o, oob_ip)
+                .unwrap_or_default()
+                .to_string(),
+            dpu_oob_mac: get_info_from_first_dpu!(o, oob_mac)
+                .unwrap_or_default()
+                .to_string(),
             host_bmc_ip: o.host_bmc_ip.unwrap_or_default(),
             host_bmc_mac: o.host_bmc_mac.unwrap_or_default(),
             host_admin_ip: o.host_admin_ip.unwrap_or_default(),
@@ -173,10 +201,41 @@ async fn fetch_managed_hosts<
         .map(|response| response.into_inner())?
         .managed_hosts;
 
-    Ok(utils::get_managed_host_output(
-        all_machines.machines,
-        site_managed_hosts,
-    ))
+    // Find connected devices for all machines
+    let dpu_id_request = tonic::Request::new(forgerpc::MachineIdList {
+        machine_ids: all_machines
+            .machines
+            .iter()
+            .filter_map(|m| m.id.clone())
+            .collect(),
+    });
+    let connected_devices = state
+        .find_connected_devices_by_dpu_machine_ids(dpu_id_request)
+        .await
+        .map(|response| response.into_inner())?
+        .connected_devices;
+
+    let network_device_ids: HashSet<String> = connected_devices
+        .iter()
+        .filter_map(|d| d.network_device_id.clone())
+        .collect();
+
+    let network_devices = state
+        .find_network_devices_by_device_ids(tonic::Request::new(forgerpc::NetworkDeviceIdList {
+            network_device_ids: network_device_ids.iter().map(|id| id.to_owned()).collect(),
+        }))
+        .await
+        .map(|response| response.into_inner())?
+        .network_devices;
+
+    let managed_hosts = utils::get_managed_host_output(
+        &all_machines.machines,
+        &site_managed_hosts,
+        &connected_devices,
+        &network_devices,
+    );
+
+    Ok(managed_hosts)
 }
 
 #[derive(Template)]
@@ -205,17 +264,39 @@ struct ManagedHostDetail {
     pub is_network_healthy: bool,
     pub network_err_message: String,
 
-    pub dpu_machine_id: String,
-    pub dpu_serial_number: String,
-    pub dpu_bios_version: String,
-    pub dpu_bmc_ip: String,
-    pub dpu_bmc_mac: String,
-    pub dpu_bmc_version: String,
-    pub dpu_bmc_firmware_version: String,
-    pub dpu_oob_ip: String,
-    pub dpu_oob_mac: String,
-    pub dpu_last_reboot_time: String,
-    pub dpu_last_observation_time: String,
+    pub dpus: Vec<ManagedHostAttachedDpuDetail>,
+}
+
+struct ManagedHostAttachedDpuDetail {
+    pub machine_id: String,
+    pub serial_number: String,
+    pub bios_version: String,
+    pub bmc_ip: String,
+    pub bmc_mac: String,
+    pub bmc_version: String,
+    pub bmc_firmware_version: String,
+    pub oob_ip: String,
+    pub oob_mac: String,
+    pub last_reboot_time: String,
+    pub last_observation_time: String,
+    pub switch_connections: Vec<DpuSwitchConnectionDetail>,
+}
+
+impl ManagedHostAttachedDpuDetail {
+    fn switch_connection_details(&self) -> String {
+        self.switch_connections
+            .clone()
+            .into_iter()
+            .map(|c| format!("{}/{}/{}", c.dpu_port, c.switch_id, c.switch_port))
+            .join(", ")
+    }
+}
+
+#[derive(Clone)]
+struct DpuSwitchConnectionDetail {
+    dpu_port: String,
+    switch_id: String,
+    switch_port: String,
 }
 
 impl From<utils::ManagedHostOutput> for ManagedHostDetail {
@@ -245,17 +326,44 @@ impl From<utils::ManagedHostOutput> for ManagedHostDetail {
             is_network_healthy: m.is_network_healthy,
             network_err_message: m.network_err_message.unwrap_or(UNKNOWN.to_string()),
 
-            dpu_machine_id: m.dpu_machine_id.unwrap_or(UNKNOWN.to_string()),
-            dpu_serial_number: m.dpu_serial_number.unwrap_or(UNKNOWN.to_string()),
-            dpu_bios_version: m.dpu_bios_version.unwrap_or(UNKNOWN.to_string()),
-            dpu_bmc_ip: m.dpu_bmc_ip.unwrap_or_default(),
-            dpu_bmc_mac: m.dpu_bmc_mac.unwrap_or_default(),
-            dpu_bmc_version: m.dpu_bmc_version.unwrap_or(UNKNOWN.to_string()),
-            dpu_bmc_firmware_version: m.dpu_bmc_firmware_version.unwrap_or(UNKNOWN.to_string()),
-            dpu_oob_ip: m.dpu_oob_ip.unwrap_or_default(),
-            dpu_oob_mac: m.dpu_oob_mac.unwrap_or_default(),
-            dpu_last_reboot_time: m.dpu_last_reboot_time.unwrap_or(UNKNOWN.to_string()),
-            dpu_last_observation_time: m.dpu_last_observation_time.unwrap_or(UNKNOWN.to_string()),
+            dpus: m
+                .dpus
+                .into_iter()
+                .map_into::<ManagedHostAttachedDpuDetail>()
+                .collect::<Vec<_>>(),
+        }
+    }
+}
+
+impl From<ManagedHostAttachedDpu> for ManagedHostAttachedDpuDetail {
+    fn from(d: ManagedHostAttachedDpu) -> Self {
+        Self {
+            machine_id: d.machine_id.unwrap_or(UNKNOWN.to_string()),
+            serial_number: d.serial_number.unwrap_or(UNKNOWN.to_string()),
+            bios_version: d.bios_version.unwrap_or(UNKNOWN.to_string()),
+            bmc_ip: d.bmc_ip.unwrap_or(UNKNOWN.to_string()),
+            bmc_mac: d.bmc_mac.unwrap_or(UNKNOWN.to_string()),
+            bmc_version: d.bmc_version.unwrap_or(UNKNOWN.to_string()),
+            bmc_firmware_version: d.bmc_firmware_version.unwrap_or(UNKNOWN.to_string()),
+            oob_ip: d.oob_ip.unwrap_or(UNKNOWN.to_string()),
+            oob_mac: d.oob_mac.unwrap_or(UNKNOWN.to_string()),
+            last_reboot_time: d.last_reboot_time.unwrap_or(UNKNOWN.to_string()),
+            last_observation_time: d.last_observation_time.unwrap_or(UNKNOWN.to_string()),
+            switch_connections: d
+                .switch_connections
+                .into_iter()
+                .map(DpuSwitchConnectionDetail::from)
+                .collect_vec(),
+        }
+    }
+}
+
+impl From<DpuSwitchConnection> for DpuSwitchConnectionDetail {
+    fn from(d: DpuSwitchConnection) -> Self {
+        Self {
+            dpu_port: d.dpu_port.unwrap_or(UNKNOWN.to_string()),
+            switch_id: d.switch_id.unwrap_or(UNKNOWN.to_string()),
+            switch_port: d.switch_port.unwrap_or(UNKNOWN.to_string()),
         }
     }
 }
@@ -295,11 +403,15 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
     };
 
     let mut machines = vec![];
+    let mut dpu_machine_ids = Vec::<MachineId>::new();
     for interface in host_machine.interfaces.iter() {
         if interface.primary_interface {
             if let Some(attached_machine_id) = interface.attached_dpu_machine_id.as_ref() {
                 match get_dpu_machine(state.clone(), attached_machine_id).await {
-                    Ok(attached_machine) => machines.push(attached_machine),
+                    Ok(attached_machine) => {
+                        dpu_machine_ids.push(attached_machine_id.clone());
+                        machines.push(attached_machine);
+                    }
                     Err(err) => {
                         tracing::error!(%attached_machine_id, %err, "get_dpu_machine, skipping");
                     }
@@ -316,10 +428,40 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         .map(|response| response.into_inner().managed_hosts)
         .unwrap_or(vec![]);
 
-    let managed_host = utils::get_managed_host_output(machines, site_managed_hosts)
-        .into_iter()
-        .next()
-        .unwrap(); // safe, there's definitely one machine
+    // Find connected devices for this machines
+    let dpu_id_request = tonic::Request::new(forgerpc::MachineIdList {
+        machine_ids: dpu_machine_ids,
+    });
+    let connected_devices = state
+        .find_connected_devices_by_dpu_machine_ids(dpu_id_request)
+        .await
+        .map(|response| response.into_inner().connected_devices)
+        .unwrap_or_default();
+
+    let network_device_ids: HashSet<String> = connected_devices
+        .iter()
+        .filter_map(|d| d.network_device_id.clone())
+        .collect();
+
+    let network_devices = state
+        .find_network_devices_by_device_ids(tonic::Request::new(forgerpc::NetworkDeviceIdList {
+            network_device_ids: network_device_ids.iter().map(|id| id.to_owned()).collect(),
+        }))
+        .await
+        .map_or_else(
+            |_err| vec![],
+            |response| response.into_inner().network_devices,
+        );
+
+    let managed_host = utils::get_managed_host_output(
+        &machines,
+        &site_managed_hosts,
+        &connected_devices,
+        &network_devices,
+    )
+    .into_iter()
+    .next()
+    .unwrap(); // safe, there's definitely one machine
 
     let tmpl: ManagedHostDetail = managed_host.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()

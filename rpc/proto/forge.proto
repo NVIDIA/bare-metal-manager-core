@@ -91,6 +91,7 @@ service Forge {
   rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
   rpc FindMachineIds(MachineSearchConfig) returns (MachineIdList);
   rpc FindMachinesByIds(MachineIdList) returns (MachineList);
+  rpc FindConnectedDevicesByDpuMachineIds(MachineIdList) returns (ConnectedDeviceList);
 
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
@@ -175,6 +176,7 @@ service Forge {
 
   // Get Network topology
   rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
+  rpc FindNetworkDevicesByDeviceIds(NetworkDeviceIdList) returns (NetworkTopologyData);
 
   // Reset a BMC
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
@@ -2049,6 +2051,11 @@ message ConnectedDevice {
   MachineId id = 1;
   string local_port = 2;
   string remote_port = 3;
+  optional string network_device_id = 4;
+}
+
+message ConnectedDeviceList {
+  repeated ConnectedDevice connected_devices = 1;
 }
 
 // NetworkDevice and Switch are used interchangeably.
@@ -2065,6 +2072,10 @@ message NetworkDevice {
 
 message NetworkTopologyRequest {
   optional string id = 1;
+}
+
+message NetworkDeviceIdList {
+  repeated string network_device_ids = 1;
 }
 
 message NetworkTopologyData {

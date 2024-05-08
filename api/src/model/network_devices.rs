@@ -129,7 +129,7 @@ pub struct DpuToNetworkDeviceMap {
     dpu_id: MachineId,
     local_port: DpuLocalPorts,
     remote_port: String,
-    _network_device_id: String,
+    network_device_id: String,
 }
 
 impl<'r> FromRow<'r, PgRow> for DpuToNetworkDeviceMap {
@@ -140,7 +140,7 @@ impl<'r> FromRow<'r, PgRow> for DpuToNetworkDeviceMap {
             dpu_id: dpu_id.into_inner(),
             local_port: row.try_get("local_port")?,
             remote_port: row.try_get("remote_port")?,
-            _network_device_id: row.try_get("network_device_id")?,
+            network_device_id: row.try_get("network_device_id")?,
         })
     }
 }
@@ -161,17 +161,7 @@ impl From<NetworkTopologyData> for rpc::forge::NetworkTopologyData {
         let mut network_devices = vec![];
 
         for network_device in value.network_devices {
-            let devices = network_device
-                .dpus
-                .iter()
-                .map(|x| rpc::forge::ConnectedDevice {
-                    id: Some(rpc::MachineId {
-                        id: x.dpu_id.to_string(),
-                    }),
-                    local_port: x.local_port.to_string(),
-                    remote_port: x.remote_port.clone(),
-                })
-                .collect_vec();
+            let devices = network_device.dpus.into_iter().map_into().collect_vec();
 
             network_devices.push(rpc::forge::NetworkDevice {
                 id: network_device.id,
@@ -189,5 +179,32 @@ impl From<NetworkTopologyData> for rpc::forge::NetworkTopologyData {
         }
 
         rpc::forge::NetworkTopologyData { network_devices }
+    }
+}
+
+impl From<DpuToNetworkDeviceMap> for rpc::forge::ConnectedDevice {
+    fn from(value: DpuToNetworkDeviceMap) -> Self {
+        Self {
+            id: Some(rpc::MachineId {
+                id: value.dpu_id.to_string(),
+            }),
+            local_port: value.local_port.to_string(),
+            remote_port: value.remote_port.clone(),
+            network_device_id: Some(value.network_device_id),
+        }
+    }
+}
+
+impl From<NetworkDevice> for rpc::forge::NetworkDevice {
+    fn from(value: NetworkDevice) -> Self {
+        Self {
+            id: value.id.clone(),
+            name: value.name.clone(),
+            description: value.description.clone(),
+            mgmt_ip: value.ip_addresses.iter().map(|i| i.to_string()).collect(),
+            discovered_via: value.discovered_via.to_string(),
+            device_type: value.device_type.to_string(),
+            devices: value.dpus.into_iter().map_into().collect(),
+        }
     }
 }

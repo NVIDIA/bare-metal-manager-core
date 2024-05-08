@@ -46,6 +46,7 @@ use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig, NewIBPartiti
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
+use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
@@ -61,7 +62,7 @@ use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, InstanceState, ManagedHostState, ReprovisionState,
 };
-use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkTopologyData};
+use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
@@ -5236,6 +5237,67 @@ where
             is_hpe: vendor.is_hpe(),
         };
         Ok(Response::new(resp))
+    }
+
+    async fn find_connected_devices_by_dpu_machine_ids(
+        &self,
+        request: Request<rpc::MachineIdList>,
+    ) -> Result<tonic::Response<rpc::ConnectedDeviceList>, Status> {
+        log_request_data(&request);
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_connected_devices_by_dpu_machine_ids",
+                e,
+            ))
+        })?;
+        let dpu_ids: Vec<String> = request
+            .into_inner()
+            .machine_ids
+            .into_iter()
+            .map(|id| id.id)
+            .collect();
+
+        let connected_devices = DpuToNetworkDeviceMap::find_by_dpu_ids(&mut txn, &dpu_ids)
+            .await
+            .map_err(CarbideError::from)?;
+
+        Ok(tonic::Response::new(rpc::ConnectedDeviceList {
+            connected_devices: connected_devices.into_iter().map_into().collect(),
+        }))
+    }
+
+    async fn find_network_devices_by_device_ids(
+        &self,
+        request: Request<rpc::NetworkDeviceIdList>,
+    ) -> Result<tonic::Response<rpc::NetworkTopologyData>, Status> {
+        log_request_data(&request);
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_network_devices_by_device_ids",
+                e,
+            ))
+        })?;
+        let request = request.into_inner(); // keep lifetime for this scope
+        let network_device_ids: Vec<&str> = request
+            .network_device_ids
+            .iter()
+            .map(|d| d.as_str())
+            .collect();
+        let network_devices = NetworkDevice::find(
+            &mut txn,
+            ObjectFilter::List(&network_device_ids),
+            &NetworkDeviceSearchConfig::new(false),
+        )
+        .await
+        .map_err(CarbideError::from)?;
+
+        Ok(tonic::Response::new(rpc::NetworkTopologyData {
+            network_devices: network_devices.into_iter().map_into().collect(),
+        }))
     }
 }
 
