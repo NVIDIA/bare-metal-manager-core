@@ -103,33 +103,6 @@ impl From<MachineInterface> for rpc::MachineInterface {
 }
 
 impl MachineInterface {
-    /// Update machine interface hostname
-    ///
-    /// This updates the machine_interfaces hostname which will render the old name in-accessible after the DNS
-    /// TTL expires on recursive resolvers.  The authoritative resolver is updated immediately.
-    ///
-    /// Arguments:
-    ///
-    /// * `txn` - A reference to a currently open database transaction
-    /// * `new_hostname` - The new hostname, which is subject to DNS validation rules (todo!())
-    pub async fn update_hostname(
-        &mut self,
-        txn: &mut Transaction<'_, Postgres>,
-        new_hostname: &str,
-    ) -> Result<&MachineInterface, DatabaseError> {
-        let query = "UPDATE machine_interfaces SET hostname=$1 WHERE id=$2 RETURNING hostname";
-        let (hostname,) = sqlx::query_as(query)
-            .bind(new_hostname)
-            .bind(self.id())
-            .fetch_one(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        self.hostname = hostname;
-
-        Ok(self)
-    }
-
     pub async fn associate_interface_with_dpu_machine(
         &self,
         txn: &mut Transaction<'_, Postgres>,
