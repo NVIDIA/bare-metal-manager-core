@@ -18,9 +18,12 @@ use regex::Regex;
 
 use crate::{
     db::machine_interface::MachineInterface,
-    model::site_explorer::{
-        Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-        EthernetInterface, Inventory, Manager, NetworkAdapter, Service,
+    model::{
+        hardware_info::BMCVendor,
+        site_explorer::{
+            Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
+            EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter, Service,
+        },
     },
     redfish::{RedfishClientCreationError, RedfishClientPool},
     site_explorer::EndpointExplorer,
@@ -54,26 +57,22 @@ impl RedfishEndpointExplorer {
     async fn try_change_root_password_to_site_default(
         &self,
         address: &IpAddr,
+        vendor: BMCVendor,
     ) -> Result<(), RedfishClientCreationError> {
-        let credential_key = CredentialKey::DpuRedfish {
-            credential_type: CredentialType::DpuHardwareDefault,
-        };
-
-        let client = match self
-            .try_get_client_with_hardware_cred(address, credential_key)
-            .await
-        {
-            Ok(c) => c,
-            Err(_) => {
-                let credential_key = CredentialKey::HostRedfish {
-                    credential_type: CredentialType::HostHardwareDefault {
-                        vendor: "not-used-yet".to_string(), // TODO caller should use IdentifyBMC to find this
-                    },
-                };
-                self.try_get_client_with_hardware_cred(address, credential_key)
-                    .await?
+        let credential_key = if vendor.is_dpu() {
+            CredentialKey::DpuRedfish {
+                credential_type: CredentialType::DpuHardwareDefault,
+            }
+        } else {
+            CredentialKey::HostRedfish {
+                credential_type: CredentialType::HostHardwareDefault {
+                    vendor: vendor.to_string(),
+                },
             }
         };
+        let client = self
+            .try_get_client_with_hardware_cred(address, credential_key)
+            .await?;
 
         let systems = client
             .get_systems()
@@ -105,21 +104,25 @@ impl RedfishEndpointExplorer {
         &self,
         address: &IpAddr,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.try_change_root_password_to_site_default(address)
+        let (_org, vendor) = crate::site_explorer::identify_bmc(&address.to_string()).await?;
+        self.try_change_root_password_to_site_default(address, vendor)
             .await?;
 
         tracing::info!(
             address = %address,
             "Changed password from factory default to site default"
         );
+        let creds = if vendor.is_dpu() {
+            forge_secrets::credentials::CredentialKey::DpuRedfish {
+                credential_type: CredentialType::SiteDefault,
+            }
+        } else {
+            CredentialKey::HostRedfish {
+                credential_type: CredentialType::SiteDefault,
+            }
+        };
         self.redfish_client_pool
-            .create_client(
-                &address.to_string(),
-                None,
-                forge_secrets::credentials::CredentialKey::DpuRedfish {
-                    credential_type: CredentialType::SiteDefault,
-                },
-            )
+            .create_client(&address.to_string(), None, creds)
             .await
     }
 }
@@ -433,6 +436,9 @@ fn map_redfish_client_creation_error(
         },
         RedfishClientCreationError::NotImplemented => EndpointExplorationError::Other {
             details: "RedfishClientCreationError::NotImplemented".to_string(),
+        },
+        RedfishClientCreationError::IdentifyError(msg) => EndpointExplorationError::Other {
+            details: msg.to_string(),
         },
     }
 }

@@ -47,6 +47,8 @@ pub use endpoint_explorer::EndpointExplorer;
 mod metrics;
 mod redfish_endpoint_explorer;
 pub use redfish_endpoint_explorer::RedfishEndpointExplorer;
+mod identify;
+pub use identify::{identify_bmc, IdentifyError};
 
 use self::metrics::{exploration_error_to_metric_label, SiteExplorationMetrics};
 

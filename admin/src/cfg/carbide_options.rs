@@ -997,6 +997,7 @@ pub struct AddHostFactoryDefaultCredential {
     pub vendor: BMCVendor,
 }
 
+// Should match api/src/model/hardware_info.rs
 #[derive(ValueEnum, Parser, Debug, Clone)]
 pub enum BMCVendor {
     Lenovo,
