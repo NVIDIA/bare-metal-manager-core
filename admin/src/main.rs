@@ -588,6 +588,10 @@ async fn main() -> color_eyre::Result<()> {
                 let exploration_report = rpc::get_site_exploration_report(api_config).await?;
                 println!("{}", serde_json::to_string_pretty(&exploration_report)?);
             }
+            SiteExplorer::Explore(opts) => {
+                let report = rpc::explore(api_config, opts.address).await?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            }
         },
         CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {
             MachineInterfaces::Show(machine_interfaces) => {

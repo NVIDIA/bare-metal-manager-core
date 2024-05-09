@@ -70,6 +70,7 @@ use crate::model::tenant::{
 };
 use crate::model::RpcDataConversionError;
 use crate::resource_pool::common::CommonPools;
+use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
 use crate::{
     auth,
@@ -3325,6 +3326,30 @@ where
                 e,
             ))
         })?;
+
+        Ok(tonic::Response::new(report.into()))
+    }
+
+    // Ad-hoc BMC exploration
+    async fn explore(
+        &self,
+        request: tonic::Request<::rpc::forge::ExploreRequest>,
+    ) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let Ok(bmc_addr) = std::net::SocketAddr::from_str(&req.address) else {
+            return Err(tonic::Status::invalid_argument(
+                "'address' must be a valid socket address in format IPv4[:port]",
+            ));
+        };
+
+        let explorer =
+            crate::site_explorer::RedfishEndpointExplorer::new(self.redfish_pool.clone());
+        let report = explorer
+            .explore_endpoint(bmc_addr, &Default::default(), None)
+            .await
+            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
         Ok(tonic::Response::new(report.into()))
     }

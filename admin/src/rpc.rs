@@ -825,6 +825,23 @@ pub async fn get_site_exploration_report(
     .await
 }
 
+pub async fn explore(
+    api_config: &ApiConfig<'_>,
+    address: std::net::SocketAddr,
+) -> CarbideCliResult<::rpc::site_explorer::EndpointExplorationReport> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ExploreRequest {
+            address: address.to_string(),
+        });
+        Ok(client
+            .explore(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner())
+    })
+    .await
+}
+
 pub async fn find_machine_ids(
     api_config: &ApiConfig<'_>,
     machine_type: Option<MachineType>,

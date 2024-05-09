@@ -1069,6 +1069,16 @@ pub struct DeleteMachineInterfaces {
 pub enum SiteExplorer {
     #[clap(about = "Retrieves the latest site exploration report")]
     GetReport,
+    #[clap(
+        about = "Asks carbide-api to explore a single host and prints the report. Does not store it."
+    )]
+    Explore(ExploreOptions),
+}
+
+#[derive(Parser, Debug)]
+pub struct ExploreOptions {
+    #[clap(help = "BMC IP address with optional port")]
+    pub address: std::net::SocketAddr,
 }
 
 #[derive(Parser, Debug)]
