@@ -106,6 +106,8 @@ write_files:
       ${CMD_PREFIX} resolvectl flush-caches
       ${CMD_PREFIX} systemd-resolve --flush-caches
       done
+      ${CMD_PREFIX} curl -v -o --retry 5 --retry-all-errors /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
+      echo "downloaded forge root cert"
       chmod a+x /opt/forge/forge-scout
       echo "starting forge-scout"
       ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log 2>&1
@@ -212,7 +214,6 @@ write_files:
       hwclock --systohc
       /usr/bin/systemctl daemon-reload
       /usr/bin/bfcfg
-      ip vrf exec mgmt curl -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
 {% if update_firmware == "true" %}
       systemctl start ntp
       /opt/forge/run-scout.sh
@@ -220,7 +221,9 @@ write_files:
       systemctl start ntp@mgmt
       /usr/bin/mlxprivhost -d /dev/mst/mt*_pciconf0 r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner
       bash -c '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1'
-      dpkg -i /opt/forge/forge-dpu.deb
+      set +e
+      dpkg -i /opt/forge/forge-dpu.deb || true
+      set -e
       mkdir -p /etc/apt/sources.list.d
       bash -c 'echo "deb [trusted=yes] {{ pxe_url }}/public/blobs/internal/apt/ focal main" > /etc/apt/sources.list.d/forge.list'
       chmod +x /opt/forge/doca_container_configs/scripts/hbn-dpu-setup.sh
