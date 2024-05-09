@@ -10,7 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{net::IpAddr, sync::Arc};
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::{Redfish, RedfishError};
@@ -43,12 +44,16 @@ impl RedfishEndpointExplorer {
 
     async fn try_get_client_with_hardware_cred(
         &self,
-        address: &IpAddr,
+        address: SocketAddr,
         credential_key: CredentialKey,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let client = self
             .redfish_client_pool
-            .create_client(&address.to_string(), None, credential_key)
+            .create_client(
+                &address.ip().to_string(),
+                Some(address.port()),
+                credential_key,
+            )
             .await?;
 
         Ok(client)
@@ -56,7 +61,7 @@ impl RedfishEndpointExplorer {
 
     async fn try_change_root_password_to_site_default(
         &self,
-        address: &IpAddr,
+        address: SocketAddr,
         vendor: BMCVendor,
     ) -> Result<(), RedfishClientCreationError> {
         let credential_key = if vendor.is_dpu() {
@@ -102,7 +107,7 @@ impl RedfishEndpointExplorer {
 
     async fn try_hardware_default_creds(
         &self,
-        address: &IpAddr,
+        address: SocketAddr,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let (_org, vendor) = crate::site_explorer::identify_bmc(&address.to_string()).await?;
         self.try_change_root_password_to_site_default(address, vendor)
@@ -122,7 +127,7 @@ impl RedfishEndpointExplorer {
             }
         };
         self.redfish_client_pool
-            .create_client(&address.to_string(), None, creds)
+            .create_client(&address.ip().to_string(), Some(address.port()), creds)
             .await
     }
 }
@@ -131,7 +136,7 @@ impl RedfishEndpointExplorer {
 impl EndpointExplorer for RedfishEndpointExplorer {
     async fn explore_endpoint(
         &self,
-        address: &IpAddr,
+        address: SocketAddr,
         _interface: &MachineInterface,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
@@ -140,8 +145,8 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         let client_result = self
             .redfish_client_pool
             .create_client(
-                &address.to_string(),
-                None,
+                &address.ip().to_string(),
+                Some(address.port()),
                 forge_secrets::credentials::CredentialKey::DpuRedfish {
                     credential_type: CredentialType::SiteDefault,
                 },
@@ -154,8 +159,8 @@ impl EndpointExplorer for RedfishEndpointExplorer {
                 match self
                     .redfish_client_pool
                     .create_client(
-                        &address.to_string(),
-                        None,
+                        &address.ip().to_string(),
+                        Some(address.port()),
                         forge_secrets::credentials::CredentialKey::HostRedfish {
                             credential_type: CredentialType::SiteDefault,
                         },

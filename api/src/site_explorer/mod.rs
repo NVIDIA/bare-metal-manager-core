@@ -10,7 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
@@ -749,7 +755,7 @@ impl SiteExplorer {
         ));
 
         for (address, iface, old_report) in explore_endpoint_data.into_iter() {
-            let endpoint_exlorer = self.endpoint_explorer.clone();
+            let endpoint_explorer = self.endpoint_explorer.clone();
             let concurrency_limiter = concurrency_limiter.clone();
 
             let _abort_handle = task_set.spawn(
@@ -766,9 +772,9 @@ impl SiteExplorer {
                         .await
                         .expect("Semaphore can't be closed");
 
-                    let mut result = endpoint_exlorer
+                    let mut result = endpoint_explorer
                         .explore_endpoint(
-                            &address,
+                            SocketAddr::new(address, 443),
                             &iface,
                             old_report.as_ref().map(|report| &report.1),
                         )

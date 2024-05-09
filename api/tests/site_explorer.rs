@@ -13,6 +13,7 @@
 use std::{
     collections::HashMap,
     net::IpAddr,
+    net::SocketAddr,
     str::FromStr,
     sync::{Arc, Mutex},
 };
@@ -890,13 +891,13 @@ struct FakeEndpointExplorer {
 impl EndpointExplorer for FakeEndpointExplorer {
     async fn explore_endpoint(
         &self,
-        address: &IpAddr,
+        address: SocketAddr,
         _interface: &MachineInterface,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {address} is getting explored");
         let guard = self.reports.lock().unwrap();
-        let res = guard.get(address).unwrap();
+        let res = guard.get(&address.ip()).unwrap();
         res.clone()
     }
 }
