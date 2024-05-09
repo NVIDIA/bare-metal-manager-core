@@ -302,11 +302,11 @@ build-runtime-container-aarch64:
   script: /bin/true
   rules:
     - when: never # TODO - we don't run carbide on ARM yet
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
 #    - if: $CI_COMMIT_MESSAGE =~ /ci-rebuild-base-containers/
 #    - changes:
 #        - dev/docker/Dockerfile.runtime-container-aarch64
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: never
   after_script:
     - echo "CONTAINER_RUNTIME_AARCH64=$CONTAINER_REGISTRY_AARCH64/runtime-container:$VERSION" > runtime-container-aarch64.env
     - echo "CONTAINER_RUNTIME_AARCH64_WAS_BUILT=true" >> runtime-container-aarch64.env
@@ -845,11 +845,11 @@ license-checks:
     name: $CONTAINER_BUILD_X86_64
   rules:
     - when: never
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
     - changes:
         - Cargo.lock
         - .license-config.yml
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: never
     - if: $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE != 'merge_request_event'
 
@@ -883,10 +883,10 @@ pages:
 build-site-auto-deploy-container:
   extends: build-container
   rules:
-    - changes:
-        - dev/docker/Dockerfile.site-auto-deploy-container
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
+    - changes:
+        - dev/docker/Dockerfile.site-auto-deploy-container
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.site-auto-deploy-container
     BUILD_DOCKER_IMAGE: $CONTAINER_SITE_AUTO_DEPLOY
@@ -901,15 +901,13 @@ scheduled-test:get-latest-versions:
   needs:
     - job: export-docker-json-config
       optional: false
-      artifacts: true
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: always
   image:
     name: golang:1.22
     entrypoint: [ "" ]
   variables:
-    TESTABLE_VERSION_PATTERN: '^v\d{4}\.\d{2}-\w+(-\d+-g\w+)*$'
+    TESTABLE_VERSION_PATTERN: '^v\d{4}\.\d{2}(\.\d{2})?(-\w+-\d+|-\w+(-\d+){1,2}-g\w+|-\d+-g\w+)?$'
   before_script:
     - set -xeuo pipefail
     - mkdir -p /root/.docker
@@ -950,10 +948,8 @@ scheduled-test:auto-deploy-site-controller:
   needs:
     - job: scheduled-test:get-latest-versions
       optional: false
-      artifacts: true
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: always
   retry:
     when:
       - runner_system_failure
@@ -983,6 +979,46 @@ scheduled-test:auto-deploy-site-controller:
     - echo "SHORT_SITE_NAME=${SHORT_SITE_NAME}" >> site.env
   script:
     - bash .gitlab/update-site-controller.sh
+    - export CARBIDE_API_URL="api-${SHORT_SITE_NAME}.frg.nvidia.com"
+    - echo "CARBIDE_API_URL=${CARBIDE_API_URL}" >> site.env
+    - mkdir certs && pushd certs
+    - vault write --format json forgeca-production/issue/ci-api-access common_name="${CARBIDE_API_URL}" ttl="4h" > vault_cert_output.json
+    - cat vault_cert_output.json | jq -r .data.certificate > ci-api-user.crt
+    - cat vault_cert_output.json | jq -r .data.private_key > ci-api-user
+    - popd
   artifacts:
     reports:
       dotenv: site.env
+    paths:
+      - certs/
+
+#
+# Verify the running version of carbide-api on the site under test is the version that was deployed
+#
+scheduled-test:verify-site-controller-version:
+  needs:
+    - job: scheduled-test:get-latest-versions
+      optional: false
+    - job: scheduled-test:auto-deploy-site-controller
+      optional: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  retry:
+    when:
+      - runner_system_failure
+    max: 2
+  image:
+    name: $CONTAINER_FORGE_ADMIN_CLI_URM
+    entrypoint: [ "" ]
+  variables:
+    CARBIDE_API_URL: $CARBIDE_API_URL
+    CLIENT_CERT_PATH: certs/ci-api-user.crt
+    CLIENT_KEY_PATH: certs/ci-api-user
+  script:
+    - set -euo pipefail
+    - DEPLOYED_VERSION=$(forge-admin-cli --format json -c https://${CARBIDE_API_URL} version | jq -r '.build_version')
+    - |
+      if [ ${DEPLOYED_VERSION} != ${LATEST_COMMON_VERSION} ]; then
+        echo "Expected version ${LATEST_COMMON_VERSION} on site ${SITE_UNDER_TEST}, actual version is ${DEPLOYED_VERSION}";
+        exit 1
+      fi
