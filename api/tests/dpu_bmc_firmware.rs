@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     net::IpAddr,
+    net::SocketAddr,
     str::FromStr,
     sync::{Arc, Mutex},
 };
@@ -524,21 +525,22 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 }
 /// EndpointExplorer which returns predefined data
 struct FakeEndpointExplorer {
-    reports:
-        Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
+    reports: Arc<
+        Mutex<HashMap<SocketAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>,
+    >,
 }
 
 #[async_trait::async_trait]
 impl EndpointExplorer for FakeEndpointExplorer {
     async fn explore_endpoint(
         &self,
-        address: &IpAddr,
+        address: SocketAddr,
         _interface: &MachineInterface,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {address} is getting explored");
         let guard = self.reports.lock().unwrap();
-        let res = guard.get(address).unwrap();
+        let res = guard.get(&address).unwrap();
         res.clone()
     }
 }

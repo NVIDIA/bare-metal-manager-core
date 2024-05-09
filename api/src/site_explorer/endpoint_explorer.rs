@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::IpAddr;
+use std::net::SocketAddr;
 
 use crate::{
     db::machine_interface::MachineInterface,
@@ -27,7 +27,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
     /// a previous exploration.
     async fn explore_endpoint(
         &self,
-        address: &IpAddr,
+        address: SocketAddr,
         interface: &MachineInterface,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
