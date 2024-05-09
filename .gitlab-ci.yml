@@ -459,10 +459,10 @@ build-container-forge-cli-x86_64:
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
       variables:
-        DEPLOY_BUILT_CONTAINER: "true"
+        KANIKO_NO_PUSH: "false"
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
       variables:
-        DEPLOY_BUILT_CONTAINER: "false"
+        KANIKO_NO_PUSH: "true"
 
 build-container-forge-cli-aarch64:
   stage: build
@@ -497,10 +497,10 @@ build-container-forge-cli-aarch64:
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
       variables:
-        DEPLOY_BUILT_CONTAINER: "true"
+        KANIKO_NO_PUSH: "false"
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
       variables:
-        DEPLOY_BUILT_CONTAINER: "false"
+        KANIKO_NO_PUSH: "true"
 
 merge-manifests-forge-cli:
   stage: build
@@ -531,11 +531,8 @@ merge-manifests-forge-cli:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
-      variables:
-        DEPLOY_BUILT_CONTAINER: "true"
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-      variables:
-        DEPLOY_BUILT_CONTAINER: "false"
+      when: never
 
 # Copy the final multi-arch container to urm for use in QA automation
 copy-forge-admin-cli-to-urm:
@@ -564,11 +561,8 @@ copy-forge-admin-cli-to-urm:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
-      variables:
-        DEPLOY_BUILT_CONTAINER: "true"
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-      variables:
-        DEPLOY_BUILT_CONTAINER: "false"
+      when: never
 
 
 #
