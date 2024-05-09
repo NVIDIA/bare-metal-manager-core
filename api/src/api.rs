@@ -69,7 +69,6 @@ use crate::model::tenant::{
     UpdateTenantKeyset,
 };
 use crate::model::RpcDataConversionError;
-use crate::resource_pool;
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
 use crate::{
@@ -101,6 +100,7 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use crate::{host_power_control, ip_finder};
+use crate::{resource_pool, site_explorer};
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -5219,7 +5219,7 @@ where
                 ("".to_string(), vendor)
             } else {
                 // For pre-discovery machines we use the TLS cert
-                self.identify_bmc_from_cert(&request.address).await?
+                site_explorer::identify_bmc(&request.address).await?
             };
 
         let resp = rpc::IdentifyBmcResponse {
@@ -5591,61 +5591,6 @@ where
             }
         }
         Ok(None)
-    }
-
-    async fn identify_bmc_from_cert(
-        &self,
-        address: &str,
-    ) -> Result<(String, BMCVendor), tonic::Status> {
-        let url = if address.starts_with("https") {
-            address.to_string()
-        } else {
-            format!("https://{address}")
-        };
-
-        let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .use_rustls_tls()
-            .tls_info(true)
-            .timeout(Duration::from_secs(2))
-            .https_only(true)
-            .build()
-            .map_err(|err| {
-                Status::internal(format!("HTTP error building client for {url}: {err}"))
-            })?;
-        let response = client
-            .head(&url)
-            .send()
-            .await
-            .map_err(|err| Status::internal(format!("HTTP error HEAD {url}: {err}")))?;
-
-        let tls_info = response
-            .extensions()
-            .get::<reqwest::tls::TlsInfo>()
-            .unwrap();
-        let Some(cert) = tls_info.peer_certificate() else {
-            return Err(Status::unavailable(format!(
-                "{url} did not return a TLS certificate"
-            )));
-        };
-        let Ok((_, certificate)) = x509_parser::parse_x509_certificate(cert) else {
-            return Err(Status::internal(format!(
-                "{url} returned an invalid x509 cert"
-            )));
-        };
-        let mut organization = None;
-        for rdn in certificate.issuer().iter_organization() {
-            if let Ok(org_name) = rdn.as_str() {
-                organization = Some(org_name);
-                break;
-            }
-        }
-        match organization {
-            None => Err(Status::internal(format!(
-                "TLS cert for {url} did not contain an Organization field"
-            ))),
-            Some(org) => Ok((org.to_string(), BMCVendor::from_tls_issuer(org))),
-        }
     }
 }
 

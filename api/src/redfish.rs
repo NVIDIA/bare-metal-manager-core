@@ -37,6 +37,8 @@ pub enum RedfishClientCreationError {
     SubtaskError(tokio::task::JoinError),
     #[error("Not implemeted")]
     NotImplemented,
+    #[error(transparent)]
+    IdentifyError(#[from] crate::site_explorer::IdentifyError),
 }
 
 /// Allows to create Redfish clients for a certain Redfish BMC endpoint

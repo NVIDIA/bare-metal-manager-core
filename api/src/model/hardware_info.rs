@@ -680,6 +680,7 @@ impl HardwareInfo {
     }
 }
 
+// Should match admin/src/cfg/carbide_options.rs
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BMCVendor {
     Lenovo,
@@ -744,6 +745,10 @@ impl BMCVendor {
     }
     pub fn is_unknown(self) -> bool {
         self == BMCVendor::Unknown
+    }
+
+    pub fn is_dpu(self) -> bool {
+        self.is_mellanox()
     }
 }
 
