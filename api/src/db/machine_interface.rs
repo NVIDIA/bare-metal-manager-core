@@ -34,7 +34,7 @@ use crate::{CarbideError, CarbideResult};
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MachineInterface {
     pub id: uuid::Uuid,
     attached_dpu_machine_id: Option<MachineId>,

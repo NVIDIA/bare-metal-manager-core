@@ -312,8 +312,7 @@ pub enum EndpointExplorationError {
     #[error("Unauthorized: {details}")]
     #[serde(rename_all = "PascalCase")]
     Unauthorized { details: String },
-    /// Credentials for the Host are not available
-    #[error("Credentials for the Host are not available")]
+    #[error("Credentials for the machine are not available")]
     MissingCredentials,
     /// An error which is not further detailed
     #[error("Error: {details}")]
