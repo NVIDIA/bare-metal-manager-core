@@ -21,10 +21,10 @@ function update_git() {
     --project-id "${FORGED_PROJECT_ID}" --source-branch "${FORGED_BRANCH}" --target-branch main --title "${FORGED_COMMIT_MSG}" \
     --remove-source-branch true --squash true | cut -d " " -f 2)"
 
-  echo "Waiting up to 1 min for MR & CI to be ready..."
+  echo "Waiting up to 2 mins for MR & CI to be ready..."
   MERGE_STATUS_CMD="gitlab --server-url \"${GITLAB_SERVER_URL_NO_PORT}\" --private-token \"${FORGED_PROJECT_ACCESS_TOKEN}\" --verbose project-merge-request list \
     --project-id \"${FORGED_PROJECT_ID}\" --iid \"${MR_IID}\" | grep detailed-merge-status | awk -F ' ' '{print \$2}'"
-  timeout=$((SECONDS + 60))
+  timeout=$((SECONDS + 120))
   while true; do
     if [[ $SECONDS -ge $timeout ]]; then echo "Error: Timeout waiting for MR to be ready"; exit 1; fi
     status=$(eval "${MERGE_STATUS_CMD}")
