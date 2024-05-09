@@ -212,7 +212,7 @@ write_files:
       hwclock --systohc
       /usr/bin/systemctl daemon-reload
       /usr/bin/bfcfg
-      curl -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
+      ip vrf exec mgmt curl -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
 {% if update_firmware == "true" %}
       systemctl start ntp
       /opt/forge/run-scout.sh
