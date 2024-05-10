@@ -106,7 +106,7 @@ write_files:
       ${CMD_PREFIX} resolvectl flush-caches
       ${CMD_PREFIX} systemd-resolve --flush-caches
       done
-      ${CMD_PREFIX} curl -v -o --retry 5 --retry-all-errors /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
+      ${CMD_PREFIX} curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
       echo "downloaded forge root cert"
       chmod a+x /opt/forge/forge-scout
       echo "starting forge-scout"
