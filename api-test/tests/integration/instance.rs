@@ -113,8 +113,6 @@ pub fn release(addr: SocketAddr, host_machine_id: &str, instance_id: &str) -> ey
 
     tracing::info!("Instance with ID {instance_id} is released");
 
-    // TODO: Cycle through the remaining cleanup states
-
     Ok(())
 }
 

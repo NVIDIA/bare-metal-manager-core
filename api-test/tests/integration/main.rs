@@ -195,10 +195,21 @@ async fn test_integration() -> eyre::Result<()> {
 
     let metrics = metrics::wait_for_metric_line(carbide_metrics_addr, r#"forge_machines_per_state{fresh="true",state="waitingforcleanup",substate="hostcleanup"} 1"#).await?;
     metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
+
+    machine::cleanup_completed(carbide_api_addr, &host_machine_id)?;
+    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Discovered")?;
+
+    // It stays in Discovered until we notify that reboot happened, which this test doesn't
+    let metrics = metrics::wait_for_metric_line(
+        carbide_metrics_addr,
+        r#"forge_machines_per_state{fresh="true",state="hostnotready",substate="discovered"} 1"#,
+    )
+    .await?;
     metrics::assert_not_metric_line(
         &metrics,
         r#"forge_machines_per_state{fresh="true",state="assigned""#,
     );
+
     // Explicitly test that the histogram for `forge_reboot_attempts_in_booting_with_discovery_image_bucket`
     // uses the custom buckets we defined for retries/attempts
     for &(bucket, count) in &[(0, 0), (1, 1), (2, 1), (3, 1), (5, 1), (10, 1)] {

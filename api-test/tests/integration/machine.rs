@@ -59,3 +59,12 @@ pub fn get_firmware_version(api_addr: SocketAddr, machine_id: &str) -> eyre::Res
         .to_owned();
     Ok(firmware_version)
 }
+
+pub fn cleanup_completed(addr: SocketAddr, machine_id: &str) -> eyre::Result<()> {
+    let data = serde_json::json!({
+        "machine_id": {"id": machine_id},
+        "result": 0,
+    });
+    let _ = grpcurl(addr, "CleanupMachineCompleted", Some(data))?;
+    Ok(())
+}
