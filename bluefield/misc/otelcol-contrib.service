@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenTelemetry Collector Contrib
+Documentation=https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/journaldreceiver
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+ExecStart=/usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml
+KillMode=mixed
+Restart=always
+RestartSec=5
+
+Type=simple
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
