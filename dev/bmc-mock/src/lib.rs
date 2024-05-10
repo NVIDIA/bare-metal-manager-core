@@ -41,9 +41,18 @@ pub fn default_router(state: BmcState) -> Router {
     Router::new()
         .route(rf!(""), get(get_root))
         .route(rf!("Managers/"), get(get_manager_id))
+        .route(rf!("Managers/:manager_id"), get(get_manager))
         .route(
             rf!("Managers/:manager_id/Attributes"), // no slash at end
             patch(update_manager_attributes),
+        )
+        .route(
+            rf!("Managers/:manager_id/EthernetInterfaces"),
+            get(get_manager_ethernet_interface_ids),
+        )
+        .route(
+            rf!("Managers/:manager_id/EthernetInterfaces/:id"),
+            get(get_manager_ethernet_interface),
         )
         .route(rf!("Managers/:manager_id/Oem/Dell/DellAttributes/:manager_id"),
             patch(update_manager_attributes_long),
@@ -55,6 +64,8 @@ pub fn default_router(state: BmcState) -> Router {
             post(delete_job_queue),
         )
         .route(rf!("Systems/"), get(get_system_id))
+        .route(rf!("Systems/:manager_id"), get(get_system))
+        .route(rf!("Systems/:manager_id/"), get(get_system))
         .route(
             rf!("Systems/:manager_id/Bios/Settings/"),
             patch(set_bios_attribute),
@@ -64,6 +75,20 @@ pub fn default_router(state: BmcState) -> Router {
             post(set_system_power),
         )
         .route(rf!("Systems/:manager_id/Bios"), get(get_bios))
+        .route(
+            rf!("Systems/:manager_id/EthernetInterfaces"),
+            get(get_system_ethernet_interface_ids),
+        )
+        .route(
+            rf!("Systems/:manager_id/EthernetInterfaces/:id"),
+            get(get_system_ethernet_interface),
+        )
+        .route(rf!("Chassis/"), get(get_chassis_id))
+        .route(rf!("Chassis/:id"), get(get_chassis))
+        .route(rf!("Chassis/:id/NetworkAdapters"), get(get_chassis_network_adapter_ids))
+        .route(rf!("Chassis/:id/NetworkAdapters/:nic_id"), get(get_chassis_network_adapter))
+        .route(rf!("UpdateService/FirmwareInventory"), get(firmware_inventory))
+        .route(rf!("UpdateService/FirmwareInventory/:id"), get(firmware_inventory_item))
         .with_state(state)
 }
 
@@ -149,6 +174,16 @@ async fn get_manager_id() -> impl IntoResponse {
     };
 
     (StatusCode::OK, Json(managers))
+}
+
+async fn get_manager() -> impl IntoResponse {
+    let out = include_str!("../manager.json");
+    out
+}
+
+async fn get_system() -> impl IntoResponse {
+    let out = include_str!("../system.json");
+    out
 }
 
 async fn update_manager_attributes(
@@ -242,4 +277,114 @@ async fn set_system_power(
             StatusCode::INTERNAL_SERVER_ERROR
         }
     }
+}
+
+async fn get_chassis_id() -> impl IntoResponse {
+    let data = r##"
+    {
+        "@odata.context": "/redfish/v1/$metadata#ChassisCollection.ChassisCollection",
+        "@odata.id": "/redfish/v1/Chassis",
+        "@odata.type": "#ChassisCollection.ChassisCollection",
+        "Description": "Collection of Chassis",
+        "Members": [
+            {
+                "@odata.id": "/redfish/v1/Chassis/System.Embedded.1"
+            }
+        ],
+        "Members@odata.count": 1,
+        "Name": "Chassis Collection"
+    }
+    "##;
+    let headers = [(axum::http::header::CONTENT_TYPE, "application/json")];
+    (headers, data)
+}
+
+async fn firmware_inventory() -> impl IntoResponse {
+    let out = include_str!("../firmware_inventory.json");
+    out
+}
+
+async fn firmware_inventory_item() -> impl IntoResponse {
+    let out = include_str!("../firmware_nic_dpu.json");
+    out
+}
+
+async fn get_manager_ethernet_interface_ids() -> impl IntoResponse {
+    let data = r##"
+{
+    "@odata.context": "/redfish/v1/$metadata#EthernetInterfaceCollection.EthernetInterfaceCollection",
+    "@odata.id": "/redfish/v1/Managers/iDRAC.Embedded.1/EthernetInterfaces",
+    "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
+    "Description": "Collection of EthernetInterfaces for this Manager",
+    "Members": [
+        {
+            "@odata.id": "/redfish/v1/Managers/iDRAC.Embedded.1/EthernetInterfaces/NIC.1"
+        }
+    ],
+    "Members@odata.count": 1,
+    "Name": "Ethernet Network Interface Collection"
+}
+    "##;
+    let headers = [(axum::http::header::CONTENT_TYPE, "application/json")];
+    (headers, data)
+}
+
+async fn get_system_ethernet_interface_ids() -> impl IntoResponse {
+    let data = r##"
+{
+    "@odata.context": "/redfish/v1/$metadata#EthernetInterfaceCollection.EthernetInterfaceCollection",
+    "@odata.id": "/redfish/v1/Systems/System.Embedded.1/EthernetInterfaces",
+    "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
+    "Description": "Collection of Ethernet Interfaces for this System",
+    "Members": [
+        {
+            "@odata.id": "/redfish/v1/Systems/System.Embedded.1/EthernetInterfaces/NIC.Slot.5-1"
+        }
+    ],
+    "Members@odata.count": 1,
+    "Name": "System Ethernet Interface Collection"
+}
+    "##;
+    let headers = [(axum::http::header::CONTENT_TYPE, "application/json")];
+    (headers, data)
+}
+
+async fn get_manager_ethernet_interface() -> impl IntoResponse {
+    let out = include_str!("../manager_eth_nic1.json");
+    out
+}
+
+async fn get_system_ethernet_interface() -> impl IntoResponse {
+    let out = include_str!("../system_eth_dpu.json");
+    out
+}
+
+async fn get_chassis() -> impl IntoResponse {
+    let out = include_str!("../chassis.json");
+    out
+}
+
+async fn get_chassis_network_adapter_ids() -> impl IntoResponse {
+    let data = r##"
+{
+    "@odata.context": "/redfish/v1/$metadata#NetworkAdapterCollection.NetworkAdapterCollection",
+    "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters",
+    "@odata.type": "#NetworkAdapterCollection.NetworkAdapterCollection",
+    "Description": "Collection Of Network Adapter",
+    "Members": [
+        {
+            "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5"
+        }
+    ],
+    "Members@odata.count": 1,
+    "Name": "Network Adapter Collection"
+}
+"##;
+    let headers = [(axum::http::header::CONTENT_TYPE, "application/json")];
+    (headers, data)
+}
+
+async fn get_chassis_network_adapter() -> impl IntoResponse {
+    let out = include_str!("../chassis_eth_dpu.json");
+    out
 }

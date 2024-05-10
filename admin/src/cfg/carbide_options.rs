@@ -1077,8 +1077,8 @@ pub enum SiteExplorer {
 
 #[derive(Parser, Debug)]
 pub struct ExploreOptions {
-    #[clap(help = "BMC IP address with optional port")]
-    pub address: std::net::SocketAddr,
+    #[clap(help = "BMC IP address or hostname with optional port")]
+    pub address: String,
 }
 
 #[derive(Parser, Debug)]
