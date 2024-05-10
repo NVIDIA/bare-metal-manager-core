@@ -589,7 +589,7 @@ async fn main() -> color_eyre::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&exploration_report)?);
             }
             SiteExplorer::Explore(opts) => {
-                let report = rpc::explore(api_config, opts.address).await?;
+                let report = rpc::explore(api_config, &opts.address).await?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
             }
         },

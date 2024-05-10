@@ -11,7 +11,7 @@
  */
 
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -3337,11 +3337,18 @@ where
     ) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
         log_request_data(&request);
         let req = request.into_inner();
+        let address = if req.address.contains(':') {
+            req.address.clone()
+        } else {
+            format!("{}:443", req.address)
+        };
 
-        let Ok(bmc_addr) = std::net::SocketAddr::from_str(&req.address) else {
-            return Err(tonic::Status::invalid_argument(
-                "'address' must be a valid socket address in format IPv4[:port]",
-            ));
+        let mut addrs = address.to_socket_addrs()?;
+        let Some(bmc_addr) = addrs.next() else {
+            return Err(tonic::Status::invalid_argument(format!(
+                "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
+                req.address
+            )));
         };
 
         let explorer =

@@ -1,0 +1,13 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#SoftwareInventoryCollection.SoftwareInventoryCollection",
+    "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory",
+    "@odata.type": "#SoftwareInventoryCollection.SoftwareInventoryCollection",
+    "Description": "Collection of Firmware Inventory",
+    "Members": [
+        {
+            "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/Installed-0-24.34.10.02__NIC.Slot.5-1"
+        }
+    ],
+    "Members@odata.count": 1,
+    "Name": "Firmware Inventory Collection"
+}

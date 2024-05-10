@@ -1,0 +1,88 @@
+{
+    "@odata.context": "/redfish/v1/$metadata#NetworkAdapter.NetworkAdapter",
+    "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5",
+    "@odata.type": "#NetworkAdapter.v1_7_0.NetworkAdapter",
+    "Assembly": {
+        "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5/Assembly"
+    },
+    "Controllers": [
+        {
+            "ControllerCapabilities": {
+                "DataCenterBridging": {
+                    "Capable": true
+                },
+                "NPAR": {
+                    "NparCapable": false,
+                    "NparEnabled": false
+                },
+                "NPIV": {
+                    "MaxDeviceLogins": 0,
+                    "MaxPortLogins": 0
+                },
+                "NetworkDeviceFunctionCount": 2,
+                "NetworkPortCount": 1,
+                "VirtualizationOffload": {
+                    "SRIOV": {
+                        "SRIOVVEPACapable": false
+                    },
+                    "VirtualFunction": {
+                        "DeviceMaxCount": 254,
+                        "MinAssignmentGroupSize": 8,
+                        "NetworkPortMaxCount": 127
+                    }
+                }
+            },
+            "FirmwarePackageVersion": "24.34.10.02",
+            "Links": {
+                "NetworkDeviceFunctions": [
+                    {
+                        "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5/NetworkDeviceFunctions/NIC.Slot.5-1"
+                    },
+                    {
+                        "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5/NetworkDeviceFunctions/NIC.Slot.5-2"
+                    }
+                ],
+                "NetworkDeviceFunctions@odata.count": 2,
+                "NetworkPorts": [
+                    {
+                        "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5/NetworkPorts/NIC.Slot.5-1"
+                    },
+                    {
+                        "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5/NetworkPorts/NIC.Slot.5-2"
+                    }
+                ],
+                "NetworkPorts@odata.count": 2,
+                "Oem": {
+                    "Dell": {
+                        "@odata.type": "#DellOem.v1_3_0.DellOemLinks",
+                        "CPUAffinity": [
+                            {
+                                "@odata.id": "/redfish/v1/Systems/System.Embedded.1/Processors/CPU.Socket.2"
+                            }
+                        ],
+                        "CPUAffinity@odata.count": 1
+                    }
+                }
+            }
+        }
+    ],
+    "Controllers@odata.count": 1,
+    "Description": "Network Adapter View",
+    "Id": "NIC.Slot.5",
+    "Manufacturer": "Mellanox Technologies",
+    "Model": "BlueField-2 SmartNIC Main Card",
+    "Name": "Network Adapter View",
+    "NetworkDeviceFunctions": {
+        "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5/NetworkDeviceFunctions"
+    },
+    "NetworkPorts": {
+        "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5/NetworkPorts"
+    },
+    "PartNumber": "MBF2H5",
+    "SerialNumber": "MT2242XZ00PC                 ",
+    "Status": {
+        "Health": null,
+        "HealthRollup": null,
+        "State": "Enabled"
+    }
+}

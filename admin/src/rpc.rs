@@ -827,7 +827,7 @@ pub async fn get_site_exploration_report(
 
 pub async fn explore(
     api_config: &ApiConfig<'_>,
-    address: std::net::SocketAddr,
+    address: &str,
 ) -> CarbideCliResult<::rpc::site_explorer::EndpointExplorationReport> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::ExploreRequest {
