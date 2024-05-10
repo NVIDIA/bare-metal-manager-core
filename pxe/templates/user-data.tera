@@ -221,9 +221,7 @@ write_files:
       systemctl start ntp@mgmt
       /usr/bin/mlxprivhost -d /dev/mst/mt*_pciconf0 r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner
       bash -c '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1'
-      set +e
-      dpkg -i /opt/forge/forge-dpu.deb || true
-      set -e
+      dpkg -i /opt/forge/forge-dpu.deb
       mkdir -p /etc/apt/sources.list.d
       bash -c 'echo "deb [trusted=yes] {{ pxe_url }}/public/blobs/internal/apt/ focal main" > /etc/apt/sources.list.d/forge.list'
       chmod +x /opt/forge/doca_container_configs/scripts/hbn-dpu-setup.sh
