@@ -311,7 +311,7 @@ pub fn get_managed_host_output(
                         &network_device_map,
                     ) {
                         if let Some(dpu_bmc_ip) = &attached_dpu.bmc_ip {
-                            if let Some(host_bmc_ip) = &attached_dpu.bmc_ip {
+                            if let Some(host_bmc_ip) = &managed_host_output.host_bmc_ip {
                                 if let Some(site_host_bmc_ip) = managed_host_map.get(dpu_bmc_ip) {
                                     if host_bmc_ip != site_host_bmc_ip {
                                         // If somehow these both ips are different, display error.
