@@ -106,8 +106,6 @@ write_files:
       ${CMD_PREFIX} resolvectl flush-caches
       ${CMD_PREFIX} systemd-resolve --flush-caches
       done
-      ${CMD_PREFIX} curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
-      echo "downloaded forge root cert"
       chmod a+x /opt/forge/forge-scout
       echo "starting forge-scout"
       ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log 2>&1
@@ -216,8 +214,12 @@ write_files:
       /usr/bin/bfcfg
 {% if update_firmware == "true" %}
       systemctl start ntp
+      curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
+      echo "downloaded forge root cert"
       /opt/forge/run-scout.sh
 {% else %}
+      ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem {{ pxe_url }}/api/v0/tls/root_ca
+      echo "downloaded forge root cert"
       systemctl start ntp@mgmt
       /usr/bin/mlxprivhost -d /dev/mst/mt*_pciconf0 r --disable_rshim --disable_tracer --disable_counter_rd --disable_port_owner
       bash -c '/usr/bin/mlxconfig -y -d /dev/mst/mt*_pciconf0 s SRIOV_EN=True NUM_OF_VFS=16 HIDE_PORT2_PF=True NUM_OF_PF=1'
