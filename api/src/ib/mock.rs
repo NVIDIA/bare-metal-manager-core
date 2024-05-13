@@ -17,7 +17,7 @@ use async_trait::async_trait;
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBPortState};
-use super::{IBFabric, IBFabricVersions};
+use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct MockIBFabric {
@@ -27,6 +27,10 @@ pub struct MockIBFabric {
 
 #[async_trait]
 impl IBFabric for MockIBFabric {
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
+        Ok(IBFabricConfig::default())
+    }
+
     /// Delete IBNetwork
     async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError> {
         let mut ibsubnets = self
