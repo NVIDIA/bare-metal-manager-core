@@ -27,7 +27,6 @@ use super::{DatabaseError, ObjectFilter};
 use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
-use crate::human_hash;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::{BMCVendor, HardwareInfo, MachineInventory};
@@ -512,10 +511,6 @@ impl Machine {
                 .await?
                 .pop(),
         )
-    }
-
-    pub fn generate_hostname_from_uuid(uuid: &uuid::Uuid) -> String {
-        human_hash::humanize(uuid, 2)
     }
 
     pub async fn find_existing_machine(

@@ -69,6 +69,8 @@ enabled = false
 run_interval = "100s"
 explorations_per_run = 11
 create_machines = true
+override_target_ip = "1.2.3.4"
+override_target_port = 10443
 
 # Unit is mandatory
 [machine_state_controller]

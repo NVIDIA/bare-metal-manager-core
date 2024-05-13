@@ -51,7 +51,6 @@ pub mod db;
 pub mod db_init;
 mod dhcp;
 pub mod ethernet_virtualization;
-mod human_hash;
 pub mod ib;
 pub mod ib_fabric_monitor;
 pub mod instance;
