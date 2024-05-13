@@ -12,4 +12,9 @@ if [ "$1" = "configure" ]; then
 	systemctl enable local_bmc_dev.service
 	systemctl enable forge-dpu-agent.service
 	systemctl enable otelcol-contrib.service
+
+	# Do not depend on starting services now, as this package is installed early in setup
+	# and should not hang or cause out of order steps in discovery workflows. The discovery
+	# workflow will reboot shortly after this package is installed, so it is best to rely
+	# on the reboot process to start the services enabled above.
 fi
