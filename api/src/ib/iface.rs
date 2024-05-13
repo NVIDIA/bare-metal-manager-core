@@ -28,6 +28,20 @@ pub struct IBFabricVersions {
     pub ufm_version: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IBFabricConfig {
+    /// The subnet_prefix of UFM
+    pub subnet_prefix: String,
+    /// The m_key of UFM
+    pub m_key: String,
+    /// The sm_key of UFM
+    pub sm_key: String,
+    /// The sa_key of UFM
+    pub sa_key: String,
+    /// The m_key_per_port of UFM
+    pub m_key_per_port: bool,
+}
+
 #[async_trait]
 pub trait IBFabricManager: Send + Sync {
     async fn connect(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError>;
@@ -36,6 +50,9 @@ pub trait IBFabricManager: Send + Sync {
 
 #[async_trait]
 pub trait IBFabric: Send + Sync {
+    /// Get fabric configuration
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError>;
+
     /// Delete IBNetwork
     async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError>;
 

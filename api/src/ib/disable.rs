@@ -14,13 +14,20 @@ use async_trait::async_trait;
 
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort};
-use super::{IBFabric, IBFabricVersions};
+use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct DisableIBFabric {}
 
 #[async_trait]
 impl IBFabric for DisableIBFabric {
+    /// Get fabric configuration.
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
+        Err(CarbideError::IBFabricError(
+            "ib fabric is disabled".to_string(),
+        ))
+    }
+
     /// Delete IBNetwork
     async fn delete_ib_network(&self, _: &str) -> Result<(), CarbideError> {
         Err(CarbideError::IBFabricError(

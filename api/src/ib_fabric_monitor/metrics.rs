@@ -37,6 +37,16 @@ pub struct FabricMetrics {
     pub fabric_error: String,
     /// UFM version
     pub ufm_version: String,
+    /// The subnet_prefix of UFM
+    pub subnet_prefix: String,
+    /// The m_key of UFM
+    pub m_key: String,
+    /// The sm_key of UFM
+    pub sm_key: String,
+    /// The sa_key of UFM
+    pub sa_key: String,
+    /// The m_key_per_port of UFM
+    pub m_key_per_port: bool,
 }
 
 impl IbFabricMonitorMetrics {

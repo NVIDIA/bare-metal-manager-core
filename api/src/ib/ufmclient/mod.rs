@@ -22,6 +22,20 @@ use self::rest::{RestClient, RestClientConfig, RestError, RestScheme};
 mod rest;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SmConfig {
+    /// The subnet_prefix of openSM
+    pub subnet_prefix: String,
+    /// The m_key of openSM
+    pub m_key: String,
+    /// The sm_key of openSM
+    pub sm_key: String,
+    /// The sa_key of openSM
+    pub sa_key: String,
+    /// The m_key_per_port of openSM
+    pub m_key_per_port: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PartitionQoS {
     // Default 2k; one of 2k or 4k; the MTU of the services.
     pub mtu_limit: u16,
@@ -240,6 +254,13 @@ pub fn connect(conf: UFMConfig) -> Result<Ufm, UFMError> {
 }
 
 impl Ufm {
+    pub async fn get_sm_config(&self) -> Result<SmConfig, UFMError> {
+        let path = String::from("/app/smconf");
+        let sm_config: SmConfig = self.client.get(&path).await?;
+
+        Ok(sm_config)
+    }
+
     pub async fn bind_ports(&self, p: Partition, ports: Vec<PortConfig>) -> Result<(), UFMError> {
         let path = String::from("/resources/pkeys");
 

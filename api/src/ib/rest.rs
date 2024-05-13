@@ -17,10 +17,10 @@ use async_trait::async_trait;
 use super::iface::Filter;
 use super::types::{IBNetwork, IBPort, IBNETWORK_DEFAULT_INDEX0, IBNETWORK_DEFAULT_MEMBERSHIP};
 use super::ufmclient::{
-    self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, UFMConfig,
-    UFMError, Ufm,
+    self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
+    UFMConfig, UFMError, Ufm,
 };
-use super::{IBFabric, IBFabricVersions};
+use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;
 
 pub struct RestIBFabric {
@@ -45,6 +45,14 @@ pub async fn connect(addr: &str, token: &str) -> Result<Arc<dyn IBFabric>, Carbi
 
 #[async_trait]
 impl IBFabric for RestIBFabric {
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
+        self.ufm
+            .get_sm_config()
+            .await
+            .map(IBFabricConfig::from)
+            .map_err(CarbideError::from)
+    }
+
     /// Delete IBNetwork
     async fn delete_ib_network(&self, pkey: &str) -> Result<(), CarbideError> {
         self.ufm
@@ -119,6 +127,18 @@ impl From<UFMError> for CarbideError {
         match e {
             UFMError::NotFound(id) => CarbideError::NotFoundError { kind: "", id },
             _ => CarbideError::IBFabricError(e.to_string()),
+        }
+    }
+}
+
+impl From<SmConfig> for IBFabricConfig {
+    fn from(c: SmConfig) -> Self {
+        Self {
+            subnet_prefix: c.subnet_prefix.clone(),
+            m_key: c.m_key.clone(),
+            sm_key: c.sm_key.clone(),
+            sa_key: c.sa_key.clone(),
+            m_key_per_port: c.m_key_per_port,
         }
     }
 }
