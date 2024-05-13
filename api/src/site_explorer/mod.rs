@@ -95,6 +95,8 @@ impl SiteExplorer {
             concurrent_explorations: 0,
             explorations_per_run: 0,
             create_machines: false,
+            override_target_ip: None,
+            override_target_port: None,
         });
 
         // We want to hold metrics for longer than the iteration interval, so there is continuity
@@ -757,7 +759,8 @@ impl SiteExplorer {
         for (address, iface, old_report) in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
             let concurrency_limiter = concurrency_limiter.clone();
-
+            let bmc_target_port = self.config.override_target_port.unwrap_or(443);
+            let bmc_target_address = self.config.override_target_ip.unwrap_or(address);
             let _abort_handle = task_set.spawn(
                 async move {
                     let start = std::time::Instant::now();
@@ -774,7 +777,7 @@ impl SiteExplorer {
 
                     let mut result = endpoint_explorer
                         .explore_endpoint(
-                            SocketAddr::new(address, 443),
+                            SocketAddr::new(bmc_target_address, bmc_target_port),
                             &iface,
                             old_report.as_ref().map(|report| &report.1),
                         )

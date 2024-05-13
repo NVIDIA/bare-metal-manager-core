@@ -58,6 +58,8 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
+        override_target_ip: None,
+        override_target_port: None,
     };
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
@@ -160,6 +162,8 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
+        override_target_ip: None,
+        override_target_port: None,
     };
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
@@ -262,6 +266,8 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
+        override_target_ip: None,
+        override_target_port: None,
     };
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();

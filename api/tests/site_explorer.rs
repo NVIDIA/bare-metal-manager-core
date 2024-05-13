@@ -254,6 +254,8 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
+        override_target_ip: None,
+        override_target_port: None,
     };
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
@@ -573,6 +575,8 @@ async fn test_site_explorer_creates_managed_host(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: true,
+        override_target_ip: None,
+        override_target_port: None,
     };
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();

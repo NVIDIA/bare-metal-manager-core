@@ -2341,6 +2341,7 @@ async fn lockdown_host(
             error: e,
         })?;
 
+    tracing::info!("Forcing restart");
     handler_host_power_control(
         machine_snapshot,
         services,

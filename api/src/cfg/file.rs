@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Display};
 
@@ -449,6 +449,14 @@ pub struct SiteExplorerConfig {
     #[serde(default)]
     /// Whether SiteExplorer should create Managed Host state machine
     pub create_machines: bool,
+
+    /// The IP address to connect to instead of the BMC that made the dhcp request.
+    /// This is a debug override and should not be used in production.
+    pub override_target_ip: Option<IpAddr>,
+
+    /// The port to connect to for redfish requests.
+    /// This is a debug override and should not be used in production.
+    pub override_target_port: Option<u16>,
 }
 
 impl SiteExplorerConfig {
@@ -1022,6 +1030,8 @@ mod tests {
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: true,
+                override_target_ip: None,
+                override_target_port: None,
             }
         );
         assert_eq!(
@@ -1140,7 +1150,9 @@ mod tests {
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 5,
                 explorations_per_run: 11,
-                create_machines: true
+                create_machines: true,
+                override_target_ip: Some("1.2.3.4".to_owned().parse::<IpAddr>().unwrap()),
+                override_target_port: Some(10443),
             }
         );
 
@@ -1262,6 +1274,8 @@ mod tests {
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: true,
+                override_target_ip: Some("1.2.3.4".to_owned().parse::<IpAddr>().unwrap()),
+                override_target_port: Some(10443),
             }
         );
 
