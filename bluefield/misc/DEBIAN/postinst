@@ -12,6 +12,4 @@ if [ "$1" = "configure" ]; then
 	systemctl enable local_bmc_dev.service
 	systemctl enable forge-dpu-agent.service
 	systemctl enable otelcol-contrib.service
-	systemctl start forge-dpu-agent
-	systemctl start otelcol-contrib
 fi
