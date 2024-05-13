@@ -566,28 +566,67 @@ pub enum DpuModel {
 pub enum DpuComponent {
     Bmc,
     Uefi,
+    Cec,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DpuComponentUpdate {
+    /// Component update version
+    /// None - can be used to force update
+    /// Value - apply update in case current component version less than requested
+    #[serde(default)]
+    pub version: Option<String>,
+
+    /// Component update binary path
+    #[serde(default)]
+    pub path: String,
 }
 
 pub fn default_dpu_models() -> HashMap<DpuModel, DpuDesc> {
     HashMap::from([
-        (DpuModel::BlueField2, DpuDesc::default()),
-        (DpuModel::BlueField3, DpuDesc::default()),
+        (
+            DpuModel::BlueField2,
+            DpuDesc {
+                ..Default::default()
+            },
+        ),
+        (
+            DpuModel::BlueField3,
+            DpuDesc {
+                ..Default::default()
+            },
+        ),
     ])
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DpuDesc {
-    #[serde(default)]
+    /// Minimul supported component version
+    /// Stop processing with visible error in case version does not meet requirements
+    #[serde(default = "DpuDesc::min_component_version_default")]
     pub min_component_version: HashMap<DpuComponent, String>,
+
+    /// Update specific component during provisioning
+    /// in case version does not meet requirements
+    #[serde(default)]
+    pub component_update: Option<HashMap<DpuComponent, DpuComponentUpdate>>,
+}
+
+
+impl DpuDesc {
+    pub fn min_component_version_default() -> HashMap<DpuComponent, String> {
+        HashMap::from([
+            (DpuComponent::Bmc, "23.07".to_string()),
+            (DpuComponent::Uefi, "4.2".to_string()),
+        ])
+    }
 }
 
 impl Default for DpuDesc {
     fn default() -> Self {
         Self {
-            min_component_version: HashMap::from([
-                (DpuComponent::Bmc, "23.07".to_string()),
-                (DpuComponent::Uefi, "4.2".to_string()),
-            ]),
+            min_component_version: Self::min_component_version_default(),
+            component_update: None,
         }
     }
 }
@@ -797,6 +836,7 @@ mod tests {
                 (DpuComponent::Bmc, "x1.y1.z1".to_string()),
                 (DpuComponent::Uefi, "x2.y2.z2".to_string()),
             ]),
+            ..Default::default()
         };
 
         let value_json = serde_json::to_string(&value_input).unwrap();
@@ -813,6 +853,7 @@ mod tests {
                 min_component_version: HashMap::from(
                     [(DpuComponent::Bmc, "x1.y1.z1".to_string()),]
                 ),
+                ..Default::default()
             }
         );
 
@@ -843,6 +884,7 @@ mod tests {
             assert_eq!(config.asn, 123);
             assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
             assert_eq!(config.dpu_models, default_dpu_models());
+            assert_eq!(2, config.dpu_models.keys().len());
             Ok(())
         });
 
@@ -875,7 +917,18 @@ mod tests {
                         (DpuComponent::Bmc, "23.10".to_string()),
                         (DpuComponent::Uefi, "4.5".to_string()),
                     ]),
+                    ..Default::default()
                 }
+            );
+            assert_eq!(
+                true,
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField2)
+                    .unwrap()
+                    .clone()
+                    .component_update
+                    .is_none()
             );
             Ok(())
         });
@@ -913,6 +966,7 @@ mod tests {
                         (DpuComponent::Bmc, "23.10".to_string()),
                         (DpuComponent::Uefi, "4.5".to_string()),
                     ]),
+                    ..Default::default()
                 }
             );
             assert!(config.dpu_models.contains_key(&DpuModel::BlueField3));
@@ -927,6 +981,68 @@ mod tests {
                         (DpuComponent::Bmc, "23.07".to_string()),
                         (DpuComponent::Uefi, "4.2".to_string()),
                     ]),
+                    ..Default::default()
+                }
+            );
+            assert_eq!(
+                true,
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField2)
+                    .unwrap()
+                    .clone()
+                    .component_update
+                    .is_none()
+            );
+            Ok(())
+        });
+
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "Test.toml",
+                r#"
+                database_url="postgres://a:b@postgresql"
+                listen="[::]:1081"
+                asn=123
+                [dpu_models.bluefield2]
+                component_update.bmc = { "version" = '23.10', "path" = '/tmp/bf2-bmc.fwpkg'}
+                component_update.cec = { "path" = '/tmp/bf2-cec.fwpkg'}
+            "#,
+            )?;
+            let config: CarbideConfig = Figment::new()
+                .merge(Toml::file("Test.toml"))
+                .extract()
+                .unwrap();
+
+            assert_eq!(1, config.dpu_models.keys().len());
+            assert!(config.dpu_models.contains_key(&DpuModel::BlueField2));
+            assert_eq!(
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField2)
+                    .unwrap()
+                    .clone(),
+                DpuDesc {
+                    min_component_version: HashMap::from([
+                        (DpuComponent::Bmc, "23.07".to_string()),
+                        (DpuComponent::Uefi, "4.2".to_string()),
+                    ]),
+                    component_update: Some(HashMap::from([
+                        (
+                            DpuComponent::Bmc,
+                            DpuComponentUpdate {
+                                version: Some("23.10".to_string()),
+                                path: "/tmp/bf2-bmc.fwpkg".to_string(),
+                            }
+                        ),
+                        (
+                            DpuComponent::Cec,
+                            DpuComponentUpdate {
+                                version: None,
+                                path: "/tmp/bf2-cec.fwpkg".to_string(),
+                            }
+                        ),
+                    ])),
                 }
             );
             Ok(())
