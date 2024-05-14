@@ -1,4 +1,10 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use crate::{
     config::MachineATronContext,
@@ -7,11 +13,7 @@ use crate::{
     tui::{Tui, UiEvent},
 };
 
-use tokio::{
-    select,
-    sync::mpsc::{channel, Sender},
-};
-use uuid::Uuid;
+use tokio::sync::mpsc::channel;
 
 #[derive(PartialEq, Eq)]
 pub enum AppEvent {
@@ -20,96 +22,74 @@ pub enum AppEvent {
 
 pub struct MachineATron {
     app_context: MachineATronContext,
-    dhcp_client: DhcpRelayClient,
-    machines: HashMap<Uuid, HostMachine>,
-    mat_id_index: HashMap<Uuid, Uuid>,
 }
 
 impl MachineATron {
-    pub fn new(app_context: MachineATronContext, dhcp_client: DhcpRelayClient) -> Self {
-        let mut machines = HashMap::default();
-        let mut mat_id_index = HashMap::default();
-
-        for (config_name, config) in app_context.app_config.machines.iter() {
-            tracing::info!("Constructing machines for config {}", config_name);
-            for _ in 0..config.host_count {
-                let m = HostMachine::new(app_context.clone(), config.clone());
-                mat_id_index.insert(m.mat_id, m.mat_id);
-                mat_id_index.insert(m.bmc_mat_id, m.mat_id);
-                for d in m.dpu_machines.iter() {
-                    mat_id_index.insert(d.mat_id, m.mat_id);
-                    mat_id_index.insert(d.bmc_mat_id, m.mat_id);
-                }
-                machines.insert(m.mat_id, m);
-            }
-        }
-        Self {
-            app_context,
-            dhcp_client,
-            machines,
-            mat_id_index,
-        }
+    pub fn new(app_context: MachineATronContext) -> Self {
+        Self { app_context }
     }
 
-    async fn process_machines(&mut self, ui_tx: &mut Sender<UiEvent>) {
-        for (_id, machine) in self.machines.iter_mut() {
-            let machine_changed = machine.process_state(&mut self.dhcp_client).await;
-            if machine_changed && self.app_context.app_config.tui_enabled {
-                ui_tx
-                    .send(UiEvent::MachineUpdate(machine.clone()))
-                    .await
-                    .unwrap();
-            }
-        }
-    }
-
-    pub async fn run(&mut self) {
-        let mut running = true;
-        let (mut ui_tx, ui_rx) = channel(5000);
+    pub async fn run(&mut self, dhcp_client: &mut DhcpRelayClient) {
+        let running = Arc::new(AtomicBool::new(true));
         let (app_tx, mut app_rx) = channel(5000);
 
-        let tui_handle = if self.app_context.app_config.tui_enabled {
+        let (tui_handle, ui_event_tx) = if self.app_context.app_config.tui_enabled {
+            let (ui_tx, ui_rx) = channel(5000);
+
             let tui_handle = Some(tokio::spawn(async {
                 let mut tui = Tui::new(ui_rx, app_tx);
                 tui.run().await;
             }));
-            for (_id, m) in self.machines.iter() {
-                ui_tx.send(UiEvent::MachineUpdate(m.clone())).await.unwrap();
-            }
-            tui_handle
+            (tui_handle, Some(ui_tx))
         } else {
-            None
+            (None, None)
         };
 
-        let mut dhcp_client = self.dhcp_client.clone();
+        let mut machine_handles = Vec::default();
 
-        while running && !tui_handle.as_ref().is_some_and(|t| t.is_finished()) {
-            select! {
-                _ = tokio::time::sleep(Duration::from_millis(200)) => {
-                    self.process_machines(&mut ui_tx).await;
-                 },
-                msg = app_rx.recv() => {
-                    if let Some(AppEvent::Quit) = msg {
-                        tracing::info!("quit");
-                        ui_tx.try_send(UiEvent::Quit).unwrap();
-                        running = false;
-                   }
-                }
-                dhcp_response_info = dhcp_client.receive_ip() => {
-                    if let Some(mat_id) = self.mat_id_index.get(&dhcp_response_info.mat_id) {
-                        if let Some(machine) = self.machines.get_mut(mat_id) {
-                            machine.update_dhcp_info(dhcp_response_info);
+        for (config_name, config) in self.app_context.app_config.machines.iter() {
+            tracing::info!("Constructing machines for config {}", config_name);
+            for _ in 0..config.host_count {
+                let running = running.clone();
+                let app_context = self.app_context.clone();
+                let mut dhcp_client_clone = dhcp_client.clone();
+                let mut machine =
+                    HostMachine::new(app_context, config.clone(), ui_event_tx.clone());
+
+                let join_handle = tokio::spawn(async move {
+                    while running.as_ref().load(Ordering::Relaxed) {
+                        if machine.process_state(&mut dhcp_client_clone).await {
+                            tokio::time::sleep(Duration::from_secs(5)).await;
                         } else {
-                            tracing::warn!("No machin for {}", mat_id);
+                            tokio::time::sleep(Duration::from_secs(30)).await;
                         }
-                    } else {
-                        tracing::warn!("No index entry for {}", dhcp_response_info.mat_id);
                     }
+                });
+                machine_handles.push(join_handle);
+            }
+        }
+        tracing::info!("Machine construction complete");
+
+        while running.as_ref().load(Ordering::Relaxed)
+            && !tui_handle.as_ref().is_some_and(|t| t.is_finished())
+        {
+            if let Some(msg) = app_rx.recv().await {
+                if msg == AppEvent::Quit {
+                    tracing::info!("quit");
+                    running.store(false, Ordering::Relaxed);
                 }
             }
         }
 
+        for m in machine_handles {
+            if let Err(e) = m.await {
+                tracing::warn!("Failed to clean up machine task: {e}");
+            }
+        }
         if let Some(tui_handle) = tui_handle {
+            if let Some(ui_event_tx) = ui_event_tx.as_ref() {
+                ui_event_tx.try_send(UiEvent::Quit).unwrap();
+            }
             tui_handle.await.unwrap();
         }
         tracing::info!("machine-a-tron finished");

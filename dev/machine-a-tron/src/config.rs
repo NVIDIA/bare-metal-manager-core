@@ -1,14 +1,13 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     net::Ipv4Addr,
-    sync::Arc,
+    sync::{atomic::AtomicU16, Arc},
 };
 
 use clap::Parser;
 
 use rpc::forge_tls_client::ForgeClientConfig;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "machine-sim")]
@@ -42,6 +41,7 @@ pub struct MachineConfig {
     pub boot_delay: u32,
     pub template_dir: String,
     pub dpu_bmc_redfish_template_dir: String,
+    pub host_bmc_redfish_template_dir: String,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
 }
@@ -52,12 +52,14 @@ pub struct MachineATronConfig {
     pub machines: BTreeMap<String, MachineConfig>,
     pub carbide_api_url: Option<String>,
     pub log_file: Option<String>,
-    pub bmc_port: Option<u16>,
     pub interface: String,
     pub tui_enabled: bool,
 
     pub use_dhcp_api: bool,
     pub dhcp_server_address: String,
+
+    pub bmc_ip: String,
+    pub bmc_starting_port: u16,
 }
 
 #[derive(Clone, Debug)]
@@ -65,5 +67,6 @@ pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
     pub forge_client_config: ForgeClientConfig,
     pub circuit_id: Option<String>,
-    pub bmc_response_map: Arc<Mutex<HashMap<String, String>>>,
+    pub next_bmc_port: Arc<AtomicU16>,
+    //pub bmc_response_map: Arc<Mutex<HashMap<String, String>>>,
 }

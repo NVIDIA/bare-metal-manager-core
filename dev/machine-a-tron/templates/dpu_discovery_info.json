@@ -41,6 +41,27 @@
     "firmware_version": "24.35.2000",
     "part_description": "BlueField-2 P-Series DPU 100GbE Dual-Port QSFP56; integrated BMC; PCIe Gen4 x16; Secure Boot Enabled; Crypto Enabled; 32GB on-board DDR; 1GbE OOB management; FHHL",
     "factory_mac_address": "00:11:22:33:44:66",
-    "switches": []
+    "switches": [{
+      "name": "Switch 1",
+      "id": "ID 1",
+      "description": "Description",
+      "local_port": "oob_net0",
+      "ip_address": ["1.2.3.4"],
+      "remote_port": "port 1"
+    },{
+      "name": "Switch 2",
+      "id": "ID 2",
+      "description": "Description",
+      "local_port": "p0",
+      "ip_address": ["2.2.3.4"],
+      "remote_port": "port 2"
+    },{
+      "name": "Switch 3",
+      "id": "ID 2",
+      "description": "Description",
+      "local_port": "p1",
+      "ip_address": ["3.2.3.4"],
+      "remote_port": "port 3"
+    }]
   }
 }

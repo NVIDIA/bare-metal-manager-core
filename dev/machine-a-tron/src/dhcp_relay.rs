@@ -3,10 +3,7 @@ use std::{
     fmt::Debug,
     net::{Ipv4Addr, SocketAddrV4},
     str::FromStr,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
 
@@ -19,10 +16,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::UdpSocket,
     select,
-    sync::{
-        mpsc::{channel, Receiver, Sender},
-        Mutex,
-    },
+    sync::mpsc::{channel, Receiver, Sender},
 };
 use uuid::Uuid;
 
@@ -32,17 +26,16 @@ use crate::{api_client, config::MachineATronContext, MachineATronConfig};
 static NEXT_XID: AtomicU32 = AtomicU32::new(1000);
 
 pub struct DhcpRelayService {
+    last_dhcp_request: Instant,
     app_context: MachineATronContext,
     app_config: MachineATronConfig,
     request_tx: Sender<RequestType>,
     request_rx: Receiver<RequestType>,
-    response_tx: Sender<DhcpResponseInfo>,
 }
 
 #[derive(Clone)]
 pub struct DhcpRelayClient {
     request_tx: Sender<RequestType>,
-    response_rx: Arc<Mutex<Receiver<DhcpResponseInfo>>>,
 }
 
 impl Debug for DhcpRelayClient {
@@ -54,7 +47,9 @@ impl Debug for DhcpRelayClient {
 impl DhcpRelayClient {
     pub async fn stop_service(&mut self) {
         let rt = RequestType::Quit;
-        self.request_tx.send(rt).await.unwrap();
+        if self.request_tx.send(rt).await.is_err() {
+            tracing::warn!("Failed to shutdown dhcp relay service");
+        }
     }
 
     pub async fn request_ip(
@@ -64,7 +59,7 @@ impl DhcpRelayClient {
         relay_address: &Ipv4Addr,
         class_identifier: &str,
         template_dir: String,
-        segment_id: Option<Uuid>,
+        response_tx: tokio::sync::oneshot::Sender<Option<DhcpResponseInfo>>,
     ) {
         tracing::debug!("requesting ip for mac: {}", mac_address);
 
@@ -78,16 +73,13 @@ impl DhcpRelayClient {
             start: Instant::now(),
             xid: None,
             template_dir,
-            segment_id,
+            segment_id: None,
+            response_tx,
         });
 
-        self.request_tx.send(rt).await.unwrap();
-    }
-
-    pub async fn receive_ip(&mut self) -> DhcpResponseInfo {
-        tracing::debug!("waiting for ip");
-        let mut response_rx = self.response_rx.lock().await;
-        response_rx.recv().await.unwrap()
+        if self.request_tx.send(rt).await.is_err() {
+            tracing::warn!("Failed to send dhcp request to relay service");
+        }
     }
 }
 
@@ -98,7 +90,7 @@ enum RequestType {
     Quit,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct DhcpRequestInfo {
     mat_id: Uuid,
     mac_address: MacAddress,
@@ -111,6 +103,8 @@ struct DhcpRequestInfo {
 
     template_dir: String,
     segment_id: Option<Uuid>,
+
+    response_tx: tokio::sync::oneshot::Sender<Option<DhcpResponseInfo>>,
 }
 
 #[derive(Clone, Debug)]
@@ -132,18 +126,16 @@ impl DhcpRelayService {
         app_config: MachineATronConfig,
     ) -> (DhcpRelayClient, Self) {
         let (request_tx, request_rx) = channel(5000);
-        let (response_tx, response_rx) = channel(5000);
         (
             DhcpRelayClient {
                 request_tx: request_tx.clone(),
-                response_rx: Arc::new(Mutex::new(response_rx)),
             },
             DhcpRelayService {
+                last_dhcp_request: Instant::now(),
                 app_context,
                 app_config,
                 request_tx,
                 request_rx,
-                response_tx,
             },
         )
     }
@@ -190,6 +182,11 @@ impl DhcpRelayService {
                             running = false;
                         }
                         Some(request_info) => {
+                            if self.last_dhcp_request.elapsed() < Duration::from_millis(500) {
+                                tokio::time::sleep(Duration::from_millis(400)).await;
+                            }
+                            self.last_dhcp_request = Instant::now();
+
                             if self.app_config.use_dhcp_api {
                                 if let RequestType::Request(request_info) = request_info {
                                     self.fake_dhcp_request(request_info).await;
@@ -207,7 +204,8 @@ impl DhcpRelayService {
     }
 
     async fn fake_dhcp_request(&mut self, request_info: DhcpRequestInfo) {
-        let dhcp_record = api_client::discover_dhcp(
+        tracing::info!("requesting IP for {}", request_info.mat_id);
+        let Ok(dhcp_record) = api_client::discover_dhcp(
             &self.app_context,
             request_info.mac_address.to_string(),
             request_info.template_dir,
@@ -215,7 +213,13 @@ impl DhcpRelayService {
             None,
         )
         .await
-        .unwrap();
+        else {
+            tracing::warn!("discover_dhcp failed");
+            if request_info.response_tx.send(None).is_err() {
+                tracing::warn!("Failed to send dhcp response");
+            }
+            return;
+        };
 
         tracing::info!(
             "dhcp request for {} through relay {} got address {} (machine id {:?})",
@@ -249,7 +253,9 @@ impl DhcpRelayService {
             segment_id,
         };
 
-        self.response_tx.send(response_info).await.unwrap();
+        if request_info.response_tx.send(Some(response_info)).is_err() {
+            tracing::warn!("Failed to send dhcp response");
+        }
     }
 
     async fn handle_request_message(
@@ -270,7 +276,10 @@ impl DhcpRelayService {
                 }
             }
             RequestType::Response(response_info) => {
-                self.response_tx.try_send(response_info).unwrap();
+                let request_info = requests.remove(&response_info.mat_id).unwrap();
+                if request_info.response_tx.send(Some(response_info)).is_err() {
+                    tracing::warn!("Failed to send dhcp response");
+                }
             }
             RequestType::Quit => {
                 return false;
@@ -296,7 +305,7 @@ impl DhcpRelayService {
             return;
         };
 
-        let Some(request) = requests.get(&mat_id) else {
+        let Some(request) = requests.remove(&mat_id) else {
             tracing::warn!("Ignoring unexpected dhcp message");
             return;
         };
@@ -330,8 +339,11 @@ impl DhcpRelayService {
                         xid: None,
                         template_dir: String::default(), //temporary work-around
                         segment_id: request.segment_id,
+                        response_tx: request.response_tx,
                     });
-                    request_tx.send(request_info).await.unwrap();
+                    if request_tx.send(request_info).await.is_err() {
+                        tracing::warn!("Failed to send dhcp request");
+                    }
                 }
                 MessageType::Ack => {
                     tracing::info!("Ack Received from {}", server_address);
@@ -372,7 +384,9 @@ impl DhcpRelayService {
                         subnet,
                         segment_id: request.segment_id,
                     });
-                    request_tx.send(request_info).await.unwrap();
+                    if request_tx.send(request_info).await.is_err() {
+                        tracing::warn!("Failed to send dhcp ack");
+                    }
                     requests.remove(&mat_id);
                 }
                 _ => todo!(),
