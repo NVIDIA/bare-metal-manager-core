@@ -1,62 +1,9 @@
 use mac_address::MacAddress;
+use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
 
 use crate::{api_client, config::MachineATronContext};
 
 use std::sync::atomic::{AtomicU32, Ordering};
-/*
-#[derive(Clone)]
-pub struct MacAddr {
-    mac_addr: [u8; 6],
-}
-
-impl MacAddr {
-    pub fn as_slice(&self) -> &[u8] {
-    }
-}
-
-impl FromIterator<u8> for MacAddr {
-    fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
-
-        MacAddr { mac_addr:  <[u8;6]>::try_from(iter.into_iter()).expect("Failed to parse u8 slice")}
-    }
-}
-
-impl ToString for MacAddr {
-    fn to_string(&self) -> String {
-        format!(
-            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            self.mac_addr[0],
-            self.mac_addr[1],
-            self.mac_addr[2],
-            self.mac_addr[3],
-            self.mac_addr[4],
-            self.mac_addr[5],
-        )
-    }
-}
-
-impl Debug for MacAddr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
-    }
-}
-
-impl FromStr for MacAddr {
-    type Err = ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        (0..s.len())
-        .step_by(3)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect()
-    }
-}
-
-#[test]
-fn mac_addr_to_string() {
-    let expected =
-}
-*/
 
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 
@@ -79,53 +26,67 @@ pub async fn get_fac_action(
 ) -> rpc::forge::forge_agent_control_response::Action {
     let response = api_client::forge_agent_control(app_context, machine_id.clone())
         .await
-        .unwrap();
-    let action =
-        rpc::forge::forge_agent_control_response::Action::try_from(response.action).unwrap();
+        .unwrap_or_else(|e| {
+            tracing::warn!("Error getting control action: {e}");
+            ForgeAgentControlResponse {
+                action: Action::Noop as i32,
+            }
+        });
 
-    tracing::info!("{}: control action: {}", machine_id, action.as_str_name());
-
-    action
+    rpc::forge::forge_agent_control_response::Action::try_from(response.action).unwrap()
 }
 
 pub async fn reboot_requested(
     app_context: &MachineATronContext,
     machine_id: &rpc::forge::MachineId,
 ) -> bool {
-    let machine = api_client::get_machine(app_context, machine_id.clone())
-        .await
-        .unwrap();
+    let Ok(machine) = api_client::get_machine(app_context, machine_id.clone()).await else {
+        tracing::warn!("get_machine failed");
+        return false;
+    };
 
-    let mut reboot_requested = false;
+    machine.map(reboot_requested_for_machine).unwrap_or(false)
+}
 
-    if let Some(m) = machine {
-        if let Some(last_reboot_requested_time) = m.last_reboot_requested_time {
-            if let Some(last_reboot_time) = m.last_reboot_time {
-                let last_reboot_requested_time =
-                    chrono::DateTime::try_from(last_reboot_requested_time).unwrap();
-                let last_reboot_time = chrono::DateTime::try_from(last_reboot_time).unwrap();
+pub fn reboot_requested_for_machine(machine: rpc::forge::Machine) -> bool {
+    let mut rr = false;
+    if let Some(last_reboot_requested_time) = machine.last_reboot_requested_time {
+        if let Some(last_reboot_time) = machine.last_reboot_time {
+            let last_reboot_requested_time =
+                chrono::DateTime::try_from(last_reboot_requested_time).unwrap();
+            let last_reboot_time = chrono::DateTime::try_from(last_reboot_time).unwrap();
 
-                reboot_requested = last_reboot_requested_time > last_reboot_time;
-            }
+            rr = last_reboot_requested_time > last_reboot_time;
         }
     }
-    if reboot_requested {
-        tracing::info!("reboot requested for {}", machine_id,);
+    if rr {
+        tracing::info!(
+            "reboot requested for {}",
+            machine.id.as_ref().map_or("", |id| { id.id.as_str() })
+        );
     }
-    reboot_requested
+    rr
 }
 
 pub async fn get_api_state(
     app_context: &MachineATronContext,
     machine_id: &rpc::forge::MachineId,
-) -> String {
-    let machine = api_client::get_machine(app_context, machine_id.clone())
+) -> (String, bool) {
+    api_client::get_machine(app_context, machine_id.clone())
         .await
-        .unwrap();
-
-    if let Some(m) = machine {
-        m.state
-    } else {
-        "".to_owned()
-    }
+        .map_or_else(
+            |e| {
+                tracing::warn!("Error getting API state: {e}");
+                ("<ERROR>".to_owned(), false)
+            },
+            |machine| {
+                if let Some(m) = machine {
+                    let state = m.state.clone();
+                    let rr = reboot_requested_for_machine(m);
+                    (state, rr)
+                } else {
+                    ("<No Machine>".to_owned(), false)
+                }
+            },
+        )
 }

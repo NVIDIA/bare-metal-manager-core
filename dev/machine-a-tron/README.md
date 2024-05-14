@@ -29,5 +29,16 @@ Options:
 ```
 
 ## OMG Panics Everywhere
+Yes, this uses `unwrap()` and `expect()` all over the place.  As a result, it is a happy path only kind of tool.  This is on my list of things to fix.
 
-Yes, this uses `unwrap()` and `expect()` all over the place.  As a result is a happy path only kind of tool.  This is on my list of things to fix.
+## High Level Code Organization
+In order to separate work and hopefully avoid bottlenecks, the code runs different systems in tasks using channels for communication between them.
+The following are broken into tasks:
+* dhcp_relay - a service that tries to simulate a dhcp relay working on behalf of a machine.  The API sees the request as if it was sent from a relay
+and responses accordingly.  The API requires DHCP reqeusts come from a relay and I had trouble getting the actual relay in the dev environment
+to work correctly.  Requests are made through the client object and passed a one-shot channel for the response (avoiding a lookup to find the machine for a response).
+* tui - a service that handles the UI (when enabled). It simply handles user input (up and down arrows, esc, and q only) as well as receives status updates for display.
+* machine-a-tron - the application level that starts all the services and waits for the UI to tell it to stop.
+* host_machine - each host gets a task that runs through states and making API requests.  periodically sends status updates to the UI and runs the DPU states owned by the host.
+* bmc - runs a bmc-mock that responds to redfish calls using templates in the configured directory
+

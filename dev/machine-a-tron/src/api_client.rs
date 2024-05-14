@@ -153,8 +153,8 @@ pub async fn update_bmc_metadata(
     template_dir: &str,
     machine_type: MachineType,
     machine_id: rpc::MachineId,
+    bmc_host_and_port: Option<String>,
 ) -> ClientApiResult<rpc::forge::BmcMetaDataUpdateResponse> {
-    let machine_id = Some(machine_id);
     let md_request_string = if machine_type == MachineType::Dpu {
         std::fs::read_to_string(format!("{}/dpu_metadata_update.json", template_dir))
             .expect("Unable to read dpu_metadata_update.json")
@@ -163,16 +163,20 @@ pub async fn update_bmc_metadata(
             .expect("Unable to read dpu_metadata_update.json")
     };
 
-    let default_data: rpc::forge::BmcMetaDataUpdateRequest =
+    let mut default_data: rpc::forge::BmcMetaDataUpdateRequest =
         serde_json::from_str(&md_request_string)
             .expect("metadata_update json does not have correct format.");
 
+    default_data.machine_id = Some(machine_id);
+
+    default_data.bmc_info = Some(rpc::forge::BmcInfo {
+        ip: bmc_host_and_port,
+        ..Default::default()
+    });
+
     with_forge_client(app_context, |mut client| async move {
         let out = client
-            .update_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataUpdateRequest {
-                machine_id,
-                ..default_data
-            }))
+            .update_bmc_meta_data(tonic::Request::new(default_data))
             .await
             .map(|response| response.into_inner())
             .map_err(ClientApiError::InvocationError)?;
