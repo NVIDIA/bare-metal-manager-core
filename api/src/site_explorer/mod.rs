@@ -332,7 +332,7 @@ impl SiteExplorer {
         if let Some(dpu_model) = dpu_report.identify_dpu() {
             if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
                 let dpu_component = DpuComponent::Bmc;
-                if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
+                if let Some(min_version) = dpu_desc.component_min_version.get(&dpu_component) {
                     if let Some(cur_version) = dpu_report.dpu_bmc_version() {
                         if version_compare::compare(&cur_version, min_version)
                             .is_ok_and(|c| c == version_compare::Cmp::Lt)
@@ -346,7 +346,7 @@ impl SiteExplorer {
                 }
 
                 let dpu_component = DpuComponent::Uefi;
-                if let Some(min_version) = dpu_desc.min_component_version.get(&dpu_component) {
+                if let Some(min_version) = dpu_desc.component_min_version.get(&dpu_component) {
                     if let Some(cur_version) = dpu_report.dpu_uefi_version() {
                         if version_compare::compare(&cur_version, min_version)
                             .is_ok_and(|c| c == version_compare::Cmp::Lt)

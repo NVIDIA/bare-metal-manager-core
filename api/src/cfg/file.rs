@@ -604,14 +604,13 @@ pub struct DpuDesc {
     /// Minimul supported component version
     /// Stop processing with visible error in case version does not meet requirements
     #[serde(default = "DpuDesc::min_component_version_default")]
-    pub min_component_version: HashMap<DpuComponent, String>,
+    pub component_min_version: HashMap<DpuComponent, String>,
 
     /// Update specific component during provisioning
     /// in case version does not meet requirements
     #[serde(default)]
     pub component_update: Option<HashMap<DpuComponent, DpuComponentUpdate>>,
 }
-
 
 impl DpuDesc {
     pub fn min_component_version_default() -> HashMap<DpuComponent, String> {
@@ -625,7 +624,7 @@ impl DpuDesc {
 impl Default for DpuDesc {
     fn default() -> Self {
         Self {
-            min_component_version: Self::min_component_version_default(),
+            component_min_version: Self::min_component_version_default(),
             component_update: None,
         }
     }
@@ -832,7 +831,7 @@ mod tests {
     #[test]
     fn deserialize_serialize_dpu_config() {
         let value_input = DpuDesc {
-            min_component_version: HashMap::from([
+            component_min_version: HashMap::from([
                 (DpuComponent::Bmc, "x1.y1.z1".to_string()),
                 (DpuComponent::Uefi, "x2.y2.z2".to_string()),
             ]),
@@ -844,13 +843,13 @@ mod tests {
 
         assert_eq!(value_output, value_input);
 
-        let value_json = r#"{"min_component_version": {"bmc": "x1.y1.z1"}}"#;
+        let value_json = r#"{"component_min_version": {"bmc": "x1.y1.z1"}}"#;
         let value_output: DpuDesc = serde_json::from_str(value_json).unwrap();
 
         assert_eq!(
             value_output,
             DpuDesc {
-                min_component_version: HashMap::from(
+                component_min_version: HashMap::from(
                     [(DpuComponent::Bmc, "x1.y1.z1".to_string()),]
                 ),
                 ..Default::default()
@@ -859,12 +858,12 @@ mod tests {
 
         let value_input = DpuDesc::default();
         assert!(value_input
-            .min_component_version
+            .component_min_version
             .contains_key(&DpuComponent::Bmc));
         assert!(value_input
-            .min_component_version
+            .component_min_version
             .contains_key(&DpuComponent::Uefi));
-        assert_eq!(2, value_input.min_component_version.keys().len());
+        assert_eq!(2, value_input.component_min_version.keys().len());
 
         figment::Jail::expect_with(|jail| {
             jail.create_file(
@@ -896,7 +895,7 @@ mod tests {
                 listen="[::]:1081"
                 asn=123
                 [dpu_models.bluefield2]
-                min_component_version = {"bmc" = "23.10", "uefi" = "4.5"}
+                component_min_version = {"bmc" = "23.10", "uefi" = "4.5"}
             "#,
             )?;
             let config: CarbideConfig = Figment::new()
@@ -913,7 +912,7 @@ mod tests {
                     .unwrap()
                     .clone(),
                 DpuDesc {
-                    min_component_version: HashMap::from([
+                    component_min_version: HashMap::from([
                         (DpuComponent::Bmc, "23.10".to_string()),
                         (DpuComponent::Uefi, "4.5".to_string()),
                     ]),
@@ -940,10 +939,10 @@ mod tests {
                 database_url="postgres://a:b@postgresql"
                 listen="[::]:1081"
                 asn=123
-                [dpu_models.bluefield2.min_component_version]
+                [dpu_models.bluefield2.component_min_version]
                 bmc = "23.10"
                 uefi = "4.5"
-                [dpu_models.bluefield3.min_component_version]
+                [dpu_models.bluefield3.component_min_version]
                 bmc = "23.07"
                 uefi = "4.2"
             "#,
@@ -962,7 +961,7 @@ mod tests {
                     .unwrap()
                     .clone(),
                 DpuDesc {
-                    min_component_version: HashMap::from([
+                    component_min_version: HashMap::from([
                         (DpuComponent::Bmc, "23.10".to_string()),
                         (DpuComponent::Uefi, "4.5".to_string()),
                     ]),
@@ -977,7 +976,7 @@ mod tests {
                     .unwrap()
                     .clone(),
                 DpuDesc {
-                    min_component_version: HashMap::from([
+                    component_min_version: HashMap::from([
                         (DpuComponent::Bmc, "23.07".to_string()),
                         (DpuComponent::Uefi, "4.2".to_string()),
                     ]),
@@ -1023,7 +1022,7 @@ mod tests {
                     .unwrap()
                     .clone(),
                 DpuDesc {
-                    min_component_version: HashMap::from([
+                    component_min_version: HashMap::from([
                         (DpuComponent::Bmc, "23.07".to_string()),
                         (DpuComponent::Uefi, "4.2".to_string()),
                     ]),
