@@ -19,7 +19,10 @@ use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use http::StatusCode;
 use libredfish::{
-    model::{service_root::ServiceRoot, task::Task},
+    model::{
+        service_root::{RedfishVendor, ServiceRoot},
+        task::Task,
+    },
     standard::RedfishStandard,
     Chassis, Endpoint, PowerState, Redfish, RedfishError, RoleId,
 };
@@ -120,10 +123,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPoolImpl<C> {
 
         // AMI seems very generic vendor name. So we should validate if host is reachable with
         // admin or not. If not, we can try to continue with root.
-        if service_root
-            .vendor()
-            .is_some_and(|x| x.to_uppercase() == "AMI")
-        {
+        if matches!(service_root.vendor(), Some(RedfishVendor::AMI)) {
             let endpoint = Endpoint {
                 host: host.to_string(),
                 port,
@@ -253,10 +253,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
                 .await
                 .map_err(RedfishClientCreationError::RedfishError)?;
 
-            if service_root
-                .vendor()
-                .is_some_and(|x| x.to_uppercase() == "AMI")
-            {
+            if matches!(service_root.vendor(), Some(RedfishVendor::AMI)) {
                 AMI_USERNAME.to_string()
             } else {
                 username
@@ -870,6 +867,13 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
     async fn set_forge_password_policy(&self) -> Result<(), RedfishError> {
+        todo!()
+    }
+    async fn update_firmware_multipart(
+        &self,
+        _: &std::path::Path,
+        _: bool,
+    ) -> Result<String, RedfishError> {
         todo!()
     }
 }

@@ -181,7 +181,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         };
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
-        let vendor = service_root.vendor();
+        let vendor = service_root.vendor_string();
 
         let manager = fetch_manager(client.as_ref())
             .await
