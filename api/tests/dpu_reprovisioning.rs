@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use carbide::cfg::default_dpu_models;
 use carbide::cfg::DpuFwUpdateConfig;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::db::machine_interface::MachineInterface;
@@ -171,6 +172,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -470,6 +472,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 
@@ -656,6 +659,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -956,6 +960,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -1281,6 +1286,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -1515,6 +1521,7 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 

@@ -15,7 +15,7 @@
 use std::net::IpAddr;
 
 use carbide::{
-    cfg::DpuFwUpdateConfig,
+    cfg::{default_dpu_models, DpuFwUpdateConfig},
     db::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
@@ -76,6 +76,7 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 
@@ -148,6 +149,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 
@@ -410,6 +412,7 @@ pub async fn create_dpu_machine_with_discovery_error(
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 

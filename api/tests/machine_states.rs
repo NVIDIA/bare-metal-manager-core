@@ -11,6 +11,7 @@
  */
 pub mod common;
 
+use carbide::cfg::default_dpu_models;
 use carbide::cfg::DpuFwUpdateConfig;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
@@ -162,6 +163,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -286,6 +288,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -335,6 +338,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -560,6 +564,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 

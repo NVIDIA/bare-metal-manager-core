@@ -22,7 +22,7 @@ use libredfish::{model::task::TaskState, PowerState, Redfish, SystemPowerControl
 use tokio::fs::File;
 
 use crate::{
-    cfg::DpuFwUpdateConfig,
+    cfg::{DpuComponent, DpuComponentUpdate, DpuDesc, DpuFwUpdateConfig, DpuModel},
     db::{
         bmc_metadata::UserRoles,
         ib_partition,
@@ -87,6 +87,7 @@ impl MachineStateHandler {
         dpu_nic_firmware_initial_update_enabled: bool,
         dpu_nic_firmware_reprovision_update_enabled: bool,
         dpu_fw_update_config: DpuFwUpdateConfig,
+        dpu_models: HashMap<DpuModel, DpuDesc>,
         reachability_params: ReachabilityParams,
     ) -> Self {
         MachineStateHandler {
@@ -95,6 +96,7 @@ impl MachineStateHandler {
             dpu_handler: DpuMachineStateHandler::new(
                 dpu_nic_firmware_initial_update_enabled,
                 dpu_fw_update_config,
+                dpu_models,
                 reachability_params,
             ),
             instance_handler: InstanceStateHandler::new(
@@ -724,6 +726,7 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
     dpu_firmware_update_config: DpuFwUpdateConfig,
+    dpu_models: HashMap<DpuModel, DpuDesc>,
     reachability_params: ReachabilityParams,
 }
 
@@ -731,12 +734,32 @@ impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
         dpu_firmware_update_config: DpuFwUpdateConfig,
+        dpu_models: HashMap<DpuModel, DpuDesc>,
         reachability_params: ReachabilityParams,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
             dpu_firmware_update_config,
+            dpu_models,
             reachability_params,
+        }
+    }
+    /// Return `DpuModel` if the explored endpoint is a DPU
+    pub fn identify_dpu(&self, state: &mut ManagedHostStateSnapshot) -> Option<DpuModel> {
+        let model = state
+            .dpu_snapshot
+            .hardware_info
+            .as_ref()
+            .and_then(|hi| {
+                hi.dpu_info
+                    .as_ref()
+                    .map(|di| di.part_description.to_string())
+            })
+            .unwrap_or("".to_string());
+        match model.to_lowercase() {
+            value if value.contains("bluefield 2") => Some(DpuModel::BlueField2),
+            value if value.contains("bluefield 3") => Some(DpuModel::BlueField3),
+            _ => Some(DpuModel::Unknown),
         }
     }
 
@@ -1092,6 +1115,16 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 }
 
+                let mut dpu_component_update: Option<&HashMap<DpuComponent, DpuComponentUpdate>> =
+                    None;
+                if let Some(dpu_model) = self.identify_dpu(state) {
+                    if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
+                        if dpu_desc.component_update.is_some() {
+                            dpu_component_update = dpu_desc.component_update.as_ref();
+                        }
+                    }
+                }
+
                 let model_description = state
                     .dpu_snapshot
                     .hardware_info
@@ -1099,7 +1132,9 @@ impl StateHandler for DpuMachineStateHandler {
                     .and_then(|hi| {
                         hi.dpu_info
                             .as_ref()
-                            .map(|di| di.part_description.to_lowercase())
+                            .map(|di: &crate::model::hardware_info::DpuData| {
+                                di.part_description.to_lowercase()
+                            })
                     })
                     .unwrap_or("bluefield 3".to_string());
 
@@ -1119,7 +1154,7 @@ impl StateHandler for DpuMachineStateHandler {
                         .dpu_bf3_bmc_firmware_update_version
                 };
 
-                if !fw_update_version.is_empty() {
+                if !fw_update_version.is_empty() || dpu_component_update.is_some() {
                     let bmc_inventory = FirmwareType::Bmc.get_inventory_name();
 
                     let latest_bmc_fw_version = fw_update_version.get(bmc_inventory);

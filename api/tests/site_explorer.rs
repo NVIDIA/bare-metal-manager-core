@@ -783,6 +783,7 @@ async fn test_site_explorer_creates_managed_host(
         true,
         true,
         DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())

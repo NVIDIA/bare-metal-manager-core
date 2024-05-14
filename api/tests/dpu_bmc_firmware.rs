@@ -421,6 +421,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             ]),
             firmware_location: ".".to_string(),
         },
+        default_dpu_models(),
         env.reachability_params,
     );
 
