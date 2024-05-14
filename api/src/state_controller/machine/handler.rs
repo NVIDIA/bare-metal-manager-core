@@ -1812,7 +1812,15 @@ impl StateHandler for InstanceStateHandler {
                         // Reboot host. Host will boot with carbide discovery image now. Changes
                         // are done in get_pxe_instructions api.
                         // User will loose all access to instance now.
-                        restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                        if let Err(err) =
+                            restart_machine(&state.host_snapshot, ctx.services, txn).await
+                        {
+                            // Fix: 4647451
+                            // No need to return if reboot fails. The managedhost will move to next
+                            // state (BootingWithDiscoveryImage) and recovery code will try to
+                            // reboot after certain time, if machine does not respond.
+                            tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
+                        }
 
                         let next_state = ManagedHostState::Assigned {
                             instance_state: InstanceState::BootingWithDiscoveryImage {
