@@ -14,6 +14,7 @@ use rand::Rng;
 use tokio::sync::RwLock;
 use vaultrs::api::pki::requests::GenerateCertificateRequest;
 use vaultrs::client::{VaultClient, VaultClientSettings, VaultClientSettingsBuilder};
+use vaultrs::error::ClientError;
 use vaultrs::{kv2, pki};
 
 use crate::certificates::{Certificate, CertificateProvider};
@@ -258,11 +259,11 @@ where
                         );
                     let auth_info = vault_response
                         .map_err(|err| {
-                            forge_vault_client
-                                .vault_metrics
-                                .vault_requests_failed_counter
-                                .add(1, &[KeyValue::new("request_type", "service_account_login")]);
-
+                            record_vault_client_error(
+                                &err,
+                                "service_account_login",
+                                &forge_vault_client.vault_metrics,
+                            );
                             err
                         })
                         .wrap_err("Failed to execute kubernetes service account login request")?;
@@ -372,13 +373,23 @@ impl VaultTask<Credentials> for GetCredentialsHelper {
         );
 
         let credentials = vault_response.map_err(|err| {
-            vault_metrics
-                .vault_requests_failed_counter
-                .add(1, &[KeyValue::new("request_type", "get_credentials")]);
-            tracing::error!(
-                "Error getting credentials ({}). Error: {err:?}",
-                self.key.to_key_str().as_str()
-            );
+            let status_code = record_vault_client_error(&err, "get_credentials", vault_metrics);
+            match status_code {
+                Some(404) => {
+                    // Not found errors are common and of no concern
+                    tracing::debug!(
+                        "Credentials not found for key ({})",
+                        self.key.to_key_str().as_str()
+                    );
+                }
+                _ => {
+                    tracing::error!(
+                        "Error getting credentials ({}). Error: {err:?}",
+                        self.key.to_key_str().as_str()
+                    );
+                }
+            }
+
             err
         })?;
 
@@ -387,6 +398,33 @@ impl VaultTask<Credentials> for GetCredentialsHelper {
             .add(1, &[KeyValue::new("request_type", "get_credentials")]);
         Ok(credentials)
     }
+}
+
+/// Tracks client errors if an invocation to a Vault server failed
+///
+/// Returns the status code of the HTTP request if available
+fn record_vault_client_error(
+    err: &ClientError,
+    request_type: &'static str,
+    vault_metrics: &ForgeVaultMetrics,
+) -> Option<u16> {
+    let status_code = match err {
+        ClientError::APIError { code, errors: _ } => Some(*code),
+        _ => None,
+    };
+
+    vault_metrics.vault_requests_failed_counter.add(
+        1,
+        &[
+            KeyValue::new("request_type", request_type),
+            KeyValue::new(
+                "http.response.status_code",
+                status_code.map(|code| code.to_string()).unwrap_or_default(),
+            ),
+        ],
+    );
+
+    status_code
 }
 
 pub struct SetCredentialsHelper {
@@ -421,9 +459,7 @@ impl VaultTask<()> for SetCredentialsHelper {
         );
 
         let _secret_version_metadata = vault_response.map_err(|err| {
-            vault_metrics
-                .vault_requests_failed_counter
-                .add(1, &[KeyValue::new("request_type", "set_credentials")]);
+            record_vault_client_error(&err, "set_credentials", vault_metrics);
             tracing::error!("Error setting credentials. Error: {err:?}");
             err
         })?;
@@ -525,9 +561,7 @@ where
         );
 
         let generate_certificate_response = vault_response.map_err(|err| {
-            vault_metrics
-                .vault_requests_failed_counter
-                .add(1, &[KeyValue::new("request_type", "get_certificate")]);
+            record_vault_client_error(&err, "get_certificate", vault_metrics);
             err
         })?;
 
