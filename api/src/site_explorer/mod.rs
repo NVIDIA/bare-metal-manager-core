@@ -19,6 +19,7 @@ use std::{
 };
 
 use config_version::ConfigVersion;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType};
 use mac_address::MacAddress;
 use sqlx::PgPool;
 use tokio::{sync::oneshot, task::JoinSet};
@@ -68,6 +69,7 @@ use self::metrics::{exploration_error_to_metric_label, SiteExplorationMetrics};
 /// * `max_concurrent_machine_updates` the maximum number of updates allowed across all modules
 /// * `machine_update_run_interval` how often the manager calls the modules to start updates
 pub struct SiteExplorer {
+    credential_provider: Arc<dyn CredentialProvider + 'static>,
     database_connection: PgPool,
     enabled: bool,
     config: SiteExplorerConfig,
@@ -83,6 +85,7 @@ impl SiteExplorer {
 
     /// Create a SiteExplorer with the default modules.
     pub fn new(
+        credential_provider: Arc<dyn CredentialProvider + 'static>,
         database_connection: sqlx::PgPool,
         config: Option<&SiteExplorerConfig>,
         dpu_models: &HashMap<DpuModel, DpuDesc>,
@@ -110,6 +113,7 @@ impl SiteExplorer {
         metric_holder.register_callback();
 
         SiteExplorer {
+            credential_provider,
             database_connection,
             enabled: explorer_config.enabled,
             config: explorer_config,
@@ -234,6 +238,8 @@ impl SiteExplorer {
     }
 
     async fn explore_site(&self, metrics: &mut SiteExplorationMetrics) -> CarbideResult<()> {
+        self.check_preconditions(metrics).await?;
+
         self.update_explored_endpoints(metrics).await?;
         // Note/TODO:
         // Since we generate the managed-host pair in a different transaction than endpoint discovery,
@@ -626,6 +632,58 @@ impl SiteExplorer {
             host_endpoints: explored_hosts,
             managed_hosts,
         })
+    }
+
+    /// Checks if all data that a site exploration run requires is actually configured
+    ///
+    /// Doing this upfront avoids the risk of trying to log into BMCs without
+    /// the necessary credentials - which could trigger a lockout.
+    async fn check_preconditions(&self, metrics: &mut SiteExplorationMetrics) -> CarbideResult<()> {
+        // Emit metrics for all potential misconfigurations before returning.
+        // That avoids finding more issues after fixing the first issue.
+        let mut errors = String::new();
+
+        for credential_key in &[
+            CredentialKey::DpuRedfish {
+                credential_type: CredentialType::DpuHardwareDefault,
+            },
+            CredentialKey::DpuRedfish {
+                credential_type: CredentialType::SiteDefault,
+            },
+            CredentialKey::HostRedfish {
+                credential_type: CredentialType::SiteDefault,
+            },
+        ] {
+            if let Err(e) = self
+                .credential_provider
+                .get_credentials(credential_key.clone())
+                .await
+            {
+                let credential_key_str = credential_key.to_key_str();
+
+                if !errors.is_empty() {
+                    errors.push('\n');
+                }
+                errors.push_str(&format!(
+                    "{:#}",
+                    e.wrap_err(format!(
+                        "Unable to load credentials for key: {}",
+                        credential_key_str
+                    )),
+                ));
+
+                *metrics
+                    .endpoint_explorations_failures_by_type
+                    .entry(format!("credentials_missing_{credential_key_str}"))
+                    .or_default() += 1;
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(CarbideError::GenericError(errors))
+        }
     }
 
     async fn update_explored_endpoints(
