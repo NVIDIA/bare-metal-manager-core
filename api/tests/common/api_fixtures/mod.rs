@@ -56,6 +56,7 @@ use carbide::{
     },
 };
 use chrono::Duration;
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
 use tonic::Request;
@@ -402,6 +403,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     let db_pool = create_pool(db_pool).await;
     let test_meter = TestMeter::default();
     let credential_provider = Arc::new(TestCredentialProvider::new());
+    populate_default_credentials(credential_provider.as_ref()).await;
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
@@ -473,6 +475,45 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
         test_meter,
     }
+}
+
+async fn populate_default_credentials(credential_provider: &dyn CredentialProvider) {
+    credential_provider
+        .set_credentials(
+            CredentialKey::DpuRedfish {
+                credential_type: CredentialType::DpuHardwareDefault,
+            },
+            Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "dpuredfish_dpuhardwaredefault".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+    credential_provider
+        .set_credentials(
+            CredentialKey::DpuRedfish {
+                credential_type: CredentialType::SiteDefault,
+            },
+            Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "dpuredfish_sitedefault".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+    credential_provider
+        .set_credentials(
+            CredentialKey::HostRedfish {
+                credential_type: CredentialType::SiteDefault,
+            },
+            Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "hostredfish_sitedefault".to_string(),
+            },
+        )
+        .await
+        .unwrap();
 }
 
 fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {

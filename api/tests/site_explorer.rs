@@ -260,6 +260,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
+        env.credential_provider.clone(),
         env.pool.clone(),
         Some(&explorer_config),
         &dpu_config,
@@ -581,6 +582,7 @@ async fn test_site_explorer_creates_managed_host(
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
+        env.credential_provider.clone(),
         env.pool.clone(),
         Some(&explorer_config),
         &dpu_config,
