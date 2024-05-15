@@ -7,7 +7,10 @@ use std::{
 };
 
 use carbide::{
-    cfg::{default_dpu_models, DpuFwUpdateConfig, SiteExplorerConfig},
+    cfg::{
+        default_dpu_models, DpuComponent, DpuComponentUpdate, DpuDesc, DpuFwUpdateConfig, DpuModel,
+        SiteExplorerConfig,
+    },
     db::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
@@ -421,7 +424,27 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             ]),
             firmware_location: ".".to_string(),
         },
-        default_dpu_models(),
+        HashMap::from([
+            (
+                DpuModel::BlueField2,
+                DpuDesc {
+                    ..Default::default()
+                },
+            ),
+            (
+                DpuModel::BlueField3,
+                DpuDesc {
+                    component_update: Some(HashMap::from([(
+                        DpuComponent::Bmc,
+                        DpuComponentUpdate {
+                            version: Some("23.10-5".to_string()),
+                            path: "./bf3-bmc.fwpkg".to_string(),
+                        },
+                    )])),
+                    ..Default::default()
+                },
+            ),
+        ]),
         env.reachability_params,
     );
 

@@ -1004,8 +1004,8 @@ mod tests {
                 listen="[::]:1081"
                 asn=123
                 [dpu_models.bluefield2]
-                component_update.bmc = { "version" = '23.10', "path" = '/tmp/bf2-bmc.fwpkg'}
-                component_update.cec = { "path" = '/tmp/bf2-cec.fwpkg'}
+                component_update.bmc = { "version" = '23.10', "path" = '/tmp/bf2-bmc.fwpkg' }
+                component_update.cec = { "path" = '/tmp/bf2-cec.fwpkg' }
             "#,
             )?;
             let config: CarbideConfig = Figment::new()

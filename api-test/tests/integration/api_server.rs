@@ -35,9 +35,6 @@ pub async fn start(
     let mut dpu_nic_firmware_update_versions = HashMap::new();
     dpu_nic_firmware_update_versions.insert("product_x".to_owned(), "v1".to_owned());
 
-    let mut dpu_bmc_firmware_update_versions = HashMap::new();
-    dpu_bmc_firmware_update_versions.insert("BMC_Firmware".to_owned(), "23.10-5".to_owned());
-
     let carbide_config = CarbideConfig {
         listen: addr,
         metrics_endpoint: Some("127.0.0.1:1080".parse().unwrap()),
