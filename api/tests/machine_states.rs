@@ -179,6 +179,93 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     ));
 }
 
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+
+    let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
+        machine_id: Some(rpc::MachineId {
+            id: host_machine_id.to_string(),
+        }),
+        nvme: Some(
+            rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
+                result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
+                message: "test nvme failure".to_string(),
+            },
+        ),
+        ram: None,
+        mem_overwrite: None,
+        ib: None,
+        result: 0,
+    });
+
+    env.api
+        .cleanup_machine_completed(clean_failed_req)
+        .await
+        .unwrap();
+
+    // let state machine check the failure condition.
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        DpuFwUpdateConfig::default(),
+        env.reachability_params,
+    );
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: carbide::model::machine::FailureCause::NVMECleanFailed { .. },
+                ..
+            },
+            ..
+        }
+    ));
+
+    // Now the host cleans up successfully.
+    let clean_succeeded_req = tonic::Request::new(rpc::MachineCleanupInfo {
+        machine_id: Some(rpc::MachineId {
+            id: host_machine_id.to_string(),
+        }),
+        nvme: None,
+        ram: None,
+        mem_overwrite: None,
+        ib: None,
+        result: 0,
+    });
+    env.api
+        .cleanup_machine_completed(clean_succeeded_req)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Run the state machine.
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    // Check that we've moved the machine to the WaitingForCleanup state.
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::WaitingForCleanup { .. }
+    ));
+}
 /// If the DPU stops sending us health updates we eventually mark it unhealthy
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
