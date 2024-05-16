@@ -47,8 +47,7 @@ use crate::{
             machine_id::MachineId,
             network::HealthStatus,
             BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, FailureCause,
-            FailureDetails, FailureSource, FirmwareType, InstanceNextStateResolver, InstanceState,
-            LockdownInfo,
+            FailureDetails, FailureSource, InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
             MachineSnapshot, MachineState, ManagedHostState, ManagedHostStateSnapshot,
@@ -991,11 +990,11 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 })?;
 
-                tracing::info!("{} FW update task: {:#?}", firmware_type, task);
+                tracing::info!("{:?} FW update task: {:#?}", firmware_type, task);
 
                 match task.task_state {
                     Some(TaskState::Completed) => {
-                        if *firmware_type == FirmwareType::Cec {
+                        if *firmware_type == DpuComponent::Cec {
                             // For Cec firmware update need also to reboot a host
                             let bmc_ip =
                                 state.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
@@ -1148,7 +1147,7 @@ impl StateHandler for DpuMachineStateHandler {
                                         discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
                                             substate:
                                                 BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                                    firmware_type: FirmwareType::Bmc,
+                                                    firmware_type: DpuComponent::Bmc,
                                                     task_id: task.unwrap().id,
                                                 },
                                         },
@@ -1170,7 +1169,7 @@ impl StateHandler for DpuMachineStateHandler {
                                         discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
                                             substate:
                                                 BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                                    firmware_type: FirmwareType::Cec,
+                                                    firmware_type: DpuComponent::Cec,
                                                     task_id: task.unwrap().id,
                                                 },
                                         },

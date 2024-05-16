@@ -24,6 +24,7 @@ use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo, hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
 };
+use crate::cfg::DpuComponent;
 use crate::model::hardware_info::HardwareInfo;
 
 pub mod machine_id;
@@ -222,17 +223,10 @@ pub struct FailureDetails {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-#[serde(tag = "bmcfirmwaretype", rename_all = "lowercase")]
-pub enum FirmwareType {
-    Bmc,
-    Cec,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "bmcfirmwareupdatesubstate", rename_all = "lowercase")]
 pub enum BmcFirmwareUpdateSubstate {
     WaitForUpdateCompletion {
-        firmware_type: FirmwareType,
+        firmware_type: DpuComponent,
         task_id: String,
     },
     HostPowerOff,
@@ -351,21 +345,6 @@ impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateStatus {
             trigger_received_at: Some(value.requested_at.into()),
             update_triggered_at: value.started_at.map(|x| x.into()),
             user_approval_received: value.user_approval_received,
-        }
-    }
-}
-
-impl Display for FirmwareType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-impl FirmwareType {
-    pub fn get_inventory_name(&self) -> &str {
-        match self {
-            FirmwareType::Bmc => "BMC_Firmware",
-            FirmwareType::Cec => "Bluefield_FW_ERoT",
         }
     }
 }

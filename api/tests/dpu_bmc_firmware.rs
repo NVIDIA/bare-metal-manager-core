@@ -15,7 +15,7 @@ use carbide::{
         machine_interface::MachineInterface,
     },
     model::{
-        machine::{BmcFirmwareUpdateSubstate, DpuDiscoveringState, FirmwareType, ManagedHostState},
+        machine::{BmcFirmwareUpdateSubstate, DpuDiscoveringState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
             EndpointType, EthernetInterface, ExploredManagedHost, Inventory, Manager, Service,
@@ -490,7 +490,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         ManagedHostState::DpuDiscoveringState {
             discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
                 substate: BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                    firmware_type: FirmwareType::Bmc,
+                    firmware_type: DpuComponent::Bmc,
                     task_id: "0".to_string()
                 }
             },
