@@ -394,6 +394,45 @@ impl MachineStateHandler {
                             Ok(StateHandlerOutcome::DoNothing)
                         }
                     }
+                    FailureCause::NVMECleanFailed { .. } if machine_id.machine_type().is_host() => {
+                        if cleanedup_after_state_transition(
+                            state.host_snapshot.current.version,
+                            state.host_snapshot.last_cleanup_time,
+                        ) && details.failed_at
+                            < state.host_snapshot.last_cleanup_time.unwrap_or_default()
+                        {
+                            // Cleaned up successfully after a failure.
+                            let next_state = ManagedHostState::WaitingForCleanup {
+                                cleanup_state: CleanupState::HostCleanup,
+                            };
+                            Machine::clear_failure_details(machine_id, txn)
+                                .await
+                                .map_err(StateHandlerError::from)?;
+                            return Ok(StateHandlerOutcome::Transition(next_state));
+                        }
+
+                        if trigger_reboot_if_needed(
+                            &state.host_snapshot,
+                            &state.host_snapshot,
+                            Some(*retry_count as i64),
+                            &self.reachability_params,
+                            ctx.services,
+                            None,
+                            txn,
+                        )
+                        .await?
+                        .increase_retry_count
+                        {
+                            let next_state = ManagedHostState::Failed {
+                                retry_count: retry_count + 1,
+                                details: details.clone(),
+                                machine_id: machine_id.clone(),
+                            };
+                            Ok(StateHandlerOutcome::Transition(next_state))
+                        } else {
+                            Ok(StateHandlerOutcome::DoNothing)
+                        }
+                    }
                     _ => {
                         // Do nothing.
                         // Handle error cause and decide how to recover if possible.
