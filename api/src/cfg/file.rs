@@ -887,16 +887,13 @@ mod tests {
                     ..Default::default()
                 }
             );
-            assert_eq!(
-                true,
-                config
-                    .dpu_models
-                    .get(&DpuModel::BlueField2)
-                    .unwrap()
-                    .clone()
-                    .component_update
-                    .is_none()
-            );
+            assert!(config
+                .dpu_models
+                .get(&DpuModel::BlueField2)
+                .unwrap()
+                .clone()
+                .component_update
+                .is_none());
             Ok(())
         });
 
@@ -951,16 +948,13 @@ mod tests {
                     ..Default::default()
                 }
             );
-            assert_eq!(
-                true,
-                config
-                    .dpu_models
-                    .get(&DpuModel::BlueField2)
-                    .unwrap()
-                    .clone()
-                    .component_update
-                    .is_none()
-            );
+            assert!(config
+                .dpu_models
+                .get(&DpuModel::BlueField2)
+                .unwrap()
+                .clone()
+                .component_update
+                .is_none());
             Ok(())
         });
 
@@ -1272,6 +1266,64 @@ mod tests {
                     max_object_handling_time: std::time::Duration::from_secs(77),
                     max_concurrency: 777,
                 },
+            }
+        );
+        assert_eq!(
+            config
+                .dpu_models
+                .get(&DpuModel::BlueField2)
+                .unwrap()
+                .clone(),
+            DpuDesc {
+                component_min_version: HashMap::from([
+                    (DpuComponent::Bmc, "23.07".to_string()),
+                    (DpuComponent::Uefi, "4.2".to_string()),
+                ]),
+                component_update: Some(HashMap::from([
+                    (
+                        DpuComponent::Bmc,
+                        DpuComponentUpdate {
+                            version: Some("23.10".to_string()),
+                            path: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg".to_string(),
+                        }
+                    ),
+                    (
+                        DpuComponent::Cec,
+                        DpuComponentUpdate {
+                            version: Some("4-15".to_string()),
+                            path: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg".to_string(),
+                        }
+                    ),
+                ])),
+            }
+        );
+        assert_eq!(
+            config
+                .dpu_models
+                .get(&DpuModel::BlueField3)
+                .unwrap()
+                .clone(),
+            DpuDesc {
+                component_min_version: HashMap::from([
+                    (DpuComponent::Bmc, "23.10".to_string()),
+                    (DpuComponent::Uefi, "4.5".to_string()),
+                ]),
+                component_update: Some(HashMap::from([
+                    (
+                        DpuComponent::Bmc,
+                        DpuComponentUpdate {
+                            version: Some("24.04".to_string()),
+                            path: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg".to_string(),
+                        }
+                    ),
+                    (
+                        DpuComponent::Cec,
+                        DpuComponentUpdate {
+                            version: None,
+                            path: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg".to_string(),
+                        }
+                    ),
+                ])),
             }
         );
     }

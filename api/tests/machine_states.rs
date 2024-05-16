@@ -210,7 +210,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())

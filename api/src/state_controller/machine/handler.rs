@@ -814,7 +814,7 @@ impl DpuMachineStateHandler {
                 .to_lowercase()
                 .replace("bf-", "");
             let update_version = component_value.version.as_ref().unwrap();
-            if version_compare::compare(update_version, &cur_version)
+            if version_compare::compare(update_version, cur_version)
                 .is_ok_and(|c| c == version_compare::Cmp::Lt)
             {
                 return Ok(None);
