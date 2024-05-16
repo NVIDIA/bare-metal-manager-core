@@ -742,7 +742,7 @@ impl DpuMachineStateHandler {
         }
     }
     /// Return `DpuModel` if the explored endpoint is a DPU
-    pub fn identify_dpu(&self, state: &mut ManagedHostStateSnapshot) -> Option<DpuModel> {
+    pub fn identify_dpu(&self, state: &mut ManagedHostStateSnapshot) -> DpuModel {
         let model = state
             .dpu_snapshot
             .hardware_info
@@ -754,9 +754,9 @@ impl DpuMachineStateHandler {
             })
             .unwrap_or("".to_string());
         match model.to_lowercase() {
-            value if value.contains("bluefield 2") => Some(DpuModel::BlueField2),
-            value if value.contains("bluefield 3") => Some(DpuModel::BlueField3),
-            _ => Some(DpuModel::Unknown),
+            value if value.contains("bluefield 2") => DpuModel::BlueField2,
+            value if value.contains("bluefield 3") => DpuModel::BlueField3,
+            _ => DpuModel::Unknown,
         }
     }
 
@@ -1130,53 +1130,50 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 }
 
-                if let Some(dpu_model) = self.identify_dpu(state) {
-                    if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
-                        if dpu_desc.component_update.is_some() {
-                            let dpu_component_update = dpu_desc.component_update.as_ref().unwrap();
+                let dpu_model = self.identify_dpu(state);
+                if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
+                    if dpu_desc.component_update.is_some() {
+                        let dpu_component_update = dpu_desc.component_update.as_ref().unwrap();
 
-                            let dpu_component = DpuComponent::Bmc;
-                            if let Some(dpu_component_value) =
-                                dpu_component_update.get(&dpu_component)
-                            {
-                                let task = self
-                                    .component_update(&*client, dpu_component, dpu_component_value)
-                                    .await?;
-                                if task.is_some() {
-                                    let next_state = ManagedHostState::DpuDiscoveringState {
-                                        discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                            substate:
-                                                BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                                    firmware_type: DpuComponent::Bmc,
-                                                    task_id: task.unwrap().id,
-                                                },
-                                        },
-                                    };
-                                    return Ok(StateHandlerOutcome::Transition(next_state));
+                        let dpu_component = DpuComponent::Bmc;
+                        if let Some(dpu_component_value) = dpu_component_update.get(&dpu_component)
+                        {
+                            let task = self
+                                .component_update(&*client, dpu_component, dpu_component_value)
+                                .await?;
+                            if task.is_some() {
+                                let next_state = ManagedHostState::DpuDiscoveringState {
+                                    discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                        substate:
+                                            BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                                                firmware_type: DpuComponent::Bmc,
+                                                task_id: task.unwrap().id,
+                                            },
+                                    },
                                 };
-                            }
+                                return Ok(StateHandlerOutcome::Transition(next_state));
+                            };
+                        }
 
-                            let dpu_component = DpuComponent::Cec;
-                            if let Some(dpu_component_value) =
-                                dpu_component_update.get(&dpu_component)
-                            {
-                                let task = self
-                                    .component_update(&*client, dpu_component, dpu_component_value)
-                                    .await?;
+                        let dpu_component = DpuComponent::Cec;
+                        if let Some(dpu_component_value) = dpu_component_update.get(&dpu_component)
+                        {
+                            let task = self
+                                .component_update(&*client, dpu_component, dpu_component_value)
+                                .await?;
 
-                                if task.is_some() {
-                                    let next_state = ManagedHostState::DpuDiscoveringState {
-                                        discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                            substate:
-                                                BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                                    firmware_type: DpuComponent::Cec,
-                                                    task_id: task.unwrap().id,
-                                                },
-                                        },
-                                    };
-                                    return Ok(StateHandlerOutcome::Transition(next_state));
+                            if task.is_some() {
+                                let next_state = ManagedHostState::DpuDiscoveringState {
+                                    discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                        substate:
+                                            BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                                                firmware_type: DpuComponent::Cec,
+                                                task_id: task.unwrap().id,
+                                            },
+                                    },
                                 };
-                            }
+                                return Ok(StateHandlerOutcome::Transition(next_state));
+                            };
                         }
                     }
                 }
