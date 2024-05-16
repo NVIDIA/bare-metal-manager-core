@@ -156,7 +156,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             Ok(EndpointExplorationReport {
                 endpoint_type: EndpointType::Bmc,
                 last_exploration_error: None,
-                vendor: Some("NVIDIA".to_string()),
+                vendor: Some(bmc_vendor::BMCVendor::Nvidia),
                 machine_id: None,
                 managers: vec![Manager {
                     id: "bmc".to_string(),
@@ -238,7 +238,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             Ok(EndpointExplorationReport {
                 endpoint_type: EndpointType::Bmc,
                 last_exploration_error: None,
-                vendor: Some("Vendor3".to_string()),
+                vendor: Some(bmc_vendor::BMCVendor::Lenovo),
                 machine_id: None,
                 managers: Vec::new(),
                 systems: Vec::new(),
@@ -407,7 +407,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         *m1 = Ok(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
-            vendor: Some("Vendor2".to_string()),
+            vendor: Some(bmc_vendor::BMCVendor::Dell),
             managers: vec![Manager {
                 id: "iDRAC.Embedded.1".to_string(),
                 ethernet_interfaces: vec![EthernetInterface {
@@ -500,18 +500,18 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         match report.address.to_string() {
             a if a == machines[0].ip => {
                 // The original report is retained. But the error gets stored
-                assert_eq!(report.report.vendor, Some("NVIDIA".to_string()));
+                assert_eq!(report.report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
                 assert_eq!(
                     report.report.last_exploration_error.clone().unwrap(),
                     EndpointExplorationError::Unreachable
                 );
             }
             a if a == machines[1].ip => {
-                assert_eq!(report.report.vendor, Some("Vendor2".to_string()));
+                assert_eq!(report.report.vendor, Some(bmc_vendor::BMCVendor::Dell));
                 assert!(report.report.last_exploration_error.is_none());
             }
             a if a == machines[2].ip => {
-                assert_eq!(report.report.vendor, Some("Vendor3".to_string()));
+                assert_eq!(report.report.vendor, Some(bmc_vendor::BMCVendor::Lenovo));
                 assert!(report.report.last_exploration_error.is_none());
             }
             _ => panic!("No other endpoints should be discovered"),
@@ -610,7 +610,7 @@ async fn test_site_explorer_creates_managed_host(
     let mut dpu_report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
         last_exploration_error: None,
-        vendor: Some("NVIDIA".to_string()),
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
         machine_id: None,
         managers: vec![Manager {
             id: "Bluefield_BMC".to_string(),

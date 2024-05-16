@@ -5,6 +5,7 @@ members = [
   "api",
   "api-test",
   "bluefield/agent",
+  "common/bmc-vendor",
   "common/config-version",
   "common/dsocket",
   "common/host-support",

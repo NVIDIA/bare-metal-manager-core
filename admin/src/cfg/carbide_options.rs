@@ -994,26 +994,7 @@ pub struct AddHostFactoryDefaultCredential {
     #[clap(long, required(true), help = "Manufacturer default password")]
     pub password: String,
     #[clap(long, required(true))]
-    pub vendor: BMCVendor,
-}
-
-// Should match api/src/model/hardware_info.rs
-#[derive(ValueEnum, Parser, Debug, Clone)]
-pub enum BMCVendor {
-    Lenovo,
-    Dell,
-    Mellanox,
-    Supermicro,
-    NvidiaViking,
-    Hpe,
-}
-
-impl fmt::Display for BMCVendor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // enums are a special case where their debug impl is their name ("Off")
-        let s = format!("{self:?}").to_lowercase();
-        write!(f, "{s}")
-    }
+    pub vendor: bmc_vendor::BMCVendor,
 }
 
 #[derive(Parser, Debug)]

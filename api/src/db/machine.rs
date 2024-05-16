@@ -29,7 +29,7 @@ use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
-use crate::model::hardware_info::{BMCVendor, HardwareInfo, MachineInventory};
+use crate::model::hardware_info::{HardwareInfo, MachineInventory};
 use crate::model::machine::machine_id::MachineId;
 use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -359,10 +359,10 @@ impl Machine {
         &self.bmc_info
     }
 
-    pub fn bmc_vendor(&self) -> BMCVendor {
+    pub fn bmc_vendor(&self) -> bmc_vendor::BMCVendor {
         match self.hardware_info() {
             Some(hw) => hw.bmc_vendor(),
-            None => BMCVendor::Unknown,
+            None => bmc_vendor::BMCVendor::Unknown,
         }
     }
 

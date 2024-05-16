@@ -75,7 +75,7 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     let mut dpu_report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
         last_exploration_error: None,
-        vendor: Some("NVIDIA".to_string()),
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
         machine_id: None,
         managers: vec![Manager {
             id: "Bluefield_BMC".to_string(),
@@ -180,7 +180,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let mut dpu_report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
         last_exploration_error: None,
-        vendor: Some("NVIDIA".to_string()),
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
         machine_id: None,
         managers: vec![Manager {
             id: "Bluefield_BMC".to_string(),
@@ -302,7 +302,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let mut dpu_report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
         last_exploration_error: None,
-        vendor: Some("NVIDIA".to_string()),
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
         machine_id: None,
         managers: vec![Manager {
             id: "Bluefield_BMC".to_string(),

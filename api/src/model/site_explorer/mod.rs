@@ -36,7 +36,7 @@ pub struct EndpointExplorationReport {
     pub last_exploration_error: Option<EndpointExplorationError>,
     /// Vendor as reported by Redfish
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vendor: Option<String>,
+    pub vendor: Option<bmc_vendor::BMCVendor>,
     /// `Managers` reported by Redfish
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub managers: Vec<Manager>,
@@ -63,7 +63,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
                 serde_json::to_string(&error).unwrap_or_else(|_| "Unserializable error".to_string())
             }),
             machine_id: report.machine_id.map(|id| id.to_string()),
-            vendor: report.vendor,
+            vendor: report.vendor.map(|v| v.to_string()),
             managers: report.managers.into_iter().map(Into::into).collect(),
             systems: report.systems.into_iter().map(Into::into).collect(),
             chassis: report.chassis.into_iter().map(Into::into).collect(),
@@ -579,7 +579,7 @@ mod tests {
         let report = EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
-            vendor: Some("Nvidia".to_string()),
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
             managers: vec![Manager {
                 ethernet_interfaces: vec![],
                 id: "bmc".to_string(),
@@ -623,7 +623,7 @@ mod tests {
         let mut report = EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
-            vendor: Some("Nvidia".to_string()),
+            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
             managers: vec![Manager {
                 ethernet_interfaces: vec![],
                 id: "bmc".to_string(),

@@ -24,7 +24,7 @@ use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo, hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
 };
-use crate::model::hardware_info::{BMCVendor, HardwareInfo};
+use crate::model::hardware_info::HardwareInfo;
 
 pub mod machine_id;
 pub mod network;
@@ -93,7 +93,7 @@ pub struct MachineSnapshot {
     pub network_status_observation: Option<MachineNetworkStatusObservation>,
     /// BMC related information
     pub bmc_info: BmcInfo,
-    pub bmc_vendor: BMCVendor,
+    pub bmc_vendor: bmc_vendor::BMCVendor,
     /// Network interfaces
     pub interfaces: Vec<MachineInterfaceSnapshot>,
     /// Desired state of the machine

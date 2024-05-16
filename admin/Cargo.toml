@@ -28,6 +28,7 @@ tonic = { workspace = true }
 uuid = "1.0"
 
 # [local-dependencies]
+bmc-vendor = { path = "../common/bmc-vendor" }
 forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }

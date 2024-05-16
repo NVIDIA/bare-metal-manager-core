@@ -671,84 +671,12 @@ impl HardwareInfo {
         Ok(MacAddress::from_str(&dpu_info.factory_mac_address)?)
     }
 
-    /// Is this a Dell or Lenovo machine?
-    pub fn bmc_vendor(&self) -> BMCVendor {
+    /// Is this a Dell, Lenovo, etc machine?
+    pub fn bmc_vendor(&self) -> bmc_vendor::BMCVendor {
         match self.dmi_data.as_ref() {
-            Some(dmi_info) => BMCVendor::from_udev_dmi(dmi_info.sys_vendor.as_ref()),
-            None => BMCVendor::Unknown,
+            Some(dmi_info) => bmc_vendor::BMCVendor::from_udev_dmi(dmi_info.sys_vendor.as_ref()),
+            None => bmc_vendor::BMCVendor::Unknown,
         }
-    }
-}
-
-// Should match admin/src/cfg/carbide_options.rs
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum BMCVendor {
-    Lenovo,
-    Dell,
-    Mellanox,
-    Supermicro,
-    NvidiaViking,
-    Hpe,
-    Unknown,
-}
-
-impl fmt::Display for BMCVendor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-impl BMCVendor {
-    /// From the string libudev returns querying the dmi subsystem
-    fn from_udev_dmi(s: &str) -> BMCVendor {
-        match s {
-            "Lenovo" => BMCVendor::Lenovo,
-            "Dell Inc." => BMCVendor::Dell,
-            "https://www.mellanox.com" => BMCVendor::Mellanox,
-            "Supermicro" => BMCVendor::Supermicro,
-            "NVIDIA" => BMCVendor::NvidiaViking,
-            "HPE" => BMCVendor::Hpe,
-            _ => BMCVendor::Unknown,
-        }
-    }
-
-    /// BMC vendors issue their own TLS certs. Match on the Organization in that cert.
-    pub fn from_tls_issuer(s: &str) -> BMCVendor {
-        match s {
-            "Lenovo" => BMCVendor::Lenovo,
-            "Dell Inc." => BMCVendor::Dell,
-            "Super Micro Computer" => BMCVendor::Supermicro,
-            "Hewlett Packard Enterprise" => BMCVendor::Hpe,
-            "American Megatrends International LLC (AMI)" => BMCVendor::NvidiaViking,
-            "OpenBMC" => BMCVendor::Mellanox,
-            _ => BMCVendor::Unknown,
-        }
-    }
-
-    pub fn is_lenovo(self) -> bool {
-        self == BMCVendor::Lenovo
-    }
-    pub fn is_dell(self) -> bool {
-        self == BMCVendor::Dell
-    }
-    pub fn is_mellanox(self) -> bool {
-        self == BMCVendor::Mellanox
-    }
-    pub fn is_supermicro(self) -> bool {
-        self == BMCVendor::Supermicro
-    }
-    pub fn is_viking(self) -> bool {
-        self == BMCVendor::NvidiaViking
-    }
-    pub fn is_hpe(self) -> bool {
-        self == BMCVendor::Hpe
-    }
-    pub fn is_unknown(self) -> bool {
-        self == BMCVendor::Unknown
-    }
-
-    pub fn is_dpu(self) -> bool {
-        self.is_mellanox()
     }
 }
 
