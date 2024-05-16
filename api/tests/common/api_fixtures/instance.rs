@@ -11,7 +11,7 @@
  */
 
 use carbide::{
-    cfg::{default_dpu_models, DpuFwUpdateConfig},
+    cfg::default_dpu_models,
     db::machine::Machine,
     model::{
         machine::machine_id::MachineId, machine::CleanupState, machine::MachineState,
@@ -161,7 +161,6 @@ pub async fn advance_created_instance_into_ready_state(
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
         default_dpu_models(),
         env.reachability_params,
     );
@@ -238,7 +237,6 @@ pub async fn delete_instance(
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
         default_dpu_models(),
         env.reachability_params,
     );

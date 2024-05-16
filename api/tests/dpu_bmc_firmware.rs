@@ -8,8 +8,7 @@ use std::{
 
 use carbide::{
     cfg::{
-        default_dpu_models, DpuComponent, DpuComponentUpdate, DpuDesc, DpuFwUpdateConfig, DpuModel,
-        SiteExplorerConfig,
+        default_dpu_models, DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel, SiteExplorerConfig,
     },
     db::{
         machine::{Machine, MachineSearchConfig},
@@ -416,14 +415,6 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         chrono::Duration::minutes(1),
         true,
         true,
-        DpuFwUpdateConfig {
-            dpu_bf2_bmc_firmware_update_version: HashMap::new(),
-            dpu_bf3_bmc_firmware_update_version: HashMap::from([
-                ("BMC_Firmware".to_string(), "23.10-5".to_string()),
-                ("Bluefield_FW_ERoT".to_string(), "02.0152.0000".to_string()),
-            ]),
-            firmware_location: ".".to_string(),
-        },
         HashMap::from([
             (
                 DpuModel::BlueField2,

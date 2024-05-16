@@ -331,7 +331,6 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             carbide_config.machine_state_controller.dpu_up_threshold,
             carbide_config.dpu_nic_firmware_initial_update_enabled,
             carbide_config.dpu_nic_firmware_reprovision_update_enabled,
-            carbide_config.dpu_fw_update_config.clone(),
             carbide_config.dpu_models.clone(),
             ReachabilityParams {
                 dpu_wait_time: carbide_config.machine_state_controller.dpu_wait_time,

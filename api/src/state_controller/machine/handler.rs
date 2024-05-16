@@ -25,7 +25,7 @@ use libredfish::{
 use tokio::fs::File;
 
 use crate::{
-    cfg::{DpuComponent, DpuComponentUpdate, DpuDesc, DpuFwUpdateConfig, DpuModel},
+    cfg::{DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel},
     db::{
         bmc_metadata::UserRoles,
         ib_partition,
@@ -89,7 +89,6 @@ impl MachineStateHandler {
         dpu_up_threshold: chrono::Duration,
         dpu_nic_firmware_initial_update_enabled: bool,
         dpu_nic_firmware_reprovision_update_enabled: bool,
-        dpu_fw_update_config: DpuFwUpdateConfig,
         dpu_models: HashMap<DpuModel, DpuDesc>,
         reachability_params: ReachabilityParams,
     ) -> Self {
@@ -98,7 +97,6 @@ impl MachineStateHandler {
             host_handler: HostMachineStateHandler::new(reachability_params),
             dpu_handler: DpuMachineStateHandler::new(
                 dpu_nic_firmware_initial_update_enabled,
-                dpu_fw_update_config,
                 dpu_models,
                 reachability_params,
             ),
@@ -728,7 +726,6 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 #[derive(Debug, Clone)]
 pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
-    dpu_firmware_update_config: DpuFwUpdateConfig,
     dpu_models: HashMap<DpuModel, DpuDesc>,
     reachability_params: ReachabilityParams,
 }
@@ -736,13 +733,11 @@ pub struct DpuMachineStateHandler {
 impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
-        dpu_firmware_update_config: DpuFwUpdateConfig,
         dpu_models: HashMap<DpuModel, DpuDesc>,
         reachability_params: ReachabilityParams,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
-            dpu_firmware_update_config,
             dpu_models,
             reachability_params,
         }
@@ -1134,19 +1129,6 @@ impl StateHandler for DpuMachineStateHandler {
                         let next_state = self.get_discovery_failure(msg, dpu_machine_id);
                         return Ok(StateHandlerOutcome::Transition(next_state));
                     }
-                }
-
-                // TODO depricated
-                if !self
-                    .dpu_firmware_update_config
-                    .dpu_bf2_bmc_firmware_update_version
-                    .is_empty()
-                    || !self
-                        .dpu_firmware_update_config
-                        .dpu_bf3_bmc_firmware_update_version
-                        .is_empty()
-                {
-                    tracing::warn!("Depricated configuration [dpu_fw_update_config]");
                 }
 
                 if let Some(dpu_model) = self.identify_dpu(state) {

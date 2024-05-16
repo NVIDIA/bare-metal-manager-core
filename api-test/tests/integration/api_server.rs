@@ -13,10 +13,9 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use carbide::cfg::{
-    default_dpu_models, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuFwUpdateConfig,
-    IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-    MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
-    TlsConfig,
+    default_dpu_models, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig,
+    IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
+    NetworkSegmentStateControllerConfig, StateControllerConfig, TlsConfig,
 };
 use carbide::logging::sqlx_query_tracing;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -144,7 +143,6 @@ pub async fn start(
         ])),
         dpu_impi_tool_impl: Some("test".to_owned()),
         dpu_ipmi_reboot_attempts: None,
-        dpu_fw_update_config: DpuFwUpdateConfig::default(),
         dpu_nic_firmware_update_version: Some(dpu_nic_firmware_update_versions),
         dpu_nic_firmware_initial_update_enabled: false,
         dpu_nic_firmware_reprovision_update_enabled: false,

@@ -144,10 +144,6 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub machine_state_controller: MachineStateControllerConfig,
 
-    /// Config for DPU firmware update
-    #[serde(default)]
-    pub dpu_fw_update_config: DpuFwUpdateConfig,
-
     /// NetworkSegmentController related configuration parameter
     #[serde(default)]
     pub network_segment_state_controller: NetworkSegmentStateControllerConfig,
@@ -239,34 +235,6 @@ impl Default for MachineStateControllerConfig {
             power_down_wait: MachineStateControllerConfig::power_down_wait_default(),
             failure_retry_time: MachineStateControllerConfig::failure_retry_time_default(),
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
-        }
-    }
-}
-
-/// Firmware related config.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct DpuFwUpdateConfig {
-    /// The version of DPU BMC firmware that is expected on the DPU for BF3. If the actual DPU BMC firmware
-    /// does not match, the DPU will be updated during discovering or reprovisioning. It is the operators responsibility
-    /// to make sure this value matches the version shipped with carbide.
-    #[serde(default)]
-    pub dpu_bf3_bmc_firmware_update_version: HashMap<String, String>,
-
-    /// The version of DPU BMC firmware that is expected on the DPU for BF2.
-    #[serde(default)]
-    pub dpu_bf2_bmc_firmware_update_version: HashMap<String, String>,
-
-    /// Path where firmware files are located
-    pub firmware_location: String,
-}
-
-impl Default for DpuFwUpdateConfig {
-    fn default() -> Self {
-        Self {
-            dpu_bf3_bmc_firmware_update_version: HashMap::new(),
-            dpu_bf2_bmc_firmware_update_version: HashMap::new(),
-            firmware_location: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/"
-                .to_string(),
         }
     }
 }
