@@ -9,6 +9,7 @@
 # its affiliates is strictly prohibited.
 [env]
 REPO_ROOT = { script = ["dirname $(cargo locate-project --message-format plain --workspace)"] }
+FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem"}
 
 # BFB stuff
 BFB_LOCATION = "https://urm.nvidia.com/artifactory/sw-mlnx-bluefield-generic/Ubuntu22.04"
@@ -80,6 +81,7 @@ category = "Ephemeral Image"
 dependencies = [
 	"mkosi-clean-artifacts",
 	"copy-debug-artifacts",
+	"copy-forge-prod-root-ca",
 	"mkosi-build-scout",
 	"mkosi-build-qcow-imager",
 	"mkosi-copy-qcow-imager-to-webroot",
@@ -92,6 +94,7 @@ category = "Ephemeral Image"
 dependencies = [
 	"mkosi-clean-artifacts",
 	"copy-debug-artifacts",
+	"copy-forge-dev-root-ca",
 	"mkosi-build-scout",
 	"mkosi-build-qcow-imager",
 	"mkosi-copy-qcow-imager-to-webroot",
@@ -114,6 +117,24 @@ script = '''
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/x86_64"
   mkdir -p "${REPO_ROOT}/pxe/static/blobs/internal/firmware"
 '''
+
+[tasks.copy-forge-prod-root-ca]
+category = "Copy Forge Root CA in CI"
+command = "cp"
+args = [
+	"-f",
+	"${FORGE_CA_PATH}",
+	"mkosi.profiles/scout/mkosi.extra/opt/forge/forge_root.pem",
+]
+
+[tasks.copy-forge-dev-root-ca]
+category = "Copy Forge Root CA"
+command = "cp"
+args = [
+	"-f",
+	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
+	"mkosi.profiles/scout/mkosi.extra/opt/forge/forge_root.pem",
+]
 
 [tasks.copy-debug-artifacts]
 category = "Copy Debug Artifacts"
@@ -280,6 +301,7 @@ dependencies = [
 	"bfb-add-scout-to-bfb-ci",
 	"bfb-add-debs-to-bfb",
 	"bfb-add-nvinit-setup-to-bfb",
+	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	"mkdir-hbn-folder-in-bfb",
 	"unzip-hbn-folder-in-bfb",
@@ -315,6 +337,7 @@ dependencies = [
 	"bfb-add-scout-to-bfb",
 	"bfb-add-debs-to-bfb",
 	"bfb-add-nvinit-setup-to-bfb",
+	"bfb-add-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	"mkdir-hbn-folder-in-bfb",
 	"unzip-hbn-folder-in-bfb",
@@ -435,6 +458,15 @@ args = [
 	"${K8S_PAUSE_URI}",
 ]
 cwd = "/tmp/bfb-dump/initramfs-tmp"
+
+[tasks.bfb-add-forge-root-ca-to-bfb]
+category = "iPXE Kernel"
+description = "Add the forge root CA to the bfb"
+command = "cp"
+args = [
+	"${FORGE_CA_PATH}",
+	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
+]
 
 [tasks.download-debs-for-bfb]
 category = "iPXE Kernel"

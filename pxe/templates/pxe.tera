@@ -2,6 +2,5 @@
 
 set base-url {{ pxe_url }}/public/blobs/
 set cloudinit-url {{ pxe_url }}/api/v0/cloud-init/
-set tls-url {{ pxe_url }}/api/v0/tls
 
 {{ ipxe }}
