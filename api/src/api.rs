@@ -54,7 +54,6 @@ use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
-use crate::model::hardware_info::BMCVendor;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
@@ -4862,6 +4861,7 @@ where
                 let Some(vendor) = req.vendor else {
                     return Err(tonic::Status::invalid_argument("missing vendor"));
                 };
+                let vendor: bmc_vendor::BMCVendor = vendor.as_str().into();
                 self.credential_provider
                     .set_credentials(
                         CredentialKey::HostRedfish {
@@ -5261,12 +5261,6 @@ where
                 "".to_string()
             },
             raw_vendor: org.to_string(),
-            is_lenovo: vendor.is_lenovo(),
-            is_dell: vendor.is_dell(),
-            is_supermicro: vendor.is_supermicro(),
-            is_mellanox: vendor.is_mellanox(),
-            is_viking: vendor.is_viking(),
-            is_hpe: vendor.is_hpe(),
         };
         Ok(Response::new(resp))
     }
@@ -5603,7 +5597,10 @@ where
         self.log_filter.load().to_string()
     }
 
-    async fn identify_bmc_from_db(&self, address: &str) -> Result<Option<BMCVendor>, CarbideError> {
+    async fn identify_bmc_from_db(
+        &self,
+        address: &str,
+    ) -> Result<Option<bmc_vendor::BMCVendor>, CarbideError> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),

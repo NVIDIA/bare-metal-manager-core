@@ -14,8 +14,6 @@ use std::time::Duration;
 
 use thiserror::Error;
 
-use crate::model::hardware_info::BMCVendor;
-
 #[derive(Error, Debug)]
 pub enum IdentifyError {
     #[error("{0} did not return a TLS certificate")]
@@ -44,7 +42,7 @@ impl From<IdentifyError> for tonic::Status {
 }
 
 // Inspect the BMC's TLS certificate to identify the vendor
-pub async fn identify_bmc(address: &str) -> Result<(String, BMCVendor), IdentifyError> {
+pub async fn identify_bmc(address: &str) -> Result<(String, bmc_vendor::BMCVendor), IdentifyError> {
     let url = if address.starts_with("https") {
         address.to_string()
     } else {
@@ -79,6 +77,6 @@ pub async fn identify_bmc(address: &str) -> Result<(String, BMCVendor), Identify
     }
     match organization {
         None => Err(IdentifyError::MissingOrganizationField(url)),
-        Some(org) => Ok((org.to_string(), BMCVendor::from_tls_issuer(org))),
+        Some(org) => Ok((org.to_string(), bmc_vendor::BMCVendor::from_tls_issuer(org))),
     }
 }

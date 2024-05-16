@@ -2110,10 +2110,4 @@ message IdentifyBMCRequest {
 message IdentifyBMCResponse {
   string known_vendor = 1;
   string raw_vendor = 2;
-  bool is_lenovo = 3;
-  bool is_dell = 4;
-  bool is_mellanox = 5;
-  bool is_supermicro = 6;
-  bool is_viking = 7;
-  bool is_hpe = 8;
 }

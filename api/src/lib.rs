@@ -432,7 +432,7 @@ pub async fn host_power_control(
 
     // vikings reboot their DPU's if redfish reset is used. \
     // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
-    if is_reboot && machine_snapshot.bmc_vendor.is_viking() {
+    if is_reboot && machine_snapshot.bmc_vendor.is_nvidia() {
         ipmi_tool
             .restart(&machine_snapshot.machine_id, bmc_ip.to_string(), false)
             .await

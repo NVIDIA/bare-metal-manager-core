@@ -87,7 +87,7 @@ pub trait CredentialProvider: Send + Sync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialType {
     DpuHardwareDefault,
-    HostHardwareDefault { vendor: String },
+    HostHardwareDefault { vendor: bmc_vendor::BMCVendor },
     SiteDefault,
     Machine { machine_id: String },
 }

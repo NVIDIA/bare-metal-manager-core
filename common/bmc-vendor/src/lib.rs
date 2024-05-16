@@ -1,0 +1,122 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+//! BMC Manufacturer ID
+
+use std::fmt;
+
+use libredfish::model::service_root::RedfishVendor;
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    PartialEq,
+    clap::ValueEnum,
+    clap::Parser,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub enum BMCVendor {
+    Lenovo,
+    Dell,
+    Supermicro,
+    Hpe,
+    Nvidia, // DPU, Viking, Oberon
+    Unknown,
+}
+
+impl fmt::Display for BMCVendor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = format!("{self:?}").to_lowercase();
+        write!(f, "{s}")
+    }
+}
+
+impl From<&str> for BMCVendor {
+    fn from(s: &str) -> BMCVendor {
+        match s {
+            "lenovo" => BMCVendor::Lenovo,
+            "dell" => BMCVendor::Dell,
+            "supermicro" => BMCVendor::Supermicro,
+            "hpe" => BMCVendor::Hpe,
+            "nvidia" => BMCVendor::Nvidia,
+            _ => BMCVendor::Unknown,
+        }
+    }
+}
+
+impl BMCVendor {
+    /// From the string libudev returns querying the dmi subsystem
+    pub fn from_udev_dmi(s: &str) -> BMCVendor {
+        match s {
+            "Lenovo" => BMCVendor::Lenovo,
+            "Dell Inc." => BMCVendor::Dell,
+            "https://www.mellanox.com" => BMCVendor::Nvidia,
+            "NVIDIA" => BMCVendor::Nvidia,
+            "Supermicro" => BMCVendor::Supermicro,
+            "HPE" => BMCVendor::Hpe,
+            _ => BMCVendor::Unknown,
+        }
+    }
+
+    /// BMC vendors issue their own TLS certs. Match on the Organization in that cert.
+    pub fn from_tls_issuer(s: &str) -> BMCVendor {
+        match s {
+            "Lenovo" => BMCVendor::Lenovo,
+            "Dell Inc." => BMCVendor::Dell,
+            "Super Micro Computer" => BMCVendor::Supermicro,
+            "Hewlett Packard Enterprise" => BMCVendor::Hpe,
+            "American Megatrends International LLC (AMI)" => BMCVendor::Nvidia,
+            "OpenBMC" => BMCVendor::Nvidia,
+            _ => BMCVendor::Unknown,
+        }
+    }
+
+    pub fn is_lenovo(&self) -> bool {
+        *self == Self::Lenovo
+    }
+
+    pub fn is_supermicro(&self) -> bool {
+        *self == Self::Supermicro
+    }
+
+    pub fn is_nvidia(&self) -> bool {
+        *self == Self::Nvidia
+    }
+
+    pub fn is_dell(&self) -> bool {
+        *self == Self::Dell
+    }
+
+    pub fn is_hpe(&self) -> bool {
+        *self == Self::Hpe
+    }
+
+    pub fn is_unknown(&self) -> bool {
+        *self == Self::Unknown
+    }
+}
+
+impl From<RedfishVendor> for BMCVendor {
+    fn from(r: RedfishVendor) -> BMCVendor {
+        match r {
+            RedfishVendor::AMI | RedfishVendor::Nvidia => BMCVendor::Nvidia,
+            RedfishVendor::Dell => BMCVendor::Dell,
+            RedfishVendor::Hpe => BMCVendor::Hpe,
+            RedfishVendor::Lenovo => BMCVendor::Lenovo,
+            RedfishVendor::Supermicro => BMCVendor::Supermicro,
+            RedfishVendor::Unknown => BMCVendor::Unknown,
+        }
+    }
+}

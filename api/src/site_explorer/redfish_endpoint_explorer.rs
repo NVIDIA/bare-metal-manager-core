@@ -19,12 +19,9 @@ use regex::Regex;
 
 use crate::{
     db::machine_interface::MachineInterface,
-    model::{
-        hardware_info::BMCVendor,
-        site_explorer::{
-            Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
-            EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter, Service,
-        },
+    model::site_explorer::{
+        Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
+        EthernetInterface, Inventory, Manager, NetworkAdapter, Service,
     },
     redfish::{RedfishClientCreationError, RedfishClientPool},
     site_explorer::EndpointExplorer,
@@ -62,33 +59,45 @@ impl RedfishEndpointExplorer {
     async fn try_change_root_password_to_site_default(
         &self,
         address: SocketAddr,
-        vendor: BMCVendor,
-    ) -> Result<(), RedfishClientCreationError> {
-        let credential_key = if vendor.is_dpu() {
-            CredentialKey::DpuRedfish {
+        vendor: bmc_vendor::BMCVendor,
+    ) -> Result<bool, RedfishClientCreationError> {
+        let mut client = None;
+        if vendor.is_nvidia() {
+            // Vendor Nvidia could be a DPU or a host (Viking H100, Oberon GH200)
+            // Try DPU first
+            let credential_key = CredentialKey::DpuRedfish {
                 credential_type: CredentialType::DpuHardwareDefault,
+            };
+            if let Ok(c) = self
+                .try_get_client_with_hardware_cred(address, credential_key)
+                .await
+            {
+                client = Some(c);
             }
-        } else {
-            CredentialKey::HostRedfish {
-                credential_type: CredentialType::HostHardwareDefault {
-                    vendor: vendor.to_string(),
-                },
+        }
+        let client = match client {
+            Some(client) => client, // DPU
+            None => {
+                let credential_key = CredentialKey::HostRedfish {
+                    credential_type: CredentialType::HostHardwareDefault { vendor },
+                };
+                self.try_get_client_with_hardware_cred(address, credential_key)
+                    .await?
             }
         };
-        let client = self
-            .try_get_client_with_hardware_cred(address, credential_key)
-            .await?;
 
         let systems = client
             .get_systems()
             .await
             .map_err(RedfishClientCreationError::RedfishError)?;
 
+        let mut is_dpu = false;
         let new_cred = if systems
             .first()
             .map(|x| x.to_lowercase().contains("bluefield"))
             .unwrap_or(false)
         {
+            is_dpu = true;
             CredentialKey::DpuRedfish {
                 credential_type: CredentialType::SiteDefault,
             }
@@ -102,7 +111,7 @@ impl RedfishEndpointExplorer {
             .change_root_password_to_site_default(client, new_cred)
             .await?;
 
-        Ok(())
+        Ok(is_dpu)
     }
 
     async fn try_hardware_default_creds(
@@ -110,14 +119,15 @@ impl RedfishEndpointExplorer {
         address: SocketAddr,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let (_org, vendor) = crate::site_explorer::identify_bmc(&address.to_string()).await?;
-        self.try_change_root_password_to_site_default(address, vendor)
+        let is_dpu = self
+            .try_change_root_password_to_site_default(address, vendor)
             .await?;
 
         tracing::info!(
             address = %address,
             "Changed password from factory default to site default"
         );
-        let creds = if vendor.is_dpu() {
+        let creds = if is_dpu {
             forge_secrets::credentials::CredentialKey::DpuRedfish {
                 credential_type: CredentialType::SiteDefault,
             }
@@ -181,7 +191,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         };
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
-        let vendor = service_root.vendor_string();
+        let vendor = service_root.vendor().map(|v| v.into());
 
         let manager = fetch_manager(client.as_ref())
             .await
