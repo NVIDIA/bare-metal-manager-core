@@ -48,7 +48,7 @@ build:
 manifests:
   kustomize:
     paths:
-      - forged/envs/k3s-dev/site/site-controller
+      - forged/envs/local-dev/site/site-controller
 
 deploy:
   kubeContext: k3s-dev

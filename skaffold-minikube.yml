@@ -49,7 +49,7 @@ build:
 manifests:
   kustomize:
     paths:
-      - forged/envs/local-dev/site/site-controller
+      - forged/envs/deprecated-minikube-dev/site/site-controller
 
 deploy:
   kubectl:
