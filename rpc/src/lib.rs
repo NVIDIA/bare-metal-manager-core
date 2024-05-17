@@ -51,6 +51,7 @@ pub mod protos;
 
 pub mod forge_resolver;
 pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("forge");
+pub const MAX_ERR_MSG_SIZE: i32 = 1500;
 
 pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     let mut expected = Vec::new();

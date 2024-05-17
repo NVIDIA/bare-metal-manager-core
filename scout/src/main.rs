@@ -71,6 +71,19 @@ async fn main() -> Result<(), eyre::Report> {
     };
 
     let machine_interface_id = subcmd.machine_interface_id();
+
+    // When the cloud-init script fails, it will run the scout process with the logerror option.
+    // This is to report to the carbide api that the cloud-init script failed, and to display
+    // the last 1500 bytes of the cloud-init-output.log file. We want to send this message to
+    // carbide api before running the discovery code.
+    if matches!(subcmd, Command::Logerror(_)) {
+        match logerror_to_carbide(&config, machine_interface_id).await {
+            Ok(()) => (),
+            Err(e) => println!("Forge Scout logerror_to_carbide error: {}", e),
+        }
+        return Ok(());
+    }
+
     let machine_id = match register::run(
         &config.api,
         config.root_ca.clone(),
@@ -98,6 +111,7 @@ async fn main() -> Result<(), eyre::Report> {
             }
         }
         Command::Deprovision(_) => Action::Reset,
+        Command::Logerror(_) => unreachable!(),
     };
 
     if let Err(e) = handle_action(action, &machine_id, &config).await {
@@ -132,6 +146,43 @@ async fn handle_action(
             panic!("Retrieved Retry action, which should be handled internally by query_api_with_retries");
         }
     }
+    Ok(())
+}
+
+// Return the last 1500 bytes of the cloud-init-output.log file as a String
+fn get_log_str() -> eyre::Result<String> {
+    let mut ret_str = String::new();
+
+    let text = std::fs::read_to_string("/var/log/cloud-init-output.log")?;
+
+    for line in text.lines().rev() {
+        let line_str = format!("{}\n", line);
+        ret_str.insert_str(0, &line_str);
+        if ret_str.len() > ::rpc::MAX_ERR_MSG_SIZE as usize {
+            break;
+        }
+    }
+
+    Ok(ret_str)
+}
+
+// Send error string to carbide api to log, indicating that the cloud-init script failed.
+// Very similar to report_scout_error below, but is run before discovery is done.
+async fn logerror_to_carbide(
+    config: &Options,
+    machine_interface_id: uuid::Uuid,
+) -> eyre::Result<()> {
+    let err_str = get_log_str()?;
+    let request: tonic::Request<ForgeScoutErrorReport> =
+        tonic::Request::new(ForgeScoutErrorReport {
+            machine_id: None,
+            machine_interface_id: Some(machine_interface_id.into()),
+            error: err_str,
+        });
+
+    let mut client = client::create_forge_client(config).await?;
+    let _response = client.report_forge_scout_error(request).await?;
+
     Ok(())
 }
 

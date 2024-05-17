@@ -19,6 +19,7 @@ set -e
 # move the files out of the installer and into the installed OS
 mkdir -p /mnt/opt/forge
 mv /forge-scout /mnt/opt/forge
+chmod a+x /mnt/opt/forge/forge-scout
 mv /forge-dpu.deb /mnt/opt/forge
 mv /doca_container_configs /mnt/opt/forge
 mv /doca_telemetry.tar /mnt/opt/forge
@@ -207,6 +208,19 @@ write_files:
     permissions: '0755'
     content: |
       #!/bin/bash
+      function cleanup()
+      {
+{% if update_firmware == "false" %}
+          CMD_PREFIX="ip vrf exec mgmt"
+{% endif %}
+          if [[ ! -f "/run/cloud-init.done" ]]
+          then
+            ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} logerror --uuid={{ interface_id }}
+          else
+            /bin/rm /run/cloud-init.done
+          fi
+      }
+      trap cleanup EXIT
       set -e
       date -s '@{{ seconds_since_epoch }}'
       hwclock --systohc
@@ -242,6 +256,7 @@ write_files:
       systemctl daemon-reload
       ovs-vsctl --no-wait del-br br-hbn
       /opt/forge/run-scout.sh
+      touch /run/cloud-init.done
 {% endif %}
 
 # run these commands (last)
