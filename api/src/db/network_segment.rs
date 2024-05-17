@@ -534,9 +534,10 @@ impl NetworkSegment {
                 if search_config.include_num_free_ips && !record.prefixes.is_empty() {
                     if record.segment_type == crate::db::network_segment::NetworkSegmentType::Tenant
                     {
-                        let dhcp_handler = UsedAdminNetworkIpResolver {
-                            segment_id: record.id,
-                        };
+                        let dhcp_handler =
+                            crate::db::instance_address::UsedOverlayNetworkIpResolver {
+                                segment_id: record.id,
+                            };
 
                         let mut allocated_addresses = IpAllocator::new(
                             txn,
@@ -561,10 +562,9 @@ impl NetworkSegment {
 
                         record.prefixes[0].num_free_ips = nfree;
                     } else {
-                        let dhcp_handler =
-                            crate::db::instance_address::UsedOverlayNetworkIpResolver {
-                                segment_id: record.id,
-                            };
+                        let dhcp_handler = UsedAdminNetworkIpResolver {
+                            segment_id: record.id,
+                        };
 
                         let mut allocated_addresses = IpAllocator::new(
                             txn,

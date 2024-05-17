@@ -5330,7 +5330,10 @@ where
 fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
     tracing::Span::current().record(
         "request",
-        truncate(format!("{:?}", request.get_ref()), 1500),
+        truncate(
+            format!("{:?}", request.get_ref()),
+            ::rpc::MAX_ERR_MSG_SIZE as usize,
+        ),
     );
 }
 

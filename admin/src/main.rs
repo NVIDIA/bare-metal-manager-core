@@ -165,6 +165,7 @@ async fn main() -> color_eyre::Result<()> {
     let url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
     let forge_root_ca_path =
         get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
+
     let forge_client_cert = get_client_cert_info(
         config.client_cert_path,
         config.client_key_path,

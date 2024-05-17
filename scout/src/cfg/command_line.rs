@@ -75,6 +75,8 @@ pub(crate) enum Command {
     AutoDetect(AutoDetect),
     #[clap(about = "Run deprovision")]
     Deprovision(Deprovision),
+    #[clap(about = "Send error report to Carbide API ")]
+    Logerror(Logerror),
 }
 
 impl Command {
@@ -82,6 +84,7 @@ impl Command {
         match self {
             Command::AutoDetect(command) => command.uuid,
             Command::Deprovision(command) => command.uuid,
+            Command::Logerror(command) => command.uuid,
         }
     }
 }
@@ -95,6 +98,13 @@ pub struct AutoDetect {
 
 #[derive(Parser)]
 pub struct Deprovision {
+    // This is a machine_INTERFACE_id, not a machine_id
+    #[clap(short, long, require_equals(true))]
+    pub uuid: uuid::Uuid,
+}
+
+#[derive(Parser)]
+pub struct Logerror {
     // This is a machine_INTERFACE_id, not a machine_id
     #[clap(short, long, require_equals(true))]
     pub uuid: uuid::Uuid,
