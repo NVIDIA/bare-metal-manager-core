@@ -529,12 +529,19 @@ pub enum DpuModel {
     BlueField3,
     Unknown,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum DpuComponent {
     Bmc,
     Uefi,
     Cec,
+}
+
+impl DpuComponent {
+    const VALUES: [Self; 3] = [Self::Bmc, Self::Uefi, Self::Cec];
+    pub fn iter() -> impl Iterator<Item = DpuComponent> {
+        Self::VALUES.iter().copied()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

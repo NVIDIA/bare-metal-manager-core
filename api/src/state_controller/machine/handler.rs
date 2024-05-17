@@ -1134,46 +1134,26 @@ impl StateHandler for DpuMachineStateHandler {
                 if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
                     if dpu_desc.component_update.is_some() {
                         let dpu_component_update = dpu_desc.component_update.as_ref().unwrap();
-
-                        let dpu_component = DpuComponent::Bmc;
-                        if let Some(dpu_component_value) = dpu_component_update.get(&dpu_component)
-                        {
-                            let task = self
-                                .component_update(&*client, dpu_component, dpu_component_value)
-                                .await?;
-                            if task.is_some() {
-                                let next_state = ManagedHostState::DpuDiscoveringState {
-                                    discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                        substate:
-                                            BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                                firmware_type: DpuComponent::Bmc,
-                                                task_id: task.unwrap().id,
-                                            },
-                                    },
+                        for dpu_component in DpuComponent::iter() {
+                            if let Some(dpu_component_value) =
+                                dpu_component_update.get(&dpu_component)
+                            {
+                                let task = self
+                                    .component_update(&*client, dpu_component, dpu_component_value)
+                                    .await?;
+                                if task.is_some() {
+                                    let next_state = ManagedHostState::DpuDiscoveringState {
+                                        discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                            substate:
+                                                BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                                                    firmware_type: dpu_component,
+                                                    task_id: task.unwrap().id,
+                                                },
+                                        },
+                                    };
+                                    return Ok(StateHandlerOutcome::Transition(next_state));
                                 };
-                                return Ok(StateHandlerOutcome::Transition(next_state));
-                            };
-                        }
-
-                        let dpu_component = DpuComponent::Cec;
-                        if let Some(dpu_component_value) = dpu_component_update.get(&dpu_component)
-                        {
-                            let task = self
-                                .component_update(&*client, dpu_component, dpu_component_value)
-                                .await?;
-
-                            if task.is_some() {
-                                let next_state = ManagedHostState::DpuDiscoveringState {
-                                    discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                        substate:
-                                            BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                                firmware_type: DpuComponent::Cec,
-                                                task_id: task.unwrap().id,
-                                            },
-                                    },
-                                };
-                                return Ok(StateHandlerOutcome::Transition(next_state));
-                            };
+                            }
                         }
                     }
                 }

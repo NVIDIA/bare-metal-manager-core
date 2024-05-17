@@ -17,7 +17,7 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cfg::DpuModel,
+    cfg::{DpuComponent, DpuModel},
     model::{
         hardware_info::{DmiData, HardwareInfo},
         machine::machine_id::MachineId,
@@ -267,6 +267,14 @@ impl EndpointExplorationReport {
                     .collect::<HashMap<_, _>>()
             })
             .unwrap_or_default()
+    }
+
+    pub fn dpu_component_version(&self, component: DpuComponent) -> Option<String> {
+        match component {
+            DpuComponent::Bmc => self.dpu_bmc_version(),
+            DpuComponent::Uefi => self.dpu_uefi_version(),
+            DpuComponent::Cec => None,
+        }
     }
 
     pub fn dpu_bmc_version(&self) -> Option<String> {

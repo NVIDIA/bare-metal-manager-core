@@ -331,30 +331,17 @@ impl SiteExplorer {
 
         if let Some(dpu_model) = dpu_report.identify_dpu() {
             if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
-                let dpu_component = DpuComponent::Bmc;
-                if let Some(min_version) = dpu_desc.component_min_version.get(&dpu_component) {
-                    if let Some(cur_version) = dpu_report.dpu_bmc_version() {
-                        if version_compare::compare(&cur_version, min_version)
-                            .is_ok_and(|c| c == version_compare::Cmp::Lt)
-                        {
-                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                                "{:?} firmware version {} is not supported. Please update to: {}",
-                                dpu_component, cur_version, min_version
-                            )));
-                        }
-                    }
-                }
-
-                let dpu_component = DpuComponent::Uefi;
-                if let Some(min_version) = dpu_desc.component_min_version.get(&dpu_component) {
-                    if let Some(cur_version) = dpu_report.dpu_uefi_version() {
-                        if version_compare::compare(&cur_version, min_version)
-                            .is_ok_and(|c| c == version_compare::Cmp::Lt)
-                        {
-                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                                "{:?} firmware version {} is not supported. Please update to: {}",
-                                dpu_component, cur_version, min_version
-                            )));
+                for dpu_component in DpuComponent::iter() {
+                    if let Some(min_version) = dpu_desc.component_min_version.get(&dpu_component) {
+                        if let Some(cur_version) = dpu_report.dpu_component_version(dpu_component) {
+                            if version_compare::compare(&cur_version, min_version)
+                                .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                            {
+                                return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                                    "{:?} firmware version {} is not supported. Please update to: {}",
+                                    dpu_component, cur_version, min_version
+                                )));
+                            }
                         }
                     }
                 }
