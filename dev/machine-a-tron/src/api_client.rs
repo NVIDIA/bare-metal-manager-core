@@ -10,6 +10,9 @@ use crate::config::MachineATronContext;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+
     #[error("Unable to connect to carbide API: {0}")]
     ConnectFailed(String),
 
@@ -27,7 +30,13 @@ where
     F: Future<Output = ClientApiResult<T>>,
 {
     let api_config = ApiConfig::new(
-        app_context.app_config.carbide_api_url.as_ref().unwrap(),
+        app_context
+            .app_config
+            .carbide_api_url
+            .as_ref()
+            .ok_or(ClientApiError::ConfigError(
+                "missing carbide_api_url".to_string(),
+            ))?,
         app_context.forge_client_config.clone(),
     );
 
@@ -59,10 +68,17 @@ pub async fn discover_dhcp(
     relay_address: String,
     circuit_id: Option<String>,
 ) -> ClientApiResult<rpc::forge::DhcpRecord> {
-    let dhcp_string = std::fs::read_to_string(template_dir.clone() + "/dhcp_discovery.json")
-        .expect("Unable to read dhcp_discovery.json");
-    let default_data: rpc::forge::DhcpDiscovery = serde_json::from_str(&dhcp_string)
-        .expect("dhcp_discovery.json does not have correct format.");
+    let json_path = format!("{}/{}", &template_dir, "dhcp_discovery.json");
+    let dhcp_string = std::fs::read_to_string(&json_path).map_err(|e| {
+        ClientApiError::ConfigError(format!("Unable to read {}: {}", json_path, e,))
+    })?;
+    let default_data: rpc::forge::DhcpDiscovery =
+        serde_json::from_str(&dhcp_string).map_err(|e| {
+            ClientApiError::ConfigError(format!(
+                "{}/dhcp_discovery.json does not have correct format: {}",
+                template_dir, e
+            ))
+        })?;
 
     with_forge_client(app_context, |mut client| async move {
         let dhcp_discovery = rpc::forge::DhcpDiscovery {
@@ -100,16 +116,20 @@ pub async fn discover_machine(
         network_interface_macs.get(0)
     );
     */
-    let dhcp_string = if machine_type == MachineType::Dpu {
-        std::fs::read_to_string(format!("{}/dpu_discovery_info.json", template_dir))
-            .expect("Unable to read dpu_discovery_info.json")
+    let json_path = if machine_type == MachineType::Dpu {
+        format!("{}/dpu_discovery_info.json", template_dir)
     } else {
-        std::fs::read_to_string(format!("{}/host_discovery_info.json", template_dir))
-            .expect("Unable to read host_discovery_info.json")
+        format!("{}/host_discovery_info.json", template_dir)
     };
+    let dhcp_string = std::fs::read_to_string(&json_path)
+        .map_err(|e| ClientApiError::ConfigError(format!("Unable to read {}: {}", json_path, e)))?;
     let mut discovery_data: rpc::machine_discovery::DiscoveryInfo =
-        serde_json::from_str(&dhcp_string)
-            .expect("discover_machine json does not have correct format.");
+        serde_json::from_str(&dhcp_string).map_err(|e| {
+            ClientApiError::ConfigError(format!(
+                "{} does not have correct format: {}",
+                json_path, e
+            ))
+        })?;
 
     if let Some(ref mut dmi_data) = discovery_data.dmi_data {
         dmi_data.product_serial = product_serial;
@@ -155,17 +175,21 @@ pub async fn update_bmc_metadata(
     machine_id: rpc::MachineId,
     bmc_host_and_port: Option<String>,
 ) -> ClientApiResult<rpc::forge::BmcMetaDataUpdateResponse> {
-    let md_request_string = if machine_type == MachineType::Dpu {
-        std::fs::read_to_string(format!("{}/dpu_metadata_update.json", template_dir))
-            .expect("Unable to read dpu_metadata_update.json")
+    let json_path = if machine_type == MachineType::Dpu {
+        format!("{}/dpu_metadata_update.json", template_dir)
     } else {
-        std::fs::read_to_string(format!("{}/host_metadata_update.json", template_dir))
-            .expect("Unable to read dpu_metadata_update.json")
+        format!("{}/host_metadata_update.json", template_dir)
     };
+    let md_request_string = std::fs::read_to_string(&json_path)
+        .map_err(|e| ClientApiError::ConfigError(format!("Unable to read {}: {}", json_path, e)))?;
 
     let mut default_data: rpc::forge::BmcMetaDataUpdateRequest =
-        serde_json::from_str(&md_request_string)
-            .expect("metadata_update json does not have correct format.");
+        serde_json::from_str(&md_request_string).map_err(|e| {
+            ClientApiError::ConfigError(format!(
+                "{} does not have correct format: {}",
+                json_path, e
+            ))
+        })?;
 
     default_data.machine_id = Some(machine_id);
 

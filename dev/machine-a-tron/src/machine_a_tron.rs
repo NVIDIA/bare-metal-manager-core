@@ -38,7 +38,11 @@ impl MachineATron {
 
             let tui_handle = Some(tokio::spawn(async {
                 let mut tui = Tui::new(ui_rx, app_tx);
-                tui.run().await;
+                _ = tui.run().await.inspect_err(|e| {
+                    let estr = format!("Error running TUI: {e}");
+                    tracing::error!(estr);
+                    eprintln!("{}", estr); // dump it to stderr in case logs are getting redirected
+                })
             }));
             (tui_handle, Some(ui_tx))
         } else {
@@ -58,7 +62,12 @@ impl MachineATron {
 
                 let join_handle = tokio::spawn(async move {
                     while running.as_ref().load(Ordering::Relaxed) {
-                        if machine.process_state(&mut dhcp_client_clone).await {
+                        let work_done = machine
+                            .process_state(&mut dhcp_client_clone)
+                            .await
+                            .inspect_err(|e| tracing::error!("Error processing state: {e}"))
+                            .unwrap_or(false);
+                        if work_done {
                             tokio::time::sleep(Duration::from_secs(5)).await;
                         } else {
                             tokio::time::sleep(Duration::from_secs(30)).await;
@@ -82,15 +91,22 @@ impl MachineATron {
         }
 
         for m in machine_handles {
+            m.abort();
             if let Err(e) = m.await {
-                tracing::warn!("Failed to clean up machine task: {e}");
+                if !e.is_cancelled() {
+                    tracing::warn!("Failed to clean up machine task: {e}");
+                }
             }
         }
         if let Some(tui_handle) = tui_handle {
             if let Some(ui_event_tx) = ui_event_tx.as_ref() {
-                ui_event_tx.try_send(UiEvent::Quit).unwrap();
+                _ = ui_event_tx
+                    .try_send(UiEvent::Quit)
+                    .inspect_err(|e| tracing::warn!("Could not send quit signal to TUI: {e}"));
             }
-            tui_handle.await.unwrap();
+            _ = tui_handle
+                .await
+                .inspect_err(|e| tracing::warn!("Error running TUI: {e}"));
         }
         tracing::info!("machine-a-tron finished");
     }

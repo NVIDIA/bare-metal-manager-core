@@ -7,6 +7,10 @@ use_dhcp_api = true
 dhcp_server_address = "192.168.252.78"
 bmc_ip = "192.168.252.1"
 bmc_starting_port = 2000
+# Set this to "sudo" or "doas" if you're not running this as root. This allows
+# the DHCP mocks to bind to interfaces in the above IP range. Must be
+# configured to run without a password.
+# sudo_command = "/usr/bin/sudo"
 
 [machines.config]
 host_count = 200
@@ -18,4 +22,3 @@ dpu_bmc_redfish_template_dir = "dev/machine-a-tron/templates/dpu_bmc_redfish"
 host_bmc_redfish_template_dir = "dev/machine-a-tron/templates/host_bmc_redfish"
 oob_dhcp_relay_address = "192.168.64.1"
 admin_dhcp_relay_address = "192.168.0.1"
-

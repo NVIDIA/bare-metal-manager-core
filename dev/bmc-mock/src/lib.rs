@@ -37,6 +37,14 @@ pub struct BmcState {
     pub use_qemu: bool,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum BmcMockError {
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("BMC Mock Configuration error: {0}")]
+    Config(String),
+}
+
 pub fn default_router(state: BmcState) -> Router {
     Router::new()
         .route(rf!(""), get(get_root))
@@ -92,7 +100,11 @@ pub fn default_router(state: BmcState) -> Router {
         .with_state(state)
 }
 
-pub async fn run(router: Router, cert_path: Option<String>, listen_addr: Option<SocketAddr>) {
+pub async fn run(
+    router: Router,
+    cert_path: Option<String>,
+    listen_addr: Option<SocketAddr>,
+) -> Result<(), BmcMockError> {
     let cert_path = match cert_path.as_ref() {
         Some(cert_path) => Path::new(cert_path),
         None => {
@@ -100,10 +112,12 @@ pub async fn run(router: Router, cert_path: Option<String>, listen_addr: Option<
             match manifest_dir.try_exists() {
                 Ok(true) => manifest_dir,
                 Ok(false) => Path::new("/opt/carbide"),
-                Err(error) => panic!(
-                    "Could not determine if CARGO_MANIFEST_DIR exists: {}",
-                    error
-                ),
+                Err(error) => {
+                    return Err(BmcMockError::Config(format!(
+                        "Could not determine if CARGO_MANIFEST_DIR exists: {}",
+                        error
+                    )));
+                }
             }
         }
     };
@@ -121,7 +135,8 @@ pub async fn run(router: Router, cert_path: Option<String>, listen_addr: Option<
     axum_server::bind_rustls(addr, config)
         .serve(router.into_make_service())
         .await
-        .unwrap()
+        .inspect_err(|e| tracing::error!("BMC mock could not listen on address {}: {}", addr, e))?;
+    Ok(())
 }
 
 /*

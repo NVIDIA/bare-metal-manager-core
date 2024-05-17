@@ -28,9 +28,6 @@ Options:
 
 ```
 
-## OMG Panics Everywhere
-Yes, this uses `unwrap()` and `expect()` all over the place.  As a result, it is a happy path only kind of tool.  This is on my list of things to fix.
-
 ## High Level Code Organization
 In order to separate work and hopefully avoid bottlenecks, the code runs different systems in tasks using channels for communication between them.
 The following are broken into tasks:

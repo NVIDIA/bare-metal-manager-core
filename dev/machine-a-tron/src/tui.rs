@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, error::Error, time::Duration};
 
 use crossterm::{
     event::{self, Event, EventStream, KeyCode},
@@ -178,7 +178,10 @@ impl Tui {
                 if key.kind == event::KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => {
-                            self.app_tx.send(AppEvent::Quit).await.unwrap();
+                            self.app_tx
+                                .send(AppEvent::Quit)
+                                .await
+                                .expect("Could not send quit signal to TUI, crashing.");
                             false
                         }
                         KeyCode::Up => {
@@ -275,9 +278,9 @@ impl Tui {
         f.render_widget(p, layout_right[1]);
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
         let mut running = true;
-        let mut terminal = Tui::setup_terminal().unwrap();
+        let mut terminal = Tui::setup_terminal()?;
 
         let mut items: Vec<ListItem<'_>> = Vec::default();
         let mut event_stream = EventStream::new();
@@ -316,15 +319,13 @@ impl Tui {
                 //.highlight_symbol(">>")
                 ;
 
-            terminal
-                .draw(|f| {
-                    if self.machine_details.is_empty() {
-                        Tui::draw_list(f, &list, &mut self.list_state);
-                    } else {
-                        self.draw_list_with_details(f, &list);
-                    }
-                })
-                .unwrap();
+            terminal.draw(|f| {
+                if self.machine_details.is_empty() {
+                    Tui::draw_list(f, &list, &mut self.list_state);
+                } else {
+                    self.draw_list_with_details(f, &list);
+                }
+            })?;
 
             select! {
                 _ = tokio::time::sleep(Duration::from_millis(200)) => { },
@@ -352,6 +353,7 @@ impl Tui {
             };
         }
 
-        Tui::teardown_terminal(&mut terminal).unwrap();
+        Tui::teardown_terminal(&mut terminal)?;
+        Ok(())
     }
 }

@@ -28,7 +28,7 @@ use tracing_subscriber::prelude::*;
 ///  127.0.0.1:1079 forge.Forge/CleanupMachineCompleted`
 ///  where that UUID is a host machine in DB.
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env_filter = EnvFilter::from_default_env()
         .add_directive(LevelFilter::DEBUG.into())
         .add_directive("tower=warn".parse().unwrap())
@@ -53,5 +53,6 @@ async fn main() {
         args.cert_path,
         listen_addr,
     )
-    .await;
+    .await?;
+    Ok(())
 }
