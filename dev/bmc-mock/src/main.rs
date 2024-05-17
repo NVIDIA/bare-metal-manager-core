@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -46,13 +46,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Using qemu: {}", args.use_qemu);
     info!("Using cert_path: {:?}", args.cert_path);
-    bmc_mock::run(
+    let router = if let Some(tar_path) = args.targz {
+        bmc_mock::tar_router(&tar_path).unwrap()
+    } else {
         bmc_mock::default_router(bmc_mock::BmcState {
             use_qemu: args.use_qemu,
-        }),
-        args.cert_path,
-        listen_addr,
-    )
-    .await?;
+        })
+    };
+    bmc_mock::run(router, args.cert_path, listen_addr).await?;
     Ok(())
 }
