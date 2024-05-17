@@ -11,6 +11,12 @@ pub struct Args {
 
     #[clap(short, long)]
     pub port: Option<u16>,
+
+    #[clap(
+        long,
+        help = "Path to .tar.gz file of redfish data to output. Create it from libredfish tests/mockups/<vendor>"
+    )]
+    pub targz: Option<std::path::PathBuf>,
 }
 
 pub fn parse_args() -> Args {

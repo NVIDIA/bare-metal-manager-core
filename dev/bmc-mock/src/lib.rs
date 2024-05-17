@@ -25,6 +25,9 @@ use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use tracing::{debug, error, info};
 
+mod tar;
+pub use tar::tar_router;
+
 #[macro_export]
 macro_rules! rf {
     ($url:literal) => {
