@@ -6,6 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use bmc_mock::BmcMockError;
 use chrono::{DateTime, Local};
 use mac_address::MacAddress;
 use rpc::forge_agent_control_response::Action;
@@ -18,7 +19,7 @@ use crate::{
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::{DhcpRelayClient, DhcpResponseInfo},
     dpu_machine::DpuMachine,
-    machine_utils::{get_api_state, get_fac_action, next_mac},
+    machine_utils::{add_address_to_interface, get_api_state, get_fac_action, next_mac},
     tui::{HostDetails, UiEvent},
 };
 
@@ -35,6 +36,28 @@ pub enum MachineState {
     ControlComplete,
     GetNetworkConfig,
     MachineUp,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum MachineStateError {
+    #[error(
+        "Invalid Machine state: Missing machine_id for this machine in machine discovery results"
+    )]
+    MissingMachineId,
+    #[error("{0}")]
+    InvalidAddress(String),
+    #[error("Error launching BMC mock service: {0}")]
+    BmcMockServiceError(BmcMockError),
+    #[error("Error configuring listening address: {0}")]
+    ListenAddressConfigError(AddressConfigError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum AddressConfigError {
+    #[error("Error running ip command: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("Error running ip command: {0:?}, output: {1:?}")]
+    CommandFailure(tokio::process::Command, std::process::Output),
 }
 
 impl Display for MachineState {
@@ -73,9 +96,9 @@ pub struct HostMachine {
 impl Display for HostMachine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let machine_id = self.get_machine_id_str();
-        writeln!(f, "ID: {}", machine_id).unwrap();
-        writeln!(f, "Local State: {}", self.mat_state).unwrap();
-        writeln!(f, "API State: {}", self.api_state).unwrap();
+        writeln!(f, "ID: {}", machine_id)?;
+        writeln!(f, "Local State: {}", self.mat_state)?;
+        writeln!(f, "API State: {}", self.api_state)?;
         writeln!(
             f,
             "Machine IP: {}",
@@ -83,8 +106,7 @@ impl Display for HostMachine {
                 || "Unknown".to_owned(),
                 |bmc_dhcp_info| bmc_dhcp_info.ip_address.to_string()
             )
-        )
-        .unwrap();
+        )?;
         writeln!(
             f,
             "BMC IP: {}",
@@ -92,11 +114,10 @@ impl Display for HostMachine {
                 || "Unknown".to_owned(),
                 |bmc_dhcp_info| bmc_dhcp_info.ip_address.to_string()
             )
-        )
-        .unwrap();
-        writeln!(f, "DPUs:").unwrap();
+        )?;
+        writeln!(f, "DPUs:")?;
         for (dpu_index, dpu) in self.dpu_machines.iter().enumerate() {
-            writeln!(f, "{}: {}", dpu_index, dpu).unwrap()
+            writeln!(f, "{}: {}", dpu_index, dpu)?
         }
         Ok(())
     }
@@ -191,7 +212,10 @@ impl HostMachine {
         }
     }
 
-    pub async fn process_state(&mut self, dhcp_client: &mut DhcpRelayClient) -> bool {
+    pub async fn process_state(
+        &mut self,
+        dhcp_client: &mut DhcpRelayClient,
+    ) -> Result<bool, MachineStateError> {
         let mut work_done = false;
         let mut dpus_ready = true;
         let template_dir = self.config.template_dir.clone();
@@ -203,7 +227,7 @@ impl HostMachine {
             if reboot_requested && self.last_reboot.elapsed() > Duration::from_secs(60) {
                 self.last_reboot = Instant::now();
                 self.mat_state = MachineState::Init;
-                return false;
+                return Ok(false);
             }
             if old_api_state != self.api_state {
                 work_done = true;
@@ -212,7 +236,13 @@ impl HostMachine {
 
         let mut logs = Vec::default();
         for dpu in self.dpu_machines.iter_mut() {
-            work_done |= dpu.process_state(dhcp_client, &mut logs).await;
+            work_done |= match dpu.process_state(dhcp_client, &mut logs).await {
+                Ok(dpu_work_done) => dpu_work_done,
+                Err(err) => {
+                    tracing::error!("Internal machine-a-tron state error for mock DPU machine {}, will skip it: {}", dpu.mat_id, err);
+                    false
+                }
+            };
             dpus_ready &= dpu.get_state() == MachineState::MachineUp;
         }
         for l in logs {
@@ -222,7 +252,7 @@ impl HostMachine {
         // give the API time to update the host after the dpus did something
         if !self.dpus_previously_ready && dpus_ready {
             self.dpus_previously_ready = true;
-            return true;
+            return Ok(true);
         }
 
         work_done |= if dpus_ready {
@@ -249,7 +279,7 @@ impl HostMachine {
 
                         let Ok(Some(dhcp_response_info)) = response_rx.await else {
                             tracing::warn!("Failed waiting for dhcp response");
-                            return false;
+                            return Ok(false);
                         };
 
                         let listen_ip = dhcp_response_info.ip_address.to_string();
@@ -268,36 +298,37 @@ impl HostMachine {
                         .map(|p| p.to_string_lossy().into_owned())
                         .unwrap();
 
-                        let add_ip_result = tokio::process::Command::new("/usr/bin/ip")
-                            .args([
-                                "a",
-                                "add",
-                                &listen_ip,
-                                "dev",
-                                &self.app_context.app_config.interface,
-                            ])
-                            .output()
-                            .await;
-                        if let Err(result) = add_ip_result {
-                            tracing::warn!("Failed to add ip to interface: {result}");
-                        }
+                        add_address_to_interface(
+                            &listen_ip,
+                            &self.app_context.app_config.interface,
+                            &self.app_context.app_config.sudo_command,
+                        )
+                        .await
+                        .inspect_err(|e| tracing::warn!("{}", e))
+                        .map_err(MachineStateError::ListenAddressConfigError)?;
+
                         let mut bmc = Bmc::new(
                             listen_ip,
                             self.app_context.app_config.bmc_starting_port,
                             self.config.host_bmc_redfish_template_dir.clone(),
                             cert_path,
                         );
-                        bmc.start();
+                        bmc.start()?;
                         self.bmc = Some(bmc);
-                        true
+                        Ok(true)
                     } else {
                         self.mat_state = MachineState::Init;
-                        true
+                        Ok(true)
                     }
                 }
                 MachineState::Init => {
                     if self.machine_dhcp_info.is_none() {
-                        let mac_address = self.dpu_machines.first().unwrap().host_mac_address;
+                        let Some(mac_address) =
+                            self.dpu_machines.first().map(|d| d.host_mac_address)
+                        else {
+                            tracing::warn!("Machine {} has no dpu_machines", self.mat_id);
+                            return Ok(false);
+                        };
                         tracing::debug!(
                             "Host {}: Sending Admin DHCP Request for {}",
                             self.get_machine_id_str(),
@@ -323,32 +354,42 @@ impl HostMachine {
 
                         let Ok(Some(dhcp_response_info)) = response_rx.await else {
                             tracing::warn!("Failed waiting on dhcp response");
-                            return false;
+                            return Ok(false);
                         };
                         self.update_dhcp_info(dhcp_response_info);
 
-                        true
+                        Ok(true)
                     } else {
                         self.mat_state = MachineState::DhcpComplete;
-                        true
+                        Ok(true)
                     }
                 }
                 MachineState::DhcpComplete => {
-                    let first_mac_address = self.dpu_machines.first().unwrap().host_mac_address;
+                    let Some(first_mac_address) =
+                        self.dpu_machines.first().map(|d| d.host_mac_address)
+                    else {
+                        tracing::warn!("Machine {} has no dpu_machines", self.mat_id);
+                        return Ok(false);
+                    };
                     let mac_addresses = self
                         .dpu_machines
                         .iter()
                         .map(|dpus| dpus.host_mac_address.to_string())
                         .collect();
 
-                    let machine_interface_id = rpc::Uuid::from(
-                        self.machine_dhcp_info
-                            .as_ref()
-                            .cloned()
-                            .unwrap()
-                            .interface_id
-                            .unwrap(),
-                    );
+                    let Some(machine_interface_id) = self
+                        .machine_dhcp_info
+                        .as_ref()
+                        .cloned()
+                        .and_then(|i| i.interface_id)
+                        .map(rpc::Uuid::from)
+                    else {
+                        tracing::warn!(
+                            "Machine {} has no machine_dhcp_info.interface_id",
+                            self.mat_id
+                        );
+                        return Ok(false);
+                    };
 
                     let start = Instant::now();
                     let Ok(machine_discovery_result) = api_client::discover_machine(
@@ -363,7 +404,7 @@ impl HostMachine {
                     .await
                     else {
                         tracing::warn!("discover_machine failed");
-                        return false;
+                        return Ok(false);
                     };
 
                     self.log(format!(
@@ -372,15 +413,15 @@ impl HostMachine {
                     ));
                     self.machine_discovery_result = Some(machine_discovery_result);
                     self.mat_state = MachineState::HardwareDiscoveryComplete;
-                    true
+                    Ok(true)
                 }
                 MachineState::HardwareDiscoveryComplete => {
-                    let machine_id = self.get_machine_id();
+                    let machine_id = self.get_machine_id()?;
                     // let bmc_host_and_port =
                     //     format!("{}:{}", self.app_context.app_config.bmc_ip, self.bmc_port);
                     let Some(dhcp_info) = self.bmc_dhcp_info.as_ref() else {
                         tracing::warn!("missing dhcp_response_info");
-                        return false;
+                        return Ok(false);
                     };
                     let bmc_host_and_port = format!(
                         "{}:{}",
@@ -400,7 +441,7 @@ impl HostMachine {
                     .await
                     {
                         tracing::warn!("update_bmc_metadata failed: {e}");
-                        return false;
+                        return Ok(false);
                     }
 
                     self.log(format!(
@@ -409,10 +450,10 @@ impl HostMachine {
                     ));
 
                     self.mat_state = MachineState::BmcUpdateComplete;
-                    true
+                    Ok(true)
                 }
                 MachineState::BmcUpdateComplete => {
-                    let machine_id = self.get_machine_id();
+                    let machine_id = self.get_machine_id()?;
                     let start = Instant::now();
 
                     let action = get_fac_action(&self.app_context, machine_id.clone()).await;
@@ -427,7 +468,7 @@ impl HostMachine {
                         api_client::discovery_complete(&self.app_context, machine_id).await
                     {
                         tracing::warn!("discovery_complete failed: {e}");
-                        return false;
+                        return Ok(false);
                     }
                     self.log(format!(
                         "discovery_complete took {}ms",
@@ -435,10 +476,10 @@ impl HostMachine {
                     ));
 
                     self.mat_state = MachineState::DiscoveryComplete;
-                    true
+                    Ok(true)
                 }
                 MachineState::DiscoveryComplete => {
-                    let machine_id = self.get_machine_id();
+                    let machine_id = self.get_machine_id()?;
                     let start = Instant::now();
                     let action = get_fac_action(&self.app_context, machine_id.clone()).await;
                     self.log(format!(
@@ -448,15 +489,15 @@ impl HostMachine {
                     ));
 
                     self.mat_state = MachineState::ControlComplete;
-                    true
+                    Ok(true)
                 }
                 MachineState::ControlComplete => {
                     self.mat_state = MachineState::MachineUp;
-                    true
+                    Ok(true)
                 }
-                MachineState::GetNetworkConfig => false,
+                MachineState::GetNetworkConfig => Ok(false),
                 MachineState::MachineUp => {
-                    let machine_id = self.get_machine_id();
+                    let machine_id = self.get_machine_id()?;
                     let start = Instant::now();
                     let action = get_fac_action(&self.app_context, machine_id.clone()).await;
                     self.log(format!(
@@ -468,30 +509,31 @@ impl HostMachine {
                     if action == Action::Discovery {
                         self.log("Starting discovery".to_string());
                         self.mat_state = MachineState::DhcpComplete;
-                        true
+                        Ok(true)
                     } else {
-                        false
+                        Ok(false)
                     }
                 }
             }
         } else {
-            false
-        };
+            Ok(false)
+        }?;
 
         if let Some(ui_event_tx) = self.ui_event_tx.as_ref() {
             if work_done {
                 let details = HostDetails::from(self as &HostMachine);
-                ui_event_tx
+                _ = ui_event_tx
                     .send(UiEvent::MachineUpdate(details))
                     .await
-                    .unwrap();
+                    .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
             }
         }
-        work_done
+        Ok(work_done)
     }
 
-    pub fn get_machine_id(&self) -> rpc::forge::MachineId {
-        self.get_machine_id_opt().unwrap()
+    pub fn get_machine_id(&self) -> Result<rpc::forge::MachineId, MachineStateError> {
+        self.get_machine_id_opt()
+            .ok_or(MachineStateError::MissingMachineId)
     }
 
     pub fn get_machine_id_opt(&self) -> Option<rpc::forge::MachineId> {
@@ -526,9 +568,8 @@ impl HostMachine {
             None => self
                 .dpu_machines
                 .first()
-                .unwrap()
-                .host_mac_address
-                .to_string(),
+                .map(|m| m.host_mac_address.to_string())
+                .unwrap_or(String::from("<unknown>")),
         }
     }
 }

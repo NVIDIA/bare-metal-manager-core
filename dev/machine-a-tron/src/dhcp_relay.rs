@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     net::{Ipv4Addr, SocketAddrV4},
-    str::FromStr,
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
@@ -22,8 +21,14 @@ use uuid::Uuid;
 
 use mac_address::MacAddress;
 
-use crate::{api_client, config::MachineATronContext, MachineATronConfig};
+use crate::{
+    api_client::{self, ClientApiError},
+    config::MachineATronContext,
+    MachineATronConfig,
+};
 static NEXT_XID: AtomicU32 = AtomicU32::new(1000);
+
+type DhcpRelayResult = Result<(), DhcpRelayError>;
 
 pub struct DhcpRelayService {
     last_dhcp_request: Instant,
@@ -103,7 +108,6 @@ struct DhcpRequestInfo {
 
     template_dir: String,
     segment_id: Option<Uuid>,
-
     response_tx: tokio::sync::oneshot::Sender<Option<DhcpResponseInfo>>,
 }
 
@@ -140,25 +144,27 @@ impl DhcpRelayService {
         )
     }
 
-    pub fn create_udp_socket(&self) -> UdpSocket {
+    pub fn create_udp_socket(&self) -> Result<UdpSocket, DhcpRelayError> {
         let interface = self.app_config.interface.as_bytes();
         // Note that this is simulating a dhcp relay, not a client, so it uses port 67 for both the source and destination port
         let local_addr = "0.0.0.0:10067".to_owned().parse::<SocketAddrV4>().unwrap();
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
 
-        socket.bind_device(Some(interface)).unwrap();
-        socket.set_reuse_port(true).unwrap();
-        socket.set_reuse_address(true).unwrap();
-        socket.set_broadcast(true).unwrap();
-        socket.set_nonblocking(true).unwrap();
-        socket.bind(&local_addr.into()).unwrap();
-        UdpSocket::from_std(socket.into()).unwrap()
+        socket.bind_device(Some(interface))?;
+        socket.set_reuse_port(true)?;
+        socket.set_reuse_address(true)?;
+        socket.set_broadcast(true)?;
+        socket.set_nonblocking(true)?;
+        socket.bind(&local_addr.into())?;
+        UdpSocket::from_std(socket.into()).map_err(DhcpRelayError::from)
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> DhcpRelayResult {
         let mut requests: HashMap<Uuid, DhcpRequestInfo> = HashMap::default();
 
-        let udp_socket = self.create_udp_socket();
+        let udp_socket = self
+            .create_udp_socket()
+            .inspect_err(|e| tracing::error!("DHCP relay: error creating UDP socket: {}", e))?;
 
         let mut running = true;
         while running {
@@ -168,7 +174,8 @@ impl DhcpRelayService {
                 msg = udp_socket.recv_from(&mut buf) => {
                     match msg {
                         Ok((_bytes_read, _remote_addr)) => {
-                            Self::handle_dhcp_message(&mut buf, &mut self.request_tx, &mut requests).await;
+                            _ = Self::handle_dhcp_message(&mut buf, &mut self.request_tx, &mut requests).await
+                                .inspect_err(|e| tracing::warn!("Could not handle DHCP message: {}", e));
                         },
                         Err(e) => {
                             tracing::warn!("reading from socket failed: {:?}", e);
@@ -189,7 +196,16 @@ impl DhcpRelayService {
 
                             if self.app_config.use_dhcp_api {
                                 if let RequestType::Request(request_info) = request_info {
-                                    self.fake_dhcp_request(request_info).await;
+                                    // Handle the request using the API server, and send the
+                                    // response back. Send a None response if we got an error
+                                    // handling the request: If we don't send a response, the
+                                    // client will be awaiting response_rx forever.
+                                    let response = self.fake_dhcp_request(&request_info).await
+                                        .inspect_err(|e| tracing::error!("Error sending fake DHCP request via API: {}", e))
+                                        .ok();
+                                    if request_info.response_tx.send(response).is_err() {
+                                        tracing::error!("Error sending fake DHCP response");
+                                    }
                                 }
                             } else {
                                 running = self.handle_request_message(&udp_socket, &mut requests, request_info).await;
@@ -201,25 +217,26 @@ impl DhcpRelayService {
                 _ = tokio::time::sleep(Duration::from_millis(1000)) => {}
             }
         }
+        Ok(())
     }
 
-    async fn fake_dhcp_request(&mut self, request_info: DhcpRequestInfo) {
+    async fn fake_dhcp_request(
+        &mut self,
+        request_info: &DhcpRequestInfo,
+    ) -> Result<DhcpResponseInfo, DhcpRelayError> {
         tracing::info!("requesting IP for {}", request_info.mat_id);
-        let Ok(dhcp_record) = api_client::discover_dhcp(
+
+        let dhcp_record = api_client::discover_dhcp(
             &self.app_context,
             request_info.mac_address.to_string(),
-            request_info.template_dir,
+            request_info.template_dir.clone(),
             request_info.relay_address.to_string(),
             None,
         )
         .await
-        else {
-            tracing::warn!("discover_dhcp failed");
-            if request_info.response_tx.send(None).is_err() {
-                tracing::warn!("Failed to send dhcp response");
-            }
-            return;
-        };
+        .inspect_err(|e| {
+            tracing::warn!("discover_dhcp failed: {e}");
+        })?;
 
         tracing::info!(
             "dhcp request for {} through relay {} got address {} (machine id {:?})",
@@ -229,33 +246,49 @@ impl DhcpRelayService {
             dhcp_record.machine_id,
         );
 
-        let interface_uuid =
-            Uuid::from_str(dhcp_record.machine_interface_id.unwrap().value.as_str()).ok();
-        let segment_id = Uuid::from_str(dhcp_record.segment_id.unwrap().value.as_str()).ok();
+        let interface_uuid = dhcp_record.machine_interface_id.ok_or_else(|| {
+            DhcpRelayError::InvalidDhcpRecord("missing machine_interface_id".to_string())
+        })?;
+        let segment_id = dhcp_record
+            .segment_id
+            .ok_or_else(|| DhcpRelayError::InvalidDhcpRecord("missing segment_id".to_string()))?;
         let machine_id = dhcp_record.machine_id;
 
         let response_info = DhcpResponseInfo {
             mat_id: request_info.mat_id,
-            interface_id: interface_uuid,
+            interface_id: Some(Uuid::try_from(interface_uuid).unwrap()),
             machine_id,
             mac_address: request_info.mac_address,
-            ip_address: dhcp_record.address.parse::<Ipv4Addr>().unwrap(),
+            ip_address: dhcp_record.address.parse::<Ipv4Addr>().map_err(|e| {
+                DhcpRelayError::InvalidDhcpRecord(format!(
+                    "{} is not an IPv4 address: {}",
+                    dhcp_record.address, e
+                ))
+            })?,
             hostname: Some(dhcp_record.fqdn),
             subnet: Some(
                 dhcp_record
                     .prefix
                     .split_once('/')
-                    .unwrap()
+                    .ok_or_else(|| {
+                        DhcpRelayError::InvalidDhcpRecord(format!(
+                            "contains an invalid prefix (must contain a '/'): {}",
+                            dhcp_record.prefix
+                        ))
+                    })?
                     .0
                     .parse::<Ipv4Addr>()
-                    .unwrap(),
+                    .map_err(|e| {
+                        DhcpRelayError::InvalidDhcpRecord(format!(
+                            "contains an invalid prefix: {}",
+                            e
+                        ))
+                    })?,
             ),
-            segment_id,
+            segment_id: Some(Uuid::try_from(segment_id).unwrap()),
         };
 
-        if request_info.response_tx.send(Some(response_info)).is_err() {
-            tracing::warn!("Failed to send dhcp response");
-        }
+        Ok(response_info)
     }
 
     async fn handle_request_message(
@@ -267,16 +300,26 @@ impl DhcpRelayService {
         match request_info {
             RequestType::Request(mut request_info) => {
                 if request_info.requested_address.is_some() {
-                    self.send_request_packet(send_udp_socket, request_info)
-                        .await;
+                    _ = self
+                        .send_request_packet(send_udp_socket, request_info)
+                        .await
+                        .inspect_err(|e| tracing::warn!("Error sending request packet: {e}"));
                 } else {
-                    self.send_discovery_packet(send_udp_socket, &mut request_info)
-                        .await;
+                    _ = self
+                        .send_discovery_packet(send_udp_socket, &mut request_info)
+                        .await
+                        .inspect_err(|e| tracing::warn!("Error sending request packet: {e}"));
                     requests.insert(request_info.mat_id, request_info);
                 }
             }
             RequestType::Response(response_info) => {
-                let request_info = requests.remove(&response_info.mat_id).unwrap();
+                let Some(request_info) = requests.remove(&response_info.mat_id) else {
+                    tracing::error!(
+                        "Cannot find DHCP request corresponding to response {:?}",
+                        response_info
+                    );
+                    return false;
+                };
                 if request_info.response_tx.send(Some(response_info)).is_err() {
                     tracing::warn!("Failed to send dhcp response");
                 }
@@ -292,116 +335,132 @@ impl DhcpRelayService {
         buf: &mut [u8],
         request_tx: &mut Sender<RequestType>,
         requests: &mut HashMap<Uuid, DhcpRequestInfo>,
-    ) {
-        let msg = Message::decode(&mut Decoder::new(buf)).unwrap();
+    ) -> DhcpRelayResult {
+        let msg = Message::decode(&mut Decoder::new(buf))?;
         let opts = msg.opts();
 
         let mat_id = if let Some(DhcpOption::ClientIdentifier(uuid)) =
             opts.get(OptionCode::ClientIdentifier)
         {
-            Uuid::from_bytes(uuid.as_slice().try_into().unwrap())
+            Uuid::from_bytes(uuid.as_slice().try_into().map_err(|_| {
+                DhcpRelayError::InvalidDhcpRecord("Invalid UUID in client id field".to_string())
+            })?)
         } else {
-            tracing::warn!("Ignoring dhcp message: missing client id");
-            return;
+            return Err(DhcpRelayError::InvalidDhcpRecord(
+                "missing client id".to_string(),
+            ));
         };
 
-        let Some(request) = requests.remove(&mat_id) else {
-            tracing::warn!("Ignoring unexpected dhcp message");
-            return;
-        };
+        let request = requests
+            .remove(&mat_id)
+            .ok_or(DhcpRelayError::MissingDhcpRequest)?;
 
         let server_address = msg.siaddr();
-        let mac_address = MacAddress::new(msg.chaddr().try_into().unwrap());
+        let mac_address = MacAddress::new(msg.chaddr().try_into().map_err(|_| {
+            DhcpRelayError::InvalidDhcpRecord(format!(
+                "chaddr is not a valid mac address: {:?}",
+                msg.chaddr()
+            ))
+        })?);
         let relay_address = msg.giaddr();
 
-        if let Some(DhcpOption::MessageType(msg_type)) = opts.get(OptionCode::MessageType) {
-            match msg_type {
-                MessageType::Offer => {
-                    let class_identifier =
-                        if let Some(DhcpOption::ClassIdentifier(class_identifier)) =
-                            opts.get(OptionCode::ClassIdentifier)
-                        {
-                            String::from_utf8_lossy(class_identifier).to_string()
-                        } else {
-                            String::default()
-                        };
+        let DhcpOption::MessageType(msg_type) = opts
+            .get(OptionCode::MessageType)
+            .ok_or_else(|| DhcpRelayError::InvalidDhcpRecord("Missing message type".to_string()))?
+        else {
+            return Err(DhcpRelayError::InvalidDhcpRecord(
+                "Invalid message type".to_string(),
+            ));
+        };
+        match msg_type {
+            MessageType::Offer => {
+                let class_identifier = if let Some(DhcpOption::ClassIdentifier(class_identifier)) =
+                    opts.get(OptionCode::ClassIdentifier)
+                {
+                    String::from_utf8_lossy(class_identifier).to_string()
+                } else {
+                    String::default()
+                };
 
-                    let requested_address = msg.yiaddr();
+                let requested_address = msg.yiaddr();
 
-                    let request_info = RequestType::Request(DhcpRequestInfo {
-                        mat_id,
-                        mac_address,
-                        relay_address,
-                        class_identifier,
-                        requested_address: Some(requested_address),
-                        server_address: Some(server_address),
-                        start: Instant::now(),
-                        xid: None,
-                        template_dir: String::default(), //temporary work-around
-                        segment_id: request.segment_id,
-                        response_tx: request.response_tx,
-                    });
-                    if request_tx.send(request_info).await.is_err() {
-                        tracing::warn!("Failed to send dhcp request");
-                    }
+                let request_info = RequestType::Request(DhcpRequestInfo {
+                    mat_id,
+                    mac_address,
+                    relay_address,
+                    class_identifier,
+                    requested_address: Some(requested_address),
+                    server_address: Some(server_address),
+                    start: Instant::now(),
+                    xid: None,
+                    template_dir: String::default(), //temporary work-around
+                    segment_id: request.segment_id,
+                    response_tx: request.response_tx,
+                });
+                if request_tx.send(request_info).await.is_err() {
+                    tracing::warn!("Failed to send dhcp request");
                 }
-                MessageType::Ack => {
-                    tracing::info!("Ack Received from {}", server_address);
+            }
+            MessageType::Ack => {
+                tracing::info!("Ack Received from {}", server_address);
 
-                    let requested_address = msg.yiaddr();
-                    let interface_id = if let Some(DhcpOption::VendorExtensions(bytes)) =
-                        opts.get(OptionCode::VendorExtensions)
-                    {
-                        let opt_val = find_string(70, bytes.as_slice());
-                        opt_val
-                    } else {
-                        String::default()
-                    };
+                let requested_address = msg.yiaddr();
+                let interface_id = if let Some(DhcpOption::VendorExtensions(bytes)) =
+                    opts.get(OptionCode::VendorExtensions)
+                {
+                    let opt_val = find_string(70, bytes.as_slice());
+                    opt_val
+                } else {
+                    String::default()
+                };
 
-                    let hostname = if let Some(DhcpOption::Hostname(hostname)) =
-                        opts.get(OptionCode::Hostname)
-                    {
+                let hostname =
+                    if let Some(DhcpOption::Hostname(hostname)) = opts.get(OptionCode::Hostname) {
                         Some(hostname.clone())
                     } else {
                         None
                     };
 
-                    let subnet = if let Some(DhcpOption::SubnetMask(subnet)) =
-                        opts.get(OptionCode::SubnetMask)
-                    {
-                        Some(*subnet)
-                    } else {
-                        None
-                    };
+                let subnet = if let Some(DhcpOption::SubnetMask(subnet)) =
+                    opts.get(OptionCode::SubnetMask)
+                {
+                    Some(*subnet)
+                } else {
+                    None
+                };
 
-                    let request_info = RequestType::Response(DhcpResponseInfo {
-                        mat_id,
-                        ip_address: requested_address,
-                        machine_id: None,
-                        mac_address,
-                        interface_id: Uuid::parse_str(&interface_id).ok(),
-                        hostname,
-                        subnet,
-                        segment_id: request.segment_id,
-                    });
-                    if request_tx.send(request_info).await.is_err() {
-                        tracing::warn!("Failed to send dhcp ack");
-                    }
-                    requests.remove(&mat_id);
+                let request_info = RequestType::Response(DhcpResponseInfo {
+                    mat_id,
+                    ip_address: requested_address,
+                    machine_id: None,
+                    mac_address,
+                    interface_id: Uuid::parse_str(&interface_id).ok(),
+                    hostname,
+                    subnet,
+                    segment_id: request.segment_id,
+                });
+                if request_tx.send(request_info).await.is_err() {
+                    tracing::warn!("Failed to send dhcp ack");
                 }
-                _ => todo!(),
+                requests.remove(&mat_id);
             }
-        }
+            _ => todo!(),
+        };
+        Ok(())
     }
 
     async fn send_request_packet(
         &self,
         udp_socket: &tokio::net::UdpSocket,
         request_info: DhcpRequestInfo,
-    ) {
+    ) -> DhcpRelayResult {
         let dest_ip = self.app_config.dhcp_server_address.clone() + ":10067";
-        let server_address = request_info.server_address.unwrap();
-        let requested_address = request_info.requested_address.unwrap();
+        let server_address = request_info.server_address.ok_or_else(|| {
+            DhcpRelayError::InvalidDhcpRecord("missing server address".to_string())
+        })?;
+        let requested_address = request_info.requested_address.ok_or_else(|| {
+            DhcpRelayError::InvalidDhcpRecord("missing requested address".to_string())
+        })?;
 
         let mut msg = Message::default();
         msg.set_opcode(dhcproto::v4::Opcode::BootRequest)
@@ -444,15 +503,16 @@ impl DhcpRelayService {
 
         let mut buf = Vec::default();
         let mut e = Encoder::new(&mut buf);
-        msg.encode(&mut e).unwrap();
-        udp_socket.send_to(&buf, dest_ip).await.unwrap();
+        msg.encode(&mut e)?;
+        udp_socket.send_to(&buf, dest_ip).await?;
+        Ok(())
     }
 
     async fn send_discovery_packet(
         &self,
         udp_socket: &tokio::net::UdpSocket,
         request_info: &mut DhcpRequestInfo,
-    ) {
+    ) -> DhcpRelayResult {
         let dest_ip = self.app_config.dhcp_server_address.clone() + ":10067";
         let xid = request_info.xid.unwrap_or_else(|| {
             let xid = NEXT_XID.fetch_add(1, Ordering::Acquire);
@@ -500,8 +560,9 @@ impl DhcpRelayService {
 
         let mut buf = Vec::default();
         let mut e = Encoder::new(&mut buf);
-        msg.encode(&mut e).unwrap();
-        udp_socket.send_to(&buf, dest_ip).await.unwrap();
+        msg.encode(&mut e)?;
+        udp_socket.send_to(&buf, dest_ip).await?;
+        Ok(())
     }
 }
 
@@ -527,4 +588,22 @@ fn find_string(code: u8, options: &[u8]) -> String {
     let start = opt_index + 2;
     let end = start + len;
     String::from_utf8_lossy(&options[start..end]).into_owned()
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum DhcpRelayError {
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("Client API error: {0}")]
+    ClientApiError(#[from] ClientApiError),
+    #[error("Invalid DHCP record: {0}")]
+    InvalidDhcpRecord(String),
+    #[error("Error sending DHCP response: {0}")]
+    ErrorSendingResponse(String),
+    #[error("Error decoding DHCP request: {0}")]
+    ErrorDecodingDhcpRequest(#[from] dhcproto::error::DecodeError),
+    #[error("Could not find DHCP request corresponding to this response")]
+    MissingDhcpRequest,
+    #[error("Error encoding DHCP response")]
+    ResponseEncodingError(#[from] dhcproto::error::EncodeError),
 }

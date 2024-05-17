@@ -10,8 +10,8 @@ use crate::{
     bmc::Bmc,
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::{DhcpRelayClient, DhcpResponseInfo},
-    host_machine::MachineState,
-    machine_utils::{get_api_state, get_fac_action, next_mac},
+    host_machine::{MachineState, MachineStateError},
+    machine_utils::{add_address_to_interface, get_api_state, get_fac_action, next_mac},
 };
 
 #[derive(Debug)]
@@ -85,8 +85,9 @@ impl DpuMachine {
         }
     }
 
-    pub fn get_machine_id(&self) -> rpc::forge::MachineId {
-        self.get_machine_id_opt().unwrap()
+    pub fn get_machine_id(&self) -> Result<rpc::forge::MachineId, MachineStateError> {
+        self.get_machine_id_opt()
+            .ok_or(MachineStateError::MissingMachineId)
     }
 
     pub fn get_machine_id_opt(&self) -> Option<rpc::forge::MachineId> {
@@ -112,7 +113,7 @@ impl DpuMachine {
         &mut self,
         dhcp_client: &mut DhcpRelayClient,
         logs: &mut Vec<String>,
-    ) -> bool {
+    ) -> Result<bool, MachineStateError> {
         let template_dir = self.config.template_dir.as_str();
 
         if let Some(machine_id) = self.get_machine_id_opt() {
@@ -125,7 +126,7 @@ impl DpuMachine {
                     "D: Reboot requested: new state: {} api state: {}",
                     self.mat_state, self.api_state
                 ));
-                return false;
+                return Ok(false);
             } else {
                 logs.push(format!(
                     "D: start: mat state: {} api state: {}",
@@ -165,7 +166,7 @@ impl DpuMachine {
 
                         let Ok(Some(dhcp_response_info)) = response_rx.await else {
                             tracing::warn!("Failed waiting on dhcp response");
-                            return false;
+                            return Ok(false);
                         };
 
                         let listen_ip = dhcp_response_info.ip_address.to_string();
@@ -190,36 +191,32 @@ impl DpuMachine {
                         .map(|p| p.to_string_lossy().into_owned())
                         .unwrap();
 
-                        let add_ip_result = tokio::process::Command::new("/usr/bin/ip")
-                            .args([
-                                "a",
-                                "add",
-                                &listen_ip,
-                                "dev",
-                                &self.app_context.app_config.interface,
-                            ])
-                            .output()
-                            .await;
-                        if let Err(result) = add_ip_result {
-                            tracing::warn!("Failed to add ip to interface: {result}");
-                        }
+                        add_address_to_interface(
+                            &listen_ip,
+                            &self.app_context.app_config.interface,
+                            &self.app_context.app_config.sudo_command,
+                        )
+                        .await
+                        .inspect_err(|e| tracing::warn!("{}", e))
+                        .map_err(MachineStateError::ListenAddressConfigError)?;
+
                         let mut bmc = Bmc::new(
                             listen_ip,
                             self.app_context.app_config.bmc_starting_port,
                             self.config.dpu_bmc_redfish_template_dir.clone(),
                             cert_path,
                         );
-                        bmc.start();
+                        bmc.start()?;
                         self.bmc = Some(bmc);
 
-                        true
+                        Ok(true)
                     } else {
-                        true
+                        Ok(true)
                     }
                 } else {
                     self.mat_state = MachineState::Init;
                     self.last_dhcp_request = Instant::now() - Duration::from_secs(10);
-                    true
+                    Ok(true)
                 }
             }
             MachineState::Init => {
@@ -260,43 +257,48 @@ impl DpuMachine {
                                 );
                                 tracing::info!(log);
                                 logs.push(log);
-                                true
+                                Ok(true)
                             }
                             Ok(None) => {
                                 let log = "D: No dhcp info".to_string();
                                 tracing::warn!(log);
                                 logs.push(log);
-                                false
+                                Ok(false)
                             }
                             Err(e) => {
                                 let log = format!("D: Failed waiting for dhcp response: {e}");
                                 tracing::warn!(log);
                                 logs.push(log);
-                                false
+                                Ok(false)
                             }
                         }
                     } else {
-                        false
+                        Ok(false)
                     }
                 } else if self.last_dhcp_update.is_some_and(|t| {
                     t.elapsed() > Duration::from_secs(self.config.boot_delay as u64)
                 }) {
                     self.mat_state = MachineState::DhcpComplete;
-                    true
+                    Ok(true)
                 } else {
-                    true
+                    Ok(true)
                 }
             }
             MachineState::DhcpComplete => {
-                let machine_interface_id = rpc::Uuid::from(
-                    *self
-                        .bmc_dhcp_info
-                        .as_ref()
-                        .unwrap()
-                        .interface_id
-                        .as_ref()
-                        .unwrap(),
-                );
+                let Some(machine_interface_id) = self
+                    .bmc_dhcp_info
+                    .as_ref()
+                    .and_then(|i| i.interface_id)
+                    .as_ref()
+                    .map(|id| rpc::Uuid::from(*id))
+                else {
+                    let log = String::from(
+                        "D: discover_machine failed: Missing interface_id from BMC dhcp info",
+                    );
+                    tracing::warn!(log);
+                    logs.push(log);
+                    return Ok(false);
+                };
 
                 match api_client::discover_machine(
                     &self.app_context,
@@ -321,24 +323,24 @@ impl DpuMachine {
                         tracing::info!(log);
                         logs.push(log);
                         self.mat_state = MachineState::HardwareDiscoveryComplete;
-                        true
+                        Ok(true)
                     }
                     Err(e) => {
                         let log = format!("D: discover_machine failed: {e}");
                         tracing::warn!(log);
                         logs.push(log);
-                        false
+                        Ok(false)
                     }
                 }
             }
             MachineState::HardwareDiscoveryComplete => {
-                let machine_id = self.get_machine_id();
+                let machine_id = self.get_machine_id()?;
 
                 // let bmc_host_and_port =
                 //     format!("{}:{}", self.app_context.app_config.bmc_ip, self.bmc_port);
                 let Some(dhcp_info) = self.bmc_dhcp_info.as_ref() else {
                     tracing::warn!("D: missing dhcp_response_info");
-                    return false;
+                    return Ok(false);
                 };
                 let bmc_host_and_port = format!(
                     "{}:{}",
@@ -357,33 +359,33 @@ impl DpuMachine {
                     let log = format!("D: update_bmc_metadata failed: {e}");
                     tracing::warn!(log);
                     logs.push(log);
-                    false
+                    Ok(false)
                 } else {
                     self.mat_state = MachineState::BmcUpdateComplete;
-                    true
+                    Ok(true)
                 }
             }
 
             MachineState::BmcUpdateComplete => {
-                let machine_id = self.get_machine_id();
+                let machine_id = self.get_machine_id()?;
                 if let Err(e) = api_client::discovery_complete(&self.app_context, machine_id).await
                 {
                     let log = format!("D: discovery_complete failed: {e}");
                     tracing::warn!(log);
                     logs.push(log);
-                    false
+                    Ok(false)
                 } else {
                     self.mat_state = MachineState::DiscoveryComplete;
-                    true
+                    Ok(true)
                 }
             }
 
             MachineState::DiscoveryComplete => {
-                let machine_id = self.get_machine_id();
+                let machine_id = self.get_machine_id()?;
                 get_fac_action(&self.app_context, machine_id).await;
 
                 self.mat_state = MachineState::ControlComplete;
-                true
+                Ok(true)
             }
             MachineState::ControlComplete => {
                 if self.api_state == "DPU/WaitingForNetworkConfig"
@@ -391,13 +393,13 @@ impl DpuMachine {
                     || self.api_state == "Ready"
                 {
                     self.mat_state = MachineState::GetNetworkConfig;
-                    true
+                    Ok(true)
                 } else {
-                    false
+                    Ok(false)
                 }
             }
             MachineState::GetNetworkConfig => {
-                let machine_id = self.get_machine_id();
+                let machine_id = self.get_machine_id()?;
 
                 match api_client::get_managed_host_network_config(
                     &self.app_context,
@@ -408,18 +410,18 @@ impl DpuMachine {
                     Ok(network_config) => {
                         self.network_config_response = Some(network_config);
                         self.mat_state = MachineState::MachineUp;
-                        true
+                        Ok(true)
                     }
                     Err(e) => {
                         let log = format!("D: get_managed_host_network_config failed: {e}");
                         tracing::warn!(log);
                         logs.push(log);
-                        false
+                        Ok(false)
                     }
                 }
             }
             MachineState::MachineUp => {
-                let machine_id = self.get_machine_id();
+                let machine_id = self.get_machine_id()?;
                 let elapsed = self
                     .last_network_status_update
                     .unwrap_or_else(|| Instant::now() - Duration::from_secs(10 * 60))
@@ -439,20 +441,20 @@ impl DpuMachine {
                         let log = format!("D: record_dpu_network_status failed: {e}");
                         tracing::warn!(log);
                         logs.push(log);
-                        return false;
+                        return Ok(false);
                     }
                     self.last_network_status_update = Some(Instant::now());
                 }
                 match self.api_state.as_str() {
                     "DPU/WaitingForNetworkConfig" => {
                         self.mat_state = MachineState::GetNetworkConfig;
-                        true
+                        Ok(true)
                     }
                     "DPU/INIT" => {
                         self.mat_state = MachineState::Init;
-                        true
+                        Ok(true)
                     }
-                    _ => false,
+                    _ => Ok(false),
                 }
             }
         };

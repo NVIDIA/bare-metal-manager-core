@@ -5,8 +5,11 @@ use axum::{
     response::IntoResponse,
     Json, Router,
 };
+use bmc_mock::BmcMockError;
 use serde_json::Value;
 use tokio::{io::AsyncReadExt, task::JoinHandle};
+
+use crate::host_machine::MachineStateError;
 
 #[derive(Clone)]
 pub struct MatBmcState {
@@ -19,7 +22,7 @@ pub struct Bmc {
     listen_port: u16,
     response_path: String,
     cert_path: String,
-    join_handle: Option<JoinHandle<()>>,
+    join_handle: Option<JoinHandle<Result<(), BmcMockError>>>,
 }
 
 impl Bmc {
@@ -38,24 +41,34 @@ impl Bmc {
         }
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&mut self) -> Result<(), MachineStateError> {
         // let cert_path = PathBuf::from(app_context.forge_client_config.root_ca_path.clone())
         //     .parent()
         //     .map(|p| p.to_string_lossy().into_owned());
         let bmc_state = MatBmcState {
             response_path: self.response_path.clone(),
         };
-        let listen_addr = format!("{}:{}", self.listen_ip, self.listen_port)
-            .parse::<SocketAddr>()
-            .unwrap();
+        let listen_addr_str = format!("{}:{}", self.listen_ip, self.listen_port);
+        let listen_addr = listen_addr_str.parse::<SocketAddr>().map_err(|e| {
+            MachineStateError::InvalidAddress(format!(
+                "Invalid listen IP address {} when configuring mock BMC: {}",
+                listen_addr_str, e
+            ))
+        })?;
 
         tracing::info!("Starting bmc mock on {:?}", listen_addr);
 
-        self.join_handle = Some(tokio::spawn(bmc_mock::run(
-            crate::bmc::bmc_router(bmc_state),
-            Some(self.cert_path.clone()),
-            Some(listen_addr),
-        )));
+        let cert_path = self.cert_path.clone();
+        self.join_handle = Some(tokio::spawn(async move {
+            bmc_mock::run(
+                crate::bmc::bmc_router(bmc_state),
+                Some(cert_path),
+                Some(listen_addr),
+            )
+            .await
+            .inspect_err(|e| tracing::error!("{}", e))
+        }));
+        Ok(())
     }
 
     pub fn stop(&mut self) {

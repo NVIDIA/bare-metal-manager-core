@@ -1,7 +1,7 @@
 use mac_address::MacAddress;
 use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
 
-use crate::{api_client, config::MachineATronContext};
+use crate::{api_client, config::MachineATronContext, host_machine::AddressConfigError};
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -89,4 +89,63 @@ pub async fn get_api_state(
                 }
             },
         )
+}
+
+pub async fn add_address_to_interface(
+    address: &str,
+    interface: &str,
+    sudo_command: &Option<String>,
+) -> Result<(), AddressConfigError> {
+    if interface_has_address(interface, address).await? {
+        tracing::info!(
+            "Skipping adding address {} to interface {}, as it is already configured.",
+            address,
+            interface
+        );
+        return Ok(());
+    }
+
+    tracing::info!("Adding address {} to interface {}", address, interface);
+    let wrapper_cmd = sudo_command
+        .as_ref()
+        .map(|s| s.to_string())
+        .unwrap_or("/usr/bin/env".to_string());
+    let mut cmd = tokio::process::Command::new(&wrapper_cmd);
+    let output = cmd
+        .args(["ip", "a", "add", address, "dev", interface])
+        .output()
+        .await
+        .map_err(AddressConfigError::IoError)?;
+
+    if !output.status.success() {
+        return Err(AddressConfigError::CommandFailure(cmd, output));
+    }
+
+    Ok(())
+}
+
+async fn interface_has_address(interface: &str, address: &str) -> Result<bool, AddressConfigError> {
+    let mut cmd = tokio::process::Command::new("/usr/bin/env");
+    let output = cmd
+        .args([
+            "ip",
+            "a",
+            "s",
+            "to",
+            &[address, "32"].join("/"),
+            "dev",
+            interface,
+        ])
+        .output()
+        .await
+        .map_err(AddressConfigError::IoError)?;
+
+    if !output.status.success() {
+        return Err(AddressConfigError::CommandFailure(cmd, output));
+    }
+    if output.stdout.is_empty() {
+        Ok(false)
+    } else {
+        Ok(true)
+    }
 }
