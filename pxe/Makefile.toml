@@ -71,7 +71,7 @@ dependencies = [
 	"mkdir-static-aarch64",
 	{ name = "build-cli-ci", path = "${REPO_ROOT}" },
 	"bfb-aarch64-ci",
-	"ipxe-aarch64",
+	"ipxe-aarch64-ci",
 	"setup-apt-repo",
 	"setup-firmware-repo",
 ]
@@ -259,6 +259,15 @@ dependencies = [
     "ipxe-install-efi-aarch64",
 ]
 
+[tasks.ipxe-aarch64-ci]
+category = "iPXE Kernel"
+description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
+dependencies = [
+    "ipxe-config",
+    "ipxe-patch-mlnx",
+    "ipxe-install-efi-aarch64-ci",
+]
+
 [tasks.ipxe-install-efi-aarch64]
 category = "iPXE Kernel"
 description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
@@ -266,6 +275,15 @@ command = "mv"
 args = ["ipxe/upstream/src/bin-arm64-efi/ipxe.efi", "static/blobs/internal/aarch64/ipxe.efi"]
 dependencies = [
 	"ipxe-build-efi-aarch64",
+]
+
+[tasks.ipxe-install-efi-aarch64-ci]
+category = "iPXE Kernel"
+description = "Copy the aarch64 EFI iPXE kernel to the boot controller static files directory"
+command = "mv"
+args = ["ipxe/upstream/src/bin-arm64-efi/ipxe.efi", "static/blobs/internal/aarch64/ipxe.efi"]
+dependencies = [
+	"ipxe-build-efi-aarch64-ci",
 ]
 
 [tasks.ipxe-build-efi-x86_64]
@@ -276,6 +294,13 @@ args = [ "bin-x86_64-efi/snponly.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=
 cwd = "ipxe/upstream/src"
 
 [tasks.ipxe-build-efi-aarch64]
+category = "iPXE Kernel"
+description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
+command = "make"
+args = [ "CROSS_COMPILE=aarch64-linux-gnu-", "bin-arm64-efi/ipxe.efi", "VERSION=${IPXE_BANNER_VERSION}", "EMBED=${REPO_ROOT}/pxe/ipxe/local/embed.ipxe", "DEBUG=snp,tls"]
+cwd = "ipxe/upstream/src"
+
+[tasks.ipxe-build-efi-aarch64-ci]
 category = "iPXE Kernel"
 description = "Build the aarch64 EFI iPXE kernel on aarch64 gitlab runner"
 command = "make"
@@ -301,7 +326,7 @@ dependencies = [
 	"bfb-add-scout-to-bfb-ci",
 	"bfb-add-debs-to-bfb",
 	"bfb-add-nvinit-setup-to-bfb",
-	"bfb-add-forge-root-ca-to-bfb",
+	"bfb-add-prod-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	"mkdir-hbn-folder-in-bfb",
 	"unzip-hbn-folder-in-bfb",
@@ -337,7 +362,7 @@ dependencies = [
 	"bfb-add-scout-to-bfb",
 	"bfb-add-debs-to-bfb",
 	"bfb-add-nvinit-setup-to-bfb",
-	"bfb-add-forge-root-ca-to-bfb",
+	"bfb-add-dev-forge-root-ca-to-bfb",
 	"download-hbn-installer-to-bfb",
 	"mkdir-hbn-folder-in-bfb",
 	"unzip-hbn-folder-in-bfb",
@@ -459,12 +484,21 @@ args = [
 ]
 cwd = "/tmp/bfb-dump/initramfs-tmp"
 
-[tasks.bfb-add-forge-root-ca-to-bfb]
+[tasks.bfb-add-prod-forge-root-ca-to-bfb]
 category = "iPXE Kernel"
 description = "Add the forge root CA to the bfb"
 command = "cp"
 args = [
 	"${FORGE_CA_PATH}",
+	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
+]
+
+[tasks.bfb-add-dev-forge-root-ca-to-bfb]
+category = "iPXE Kernel"
+description = "Add the forge root CA to the bfb"
+command = "cp"
+args = [
+	"${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
 	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
 ]
 
@@ -653,7 +687,7 @@ args = [ "-fr", "/tmp/bfb-dump/initramfs-tmp/dump-image-v0"]
 [tasks.bfb-rebuild-rootfs]
 category = "iPXE Kernel"
 description = "Rebuild the BFB root fs on aarch64 gitlab runner"
-script = [ "find . -print0 | sudo cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0" ]
+script = [ "find . -print0 | cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0" ]
 cwd = "/tmp/bfb-dump/initramfs-tmp"
 
 [tasks.bfb-copy-rootfs]
