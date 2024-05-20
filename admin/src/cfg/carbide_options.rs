@@ -9,10 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::cfg::measurement;
+use clap::{ArgGroup, Parser, ValueEnum};
 use std::fmt;
 use std::path::PathBuf;
-
-use clap::{ArgGroup, Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[clap(name = "forge-admin-cli")]
@@ -58,6 +58,13 @@ pub struct CarbideOptions {
     #[clap(short, long, num_args(0..), default_value = "0")]
     pub debug: u8,
 
+    // This is primarily used by measured boot, where basic output contains just
+    // what you probably care about, and "extended" output also dumps out all of
+    // the internal UUIDs that are used to associate instances. Helpful for filing
+    // reports, doing site import/exports, etc.
+    #[clap(long, global = true, help = "Extended result output.")]
+    pub extended: bool,
+
     #[clap(subcommand)]
     pub commands: Option<CarbideCommand>,
 }
@@ -84,6 +91,12 @@ pub enum CarbideCommand {
         visible_alias = "mh"
     )]
     ManagedHost(ManagedHost),
+    #[clap(
+        subcommand,
+        about = "Work with measured boot data.",
+        visible_alias = "mb"
+    )]
+    Measurement(measurement::Cmd),
     #[clap(about = "Resource pool handling", subcommand, visible_alias = "rp")]
     ResourcePool(ResourcePool),
     #[clap(about = "Redfish BMC actions", visible_alias = "rf")]
@@ -866,6 +879,7 @@ pub enum OutputFormat {
     Json,
     Csv,
     AsciiTable,
+    Yaml,
 }
 
 impl CarbideOptions {

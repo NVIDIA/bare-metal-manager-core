@@ -21,8 +21,9 @@ pub async fn show(
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&devices).unwrap()),
-        OutputFormat::Csv => println!("Not Supported."),
         OutputFormat::AsciiTable => show_network_devices_info(&devices)?,
+        OutputFormat::Csv => println!("CSV not yet supported."),
+        OutputFormat::Yaml => println!("YAML not yet supported."),
     }
 
     Ok(())

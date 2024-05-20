@@ -4,6 +4,7 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
 import "machine_discovery.proto";
+import "measured_boot.proto";
 import "site_explorer.proto";
 
 package forge;
@@ -206,6 +207,69 @@ service Forge {
 
   // Identify the vendor of a BMC without logging into it
   rpc IdentifyBMC(IdentifyBMCRequest) returns (IdentifyBMCResponse);
+
+  ////////////////////////////////////////////////////////////////////////////////
+  // Begin Measured Boot API Endpoints
+  ////////////////////////////////////////////////////////////////////////////////
+
+  // Measured Boot: Bundles
+  rpc CreateMeasurementBundle(measured_boot.CreateMeasurementBundleRequest) returns (measured_boot.CreateMeasurementBundleResponse);
+  rpc DeleteMeasurementBundle(measured_boot.DeleteMeasurementBundleRequest) returns (measured_boot.DeleteMeasurementBundleResponse);
+  rpc RenameMeasurementBundle(measured_boot.RenameMeasurementBundleRequest) returns (measured_boot.RenameMeasurementBundleResponse);
+  rpc UpdateMeasurementBundle(measured_boot.UpdateMeasurementBundleRequest) returns (measured_boot.UpdateMeasurementBundleResponse);
+  rpc ShowMeasurementBundle(measured_boot.ShowMeasurementBundleRequest) returns (measured_boot.ShowMeasurementBundleResponse);
+  rpc ShowMeasurementBundles(measured_boot.ShowMeasurementBundlesRequest) returns (measured_boot.ShowMeasurementBundlesResponse);
+  rpc ListMeasurementBundles(measured_boot.ListMeasurementBundlesRequest) returns (measured_boot.ListMeasurementBundlesResponse);
+  rpc ListMeasurementBundleMachines(measured_boot.ListMeasurementBundleMachinesRequest) returns (measured_boot.ListMeasurementBundleMachinesResponse);
+
+  // Measured Boot: Journals
+  rpc DeleteMeasurementJournal(measured_boot.DeleteMeasurementJournalRequest) returns (measured_boot.DeleteMeasurementJournalResponse);
+  rpc ShowMeasurementJournal(measured_boot.ShowMeasurementJournalRequest) returns (measured_boot.ShowMeasurementJournalResponse);
+  rpc ShowMeasurementJournals(measured_boot.ShowMeasurementJournalsRequest) returns (measured_boot.ShowMeasurementJournalsResponse);
+  rpc ListMeasurementJournal(measured_boot.ListMeasurementJournalRequest) returns (measured_boot.ListMeasurementJournalResponse);
+
+  // Measured Boot: Machines
+  rpc CreateMockMachine(measured_boot.CreateMockMachineRequest) returns (measured_boot.CreateMockMachineResponse);
+  rpc DeleteMockMachine(measured_boot.DeleteMockMachineRequest) returns (measured_boot.DeleteMockMachineResponse);
+  rpc AttestMockMachine(measured_boot.AttestMockMachineRequest) returns (measured_boot.AttestMockMachineResponse);
+  rpc ShowMockMachine(measured_boot.ShowMockMachineRequest) returns (measured_boot.ShowMockMachineResponse);
+  rpc ShowMockMachines(measured_boot.ShowMockMachinesRequest) returns (measured_boot.ShowMockMachinesResponse);
+  rpc ListMockMachine(measured_boot.ListMockMachineRequest) returns (measured_boot.ListMockMachineResponse);
+
+  // Measured Boot: Profiles
+  rpc CreateMeasurementSystemProfile(measured_boot.CreateMeasurementSystemProfileRequest) returns (measured_boot.CreateMeasurementSystemProfileResponse);
+  rpc DeleteMeasurementSystemProfile(measured_boot.DeleteMeasurementSystemProfileRequest) returns (measured_boot.DeleteMeasurementSystemProfileResponse);
+  rpc RenameMeasurementSystemProfile(measured_boot.RenameMeasurementSystemProfileRequest) returns (measured_boot.RenameMeasurementSystemProfileResponse);
+  rpc ShowMeasurementSystemProfile(measured_boot.ShowMeasurementSystemProfileRequest) returns (measured_boot.ShowMeasurementSystemProfileResponse);
+  rpc ShowMeasurementSystemProfiles(measured_boot.ShowMeasurementSystemProfilesRequest) returns (measured_boot.ShowMeasurementSystemProfilesResponse);
+  rpc ListMeasurementSystemProfiles(measured_boot.ListMeasurementSystemProfilesRequest) returns (measured_boot.ListMeasurementSystemProfilesResponse);
+  rpc ListMeasurementSystemProfileBundles(measured_boot.ListMeasurementSystemProfileBundlesRequest) returns (measured_boot.ListMeasurementSystemProfileBundlesResponse);
+  rpc ListMeasurementSystemProfileMachines(measured_boot.ListMeasurementSystemProfileMachinesRequest) returns (measured_boot.ListMeasurementSystemProfileMachinesResponse);
+
+  // Measured Boot: Reports
+  rpc CreateMeasurementReport(measured_boot.CreateMeasurementReportRequest) returns (measured_boot.CreateMeasurementReportResponse);
+  rpc DeleteMeasurementReport(measured_boot.DeleteMeasurementReportRequest) returns (measured_boot.DeleteMeasurementReportResponse);
+  rpc PromoteMeasurementReport(measured_boot.PromoteMeasurementReportRequest) returns (measured_boot.PromoteMeasurementReportResponse);
+  rpc RevokeMeasurementReport(measured_boot.RevokeMeasurementReportRequest) returns (measured_boot.RevokeMeasurementReportResponse);
+  rpc ShowMeasurementReportForId(measured_boot.ShowMeasurementReportForIdRequest) returns (measured_boot.ShowMeasurementReportForIdResponse);
+  rpc ShowMeasurementReportsForMachine(measured_boot.ShowMeasurementReportsForMachineRequest) returns (measured_boot.ShowMeasurementReportsForMachineResponse);
+  rpc ShowMeasurementReports(measured_boot.ShowMeasurementReportsRequest) returns (measured_boot.ShowMeasurementReportsResponse);
+  rpc ListMeasurementReport(measured_boot.ListMeasurementReportRequest) returns (measured_boot.ListMeasurementReportResponse);
+  rpc MatchMeasurementReport(measured_boot.MatchMeasurementReportRequest) returns (measured_boot.MatchMeasurementReportResponse);
+
+  // Measured Boot: Site
+  rpc ImportSiteMeasurements(measured_boot.ImportSiteMeasurementsRequest) returns (measured_boot.ImportSiteMeasurementsResponse);
+  rpc ExportSiteMeasurements(measured_boot.ExportSiteMeasurementsRequest) returns (measured_boot.ExportSiteMeasurementsResponse);
+  rpc AddMeasurementTrustedMachine(measured_boot.AddMeasurementTrustedMachineRequest) returns (measured_boot.AddMeasurementTrustedMachineResponse);
+  rpc RemoveMeasurementTrustedMachine(measured_boot.RemoveMeasurementTrustedMachineRequest) returns (measured_boot.RemoveMeasurementTrustedMachineResponse);
+  rpc AddMeasurementTrustedProfile(measured_boot.AddMeasurementTrustedProfileRequest) returns (measured_boot.AddMeasurementTrustedProfileResponse);
+  rpc RemoveMeasurementTrustedProfile(measured_boot.RemoveMeasurementTrustedProfileRequest) returns (measured_boot.RemoveMeasurementTrustedProfileResponse);
+  rpc ListMeasurementTrustedMachines(measured_boot.ListMeasurementTrustedMachinesRequest) returns (measured_boot.ListMeasurementTrustedMachinesResponse);
+  rpc ListMeasurementTrustedProfiles(measured_boot.ListMeasurementTrustedProfilesRequest) returns (measured_boot.ListMeasurementTrustedProfilesResponse);
+  
+  ////////////////////////////////////////////////////////////////////////////////
+  // End Measured Boot API Endpoints
+  ////////////////////////////////////////////////////////////////////////////////
 }
 
 enum CredentialType {

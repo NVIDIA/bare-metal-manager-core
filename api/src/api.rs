@@ -16,6 +16,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::measured_boot;
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
@@ -28,6 +29,7 @@ use ::rpc::protos::forge::{
     UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
+use ::rpc::protos::measured_boot as measured_boot_pb;
 use arc_swap::ArcSwap;
 use config_version::ConfigVersion;
 use forge_secrets::certificates::CertificateProvider;
@@ -5324,6 +5326,567 @@ where
         Ok(tonic::Response::new(rpc::NetworkTopologyData {
             network_devices: network_devices.into_iter().map_into().collect(),
         }))
+    }
+
+    async fn create_measurement_system_profile(
+        &self,
+        request: Request<measured_boot_pb::CreateMeasurementSystemProfileRequest>,
+    ) -> Result<Response<measured_boot_pb::CreateMeasurementSystemProfileResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::profile::handle_create_system_measurement_profile(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn delete_measurement_system_profile(
+        &self,
+        request: Request<measured_boot_pb::DeleteMeasurementSystemProfileRequest>,
+    ) -> Result<Response<measured_boot_pb::DeleteMeasurementSystemProfileResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::profile::handle_delete_measurement_system_profile(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn rename_measurement_system_profile(
+        &self,
+        request: Request<measured_boot_pb::RenameMeasurementSystemProfileRequest>,
+    ) -> Result<Response<measured_boot_pb::RenameMeasurementSystemProfileResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::profile::handle_rename_measurement_system_profile(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_system_profile(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementSystemProfileRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementSystemProfileResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::profile::handle_show_measurement_system_profile(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_system_profiles(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementSystemProfilesRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementSystemProfilesResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::profile::handle_show_measurement_system_profiles(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_system_profiles(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementSystemProfilesRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementSystemProfilesResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::profile::handle_list_measurement_system_profiles(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_system_profile_bundles(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementSystemProfileBundlesRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementSystemProfileBundlesResponse>, Status>
+    {
+        Ok(Response::new(
+            measured_boot::rpc::profile::handle_list_measurement_system_profile_bundles(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_system_profile_machines(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementSystemProfileMachinesRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementSystemProfileMachinesResponse>, Status>
+    {
+        Ok(Response::new(
+            measured_boot::rpc::profile::handle_list_measurement_system_profile_machines(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn create_measurement_report(
+        &self,
+        request: Request<measured_boot_pb::CreateMeasurementReportRequest>,
+    ) -> Result<Response<measured_boot_pb::CreateMeasurementReportResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_create_measurement_report(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn delete_measurement_report(
+        &self,
+        request: Request<measured_boot_pb::DeleteMeasurementReportRequest>,
+    ) -> Result<Response<measured_boot_pb::DeleteMeasurementReportResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_delete_measurement_report(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn promote_measurement_report(
+        &self,
+        request: Request<measured_boot_pb::PromoteMeasurementReportRequest>,
+    ) -> Result<Response<measured_boot_pb::PromoteMeasurementReportResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_promote_measurement_report(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn revoke_measurement_report(
+        &self,
+        request: Request<measured_boot_pb::RevokeMeasurementReportRequest>,
+    ) -> Result<Response<measured_boot_pb::RevokeMeasurementReportResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_revoke_measurement_report(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_report_for_id(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementReportForIdRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementReportForIdResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_show_measurement_report_for_id(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_reports_for_machine(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementReportsForMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementReportsForMachineResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_show_measurement_reports_for_machine(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_reports(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementReportsRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementReportsResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_show_measurement_reports(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_report(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementReportRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementReportResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_list_measurement_report(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn match_measurement_report(
+        &self,
+        request: Request<measured_boot_pb::MatchMeasurementReportRequest>,
+    ) -> Result<Response<measured_boot_pb::MatchMeasurementReportResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::report::handle_match_measurement_report(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn create_measurement_bundle(
+        &self,
+        request: Request<measured_boot_pb::CreateMeasurementBundleRequest>,
+    ) -> Result<Response<measured_boot_pb::CreateMeasurementBundleResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_create_measurement_bundle(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn delete_measurement_bundle(
+        &self,
+        request: Request<measured_boot_pb::DeleteMeasurementBundleRequest>,
+    ) -> Result<Response<measured_boot_pb::DeleteMeasurementBundleResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_delete_measurement_bundle(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn rename_measurement_bundle(
+        &self,
+        request: Request<measured_boot_pb::RenameMeasurementBundleRequest>,
+    ) -> Result<Response<measured_boot_pb::RenameMeasurementBundleResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_rename_measurement_bundle(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn update_measurement_bundle(
+        &self,
+        request: Request<measured_boot_pb::UpdateMeasurementBundleRequest>,
+    ) -> Result<Response<measured_boot_pb::UpdateMeasurementBundleResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_update_measurement_bundle(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_bundle(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementBundleRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementBundleResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_show_measurement_bundle(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_bundles(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementBundlesRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementBundlesResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_show_measurement_bundles(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_bundles(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementBundlesRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementBundlesResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_list_measurement_bundles(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_bundle_machines(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementBundleMachinesRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementBundleMachinesResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::bundle::handle_list_measurement_bundle_machines(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn delete_measurement_journal(
+        &self,
+        request: Request<measured_boot_pb::DeleteMeasurementJournalRequest>,
+    ) -> Result<Response<measured_boot_pb::DeleteMeasurementJournalResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::journal::handle_delete_measurement_journal(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_journal(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementJournalRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementJournalResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::journal::handle_show_measurement_journal(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_measurement_journals(
+        &self,
+        request: Request<measured_boot_pb::ShowMeasurementJournalsRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMeasurementJournalsResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::journal::handle_show_measurement_journals(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_journal(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementJournalRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementJournalResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::journal::handle_list_measurement_journal(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn create_mock_machine(
+        &self,
+        request: Request<measured_boot_pb::CreateMockMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::CreateMockMachineResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::machine::handle_create_mock_machine(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn delete_mock_machine(
+        &self,
+        request: Request<measured_boot_pb::DeleteMockMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::DeleteMockMachineResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::machine::handle_delete_mock_machine(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn attest_mock_machine(
+        &self,
+        request: Request<measured_boot_pb::AttestMockMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::AttestMockMachineResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::machine::handle_attest_mock_machine(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_mock_machine(
+        &self,
+        request: Request<measured_boot_pb::ShowMockMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMockMachineResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::machine::handle_show_mock_machine(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn show_mock_machines(
+        &self,
+        request: Request<measured_boot_pb::ShowMockMachinesRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowMockMachinesResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::machine::handle_show_mock_machines(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_mock_machine(
+        &self,
+        request: Request<measured_boot_pb::ListMockMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMockMachineResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::machine::handle_list_mock_machine(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn import_site_measurements(
+        &self,
+        request: Request<measured_boot_pb::ImportSiteMeasurementsRequest>,
+    ) -> Result<Response<measured_boot_pb::ImportSiteMeasurementsResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_import_site_measurements(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn export_site_measurements(
+        &self,
+        request: Request<measured_boot_pb::ExportSiteMeasurementsRequest>,
+    ) -> Result<Response<measured_boot_pb::ExportSiteMeasurementsResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_export_site_measurements(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn add_measurement_trusted_machine(
+        &self,
+        request: Request<measured_boot_pb::AddMeasurementTrustedMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::AddMeasurementTrustedMachineResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_add_measurement_trusted_machine(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn remove_measurement_trusted_machine(
+        &self,
+        request: Request<measured_boot_pb::RemoveMeasurementTrustedMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::RemoveMeasurementTrustedMachineResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_remove_measurement_trusted_machine(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_trusted_machines(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementTrustedMachinesRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementTrustedMachinesResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_list_measurement_trusted_machines(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn add_measurement_trusted_profile(
+        &self,
+        request: Request<measured_boot_pb::AddMeasurementTrustedProfileRequest>,
+    ) -> Result<Response<measured_boot_pb::AddMeasurementTrustedProfileResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_add_measurement_trusted_profile(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn remove_measurement_trusted_profile(
+        &self,
+        request: Request<measured_boot_pb::RemoveMeasurementTrustedProfileRequest>,
+    ) -> Result<Response<measured_boot_pb::RemoveMeasurementTrustedProfileResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_remove_measurement_trusted_profile(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn list_measurement_trusted_profiles(
+        &self,
+        request: Request<measured_boot_pb::ListMeasurementTrustedProfilesRequest>,
+    ) -> Result<Response<measured_boot_pb::ListMeasurementTrustedProfilesResponse>, Status> {
+        Ok(Response::new(
+            measured_boot::rpc::site::handle_list_measurement_trusted_profiles(
+                &self.database_connection,
+                request.get_ref(),
+            )
+            .await?,
+        ))
     }
 }
 

@@ -58,6 +58,7 @@ mod inventory;
 mod machine;
 mod machine_interfaces;
 mod managed_host;
+mod measurement;
 mod network;
 mod network_devices;
 mod ping;
@@ -336,6 +337,13 @@ async fn main() -> color_eyre::Result<()> {
                 }
             },
         },
+        CarbideCommand::Measurement(cmd) => {
+            let args = cfg::measurement::GlobalOptions {
+                format: config.format,
+                extended: config.extended,
+            };
+            measurement::dispatch(&cmd, &args, api_config).await?
+        }
         CarbideCommand::ResourcePool(rp) => match rp {
             ResourcePool::Grow(def) => {
                 let defs = fs::read_to_string(&def.filename)?;
