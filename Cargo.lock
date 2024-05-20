@@ -23,13 +23,16 @@ version = "0.0.1"
 dependencies = [
  "bmc-vendor",
  "byte-unit",
+ "carbide-api",
  "chrono",
  "clap 4.5.1",
  "clap_complete",
  "color-eyre",
+ "eyre",
  "forge-tls",
  "forge-version",
  "forge_secrets",
+ "http",
  "libredfish",
  "prettytable-rs",
  "rpc",
@@ -708,6 +711,7 @@ dependencies = [
  "libredfish",
  "logfmt",
  "mac_address",
+ "names",
  "num_cpus",
  "once_cell",
  "opentelemetry",
@@ -715,6 +719,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "patricia_tree",
+ "prettytable-rs",
  "prometheus",
  "rand",
  "regex",
@@ -3430,6 +3435,15 @@ name = "multimap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
+
+[[package]]
+name = "names"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bddcd3bf5144b6392de80e04c347cd7fab2508f6df16a85fc496ecd5cec39bc"
+dependencies = [
+ "rand",
+]
 
 [[package]]
 name = "net2"
@@ -6712,11 +6726,13 @@ dependencies = [
  "byte-unit",
  "chrono",
  "config-version",
+ "eyre",
  "forge-tls",
  "ipnetwork",
  "rpc",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror",
  "tokio",
  "tonic 0.10.2",

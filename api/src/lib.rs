@@ -60,6 +60,7 @@ mod ipxe;
 mod listener;
 pub mod logging;
 pub mod machine_update_manager;
+pub mod measured_boot;
 pub mod model;
 pub mod redfish;
 pub mod resource_pool;

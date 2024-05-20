@@ -10,12 +10,24 @@ authors.workspace = true
 [dependencies]
 byte-unit = "4.0.19"
 chrono = "0.4.34"
+eyre = "*"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1.0.44"
 tracing = "*"
 tokio = { workspace = true }
 ipnetwork = "0.20.0"
+sqlx = { version = "0.7.1", features = [
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
+] }
 tonic = { workspace = true }
 
 # [local-dependencies]
