@@ -102,36 +102,55 @@ impl StateHandler for IBPartitionStateHandler {
                 None => {
                     let cause = "The pkey is None when IBPartition is ready";
                     tracing::error!(cause);
-                    let new_state = IBPartitionControllerState::Error {
-                        cause: cause.to_string(),
-                    };
-                    Ok(StateHandlerOutcome::Transition(new_state))
+
+                    Ok(StateHandlerOutcome::Transition(
+                        IBPartitionControllerState::Error {
+                            cause: cause.to_string(),
+                        },
+                    ))
                 }
                 Some(pkey) => {
                     if state.is_marked_as_deleted() {
-                        let new_state = IBPartitionControllerState::Deleting;
-                        Ok(StateHandlerOutcome::Transition(new_state))
+                        Ok(StateHandlerOutcome::Transition(
+                            IBPartitionControllerState::Deleting,
+                        ))
                     } else {
                         let pkey = pkey.to_string();
-                        let ibnetwork = ib_fabric.get_ib_network(&pkey).await.map_err(|e| {
-                            StateHandlerError::IBFabricError(format!("get_ib_network: {e}"))
-                        })?;
+                        let res = ib_fabric.get_ib_network(&pkey).await;
 
-                        // If found the IBNetwork, update the status accordingly. And check
-                        // it whether align with the config; if mismatched, return error.
-                        // The mismatched status is still there in DB for debug.
-                        state.status = Some(IBPartitionStatus::from(&ibnetwork));
-                        state.update(txn).await?;
+                        match res {
+                            Ok(ibnetwork) => {
+                                // If found the IBNetwork, update the status accordingly. And check
+                                // it whether align with the config; if mismatched, return error.
+                                // The mismatched status is still there in DB for debug.
+                                state.status = Some(IBPartitionStatus::from(&ibnetwork));
+                                state.update(txn).await?;
 
-                        if is_valid_status(&state.config, &ibnetwork) {
-                            Ok(StateHandlerOutcome::DoNothing)
-                        } else {
-                            let new_state = IBPartitionControllerState::Error {
-                                cause: format!(
-                                    "invalid status: the status in UFM is '{ibnetwork:?}'"
-                                ),
-                            };
-                            Ok(StateHandlerOutcome::Transition(new_state))
+                                if is_valid_status(&state.config, &ibnetwork) {
+                                    Ok(StateHandlerOutcome::DoNothing)
+                                } else {
+                                    Ok(StateHandlerOutcome::Transition(
+                                        IBPartitionControllerState::Error {
+                                            cause: format!(
+                                            "invalid status: the status in UFM is '{ibnetwork:?}'"
+                                        ),
+                                        },
+                                    ))
+                                }
+                            }
+
+                            Err(e) => {
+                                match e {
+                                    // The Partition maybe still empty as it will be only created
+                                    // when at least one port associated with the Partition.
+                                    CarbideError::NotFoundError { .. } => {
+                                        Ok(StateHandlerOutcome::DoNothing)
+                                    }
+                                    _ => Err(StateHandlerError::IBFabricError(format!(
+                                        "get_ib_network: {e}"
+                                    ))),
+                                }
+                            }
                         }
                     }
                 }
@@ -139,8 +158,9 @@ impl StateHandler for IBPartitionStateHandler {
 
             IBPartitionControllerState::Error { .. } => {
                 if state.config.pkey.is_some() && state.is_marked_as_deleted() {
-                    let new_state = IBPartitionControllerState::Deleting;
-                    Ok(StateHandlerOutcome::Transition(new_state))
+                    Ok(StateHandlerOutcome::Transition(
+                        IBPartitionControllerState::Deleting,
+                    ))
                 } else {
                     // If pkey is none, keep it in error state.
                     Ok(StateHandlerOutcome::DoNothing)
