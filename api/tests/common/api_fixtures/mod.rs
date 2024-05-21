@@ -743,6 +743,8 @@ pub async fn forge_agent_control(
     env: &TestEnv,
     machine_id: rpc::forge::MachineId,
 ) -> rpc::forge::ForgeAgentControlResponse {
+    let _ = reboot_completed(env, machine_id.clone()).await;
+
     env.api
         .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
             machine_id: Some(machine_id),
@@ -794,4 +796,18 @@ pub async fn update_time_params(pool: &sqlx::PgPool, machine: &Machine, retry_co
         .await
         .unwrap();
     txn.commit().await.unwrap();
+}
+
+pub async fn reboot_completed(
+    env: &TestEnv,
+    machine_id: rpc::forge::MachineId,
+) -> rpc::forge::MachineRebootCompletedResponse {
+    tracing::info!("Machine ={} rebooted", machine_id);
+    env.api
+        .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
+            machine_id: Some(machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
 }

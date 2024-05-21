@@ -40,8 +40,8 @@ use rpc::{
 use tonic::Request;
 
 use crate::common::api_fixtures::{
-    discovery_completed, managed_host::ManagedHostConfig, network_configured, update_bmc_metadata,
-    TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
+    discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, network_configured,
+    update_bmc_metadata, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS,
 };
 
 pub const FIXTURE_DPU_BMC_VENDOR_STRING: &str = "NVIDIA/BF/BMC";
@@ -86,14 +86,8 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
     let mut txn = env.pool.begin().await.unwrap();
 
     // Simulate the ForgeAgentControl request of the DPU
-    let agent_control_response = env
-        .api
-        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-            machine_id: Some(dpu_rpc_machine_id.clone()),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    let agent_control_response = forge_agent_control(env, dpu_rpc_machine_id.clone()).await;
+
     assert_eq!(
         agent_control_response.action,
         rpc::forge_agent_control_response::Action::Noop as i32
@@ -160,14 +154,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     create_machine_inventory(env, &dpu_machine_id).await;
 
     // Simulate the ForgeAgentControl request of the DPU
-    let agent_control_response = env
-        .api
-        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-            machine_id: Some(dpu_rpc_machine_id.clone()),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    let agent_control_response = forge_agent_control(env, dpu_rpc_machine_id.clone()).await;
     assert_eq!(
         agent_control_response.action,
         rpc::forge_agent_control_response::Action::Discovery as i32
@@ -422,14 +409,7 @@ pub async fn create_dpu_machine_with_discovery_error(
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
 
     // Simulate the ForgeAgentControl request of the DPU
-    let agent_control_response = env
-        .api
-        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-            machine_id: Some(dpu_rpc_machine_id.clone()),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    let agent_control_response = forge_agent_control(env, dpu_rpc_machine_id.clone()).await;
     assert_eq!(
         agent_control_response.action,
         rpc::forge_agent_control_response::Action::Discovery as i32

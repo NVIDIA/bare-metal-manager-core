@@ -1529,15 +1529,7 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
     let mut txn = env.pool.begin().await.unwrap();
 
-    // Simulate the ForgeAgentControl request of the DPU
-    let agent_control_response = env
-        .api
-        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-            machine_id: Some(dpu_rpc_machine_id.clone()),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
+    let agent_control_response = forge_agent_control(&env, dpu_rpc_machine_id.clone()).await;
     assert_eq!(
         agent_control_response.action,
         rpc::forge_agent_control_response::Action::Noop as i32

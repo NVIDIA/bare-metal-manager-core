@@ -102,6 +102,12 @@ pub fn discover_machine(addr: SocketAddr, ip_address: &str) -> eyre::Result<Stri
             "machine_id": {"id": host_machine_id}
         })),
     )?;
-
+    grpcurl(
+        addr,
+        "RebootCompleted",
+        Some(&serde_json::json!({
+            "machine_id": {"id": host_machine_id}
+        })),
+    )?;
     Ok(host_machine_id.to_string())
 }

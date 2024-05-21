@@ -9,14 +9,36 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use forge_tls::default as tls_default;
 
+#[derive(ValueEnum, Clone, Debug, Copy, PartialEq)]
+pub(crate) enum Mode {
+    Service,
+    Standalone,
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Service => write!(f, "Service"),
+            Mode::Standalone => write!(f, "Standalone"),
+        }
+    }
+}
 #[derive(Parser)]
 #[clap(name = env!("CARGO_BIN_NAME"))]
 pub(crate) struct Options {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
     pub version: bool,
+
+    #[clap(long,
+        value_enum,
+        default_value_t=Mode::Service)]
+    pub mode: Mode,
+
+    #[clap(short, long, require_equals(true))]
+    pub machine_interface_id: uuid::Uuid,
 
     #[clap(
         short,
@@ -86,31 +108,23 @@ pub(crate) enum Command {
     Deprovision(Deprovision),
     #[clap(about = "Send error report to Carbide API ")]
     Logerror(Logerror),
-}
-
-impl Command {
-    pub fn machine_interface_id(&self) -> uuid::Uuid {
-        match self {
-            Command::AutoDetect(command) => command.uuid,
-            Command::Deprovision(command) => command.uuid,
-            Command::Logerror(command) => command.uuid,
-        }
-    }
+    #[clap(about = "Run Discovery")]
+    Discovery(Discovery),
+    #[clap(about = "Run reset")]
+    Reset(Reset),
 }
 
 #[derive(Parser)]
-pub struct AutoDetect {
-    // This is a machine_INTERFACE_id, not a machine_id
-    #[clap(short, long, require_equals(true))]
-    pub uuid: uuid::Uuid,
-}
+pub struct AutoDetect {}
 
 #[derive(Parser)]
-pub struct Deprovision {
-    // This is a machine_INTERFACE_id, not a machine_id
-    #[clap(short, long, require_equals(true))]
-    pub uuid: uuid::Uuid,
-}
+pub struct Deprovision {}
+#[derive(Parser)]
+pub struct Reset {}
+#[derive(Parser)]
+pub struct Discovery {}
+#[derive(Parser)]
+pub struct Rebuild {}
 
 #[derive(Parser)]
 pub struct Logerror {

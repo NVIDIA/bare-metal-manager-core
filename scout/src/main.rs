@@ -9,12 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use cfg::{AutoDetect, Command, Options};
+use cfg::{AutoDetect, Command, Mode, Options};
 use clap::CommandFactory;
 use once_cell::sync::Lazy;
 use rpc::forge::forge_agent_control_response::Action;
 use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
 pub use scout::{CarbideClientError, CarbideClientResult};
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tryhard::RetryFutureConfig;
@@ -32,6 +35,8 @@ struct DevEnv {
     in_qemu: bool,
 }
 static IN_QEMU_VM: Lazy<RwLock<DevEnv>> = Lazy::new(|| RwLock::new(DevEnv { in_qemu: false }));
+const POLL_INTERVAL: Duration = Duration::from_secs(60);
+pub const REBOOT_COMPLETED_PATH: &str = "/tmp/reboot_completed";
 
 async fn check_if_running_in_qemu() {
     use tokio::process::Command;
@@ -63,32 +68,20 @@ async fn main() -> Result<(), eyre::Report> {
 
     forge_host_support::init_logging()?;
 
-    let subcmd = match &config.subcmd {
-        None => {
-            Options::command().print_long_help()?;
-            std::process::exit(1);
-        }
-        Some(s) => s,
-    };
+    tracing::info!("Running as {}...{}", config.mode, config.version);
 
-    let machine_interface_id = subcmd.machine_interface_id();
-
-    // When the cloud-init script fails, it will run the scout process with the logerror option.
-    // This is to report to the carbide api that the cloud-init script failed, and to display
-    // the last 1500 bytes of the cloud-init-output.log file. We want to send this message to
-    // carbide api before running the discovery code.
-    if matches!(subcmd, Command::Logerror(_)) {
-        match logerror_to_carbide(&config, machine_interface_id).await {
-            Ok(()) => (),
-            Err(e) => println!("Forge Scout logerror_to_carbide error: {}", e),
-        }
-        return Ok(());
+    match config.mode {
+        Mode::Service => run_as_service(&config).await?,
+        Mode::Standalone => run_standalone(&config).await?,
     }
+    Ok(())
+}
 
+async fn initial_setup(config: &Options) -> Result<String, eyre::Report> {
     let machine_id = match register::run(
         &config.api,
         config.root_ca.clone(),
-        machine_interface_id,
+        config.machine_interface_id,
         config.discovery_retry_secs,
         config.discovery_retries_max,
         &config.tpm_path,
@@ -97,36 +90,71 @@ async fn main() -> Result<(), eyre::Report> {
     {
         Ok(machine_id) => machine_id,
         Err(e) => {
-            report_scout_error(&config, None, machine_interface_id, &e).await?;
+            report_scout_error(config, None, config.machine_interface_id, &e).await?;
             return Err(e.into());
         }
     };
 
-    let action = match subcmd {
-        Command::AutoDetect(AutoDetect { .. }) => {
-            match query_api_with_retries(&config, &machine_id).await {
-                Ok(action) => action,
-                Err(e) => {
-                    report_scout_error(&config, Some(machine_id), machine_interface_id, &e).await?;
-                    return Err(e.into());
-                }
-            }
-        }
-        Command::Deprovision(_) => Action::Reset,
-        Command::Logerror(_) => unreachable!(),
-    };
-
-    if let Err(e) = handle_action(action, &machine_id, &config).await {
-        report_scout_error(&config, Some(machine_id), machine_interface_id, &e).await?;
-        return Err(e.into());
+    if !Path::new(REBOOT_COMPLETED_PATH).exists() {
+        discovery::rebooted(config, &machine_id).await?;
+        let mut data_file = File::create(REBOOT_COMPLETED_PATH).expect("creation failed");
+        data_file.write_all(format!("Reboot completed at {}", chrono::Utc::now()).as_bytes())?;
     }
-
-    Ok(())
+    Ok(machine_id)
 }
 
+async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
+    // Implement the logic to run as a service here
+    let machine_id = initial_setup(config).await?;
+    loop {
+        let action = match query_api_with_retries(config, &machine_id).await {
+            Ok(action) => action,
+            Err(e) => {
+                report_scout_error(config, None, config.machine_interface_id, &e).await?;
+                Action::Noop
+            }
+        };
+        match handle_action(action, &machine_id, config.machine_interface_id, config).await {
+            Ok(_) => tracing::info!("Successfully served {}", action.as_str_name()),
+            Err(e) => tracing::info!("Failed to serve {}: Err {}", action.as_str_name(), e),
+        };
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
+    // Implement the logic for standalone mode here
+    let subcmd = match &config.subcmd {
+        None => {
+            Options::command().print_long_help()?;
+            std::process::exit(1);
+        }
+        Some(s) => s,
+    };
+    let machine_id = initial_setup(config).await?;
+    //TODO Could be better; this for backward compatibility. Refactor required
+    let action = match query_api_with_retries(config, &machine_id).await {
+        Ok(action) => action,
+        Err(e) => {
+            report_scout_error(config, None, config.machine_interface_id, &e).await?;
+            Action::Noop
+        }
+    };
+    let action = match subcmd {
+        Command::AutoDetect(AutoDetect { .. }) => action,
+        Command::Deprovision(_) => Action::Reset,
+        Command::Discovery(_) => Action::Discovery,
+        Command::Reset(_) => Action::Reset,
+        Command::Logerror(_) => Action::Logerror,
+    };
+
+    handle_action(action, &machine_id, config.machine_interface_id, config).await?;
+    Ok(())
+}
 async fn handle_action(
     action: Action,
     machine_id: &str,
+    machine_interface_id: uuid::Uuid,
     config: &Options,
 ) -> Result<(), CarbideClientError> {
     match action {
@@ -144,6 +172,10 @@ async fn handle_action(
             unimplemented!("Rebuild not written yet");
         }
         Action::Noop => {}
+        Action::Logerror => match logerror_to_carbide(config, machine_interface_id).await {
+            Ok(()) => (),
+            Err(e) => tracing::info!("Forge Scout logerror_to_carbide error: {}", e),
+        },
         Action::Retry => {
             panic!("Retrieved Retry action, which should be handled internally by query_api_with_retries");
         }

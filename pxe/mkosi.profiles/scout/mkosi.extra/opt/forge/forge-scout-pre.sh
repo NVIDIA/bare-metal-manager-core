@@ -17,6 +17,8 @@ do
                 cli_cmd=`echo $line|cut -d'=' -f2`
         fi
 done
-
-mkdir -p /var/log/forge
-exec /opt/forge/forge-scout --api=$server_uri $cli_cmd --uuid=$machine_id 2>&1 | tee /var/log/forge/forge-scout.log
+rm "/opt/forge/forge-scout.env"
+cat "/opt/forge/forge-scout.env.template" > "/opt/forge/forge-scout.env"
+echo server_uri=$server_uri >> "/opt/forge/forge-scout.env"
+echo machine_id=$machine_id >> "/opt/forge/forge-scout.env"
+echo cli_cmd=$cli_cmd >> "/opt/forge/forge-scout.env"

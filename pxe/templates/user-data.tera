@@ -109,7 +109,7 @@ write_files:
       done
       chmod a+x /opt/forge/forge-scout
       echo "starting forge-scout"
-      ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} auto-detect --uuid={{ interface_id }} > /var/log/forge/forge-scout.log 2>&1
+      ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} --machine-interface-id={{ interface_id }} --mode="standalone" auto-detect > /var/log/forge/forge-scout.log 2>&1
   - path: /etc/rc.local
     permissions: '0755'
     content: |
@@ -215,7 +215,7 @@ write_files:
 {% endif %}
           if [[ ! -f "/run/cloud-init.done" ]]
           then
-            ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} logerror --uuid={{ interface_id }}
+            ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} --machine-interface-id={{ interface_id }} --mode="standalone" logerror
           else
             /bin/rm /run/cloud-init.done
           fi

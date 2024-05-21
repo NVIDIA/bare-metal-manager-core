@@ -5224,6 +5224,7 @@ name = "scout"
 version = "0.0.1"
 dependencies = [
  "base64 0.21.7",
+ "chrono",
  "clap 4.5.4",
  "efivar",
  "eyre",

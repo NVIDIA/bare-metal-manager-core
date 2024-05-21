@@ -31,6 +31,7 @@ pub async fn get_fac_action(
             tracing::warn!("Error getting control action: {e}");
             ForgeAgentControlResponse {
                 action: Action::Noop as i32,
+                data: None,
             }
         });
 
