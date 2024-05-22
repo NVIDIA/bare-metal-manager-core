@@ -10,13 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// db/interface/profile.rs
-///
-/// Code for working the measurement_system_profiles and measurement_system_profiles_attrs
-/// tables in the database, leveraging the profile-specific record types.
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Code for working the measurement_system_profiles and measurement_system_profiles_attrs
+ *  tables in the database, leveraging the profile-specific record types.
 */
 
 use crate::measured_boot::dto::keys::{

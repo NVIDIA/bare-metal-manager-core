@@ -10,13 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// db/interface/machine.rs
-///
-/// Code for working the mock_machines and mock_machines_attrs tables in the
-/// database, leveraging the mock-machine-specific record types.
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Code for working the mock_machines and mock_machines_attrs tables in the
+ *  database, leveraging the mock-machine-specific record types.
 */
 
 use crate::measured_boot::dto::keys::{MockMachineId, UuidEmptyStringError};

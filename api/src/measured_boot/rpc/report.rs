@@ -10,6 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+/*!
+ * gRPC handlers for measurement report related API calls.
+ */
+
 use tonic::Status;
 
 use crate::measured_boot::dto::keys::MeasurementReportId;
@@ -35,6 +39,11 @@ use rpc::protos::measured_boot::{
 };
 use sqlx::{Pool, Postgres};
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_create_measurement_report handles the CreateMeasurementReport
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_create_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &CreateMeasurementReportRequest,
@@ -52,6 +61,11 @@ pub async fn handle_create_measurement_report(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_delete_measurement_report handles the DeleteMeasurementReport
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_delete_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &DeleteMeasurementReportRequest,
@@ -68,6 +82,11 @@ pub async fn handle_delete_measurement_report(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_promote_measurement_report handles the PromoteMeasurementReport
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_promote_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &PromoteMeasurementReportRequest,
@@ -78,9 +97,6 @@ pub async fn handle_promote_measurement_report(
         })?),
         false => None,
     };
-
-    //let pcr_set = parse_pcr_index_input(&req.pcr_registers)
-    //.map_err(|e| Status::invalid_argument(format!("pcr_register parsing failed: {}", e)))?;
 
     let mut txn = begin_txn(db_conn).await?;
     let report = MeasurementReport::from_id_with_txn(
@@ -107,6 +123,11 @@ pub async fn handle_promote_measurement_report(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_revoke_measurement_report handles the RevokeMeasurementReport
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_revoke_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &RevokeMeasurementReportRequest,
@@ -117,9 +138,6 @@ pub async fn handle_revoke_measurement_report(
             Status::invalid_argument(format!("pcr_register parsing failed: {}", e))
         })?),
     };
-
-    //let pcr_set = parse_pcr_index_input(&req.pcr_registers)
-    //.map_err(|e| Status::invalid_argument(format!("pcr_register parsing failed: {}", e)))?;
 
     let mut txn = begin_txn(db_conn).await?;
     let report = MeasurementReport::from_id_with_txn(
@@ -146,6 +164,11 @@ pub async fn handle_revoke_measurement_report(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_show_measurement_report_for_id handles the
+/// ShowMeasurementReportForId API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_show_measurement_report_for_id(
     db_conn: &Pool<Postgres>,
     req: &ShowMeasurementReportForIdRequest,
@@ -162,6 +185,11 @@ pub async fn handle_show_measurement_report_for_id(
         ),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_show_measurement_reports_for_machine handles the
+/// ShowMeasurementReportsForMachine API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_show_measurement_reports_for_machine(
     db_conn: &Pool<Postgres>,
@@ -182,6 +210,11 @@ pub async fn handle_show_measurement_reports_for_machine(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_show_measurement_reports handles the ShowMeasurementReports
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_show_measurement_reports(
     db_conn: &Pool<Postgres>,
     _req: &ShowMeasurementReportsRequest,
@@ -197,6 +230,11 @@ pub async fn handle_show_measurement_reports(
             .collect(),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_list_measurement_report handles the ListMeasurementReport
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_list_measurement_report(
     db_conn: &Pool<Postgres>,
@@ -224,6 +262,11 @@ pub async fn handle_list_measurement_report(
     };
     Ok(ListMeasurementReportResponse { reports })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_match_measurement_report handles the MatchMeasurementReport
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_match_measurement_report(
     db_conn: &Pool<Postgres>,

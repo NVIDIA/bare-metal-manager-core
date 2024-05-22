@@ -10,6 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
+/*!
+ *  Code for working the measurement_trusted_machines and measurement_trusted_profiles
+ *  tables in the database, leveraging the site-specific record types.
+ *
+ * This also provides code for importing/exporting (and working with) SiteModels.
+*/
+
 use crate::measured_boot::dto::records::{
     MeasurementBundleRecord, MeasurementBundleValueRecord, MeasurementSystemProfileAttrRecord,
     MeasurementSystemProfileRecord,

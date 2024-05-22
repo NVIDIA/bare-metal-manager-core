@@ -10,6 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+//!
+//! Measured boot unit testing module.
+//!
+
 mod integration;
 mod journal;
 mod profile;

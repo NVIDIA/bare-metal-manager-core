@@ -10,6 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+/*!
+ *  Code for working the measurement_trusted_machines and measurement_trusted_profiles
+ *  tables in the database, leveraging the site-specific record types.
+*/
+
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     MockMachineId,

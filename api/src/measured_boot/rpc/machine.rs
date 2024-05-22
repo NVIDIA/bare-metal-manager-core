@@ -10,6 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+/*!
+ * gRPC handlers for measured boot mock-machine related API calls.
+ */
+
 use tonic::Status;
 
 use crate::measured_boot::interface::machine::get_mock_machines_records;
@@ -26,6 +30,10 @@ use rpc::protos::measured_boot::{
 };
 use sqlx::{Pool, Postgres};
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_create_mock_machine handles the CreateMockMachine API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_create_mock_machine(
     db_conn: &Pool<Postgres>,
     req: &CreateMockMachineRequest,
@@ -39,6 +47,10 @@ pub async fn handle_create_mock_machine(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_delete_mock_machine handles the DeleteMockMachine API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_delete_mock_machine(
     db_conn: &Pool<Postgres>,
     req: &DeleteMockMachineRequest,
@@ -51,6 +63,10 @@ pub async fn handle_delete_mock_machine(
             .map(|machine| machine.into()),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_attest_mock_machine handles the AttestMockMachine API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_attest_mock_machine(
     db_conn: &Pool<Postgres>,
@@ -68,6 +84,10 @@ pub async fn handle_attest_mock_machine(
         report: Some(report.into()),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_show_mock_machine handles the ShowMockMachine API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_show_mock_machine(
     db_conn: &Pool<Postgres>,
@@ -89,6 +109,10 @@ pub async fn handle_show_mock_machine(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_show_mock_machines handles the ShowMockMachines API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_show_mock_machines(
     db_conn: &Pool<Postgres>,
     _req: &ShowMockMachinesRequest,
@@ -102,6 +126,10 @@ pub async fn handle_show_mock_machines(
             .collect(),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_list_mock_machine handles the ListMockMachine API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_list_mock_machine(
     db_conn: &Pool<Postgres>,

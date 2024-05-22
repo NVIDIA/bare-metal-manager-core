@@ -10,13 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// db/interface/journal.rs
-///
-/// Code for working the measuremment_journal and measurement_journal_values
-/// tables in the database, leveraging the journal-specific record types.
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Code for working the measuremment_journal and measurement_journal_values
+ *  tables in the database, leveraging the journal-specific record types.
 */
 
 use crate::measured_boot::dto::keys::{

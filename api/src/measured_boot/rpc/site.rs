@@ -10,6 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+/*!
+ * gRPC handlers for measured boot site management API calls.
+ */
+
 use tonic::Status;
 
 use crate::measured_boot::dto::keys::{
@@ -44,6 +48,11 @@ use rpc::protos::measured_boot::{
 
 use sqlx::{Pool, Postgres};
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_import_site_measurements handles the ImportSiteMeasurements
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_import_site_measurements(
     db_conn: &Pool<Postgres>,
     req: &ImportSiteMeasurementsRequest,
@@ -66,6 +75,11 @@ pub async fn handle_import_site_measurements(
         })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_export_site_measurements handles the ExportSiteMeasurements
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_export_site_measurements(
     db_conn: &Pool<Postgres>,
     _req: &ExportSiteMeasurementsRequest,
@@ -81,6 +95,11 @@ pub async fn handle_export_site_measurements(
         ),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_add_measurement_trusted_machine handles the
+/// AddMeasurementTrustedMachine API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_add_measurement_trusted_machine(
     db_conn: &Pool<Postgres>,
@@ -100,6 +119,11 @@ pub async fn handle_add_measurement_trusted_machine(
         approval_record: Some(approval_record.into()),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_remove_measurement_trusted_machine handles the
+/// RemoveMeasurementTrustedMachine API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_remove_measurement_trusted_machine(
     db_conn: &Pool<Postgres>,
@@ -138,6 +162,11 @@ pub async fn handle_remove_measurement_trusted_machine(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_list_measurement_trusted_machines handles the
+/// ListMeasurementTrustedMachines API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_list_measurement_trusted_machines(
     db_conn: &Pool<Postgres>,
     _req: &ListMeasurementTrustedMachinesRequest,
@@ -151,6 +180,11 @@ pub async fn handle_list_measurement_trusted_machines(
 
     Ok(ListMeasurementTrustedMachinesResponse { approval_records })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_add_measurement_trusted_profile handles the
+/// AddMeasurementTrustedProfile API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_add_measurement_trusted_profile(
     db_conn: &Pool<Postgres>,
@@ -170,6 +204,11 @@ pub async fn handle_add_measurement_trusted_profile(
         approval_record: Some(approval_record.into()),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_remove_measurement_trusted_profile handles the
+/// RemoveMeasurementTrustedProfile API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_remove_measurement_trusted_profile(
     db_conn: &Pool<Postgres>,
@@ -210,6 +249,11 @@ pub async fn handle_remove_measurement_trusted_profile(
         approval_record: Some(approval_record.into()),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_list_measurement_trusted_profiles handles the
+/// ListMeasurementTrustedProfiles API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_list_measurement_trusted_profiles(
     db_conn: &Pool<Postgres>,

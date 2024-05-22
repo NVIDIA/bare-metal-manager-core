@@ -10,14 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/cmds/global.rs
-///
-/// Global commands at the root of the CLI, as well as some
-/// helper functions used by main.
-///////////////////////////////////////////////////////////////////////////////
-*/
+//!
+//! Global commands at the root of the CLI, as well as some helper
+//! functions used by main.
+//!
 
 use crate::cfg::carbide_options::OutputFormat;
 use crate::cfg::measurement::GlobalOptions;

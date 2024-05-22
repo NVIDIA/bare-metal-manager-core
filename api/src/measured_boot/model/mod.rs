@@ -10,6 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
+/*!
+ * The `model` module provides most of the [business] logic for working
+ * with measured boot, acting as a layer in front of the `interface`
+ * and `dto` instances.
+ *
+ * This includes models for all representations, including:
+ *  - `bundle`: Measurement bundles.
+ *  - `journal`: Measurement journals.
+ *  - `machine`: Mock machines (will eventually go away).
+ *  - `profile`: System profiles.
+ *  - `report`: Machine measurement reports.
+ *  - `site`: Site management.
+ */
+
 pub mod bundle;
 pub mod journal;
 pub mod machine;

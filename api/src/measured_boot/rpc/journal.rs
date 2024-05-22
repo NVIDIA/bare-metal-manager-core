@@ -10,6 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+/*!
+ * gRPC handlers for measurement journal related API calls.
+ */
+
 use crate::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
@@ -30,6 +34,11 @@ use rpc::protos::measured_boot::{
 use sqlx::{Pool, Postgres};
 use tonic::Status;
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_delete_measurement_journal handles the DeleteMeasurementJournal
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_delete_measurement_journal(
     db_conn: &Pool<Postgres>,
     req: &DeleteMeasurementJournalRequest,
@@ -46,6 +55,11 @@ pub async fn handle_delete_measurement_journal(
         journal: Some(journal.into()),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_show_measurement_journal handles the ShowMeasurementJournal
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_show_measurement_journal(
     db_conn: &Pool<Postgres>,
@@ -68,6 +82,11 @@ pub async fn handle_show_measurement_journal(
     })
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// handle_show_measurement_journals handles the ShowMeasurementJournals
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
+
 pub async fn handle_show_measurement_journals(
     db_conn: &Pool<Postgres>,
     _req: &ShowMeasurementJournalsRequest,
@@ -83,6 +102,11 @@ pub async fn handle_show_measurement_journals(
             .collect(),
     })
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// handle_list_measurement_journal handles the ListMeasurementJournal
+/// API endpoint.
+///////////////////////////////////////////////////////////////////////////////
 
 pub async fn handle_list_measurement_journal(
     db_conn: &Pool<Postgres>,

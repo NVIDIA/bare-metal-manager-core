@@ -10,13 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// db/interface/report.rs
-///
-/// Code for working the measuremment_reports and measurement_reports_values
-/// tables in the database, leveraging the report-specific record types.
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Code for working the measuremment_reports and measurement_reports_values
+ *  tables in the database, leveraging the report-specific record types.
 */
 
 use crate::measured_boot::dto::keys::{MeasurementReportId, MockMachineId};

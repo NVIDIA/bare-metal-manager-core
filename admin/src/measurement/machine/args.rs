@@ -10,17 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/args/machine.rs
-/// Measured Boot CLI arguments for the `mock-machine` subcommand.
-///
-/// - mock-machine discover
-/// - mock-machine delete
-/// - mock-machine attest
-/// - mock-machine show
-/// - mock-machine list
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Measured Boot CLI arguments for the `measurement mock-machine` subcommand.
+ *
+ * This provides the CLI subcommands and arguments for:
+ *  - `mock-machine create`: Creates a new "mock" machine.
+ *  - `mock-machine delete`: Deletes an existing mock machine.
+ *  - `mock-machine attest`: Sends a measurement report for a mock machine.
+ *  - `mock-machine show [id]`: Shows detailed info about mock machine(s).
+ *  - `mock-machine list``: Lists all mock machines.
 */
 
 use crate::cfg::measurement::{parse_colon_pairs, parse_pcr_register_values, KvPair};
@@ -29,9 +27,9 @@ use carbide::measured_boot::interface::common::PcrRegisterValue;
 use clap::Parser;
 
 ///////////////////////////////////////////////////////////////////////////////
-// CmdMockMachine provides a container for the `mock-machine`
-// subcommand, which itself contains other subcommands
-// for working with mock machines.
+/// CmdMockMachine provides a container for the `mock-machine`
+/// subcommand, which itself contains other subcommands
+/// for working with mock machines.
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Parser, Debug)]
@@ -56,7 +54,7 @@ pub enum CmdMockMachine {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// Create "discovers" a new mock-machine.
+/// Create "discovers" a new mock machine.
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Parser, Debug)]
@@ -85,7 +83,7 @@ pub struct Create {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// Delete will delete a machine.
+/// Delete will delete a mock machine.
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Parser, Debug)]
@@ -95,7 +93,9 @@ pub struct Delete {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// Attest is used for providing PCR values to "attest".
+/// Attest sends a measurement report for the given mock machine ID,
+/// where the measurement report then goes through attestation in an
+/// attempt to match a bundle.
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Parser, Debug)]
@@ -114,14 +114,15 @@ pub struct Attest {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// List lists all machines.
+/// List lists all mock machines.
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Parser, Debug)]
 pub struct List {}
 
 ///////////////////////////////////////////////////////////////////////////////
-/// Show will get a mock-machine for the given ID.
+/// Show will get a mock-machine for the given ID, or all machines
+/// if no machine ID is provided.
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Parser, Debug)]

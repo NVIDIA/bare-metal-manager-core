@@ -10,20 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/args/site.rs
-/// Measured Boot CLI arguments for the `site` subcommand.
-///
-/// - site import
-/// - site export
-/// - site trusted-machine approve
-/// - site trusted-machine remove
-/// - site trusted-machine list
-/// - site trusted-profile approve
-/// - site trusted-profile remove
-/// - site trusted-profile list
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Measured Boot CLI arguments for the `measurement site` subcommand.
+ *
+ * This provides the CLI subcommands and arguments for:
+ *  - `site import`: Import a site model (profiles + bundles) from a file.
+ *  - `site export`: Export a site model from DB -> to a file.
+ *  - `site trusted-machine approve`: Create a trusted machine approval.
+ *  - `site trusted-machine remove`: Remove a trusted machine approval.
+ *  - `site trusted-machine list`: List all trusted machine approvals.
+ *  - `site trusted-profile approve`: Create a trusted profile approval.
+ *  - `site trusted-profile remove`: Remove a trusted profile approval.
+ *  - `site trusted-profile list`: List all trusted profile approvals.
 */
 
 use clap::Parser;
