@@ -11,8 +11,7 @@
  */
 
 use carbide::{
-    api::rpc::IbPartitionConfig,
-    api::rpc::IbPartitionSearchConfig,
+    api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     cfg::IBFabricConfig,
     db::ib_partition::{IBPartitionConfig, IBPartitionStatus, NewIBPartition},
     ib::{
@@ -87,6 +86,15 @@ async fn test_ib_partition_lifecycle_impl(
         .await;
 
     // After 1 controller iterations, the partition should be ready
+    assert_eq!(
+        get_partition_state(&env.api, segment_id).await,
+        TenantState::Ready
+    );
+
+    env.run_ib_partition_controller_iteration(state_handler.clone())
+        .await;
+    // After another controller iterations, the partition should still be ready even the
+    // controller can not find the partition.
     assert_eq!(
         get_partition_state(&env.api, segment_id).await,
         TenantState::Ready

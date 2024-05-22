@@ -122,6 +122,27 @@ impl IBFabric for MockIBFabric {
         Ok(())
     }
 
+    /// Update IBNetwork, e.g. QoS
+    async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError> {
+        let mut ibsubnets = self
+            .ibsubnets
+            .lock()
+            .map_err(|_| CarbideError::IBFabricError("update_ib_network mutex lock".to_string()))?;
+
+        match ibsubnets.get_mut(&ibnetwork.pkey.to_string()) {
+            Some(ib) => {
+                // Update QoS accordingly
+                ib.mtu = ibnetwork.mtu;
+                ib.rate_limit = ibnetwork.rate_limit;
+                ib.service_level = ibnetwork.service_level;
+                Ok(())
+            }
+            None => Err(CarbideError::IBFabricError(
+                "ib subnet not found".to_string(),
+            )),
+        }
+    }
+
     /// Find IBPort
     async fn find_ib_port(&self, _: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
         let ibports = self

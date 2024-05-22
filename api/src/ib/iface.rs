@@ -53,6 +53,9 @@ pub trait IBFabric: Send + Sync {
     /// Get fabric configuration
     async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError>;
 
+    /// Update IBNetwork, e.g. QoS
+    async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError>;
+
     /// Delete IBNetwork
     async fn delete_ib_network(&self, id: &str) -> Result<(), CarbideError>;
 

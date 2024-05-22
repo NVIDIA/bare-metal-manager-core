@@ -189,8 +189,15 @@ impl RestClient {
 
         Ok(data)
     }
+
     pub async fn post(&self, path: &str, data: String) -> Result<(), RestError> {
         self.execute_request(Method::POST, path, Some(data)).await?;
+
+        Ok(())
+    }
+
+    pub async fn put(&self, path: &str, data: String) -> Result<(), RestError> {
+        self.execute_request(Method::PUT, path, Some(data)).await?;
 
         Ok(())
     }

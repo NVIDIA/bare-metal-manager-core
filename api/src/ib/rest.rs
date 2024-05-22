@@ -94,6 +94,16 @@ impl IBFabric for RestIBFabric {
             .map_err(CarbideError::from)
     }
 
+    /// Update IBNetwork, e.g. QoS
+    async fn update_ib_network(&self, ibnetwork: &IBNetwork) -> Result<(), CarbideError> {
+        let partition = Partition::try_from(ibnetwork)?;
+
+        self.ufm
+            .update_partition_qos(partition)
+            .await
+            .map_err(CarbideError::from)
+    }
+
     /// Delete IBPort
     async fn unbind_ib_ports(&self, pkey: i32, ids: Vec<String>) -> Result<(), CarbideError> {
         let pkey = PartitionKey::try_from(pkey).map_err(CarbideError::from)?;
