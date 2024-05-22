@@ -10,14 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// db/model/traits.rs
-///
-/// Some traits to make the generic functions in db/interface/common.rs be
-/// able to do what they do. Look at db/model/keys.rs and db/model/records.rs
-/// for implementaton.
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  These are traits to make the generic functions in db/interface/common.rs
+ *  be able to do what they do. Look dto/keys.rs and dto/records.rs
+ *  for implementaton.
 */
 
 ///////////////////////////////////////////////////////////////////////////////

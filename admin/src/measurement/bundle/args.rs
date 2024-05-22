@@ -10,19 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/args/bundle.rs
-/// Measured Boot CLI arguments for the `bundle` subcommand.
-///
-/// - bundle create
-/// - bundle delete
-/// - bundle rename
-/// - bundle set-state
-/// - bundle show
-/// - bundle list all
-/// - bundle list machines
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Measured Boot CLI arguments for the `measurement bundle` subcommand.
+ *
+ * This provides the CLI subcommands and arguments for:
+ *  - `bundle create`: Create a new measurement bundle.
+ *  - `bundle delete`: Delete an existing measurement bundle.
+ *  - `bundle rename`: Rename an existing measurement bundle.
+ *  - `bundle set-state`: Change the state of a measurement bundle.
+ *  - `bundle show`: Show all details about measurement bundle(s).
+ *  - `bundle list all`: List high level metadata about all bundles.
+ *  - `bundle list machines`: List all matchines matching a given bundle.
 */
 
 use crate::cfg::measurement::parse_pcr_register_values;

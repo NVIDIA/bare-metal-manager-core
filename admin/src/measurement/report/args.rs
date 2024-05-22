@@ -10,19 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/args/report.rs
-/// Measured Boot CLI arguments for the `report` subcommand.
-///
-/// - report create
-/// - report delete
-/// - report promote
-/// - report revoke
-/// - report show
-/// - report list
-/// - report match
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Measured Boot CLI arguments for the `measurement report` subcommand.
+ *
+ * This provides the CLI subcommands and arguments for:
+ *  - `report create`: Create a new machine measurement report.
+ *  - `report delete`: Delete an existing machine measurement report.
+ *  - `report promote`: Promote a machine measurement report to a bundle.
+ *  - `report revoke`: Create a revoked measurement bundle from a report.
+ *  - `report show all`: Show all info about all measurement reports.
+ *  - `report show id`: Show all info about a specific report.
+ *  - `report show machine`: Show all info about reports for a given machine.
+ *  - `report list all`: List high level info about all reports.
+ *  - `report list machine`: List all reports for a given machine.
+ *  - `report match``
 */
 
 use crate::cfg::measurement::parse_pcr_register_values;

@@ -10,12 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/cmds/bundle.rs
-/// farrier CLI-backing commands for the `bundle` subcommand.
-///////////////////////////////////////////////////////////////////////////////
-*/
+//!
+//! `measurement bundle` subcommand dispatcher + backing functions.
+//!
 
 use std::str::FromStr;
 

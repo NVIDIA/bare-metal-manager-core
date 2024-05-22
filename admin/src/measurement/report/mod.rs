@@ -10,5 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+//!
+//! Measured Boot CLI-backing args & commands for the `measurement report`
+//! subcommand.
+//!
+
 pub mod args;
 pub mod cmds;

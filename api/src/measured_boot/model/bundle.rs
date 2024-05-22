@@ -10,13 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// db/interface/bundle.rs
-///
-/// Code for working the measurement_bundles and measurement_bundles_values
-/// tables in the database, leveraging the bundle-specific record types.
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Code for working the measurement_bundles and measurement_bundles_values
+ *  tables in the database, leveraging the bundle-specific record types.
 */
 
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};

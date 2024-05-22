@@ -10,13 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// db/interface/common.rs
-///
-/// Common code for working with the database. Provides constants and generics
-/// for making boilerplate copy-pasta code handled in a common way.
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Common code for working with the database. Provides constants and generics
+ *  for making boilerplate copy-pasta code handled in a common way.
 */
 
 use crate::measured_boot::dto::traits::{DbPrimaryUuid, DbTable};

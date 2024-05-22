@@ -10,15 +10,13 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/args/journal.rs
-/// Measured Boot CLI arguments for the `journal` subcommand.
-///
-/// - journal delete
-/// - journal show
-/// - journal list
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Measured Boot CLI arguments for the `measurement journal` subcommand.
+ *
+ * This provides the CLI subcommands and arguments for:
+ *  - `journal delete`: Delete a journal entry.
+ *  - `journal show`: Show all info about journal entr(ies).
+ *  - `journal list`: List all journal entries.
 */
 
 use carbide::measured_boot::dto::keys::{MeasurementJournalId, MockMachineId};

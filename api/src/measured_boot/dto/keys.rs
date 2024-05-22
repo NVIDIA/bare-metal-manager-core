@@ -10,21 +10,18 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// keys.rs
-/// Code for defining primary/foreign keys used by the measured boot
-/// database tables.
-///
-/// The idea here is to make it very obvious which type of UUID is being
-/// worked with, since it would be otherwise easy to pass the wrong UUID
-/// to the wrong part of a query. Being able to type the specific ID ends
-/// up catching a lot of potential bugs.
-///
-/// To make this work, the keys must derive {FromRow,Type}, and explicitly
-/// set #[sqlx(type_name = "UUID")]. Without that trifecta, sqlx gets all
-/// mad because it cant bind it as a UUID.
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Code for defining primary/foreign keys used by the measured boot
+ *  database tables.
+ *
+ *  The idea here is to make it very obvious which type of UUID is being
+ *  worked with, since it would be otherwise easy to pass the wrong UUID
+ *  to the wrong part of a query. Being able to type the specific ID ends
+ *  up catching a lot of potential bugs.
+ *
+ *  To make this work, the keys must derive {FromRow,Type}, and explicitly
+ *  set #[sqlx(type_name = "UUID")]. Without that trifecta, sqlx gets all
+ *  mad because it cant bind it as a UUID.
 */
 
 use crate::measured_boot::dto::traits::DbPrimaryUuid;

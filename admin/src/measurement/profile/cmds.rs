@@ -10,12 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/cmds/profile.rs
-/// Measured Boot CLI-backing commands for the `profile` subcommand.
-///////////////////////////////////////////////////////////////////////////////
-*/
+//!
+//! `measurement profile` subcommand dispatcher + backing functions.
+//!
 
 use crate::measurement::global;
 use crate::measurement::global::cmds::cli_output;

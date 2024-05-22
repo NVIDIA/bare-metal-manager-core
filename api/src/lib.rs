@@ -9,6 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
+//!
+//! The Carbide API server library.
+//!
+
 use std::{
     backtrace::{Backtrace, BacktraceStatus},
     net::IpAddr,

@@ -10,12 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/cmds/site.rs
-/// Measured Boot CLI-backing commands for the `site` subcommand.
-///////////////////////////////////////////////////////////////////////////////
-*/
+//!
+//! `measurement site` subcommand dispatcher + backing functions.
+//!
 
 use crate::measurement::global;
 use crate::measurement::global::cmds::cli_output;

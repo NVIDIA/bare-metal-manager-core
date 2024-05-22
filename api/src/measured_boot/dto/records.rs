@@ -10,20 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// db/model/records.rs
-///
-/// Contains structs that map directly to tables, with the intent of binding
-/// for doing selects.
-///
-/// And, once https://github.com/launchbadge/sqlx/issues/3071 is taken care of,
-/// these models can be re-leveraged for doing inserts as well (well, more than
-/// likely there will be insert-specific models, but they'd go in here).
-///
-/// There are type-specific primary/foreign key IDs to make it more explicit
-/// what type of key is being passed around. A bunch of uuid::Uuid is meh.
-/// ///////////////////////////////////////////////////////////////////////////
+/*!
+ *  Contains structs that map directly to tables, with the intent of binding
+ *  for doing selects.
+ *
+ *  And, once https://github.com/launchbadge/sqlx/issues/3071 is taken care of,
+ *  these models can be re-leveraged for doing inserts as well (well, more than
+ *  likely there will be insert-specific models, but they'd go in here).
+ *
+ *  There are type-specific primary/foreign key IDs to make it more explicit
+ *  what type of key is being passed around. A bunch of uuid::Uuid is meh.
 */
 
 use crate::measured_boot::interface::common::ToTable;

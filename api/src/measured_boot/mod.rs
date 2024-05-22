@@ -10,6 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
+//!
+//! Carbide API module specific to measured boot/machine attestation.
+//!
+
 pub mod dto;
 pub mod interface;
 pub mod model;

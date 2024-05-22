@@ -10,12 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/cmds/machine.rs
-/// Measured Boot CLI-backing commands for the `mock-machine` subcommand.
-///////////////////////////////////////////////////////////////////////////////
-*/
+//!
+//! `measurement mock-machine` subcommand dispatcher + backing functions.
+//!
 
 use crate::measurement::global;
 use crate::measurement::global::cmds::cli_output;

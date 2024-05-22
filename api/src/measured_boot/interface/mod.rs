@@ -10,6 +10,20 @@
  * its affiliates is strictly prohibited.
  */
 
+/*!
+ * The `interface` module provides thin functions to connect dto
+ * types to the database via queries.
+ *
+ * This includes basic insert/select/delete/update calls for:
+ *  - `bundle`: Measurement bundles.
+ *  - `common`: Generic functions leveraged by all interfaces.
+ *  - `journal`: Measurement journals.
+ *  - `machine`: Mock machines (will eventually go away).
+ *  - `profile`: System profiles.
+ *  - `report`: Machine measurement reports.
+ *  - `site`: Site management.
+ */
+
 pub mod bundle;
 pub mod common;
 pub mod journal;

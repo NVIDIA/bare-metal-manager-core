@@ -10,17 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
-/*
-///////////////////////////////////////////////////////////////////////////////
-/// cli/args/profile.rs
-/// Measured Boot CLI arguments for the `profile` subcommand.
-///
-/// - profile create
-/// - profile delete
-/// - profile rename
-/// - profile show
-/// - profile list
-///////////////////////////////////////////////////////////////////////////////
+/*!
+ *  Measured Boot CLI arguments for the `measurement profile` subcommand.
+ *
+ * This provides the CLI subcommands and arguments for:
+ *  - `profile create`: Create a new system profile.
+ *  - `profile delete`: Delete an existing system profile.
+ *  - `profile rename`: Rename an existing system profile.
+ *  - `profile show`: Show all info about system profile(s).
+ *  - `profile list all`: List high level info about all profiles.
+ *  - `profile list bundles`: List all bundles for a given profile.
+ *  - `profile list machines`: List all machines for a given profile.
 */
 
 use crate::cfg::measurement::{parse_colon_pairs, KvPair};
