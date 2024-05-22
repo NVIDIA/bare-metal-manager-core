@@ -128,6 +128,9 @@ pub enum CarbideError {
     #[error("Database migration error: {0}")]
     DatabaseMigrationError(#[from] sqlx::migrate::MigrateError),
 
+    #[error("Creating a database object returned no rows: table: {0}, column: {1}, key: {2}")]
+    DatabaseCreateReturnedNoRows(String, String, String),
+
     #[error("Multiple network segments defined for relay address: {0}")]
     MultipleNetworkSegmentsForRelay(IpAddr),
 
@@ -136,6 +139,9 @@ pub enum CarbideError {
 
     #[error("Duplicate MAC address for network: {0}")]
     NetworkSegmentDuplicateMacAddress(MacAddress),
+
+    #[error("Duplicate MAC address for expected host BMC interface: {0}")]
+    ExpectedHostDuplicateMacAddress(MacAddress),
 
     #[error("Attempted to retrieve the next IP from a network segment exhausted of IP space: {0}")]
     NetworkSegmentsExhausted(String),
