@@ -7,5 +7,5 @@ authors.workspace = true
 
 [dependencies]
 clap = { workspace = true }
-libredfish = { version = "0.18.0", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.20.0", registry = "sw-ngc-forge-cargo-local" }
 serde = { version = "1", features = ["derive"] }
