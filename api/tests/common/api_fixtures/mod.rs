@@ -319,7 +319,7 @@ impl TestEnv {
     }
 }
 
-fn get_config() -> CarbideConfig {
+pub fn get_config() -> CarbideConfig {
     CarbideConfig {
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
         metrics_endpoint: None,
@@ -400,6 +400,13 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
 /// the Forge site controller, as well as mocks for dependent services that
 /// can be inspected and passed to other systems.
 pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
+    create_test_env_with_config(db_pool, None).await
+}
+
+pub async fn create_test_env_with_config(
+    db_pool: sqlx::PgPool,
+    config: Option<CarbideConfig>,
+) -> TestEnv {
     let db_pool = create_pool(db_pool).await;
     let test_meter = TestMeter::default();
     let credential_provider = Arc::new(TestCredentialProvider::new());
@@ -435,7 +442,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
         .await
         .expect("Creating pools should work");
 
-    let config = Arc::new(get_config());
+    let config = Arc::new(config.unwrap_or(get_config()));
 
     let api = Arc::new(Api::new(
         config.clone(),

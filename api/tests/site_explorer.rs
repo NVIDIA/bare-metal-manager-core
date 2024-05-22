@@ -49,8 +49,9 @@ use common::api_fixtures::TestEnv;
 use tonic::Request;
 
 use crate::common::{
-    api_fixtures::network_segment::{
-        create_admin_network_segment, create_underlay_network_segment,
+    api_fixtures::{
+        dpu::create_dpu_hardware_info,
+        network_segment::{create_admin_network_segment, create_underlay_network_segment},
     },
     test_meter::TestMeter,
 };
@@ -570,6 +571,8 @@ async fn test_site_explorer_creates_managed_host(
         reports: Arc::new(Mutex::new(HashMap::new())),
     });
 
+    let dpu_config = default_dpu_models();
+    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: true,
         explorations_per_run: 2,
@@ -579,8 +582,7 @@ async fn test_site_explorer_creates_managed_host(
         override_target_ip: None,
         override_target_port: None,
     };
-    let dpu_config = default_dpu_models();
-    let test_meter = TestMeter::default();
+
     let explorer = SiteExplorer::new(
         env.credential_provider.clone(),
         env.pool.clone(),
@@ -837,7 +839,7 @@ async fn test_site_explorer_creates_managed_host(
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interfaces[0].id.into()),
-            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+            discovery_data: Some(DiscoveryData::Info(discovery_info.clone())),
             create_machine: true,
         }))
         .await
@@ -884,6 +886,40 @@ async fn test_site_explorer_creates_managed_host(
         "Fake block device".to_string()
     );
 
+    Ok(())
+}
+
+// Test that discover_machines will reject request of machine that was not created by site-explorer when create_machines = true
+#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+fn test_disable_machine_creation_outside_site_explorer(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = common::api_fixtures::get_config();
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: true,
+        override_target_ip: None,
+        override_target_port: None,
+    };
+    config.site_explorer = Some(explorer_config.clone());
+    let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
+    let host_sim = env.start_managed_host_sim();
+
+    let hardware_info = create_dpu_hardware_info(&host_sim.config);
+    let discovery_info = DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
+    let response = env
+        .api
+        .discover_machine(Request::new(MachineDiscoveryInfo {
+            machine_interface_id: None,
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+            create_machine: true,
+        }))
+        .await;
+
+    assert!(response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
     Ok(())
 }
 
