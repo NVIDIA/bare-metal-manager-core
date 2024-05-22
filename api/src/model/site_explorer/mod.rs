@@ -312,6 +312,9 @@ pub enum EndpointExplorationError {
     /// It was not possible to establish a connection to the endpoint
     #[error("The endpoint was not reachable")]
     Unreachable,
+    /// A Redfish variant we don't support, typically a new vendor
+    #[error("Redfish vendor '{0}' not supported")]
+    UnsupportedVendor(String),
     /// A generic redfish error. No additional details are available
     #[error("Error while performing Redfish request: {details}")]
     #[serde(rename_all = "PascalCase")]
@@ -322,6 +325,10 @@ pub enum EndpointExplorationError {
     Unauthorized { details: String },
     #[error("Credentials for the machine are not available")]
     MissingCredentials,
+    #[error("Endpoint is not a BMC with Redfish support")]
+    MissingRedfish,
+    #[error("BMC vendor field is not populated. Unsupported BMC.")]
+    MissingVendor,
     /// An error which is not further detailed
     #[error("Error: {details}")]
     #[serde(rename_all = "PascalCase")]
