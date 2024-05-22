@@ -444,6 +444,13 @@ impl Redfish for RedfishSimClient {
         Ok(())
     }
 
+    async fn forge_setup_status(&self) -> Result<libredfish::ForgeSetupStatus, RedfishError> {
+        Ok(libredfish::ForgeSetupStatus {
+            is_done: true,
+            diffs: vec![],
+        })
+    }
+
     async fn lockdown(&self, _target: libredfish::EnabledDisabled) -> Result<(), RedfishError> {
         Ok(())
     }

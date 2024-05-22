@@ -75,6 +75,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         ForgeSetup => {
             redfish.forge_setup().await?;
         }
+        ForgeSetupStatus => {
+            println!("{}", redfish.forge_setup_status().await?);
+        }
         SetForgePasswordPolicy => {
             redfish.set_forge_password_policy().await?;
         }

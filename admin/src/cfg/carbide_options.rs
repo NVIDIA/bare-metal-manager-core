@@ -9,10 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::cfg::measurement;
-use clap::{ArgGroup, Parser, ValueEnum};
 use std::fmt;
 use std::path::PathBuf;
+
+use clap::{ArgGroup, Parser, ValueEnum};
+
+use crate::cfg::measurement;
 
 #[derive(Parser, Debug)]
 #[clap(name = "forge-admin-cli")]
@@ -343,6 +345,8 @@ pub enum RedfishCommand {
     CreateBmcUser(BmcUser),
     /// Setup host for Forge use
     ForgeSetup,
+    /// Is everything ForgeSetup does already done? What's missing?
+    ForgeSetupStatus,
     /// Set our password policy
     SetForgePasswordPolicy,
     /// List one or all BIOS boot options
