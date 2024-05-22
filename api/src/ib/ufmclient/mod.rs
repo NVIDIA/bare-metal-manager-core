@@ -102,6 +102,17 @@ struct Pkey {
     guids: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct PkeyQoS {
+    pkey: String,
+    // Default 2k; one of 2k or 4k; the MTU of the services.
+    pub mtu_limit: u16,
+    // Default is None, value can be range from 0-15
+    pub service_level: u8,
+    // Default is None, can be one of the following: 2.5, 10, 30, 5, 20, 40, 60, 80, 120, 14, 56, 112, 168, 25, 100, 200, or 300
+    pub rate_limit: f64,
+}
+
 #[derive(Default)]
 pub struct Filter {
     pub guids: Option<Vec<String>>,
@@ -140,10 +151,7 @@ impl TryFrom<String> for PartitionKey {
     type Error = UFMError;
 
     fn try_from(pkey: String) -> Result<Self, Self::Error> {
-        let base = match pkey.starts_with(HEX_PRE) {
-            true => 16,
-            false => 10,
-        };
+        let base = if pkey.starts_with(HEX_PRE) { 16 } else { 10 };
         let p = pkey.trim_start_matches(HEX_PRE);
         let k = i32::from_str_radix(p, base);
 
@@ -259,6 +267,22 @@ impl Ufm {
         let sm_config: SmConfig = self.client.get(&path).await?;
 
         Ok(sm_config)
+    }
+
+    pub async fn update_partition_qos(&self, p: Partition) -> Result<(), UFMError> {
+        let path = String::from("/resources/pkeys/qos_conf");
+
+        let data = serde_json::to_string(&PkeyQoS {
+            pkey: p.pkey.to_string(),
+            mtu_limit: p.qos.mtu_limit,
+            rate_limit: p.qos.rate_limit,
+            service_level: p.qos.service_level,
+        })
+        .map_err(|_| UFMError::InvalidConfig("invalid partition qos".to_string()))?;
+
+        self.client.put(&path, data).await?;
+
+        Ok(())
     }
 
     pub async fn bind_ports(&self, p: Partition, ports: Vec<PortConfig>) -> Result<(), UFMError> {

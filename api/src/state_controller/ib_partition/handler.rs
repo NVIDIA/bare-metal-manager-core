@@ -126,17 +126,28 @@ impl StateHandler for IBPartitionStateHandler {
                                 state.status = Some(IBPartitionStatus::from(&ibnetwork));
                                 state.update(txn).await?;
 
-                                if is_valid_status(&state.config, &ibnetwork) {
-                                    Ok(StateHandlerOutcome::DoNothing)
-                                } else {
-                                    Ok(StateHandlerOutcome::Transition(
-                                        IBPartitionControllerState::Error {
-                                            cause: format!(
-                                            "invalid status: the status in UFM is '{ibnetwork:?}'"
-                                        ),
-                                        },
-                                    ))
+                                if !is_valid_status(&state.config, &ibnetwork) {
+                                    // Update the QoS of IBNetwork in UFM.
+                                    //
+                                    // TODO(k82cn): Currently, the IBNeetwork is created only after
+                                    // at least one port was bound to the partition.
+                                    // In latest version, the UFM will support create partition without
+                                    // port.
+                                    let mut ibnetwork = ibnetwork;
+                                    ibnetwork.mtu = state.config.mtu as u16;
+                                    ibnetwork.rate_limit = state.config.rate_limit.into();
+                                    ibnetwork.service_level = state.config.service_level as u8;
+
+                                    if let Err(e) = ib_fabric.update_ib_network(&ibnetwork).await {
+                                        return Ok(StateHandlerOutcome::Transition(
+                                            IBPartitionControllerState::Error {
+                                                cause: format!("Failed to update IB partition {e}"),
+                                            },
+                                        ));
+                                    }
                                 }
+
+                                Ok(StateHandlerOutcome::DoNothing)
                             }
 
                             Err(e) => {

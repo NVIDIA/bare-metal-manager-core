@@ -55,6 +55,13 @@ impl IBFabric for DisableIBFabric {
         ))
     }
 
+    /// Update IBNetwork, e.g. QoS
+    async fn update_ib_network(&self, _: &IBNetwork) -> Result<(), CarbideError> {
+        Err(CarbideError::IBFabricError(
+            "ib fabric is disabled".to_string(),
+        ))
+    }
+
     /// Find IBPort
     async fn find_ib_port(&self, _: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
         Err(CarbideError::IBFabricError(
