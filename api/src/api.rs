@@ -2131,7 +2131,6 @@ where
         request: Request<rpc::MachineDiscoveryInfo>,
     ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
         // We don't log_request_data(&request); here because the hardware info is huge
-
         let remote_ip: Option<IpAddr> = match request.metadata().get("X-Forwarded-For") {
             None => {
                 // Normal production case.
@@ -2196,6 +2195,30 @@ where
             ?interface_id,
             "discover_machine loading interface"
         );
+
+        if self
+            .runtime_config
+            .site_explorer
+            .as_ref()
+            .map_or(false, |s| s.create_machines)
+        {
+            Machine::find_one(
+                &mut txn,
+                &stable_machine_id,
+                MachineSearchConfig {
+                    include_dpus: true,
+                    ..MachineSearchConfig::default()
+                },
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| {
+                Status::invalid_argument(format!(
+                    "Machine id {stable_machine_id} was not discovered by site-explorer."
+                ))
+            })?;
+        }
+
         let interface =
             MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
