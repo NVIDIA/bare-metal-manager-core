@@ -148,8 +148,28 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         &self,
         address: SocketAddr,
         _interface: &MachineInterface,
-        _last_report: Option<&EndpointExplorationReport>,
+        last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        if last_report.is_none() {
+            match super::initial_setup::host(self.redfish_client_pool.clone(), address).await {
+                // Host already setup, continue with normal exploration
+                Ok(None) => {}
+                // We changed something, wait for the reboot
+                Ok(Some(x)) => return Ok(x),
+
+                Err(EndpointExplorationError::Unauthorized { .. }) => {
+                    // We couldn't login with Host credentials, so this could be a DPU.
+                    // The Redfish ServiceRoot does not allow us to differentiate between a DPU and
+                    // any other NVIDIA machine (Viking, Oberon, etc).
+                    //
+                    // Continue with explore_endpoint
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+
         let client;
         // Try DpuRedfish and HostRedfish credentials.
         let client_result = self
@@ -438,7 +458,7 @@ async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishErro
     Ok(service)
 }
 
-fn map_redfish_client_creation_error(
+pub(crate) fn map_redfish_client_creation_error(
     error: RedfishClientCreationError,
 ) -> EndpointExplorationError {
     match error {
@@ -458,7 +478,7 @@ fn map_redfish_client_creation_error(
     }
 }
 
-fn map_redfish_error(error: RedfishError) -> EndpointExplorationError {
+pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError {
     match &error {
         RedfishError::NetworkError { url: _, source }
             if source.is_connect() || source.is_timeout() =>

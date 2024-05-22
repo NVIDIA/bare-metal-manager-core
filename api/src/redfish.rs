@@ -62,6 +62,19 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         port: Option<u16>,
     ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
 
+    fn create_anonymous_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
+
+    async fn get_factory_root_credentials(
+        &self,
+        vendor: bmc_vendor::BMCVendor,
+    ) -> eyre::Result<(String, String)>;
+
+    async fn get_site_default_credentials(&self) -> eyre::Result<(String, String)>;
+
     async fn change_root_password_to_site_default(
         &self,
         client: Box<dyn Redfish>,
@@ -230,6 +243,48 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             .map_err(RedfishClientCreationError::RedfishError)?;
 
         Ok(standard_client)
+    }
+
+    fn create_anonymous_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        let endpoint = Endpoint {
+            host: host.to_string(),
+            port,
+            user: None,
+            password: None,
+        };
+
+        self.pool
+            .create_standard_client(endpoint.clone())
+            .map_err(RedfishClientCreationError::RedfishError)
+    }
+
+    async fn get_factory_root_credentials(
+        &self,
+        vendor: bmc_vendor::BMCVendor,
+    ) -> eyre::Result<(String, String)> {
+        let key = forge_secrets::credentials::CredentialKey::HostRedfish {
+            credential_type: CredentialType::HostHardwareDefault { vendor },
+        };
+        let credentials = self.credential_provider.get_credentials(key).await?;
+        let creds_pair = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+        Ok(creds_pair)
+    }
+
+    async fn get_site_default_credentials(&self) -> eyre::Result<(String, String)> {
+        let key = CredentialKey::HostRedfish {
+            credential_type: CredentialType::SiteDefault,
+        };
+        let credentials = self.credential_provider.get_credentials(key).await?;
+        let creds_pair = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+        Ok(creds_pair)
     }
 
     async fn change_root_password_to_site_default(
@@ -878,10 +933,10 @@ impl Redfish for RedfishSimClient {
     }
     async fn update_firmware_multipart(
         &self,
-        _: &std::path::Path,
-        _: bool,
+        _firmware: &std::path::Path,
+        _reboot: bool,
     ) -> Result<String, RedfishError> {
-        todo!()
+        todo!();
     }
 }
 
@@ -918,6 +973,25 @@ impl RedfishClientPool for RedfishSim {
         _port: Option<u16>,
     ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
         Err(RedfishClientCreationError::NotImplemented)
+    }
+
+    fn create_anonymous_client(
+        &self,
+        _host: &str,
+        _port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        Err(RedfishClientCreationError::NotImplemented)
+    }
+
+    async fn get_factory_root_credentials(
+        &self,
+        _vendor: bmc_vendor::BMCVendor,
+    ) -> eyre::Result<(String, String)> {
+        Err(eyre::eyre!("Not implemented"))
+    }
+
+    async fn get_site_default_credentials(&self) -> eyre::Result<(String, String)> {
+        Err(eyre::eyre!("Not implemented"))
     }
 
     async fn change_root_password_to_site_default(
