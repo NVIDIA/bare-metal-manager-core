@@ -20,6 +20,7 @@ use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
+use serde::Serialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
@@ -63,6 +64,12 @@ impl From<rpc::MachineSearchConfig> for MachineSearchConfig {
             exclude_hosts: value.exclude_hosts,
         }
     }
+}
+
+#[derive(Serialize)]
+struct ReprovisionRequestRestart {
+    pub update_firmware: bool,
+    pub restart_reprovision_requested_at: DateTime<Utc>,
 }
 
 ///
@@ -1330,6 +1337,7 @@ SELECT m.id FROM
             update_firmware,
             started_at: None,
             user_approval_received: false,
+            restart_reprovision_requested_at: chrono::Utc::now(),
         };
 
         let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
@@ -1395,6 +1403,33 @@ SELECT m.id FROM
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    /// This will reset the dpu_reprov request.
+    pub async fn restart_dpu_reprovisioning(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        update_firmware: bool,
+    ) -> Result<(), DatabaseError> {
+        let restart_request = ReprovisionRequestRestart {
+            update_firmware,
+            restart_reprovision_requested_at: chrono::Utc::now(),
+        };
+        let query = r#"UPDATE machines 
+                                SET reprovisioning_requested=reprovisioning_requested || $1
+                        WHERE id=$2 RETURNING id"#
+            .to_string();
+
+        let _id = sqlx::query_as::<_, DbMachineId>(&query)
+            .bind(sqlx::types::Json(restart_request))
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "restart reprovisioning_requested", e)
+            })?;
 
         Ok(())
     }

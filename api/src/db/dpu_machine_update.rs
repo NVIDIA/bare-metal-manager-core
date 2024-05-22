@@ -199,6 +199,7 @@ impl DpuMachineUpdate {
             update_firmware: true,
             started_at: None,
             user_approval_received: false,
+            restart_reprovision_requested_at: chrono::Utc::now(),
         };
 
         let query = r#"UPDATE machines SET reprovisioning_requested=$1, maintenance_reference=$2, maintenance_start_time=NOW() WHERE controller_state = '{"state": "ready"}' AND id=$3 AND maintenance_reference IS NULL;"#;

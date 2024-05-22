@@ -15,7 +15,6 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
 
-use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::{
     self as rpc, DpuResetResponse, MachineBootOverride, MachineSearchConfig, MachineType,
     NetworkSegmentSearchConfig,
@@ -523,14 +522,14 @@ pub async fn migrate_vpc_vni(
 
 pub async fn trigger_dpu_reprovisioning(
     id: String,
-    set: bool,
+    mode: ::rpc::forge::dpu_reprovisioning_request::Mode,
     update_firmware: bool,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::DpuReprovisioningRequest {
             dpu_id: Some(rpc::MachineId { id }),
-            mode: if set { Mode::Set } else { Mode::Clear } as i32,
+            mode: mode as i32,
             initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
             update_firmware,
         });

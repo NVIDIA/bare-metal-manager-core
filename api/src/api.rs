@@ -4262,10 +4262,15 @@ where
             .reprovisioning_requested()
             .is_some_and(|r| r.started_at.is_some())
         {
-            return Err(CarbideError::GenericError(
-                "Reprovisioning is already started.".to_string(),
-            )
-            .into());
+            match req.mode() {
+                rpc::dpu_reprovisioning_request::Mode::Restart => {}
+                _ => {
+                    return Err(CarbideError::GenericError(
+                        "Reprovisioning is already started.".to_string(),
+                    )
+                    .into());
+                }
+            }
         }
 
         if let rpc::dpu_reprovisioning_request::Mode::Set = req.mode() {
@@ -4282,9 +4287,21 @@ where
                 }
                 .into());
             };
-            Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_id, true)
-                .await
-                .map_err(CarbideError::from)?;
+            if let rpc::dpu_reprovisioning_request::Mode::Clear = req.mode() {
+                Machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_id, true)
+                    .await
+                    .map_err(CarbideError::from)?;
+            } else if machine.reprovisioning_requested().is_some() {
+                Machine::restart_dpu_reprovisioning(&mut txn, &dpu_id, req.update_firmware)
+                    .await
+                    .map_err(CarbideError::from)?;
+            } else {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "No reprovision is requested for DPU {}.",
+                    dpu_id
+                ))
+                .into());
+            }
         }
 
         txn.commit().await.map_err(|e| {
