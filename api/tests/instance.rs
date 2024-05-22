@@ -17,7 +17,7 @@ use std::{
 
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
-    cfg::DpuFwUpdateConfig,
+    cfg::default_dpu_models,
     db::{
         dhcp_record::InstanceDhcpRecord,
         instance::Instance,
@@ -1397,7 +1397,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 

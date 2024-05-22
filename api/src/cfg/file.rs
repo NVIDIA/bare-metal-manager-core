@@ -144,10 +144,6 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub machine_state_controller: MachineStateControllerConfig,
 
-    /// Config for DPU firmware update
-    #[serde(default)]
-    pub dpu_fw_update_config: DpuFwUpdateConfig,
-
     /// NetworkSegmentController related configuration parameter
     #[serde(default)]
     pub network_segment_state_controller: NetworkSegmentStateControllerConfig,
@@ -239,34 +235,6 @@ impl Default for MachineStateControllerConfig {
             power_down_wait: MachineStateControllerConfig::power_down_wait_default(),
             failure_retry_time: MachineStateControllerConfig::failure_retry_time_default(),
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
-        }
-    }
-}
-
-/// Firmware related config.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct DpuFwUpdateConfig {
-    /// The version of DPU BMC firmware that is expected on the DPU for BF3. If the actual DPU BMC firmware
-    /// does not match, the DPU will be updated during discovering or reprovisioning. It is the operators responsibility
-    /// to make sure this value matches the version shipped with carbide.
-    #[serde(default)]
-    pub dpu_bf3_bmc_firmware_update_version: HashMap<String, String>,
-
-    /// The version of DPU BMC firmware that is expected on the DPU for BF2.
-    #[serde(default)]
-    pub dpu_bf2_bmc_firmware_update_version: HashMap<String, String>,
-
-    /// Path where firmware files are located
-    pub firmware_location: String,
-}
-
-impl Default for DpuFwUpdateConfig {
-    fn default() -> Self {
-        Self {
-            dpu_bf3_bmc_firmware_update_version: HashMap::new(),
-            dpu_bf2_bmc_firmware_update_version: HashMap::new(),
-            firmware_location: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/"
-                .to_string(),
         }
     }
 }
@@ -561,33 +529,78 @@ pub enum DpuModel {
     BlueField3,
     Unknown,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum DpuComponent {
     Bmc,
     Uefi,
+    Cec,
+}
+
+impl DpuComponent {
+    const VALUES: [Self; 3] = [Self::Bmc, Self::Uefi, Self::Cec];
+    pub fn iter() -> impl Iterator<Item = DpuComponent> {
+        Self::VALUES.iter().copied()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DpuComponentUpdate {
+    /// Component update version
+    /// None - can be used to force update
+    /// Value - apply update in case current component version less than requested
+    #[serde(default)]
+    pub version: Option<String>,
+
+    /// Component update binary path
+    #[serde(default)]
+    pub path: String,
 }
 
 pub fn default_dpu_models() -> HashMap<DpuModel, DpuDesc> {
     HashMap::from([
-        (DpuModel::BlueField2, DpuDesc::default()),
-        (DpuModel::BlueField3, DpuDesc::default()),
+        (
+            DpuModel::BlueField2,
+            DpuDesc {
+                ..Default::default()
+            },
+        ),
+        (
+            DpuModel::BlueField3,
+            DpuDesc {
+                ..Default::default()
+            },
+        ),
     ])
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DpuDesc {
+    /// Minimul supported component version
+    /// Stop processing with visible error in case version does not meet requirements
+    #[serde(default = "DpuDesc::min_component_version_default")]
+    pub component_min_version: HashMap<DpuComponent, String>,
+
+    /// Update specific component during provisioning
+    /// in case version does not meet requirements
     #[serde(default)]
-    pub min_component_version: HashMap<DpuComponent, String>,
+    pub component_update: Option<HashMap<DpuComponent, DpuComponentUpdate>>,
+}
+
+impl DpuDesc {
+    pub fn min_component_version_default() -> HashMap<DpuComponent, String> {
+        HashMap::from([
+            (DpuComponent::Bmc, "23.07".to_string()),
+            (DpuComponent::Uefi, "4.2".to_string()),
+        ])
+    }
 }
 
 impl Default for DpuDesc {
     fn default() -> Self {
         Self {
-            min_component_version: HashMap::from([
-                (DpuComponent::Bmc, "23.07".to_string()),
-                (DpuComponent::Uefi, "4.2".to_string()),
-            ]),
+            component_min_version: Self::min_component_version_default(),
+            component_update: None,
         }
     }
 }
@@ -793,10 +806,11 @@ mod tests {
     #[test]
     fn deserialize_serialize_dpu_config() {
         let value_input = DpuDesc {
-            min_component_version: HashMap::from([
+            component_min_version: HashMap::from([
                 (DpuComponent::Bmc, "x1.y1.z1".to_string()),
                 (DpuComponent::Uefi, "x2.y2.z2".to_string()),
             ]),
+            ..Default::default()
         };
 
         let value_json = serde_json::to_string(&value_input).unwrap();
@@ -804,26 +818,27 @@ mod tests {
 
         assert_eq!(value_output, value_input);
 
-        let value_json = r#"{"min_component_version": {"bmc": "x1.y1.z1"}}"#;
+        let value_json = r#"{"component_min_version": {"bmc": "x1.y1.z1"}}"#;
         let value_output: DpuDesc = serde_json::from_str(value_json).unwrap();
 
         assert_eq!(
             value_output,
             DpuDesc {
-                min_component_version: HashMap::from(
+                component_min_version: HashMap::from(
                     [(DpuComponent::Bmc, "x1.y1.z1".to_string()),]
                 ),
+                ..Default::default()
             }
         );
 
         let value_input = DpuDesc::default();
         assert!(value_input
-            .min_component_version
+            .component_min_version
             .contains_key(&DpuComponent::Bmc));
         assert!(value_input
-            .min_component_version
+            .component_min_version
             .contains_key(&DpuComponent::Uefi));
-        assert_eq!(2, value_input.min_component_version.keys().len());
+        assert_eq!(2, value_input.component_min_version.keys().len());
 
         figment::Jail::expect_with(|jail| {
             jail.create_file(
@@ -843,6 +858,7 @@ mod tests {
             assert_eq!(config.asn, 123);
             assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
             assert_eq!(config.dpu_models, default_dpu_models());
+            assert_eq!(2, config.dpu_models.keys().len());
             Ok(())
         });
 
@@ -854,7 +870,7 @@ mod tests {
                 listen="[::]:1081"
                 asn=123
                 [dpu_models.bluefield2]
-                min_component_version = {"bmc" = "23.10", "uefi" = "4.5"}
+                component_min_version = {"bmc" = "23.10", "uefi" = "4.5"}
             "#,
             )?;
             let config: CarbideConfig = Figment::new()
@@ -871,12 +887,20 @@ mod tests {
                     .unwrap()
                     .clone(),
                 DpuDesc {
-                    min_component_version: HashMap::from([
+                    component_min_version: HashMap::from([
                         (DpuComponent::Bmc, "23.10".to_string()),
                         (DpuComponent::Uefi, "4.5".to_string()),
                     ]),
+                    ..Default::default()
                 }
             );
+            assert!(config
+                .dpu_models
+                .get(&DpuModel::BlueField2)
+                .unwrap()
+                .clone()
+                .component_update
+                .is_none());
             Ok(())
         });
 
@@ -887,10 +911,10 @@ mod tests {
                 database_url="postgres://a:b@postgresql"
                 listen="[::]:1081"
                 asn=123
-                [dpu_models.bluefield2.min_component_version]
+                [dpu_models.bluefield2.component_min_version]
                 bmc = "23.10"
                 uefi = "4.5"
-                [dpu_models.bluefield3.min_component_version]
+                [dpu_models.bluefield3.component_min_version]
                 bmc = "23.07"
                 uefi = "4.2"
             "#,
@@ -909,10 +933,11 @@ mod tests {
                     .unwrap()
                     .clone(),
                 DpuDesc {
-                    min_component_version: HashMap::from([
+                    component_min_version: HashMap::from([
                         (DpuComponent::Bmc, "23.10".to_string()),
                         (DpuComponent::Uefi, "4.5".to_string()),
                     ]),
+                    ..Default::default()
                 }
             );
             assert!(config.dpu_models.contains_key(&DpuModel::BlueField3));
@@ -923,10 +948,69 @@ mod tests {
                     .unwrap()
                     .clone(),
                 DpuDesc {
-                    min_component_version: HashMap::from([
+                    component_min_version: HashMap::from([
                         (DpuComponent::Bmc, "23.07".to_string()),
                         (DpuComponent::Uefi, "4.2".to_string()),
                     ]),
+                    ..Default::default()
+                }
+            );
+            assert!(config
+                .dpu_models
+                .get(&DpuModel::BlueField2)
+                .unwrap()
+                .clone()
+                .component_update
+                .is_none());
+            Ok(())
+        });
+
+        figment::Jail::expect_with(|jail| {
+            jail.create_file(
+                "Test.toml",
+                r#"
+                database_url="postgres://a:b@postgresql"
+                listen="[::]:1081"
+                asn=123
+                [dpu_models.bluefield2]
+                component_update.bmc = { "version" = '23.10', "path" = '/tmp/bf2-bmc.fwpkg' }
+                component_update.cec = { "path" = '/tmp/bf2-cec.fwpkg' }
+            "#,
+            )?;
+            let config: CarbideConfig = Figment::new()
+                .merge(Toml::file("Test.toml"))
+                .extract()
+                .unwrap();
+
+            assert_eq!(1, config.dpu_models.keys().len());
+            assert!(config.dpu_models.contains_key(&DpuModel::BlueField2));
+            assert_eq!(
+                config
+                    .dpu_models
+                    .get(&DpuModel::BlueField2)
+                    .unwrap()
+                    .clone(),
+                DpuDesc {
+                    component_min_version: HashMap::from([
+                        (DpuComponent::Bmc, "23.07".to_string()),
+                        (DpuComponent::Uefi, "4.2".to_string()),
+                    ]),
+                    component_update: Some(HashMap::from([
+                        (
+                            DpuComponent::Bmc,
+                            DpuComponentUpdate {
+                                version: Some("23.10".to_string()),
+                                path: "/tmp/bf2-bmc.fwpkg".to_string(),
+                            }
+                        ),
+                        (
+                            DpuComponent::Cec,
+                            DpuComponentUpdate {
+                                version: None,
+                                path: "/tmp/bf2-cec.fwpkg".to_string(),
+                            }
+                        ),
+                    ])),
                 }
             );
             Ok(())
@@ -1189,6 +1273,64 @@ mod tests {
                     max_object_handling_time: std::time::Duration::from_secs(77),
                     max_concurrency: 777,
                 },
+            }
+        );
+        assert_eq!(
+            config
+                .dpu_models
+                .get(&DpuModel::BlueField2)
+                .unwrap()
+                .clone(),
+            DpuDesc {
+                component_min_version: HashMap::from([
+                    (DpuComponent::Bmc, "23.07".to_string()),
+                    (DpuComponent::Uefi, "4.2".to_string()),
+                ]),
+                component_update: Some(HashMap::from([
+                    (
+                        DpuComponent::Bmc,
+                        DpuComponentUpdate {
+                            version: Some("23.10".to_string()),
+                            path: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg".to_string(),
+                        }
+                    ),
+                    (
+                        DpuComponent::Cec,
+                        DpuComponentUpdate {
+                            version: Some("4-15".to_string()),
+                            path: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg".to_string(),
+                        }
+                    ),
+                ])),
+            }
+        );
+        assert_eq!(
+            config
+                .dpu_models
+                .get(&DpuModel::BlueField3)
+                .unwrap()
+                .clone(),
+            DpuDesc {
+                component_min_version: HashMap::from([
+                    (DpuComponent::Bmc, "23.10".to_string()),
+                    (DpuComponent::Uefi, "4.5".to_string()),
+                ]),
+                component_update: Some(HashMap::from([
+                    (
+                        DpuComponent::Bmc,
+                        DpuComponentUpdate {
+                            version: Some("24.04".to_string()),
+                            path: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg".to_string(),
+                        }
+                    ),
+                    (
+                        DpuComponent::Cec,
+                        DpuComponentUpdate {
+                            version: None,
+                            path: "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg".to_string(),
+                        }
+                    ),
+                ])),
             }
         );
     }

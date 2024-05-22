@@ -18,11 +18,14 @@ use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialType};
-use libredfish::{model::task::TaskState, PowerState, Redfish, SystemPowerControl};
+use libredfish::{
+    model::task::Task, model::task::TaskState, PowerState, Redfish, SystemPowerControl,
+};
+
 use tokio::fs::File;
 
 use crate::{
-    cfg::DpuFwUpdateConfig,
+    cfg::{DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel},
     db::{
         bmc_metadata::UserRoles,
         ib_partition,
@@ -44,8 +47,7 @@ use crate::{
             machine_id::MachineId,
             network::HealthStatus,
             BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, FailureCause,
-            FailureDetails, FailureSource, FirmwareType, InstanceNextStateResolver, InstanceState,
-            LockdownInfo,
+            FailureDetails, FailureSource, InstanceNextStateResolver, InstanceState, LockdownInfo,
             LockdownMode::{self, Enable},
             LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
             MachineSnapshot, MachineState, ManagedHostState, ManagedHostStateSnapshot,
@@ -86,7 +88,7 @@ impl MachineStateHandler {
         dpu_up_threshold: chrono::Duration,
         dpu_nic_firmware_initial_update_enabled: bool,
         dpu_nic_firmware_reprovision_update_enabled: bool,
-        dpu_fw_update_config: DpuFwUpdateConfig,
+        dpu_models: HashMap<DpuModel, DpuDesc>,
         reachability_params: ReachabilityParams,
     ) -> Self {
         MachineStateHandler {
@@ -94,7 +96,7 @@ impl MachineStateHandler {
             host_handler: HostMachineStateHandler::new(reachability_params),
             dpu_handler: DpuMachineStateHandler::new(
                 dpu_nic_firmware_initial_update_enabled,
-                dpu_fw_update_config,
+                dpu_models,
                 reachability_params,
             ),
             instance_handler: InstanceStateHandler::new(
@@ -803,43 +805,71 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 #[derive(Debug, Clone)]
 pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
-    dpu_firmware_update_config: DpuFwUpdateConfig,
+    dpu_models: HashMap<DpuModel, DpuDesc>,
     reachability_params: ReachabilityParams,
 }
 
 impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
-        dpu_firmware_update_config: DpuFwUpdateConfig,
+        dpu_models: HashMap<DpuModel, DpuDesc>,
         reachability_params: ReachabilityParams,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
-            dpu_firmware_update_config,
+            dpu_models,
             reachability_params,
         }
     }
+    /// Return `DpuModel` if the explored endpoint is a DPU
+    pub fn identify_dpu(&self, state: &mut ManagedHostStateSnapshot) -> DpuModel {
+        let model = state
+            .dpu_snapshot
+            .hardware_info
+            .as_ref()
+            .and_then(|hi| {
+                hi.dpu_info
+                    .as_ref()
+                    .map(|di| di.part_description.to_string())
+            })
+            .unwrap_or("".to_string());
+        match model.to_lowercase() {
+            value if value.contains("bluefield 2") => DpuModel::BlueField2,
+            value if value.contains("bluefield 3") => DpuModel::BlueField3,
+            _ => DpuModel::Unknown,
+        }
+    }
 
-    async fn redfish_check_fw_update_needed(
+    async fn component_update(
         &self,
         redfish: &dyn Redfish,
-        firmware_type: &str,
-        latest_available_version: &str,
-    ) -> Result<bool, StateHandlerError> {
-        // For BF2 BMC FW inventory has different name
+        component: DpuComponent,
+        component_value: &DpuComponentUpdate,
+    ) -> Result<Option<Task>, StateHandlerError> {
+        let redfish_component_name = match component {
+            // Note: DPU uses different name for BMC Firmware as
+            // BF2: 6d53cf4d_BMC_Firmware
+            // BF3: BMC_Firmware
+            DpuComponent::Bmc => "BMC_Firmware",
+            DpuComponent::Uefi => "DPU_UEFI",
+            DpuComponent::Cec => "Bluefield_FW_ERoT",
+        };
+
         let inventories = redfish.get_software_inventories().await.map_err(|e| {
             StateHandlerError::RedfishError {
                 operation: "get_software_inventories",
                 error: e,
             }
         })?;
+
         let inventory_id = inventories
             .iter()
-            .find(|i| i.contains(firmware_type))
+            .find(|i| i.contains(redfish_component_name))
             .ok_or(StateHandlerError::FirmwareUpdateError(eyre!(
                 "No inventory found that matches: {}",
-                firmware_type
+                redfish_component_name
             )))?;
+
         let inventory = match redfish.get_firmware(inventory_id).await {
             Ok(inventory) => inventory,
             Err(e) => {
@@ -851,38 +881,46 @@ impl DpuMachineStateHandler {
             }
         };
 
-        match inventory.version {
-            Some(version_str) => {
-                let version = version_str.to_uppercase().replace("BF-", "");
-                tracing::info!(
-                    "Version: {}, latest available_version: {}",
-                    version,
-                    latest_available_version
-                );
-                Ok(version_compare::compare(version, latest_available_version)
-                    .is_ok_and(|c| c == version_compare::Cmp::Lt))
-            }
-            None => {
-                let msg = format!("Unknown {} FW version", firmware_type);
-                tracing::error!(msg);
-                Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)))
-            }
-        }
-    }
+        if inventory.version.is_none() {
+            let msg = format!("Unknown {:?} version", component);
+            tracing::error!(msg);
+            return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
+        };
 
-    async fn get_firmware_file(
-        &self,
-        bf_version: i32,
-        fw_type: &str,
-    ) -> Result<File, StateHandlerError> {
-        let fw_location = self.dpu_firmware_update_config.firmware_location.clone();
-        let fw_file: String = format!("{}/bf{}-{}.fwpkg", fw_location, bf_version, fw_type);
-        File::open(fw_file).await.map_err(|e| {
+        if component_value.version.is_some() {
+            let cur_version = inventory
+                .version
+                .unwrap_or("0".to_string())
+                .to_lowercase()
+                .replace("bf-", "");
+            let update_version = component_value.version.as_ref().unwrap();
+            if version_compare::compare(update_version, cur_version)
+                .is_ok_and(|c| c == version_compare::Cmp::Lt)
+            {
+                return Ok(None);
+            };
+        };
+
+        let update_path = &component_value.path;
+        let update_file = File::open(update_path).await.map_err(|e| {
             StateHandlerError::FirmwareUpdateError(eyre!(
-                "Failed to read BMC FW file: {}",
+                "Failed to open {:?} path {} with error {}",
+                component,
+                update_path,
                 e.to_string()
             ))
-        })
+        })?;
+
+        match redfish.update_firmware(update_file).await {
+            Ok(task) => Ok(Some(task)),
+            Err(e) => {
+                tracing::error!("redfish command update_firmware error {}", e.to_string());
+                Err(StateHandlerError::RedfishError {
+                    operation: "update_firmware",
+                    error: e,
+                })
+            }
+        }
     }
 
     fn get_discovery_failure(&self, msg: String, machine_id: &MachineId) -> ManagedHostState {
@@ -1032,11 +1070,11 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 })?;
 
-                tracing::info!("{} FW update task: {:#?}", firmware_type, task);
+                tracing::info!("{:?} FW update task: {:#?}", firmware_type, task);
 
                 match task.task_state {
                     Some(TaskState::Completed) => {
-                        if *firmware_type == FirmwareType::Cec {
+                        if *firmware_type == DpuComponent::Cec {
                             // For Cec firmware update need also to reboot a host
                             let bmc_ip =
                                 state.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
@@ -1172,97 +1210,31 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 }
 
-                let model_description = state
-                    .dpu_snapshot
-                    .hardware_info
-                    .as_ref()
-                    .and_then(|hi| {
-                        hi.dpu_info
-                            .as_ref()
-                            .map(|di| di.part_description.to_lowercase())
-                    })
-                    .unwrap_or("bluefield 3".to_string());
-
-                let bf_version = if model_description.contains("bluefield 3") {
-                    3
-                } else {
-                    2
-                };
-
-                let fw_update_version = if bf_version == 2 {
-                    &self
-                        .dpu_firmware_update_config
-                        .dpu_bf2_bmc_firmware_update_version
-                } else {
-                    &self
-                        .dpu_firmware_update_config
-                        .dpu_bf3_bmc_firmware_update_version
-                };
-
-                if !fw_update_version.is_empty() {
-                    let bmc_inventory = FirmwareType::Bmc.get_inventory_name();
-
-                    let latest_bmc_fw_version = fw_update_version.get(bmc_inventory);
-
-                    // Check and update Bmc FW
-                    if latest_bmc_fw_version.is_some()
-                        && self
-                            .redfish_check_fw_update_needed(
-                                &*client,
-                                bmc_inventory,
-                                latest_bmc_fw_version.unwrap(),
-                            )
-                            .await?
-                    {
-                        let firmware_file = self.get_firmware_file(bf_version, "bmc").await?;
-
-                        // TODO: Change to an error state or do some retries
-                        let task = client.update_firmware(firmware_file).await.map_err(|e| {
-                            StateHandlerError::RedfishError {
-                                operation: "update_firmware",
-                                error: e,
+                let dpu_model = self.identify_dpu(state);
+                if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
+                    if dpu_desc.component_update.is_some() {
+                        let dpu_component_update = dpu_desc.component_update.as_ref().unwrap();
+                        for dpu_component in DpuComponent::iter() {
+                            if let Some(dpu_component_value) =
+                                dpu_component_update.get(&dpu_component)
+                            {
+                                let task = self
+                                    .component_update(&*client, dpu_component, dpu_component_value)
+                                    .await?;
+                                if task.is_some() {
+                                    let next_state = ManagedHostState::DpuDiscoveringState {
+                                        discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
+                                            substate:
+                                                BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                                                    firmware_type: dpu_component,
+                                                    task_id: task.unwrap().id,
+                                                },
+                                        },
+                                    };
+                                    return Ok(StateHandlerOutcome::Transition(next_state));
+                                };
                             }
-                        })?;
-                        let next_state = ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                substate: BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                    firmware_type: FirmwareType::Bmc,
-                                    task_id: task.id,
-                                },
-                            },
-                        };
-                        return Ok(StateHandlerOutcome::Transition(next_state));
-                    }
-
-                    let cec_inventory = FirmwareType::Cec.get_inventory_name();
-                    let latest_cec_fw_version = fw_update_version.get(cec_inventory);
-
-                    // Check and update Cec FW
-                    if latest_cec_fw_version.is_some()
-                        && self
-                            .redfish_check_fw_update_needed(
-                                &*client,
-                                cec_inventory,
-                                latest_cec_fw_version.unwrap(),
-                            )
-                            .await?
-                    {
-                        let firmware_file = self.get_firmware_file(bf_version, "cec").await?;
-                        let task = client.update_firmware(firmware_file).await.map_err(|e| {
-                            StateHandlerError::RedfishError {
-                                operation: "update_firmware",
-                                error: e,
-                            }
-                        })?;
-                        let next_state = ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                substate: BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                    firmware_type: FirmwareType::Cec,
-                                    task_id: task.id,
-                                },
-                            },
-                        };
-                        return Ok(StateHandlerOutcome::Transition(next_state));
+                        }
                     }
                 }
 

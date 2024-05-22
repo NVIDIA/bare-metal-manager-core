@@ -19,7 +19,7 @@ use std::{
 };
 
 use carbide::{
-    cfg::{default_dpu_models, DpuFwUpdateConfig, SiteExplorerConfig},
+    cfg::{default_dpu_models, SiteExplorerConfig},
     db::{
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
@@ -784,7 +784,7 @@ async fn test_site_explorer_creates_managed_host(
         chrono::Duration::minutes(1),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())

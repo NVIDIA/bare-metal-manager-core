@@ -10,12 +10,15 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::cfg::DpuFwUpdateConfig;
-use carbide::model::machine::machine_id::MachineId;
-use carbide::model::machine::CleanupState;
-use carbide::model::machine::MachineState;
-use carbide::state_controller::machine::handler::MachineStateHandler;
-use carbide::{db::machine::Machine, model::machine::ManagedHostState};
+use carbide::{
+    cfg::default_dpu_models,
+    db::machine::Machine,
+    model::{
+        machine::machine_id::MachineId, machine::CleanupState, machine::MachineState,
+        machine::ManagedHostState,
+    },
+    state_controller::machine::handler::MachineStateHandler,
+};
 use rpc::{forge::forge_server::Forge, InstanceReleaseRequest};
 
 use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
@@ -158,7 +161,7 @@ pub async fn advance_created_instance_into_ready_state(
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 
@@ -234,7 +237,7 @@ pub async fn delete_instance(
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 

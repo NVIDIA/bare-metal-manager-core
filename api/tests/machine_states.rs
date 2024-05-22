@@ -11,7 +11,7 @@
  */
 pub mod common;
 
-use carbide::cfg::DpuFwUpdateConfig;
+use carbide::cfg::default_dpu_models;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
 use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
@@ -161,7 +161,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -210,7 +210,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -285,7 +285,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         chrono::Duration::seconds(1),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -334,7 +334,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     env.run_machine_state_controller_iteration(handler.clone())
@@ -559,7 +559,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
 

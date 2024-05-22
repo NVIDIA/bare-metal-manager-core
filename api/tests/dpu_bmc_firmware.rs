@@ -7,13 +7,15 @@ use std::{
 };
 
 use carbide::{
-    cfg::{default_dpu_models, DpuFwUpdateConfig, SiteExplorerConfig},
+    cfg::{
+        default_dpu_models, DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel, SiteExplorerConfig,
+    },
     db::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
     },
     model::{
-        machine::{BmcFirmwareUpdateSubstate, DpuDiscoveringState, FirmwareType, ManagedHostState},
+        machine::{BmcFirmwareUpdateSubstate, DpuDiscoveringState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
             EndpointType, EthernetInterface, ExploredManagedHost, Inventory, Manager, Service,
@@ -413,14 +415,27 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         chrono::Duration::minutes(1),
         true,
         true,
-        DpuFwUpdateConfig {
-            dpu_bf2_bmc_firmware_update_version: HashMap::new(),
-            dpu_bf3_bmc_firmware_update_version: HashMap::from([
-                ("BMC_Firmware".to_string(), "23.10-5".to_string()),
-                ("Bluefield_FW_ERoT".to_string(), "02.0152.0000".to_string()),
-            ]),
-            firmware_location: ".".to_string(),
-        },
+        HashMap::from([
+            (
+                DpuModel::BlueField2,
+                DpuDesc {
+                    ..Default::default()
+                },
+            ),
+            (
+                DpuModel::BlueField3,
+                DpuDesc {
+                    component_update: Some(HashMap::from([(
+                        DpuComponent::Bmc,
+                        DpuComponentUpdate {
+                            version: Some("23.10-5".to_string()),
+                            path: "./bf3-bmc.fwpkg".to_string(),
+                        },
+                    )])),
+                    ..Default::default()
+                },
+            ),
+        ]),
         env.reachability_params,
     );
 
@@ -475,7 +490,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         ManagedHostState::DpuDiscoveringState {
             discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
                 substate: BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                    firmware_type: FirmwareType::Bmc,
+                    firmware_type: DpuComponent::Bmc,
                     task_id: "0".to_string()
                 }
             },

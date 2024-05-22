@@ -95,7 +95,16 @@ iteration_time = "7m"
 max_object_handling_time = "77s"
 max_concurrency = 777
 
-[dpu_fw_update_config]
-dpu_bf3_bmc_firmware_update_version = { "BMC_Firmware" = "23.10-5", "Bluefield_FW_ERoT" = "02.0152.0000" }
-dpu_bf2_bmc_firmware_update_version = { "BMC_Firmware" = "23.10-5", "Bluefield_FW_ERoT" = "02.0152.0000" }
-firmware_location = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/"
+[dpu_models.bluefield2]
+# Do not set specific component settings to disable update for it
+component_update.bmc = { "version" = '23.10', "path" = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg' }
+component_update.cec = { "version" = '4-15', "path" = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg' }
+
+[dpu_models.bluefield3]
+# Explicitly replace default settings for sanity check
+component_min_version = {"bmc" = "23.10", "uefi" = "4.5"}
+# Alternative approach to set component parameters for component update action
+component_update.bmc.version = '24.04'
+component_update.bmc.path = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg'
+# Force component update action ignoring current version
+component_update.cec.path = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg'

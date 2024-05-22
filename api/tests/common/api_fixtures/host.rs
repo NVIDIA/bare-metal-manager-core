@@ -16,7 +16,7 @@ use carbide::db::machine::Machine;
 use carbide::db::network_prefix::NetworkPrefix;
 use carbide::db::UuidKeyedObjectFilter;
 use carbide::{
-    cfg::DpuFwUpdateConfig,
+    cfg::default_dpu_models,
     db::machine_interface::MachineInterface,
     model::{
         hardware_info::HardwareInfo,
@@ -175,7 +175,7 @@ pub async fn create_host_machine(
         chrono::Duration::minutes(5),
         true,
         true,
-        DpuFwUpdateConfig::default(),
+        default_dpu_models(),
         env.reachability_params,
     );
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
