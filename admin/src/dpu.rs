@@ -11,6 +11,7 @@
  */
 use std::collections::HashMap;
 
+use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::BuildInfo;
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{forge::MachineType, Machine, MachineId};
@@ -22,11 +23,11 @@ use crate::cfg::carbide_options::{AgentUpgradePolicyChoice, OutputFormat};
 
 pub async fn trigger_reprovisioning(
     id: String,
-    set: bool,
+    mode: Mode,
     update_firmware: bool,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
-    rpc::trigger_dpu_reprovisioning(id, set, update_firmware, api_config).await
+    rpc::trigger_dpu_reprovisioning(id, mode, update_firmware, api_config).await
 }
 
 pub async fn list_dpus_pending(api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {

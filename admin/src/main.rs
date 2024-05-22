@@ -15,6 +15,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use ::rpc::forge as forgerpc;
+use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::MachineType;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::CredentialType;
@@ -384,14 +385,33 @@ async fn main() -> color_eyre::Result<()> {
         CarbideCommand::Dpu(dpu_action) => match dpu_action {
             Reprovision(reprov) => match reprov {
                 DpuReprovision::Set(data) => {
-                    dpu::trigger_reprovisioning(data.id, true, data.update_firmware, api_config)
-                        .await?
+                    dpu::trigger_reprovisioning(
+                        data.id,
+                        Mode::Set,
+                        data.update_firmware,
+                        api_config,
+                    )
+                    .await?
                 }
                 DpuReprovision::Clear(data) => {
-                    dpu::trigger_reprovisioning(data.id, false, data.update_firmware, api_config)
-                        .await?
+                    dpu::trigger_reprovisioning(
+                        data.id,
+                        Mode::Clear,
+                        data.update_firmware,
+                        api_config,
+                    )
+                    .await?
                 }
                 DpuReprovision::List => dpu::list_dpus_pending(api_config).await?,
+                DpuReprovision::Restart(data) => {
+                    dpu::trigger_reprovisioning(
+                        data.id,
+                        Mode::Restart,
+                        data.update_firmware,
+                        api_config,
+                    )
+                    .await?
+                }
             },
             AgentUpgradePolicy(AgentUpgrade { set }) => {
                 let rpc_choice = set.map(|cmd_line_policy| match cmd_line_policy {

@@ -184,6 +184,30 @@ impl MachineStateHandler {
             }
         }
 
+        if let Some(reprov_request) = &state.dpu_snapshot.reprovision_requested {
+            // Reprovision is started and user requested for restart of reprovision.
+            if reprov_request.started_at.is_some()
+                && dpu_reprovision_restart_requested_after_state_transition(
+                    state.host_snapshot.current.version,
+                    reprov_request.restart_reprovision_requested_at,
+                )
+            {
+                if let Some(next_state) = self
+                    .restart_dpu_reprovision(
+                        managed_state,
+                        state,
+                        ctx,
+                        txn,
+                        host_machine_id,
+                        reprov_request,
+                    )
+                    .await?
+                {
+                    return Ok(StateHandlerOutcome::Transition(next_state));
+                }
+            }
+        }
+
         // Don't update failed state failure cause everytime. Record first failure cause only,
         // otherwise first failure cause will be overwritten.
         if !matches!(managed_state, ManagedHostState::Failed { .. }) {
@@ -467,6 +491,62 @@ impl MachineStateHandler {
                 }
             }
         }
+    }
+
+    async fn restart_dpu_reprovision(
+        &self,
+        managed_state: &ManagedHostState,
+        state: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        host_machine_id: &MachineId,
+        reprov_request: &ReprovisionRequest,
+    ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+        let mut next_state = None;
+        match managed_state {
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::DPUReprovision { .. },
+            } => {
+                // User approval must have received, otherwise reprovision has not
+                // started.
+                if let Err(err) = restart_machine(&state.host_snapshot, ctx.services, txn).await {
+                    tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
+                }
+
+                next_state = Some(ManagedHostState::Assigned {
+                    instance_state: InstanceState::DPUReprovision {
+                        // FIXME: if reprov initiated by admincli, ignore the feature flag.
+                        reprovision_state: if reprov_request.update_firmware
+                            && self
+                                .instance_handler
+                                .dpu_nic_firmware_reprovision_update_enabled
+                        {
+                            ReprovisionState::FirmwareUpgrade
+                        } else {
+                            set_managed_host_topology_update_needed(txn, state).await?;
+                            ReprovisionState::WaitingForNetworkInstall
+                        },
+                    },
+                });
+            }
+            ManagedHostState::DPUReprovision { .. } => {
+                next_state = Some(ManagedHostState::DPUReprovision {
+                    reprovision_state: if reprov_request.update_firmware {
+                        ReprovisionState::FirmwareUpgrade
+                    } else {
+                        set_managed_host_topology_update_needed(txn, state).await?;
+                        ReprovisionState::WaitingForNetworkInstall
+                    },
+                });
+            }
+            _ => {}
+        };
+        if next_state.is_some() {
+            restart_machine(&state.dpu_snapshot, ctx.services, txn).await?;
+            return Ok(next_state);
+        }
+
+        Ok(None)
     }
 }
 
@@ -1503,6 +1583,14 @@ fn discovered_after_state_transition(
     last_discovery_time: Option<DateTime<Utc>>,
 ) -> bool {
     last_discovery_time.unwrap_or_default() > version.timestamp()
+}
+
+// Was DPU reprov restart requested after state change
+fn dpu_reprovision_restart_requested_after_state_transition(
+    version: ConfigVersion,
+    reprov_restart_requested_at: DateTime<Utc>,
+) -> bool {
+    reprov_restart_requested_at > version.timestamp()
 }
 
 fn cleanedup_after_state_transition(

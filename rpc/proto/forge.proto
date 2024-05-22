@@ -2065,6 +2065,7 @@ message DpuReprovisioningRequest {
   enum Mode {
     Set = 0;
     Clear = 1;
+    Restart = 2;
   }
   MachineId dpu_id = 1;
   Mode mode = 2;

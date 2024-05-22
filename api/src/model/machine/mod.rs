@@ -333,6 +333,8 @@ pub struct ReprovisionRequest {
     pub started_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub user_approval_received: bool,
+    #[serde(default)]
+    pub restart_reprovision_requested_at: DateTime<Utc>,
 }
 
 /// Should a forge-dpu-agent upgrade itself?

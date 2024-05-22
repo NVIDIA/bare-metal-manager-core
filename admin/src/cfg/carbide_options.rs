@@ -179,12 +179,14 @@ pub struct DpuReset {
 
 #[derive(Parser, Debug)]
 pub enum DpuReprovision {
-    #[clap(about = "Set the DPU in reprovisioing mode.")]
+    #[clap(about = "Set the DPU in reprovisioning mode.")]
     Set(DpuReprovisionData),
-    #[clap(about = "Clear the reprovisioing mode.")]
+    #[clap(about = "Clear the reprovisioning mode.")]
     Clear(DpuReprovisionData),
     #[clap(about = "List all DPUs pending reprovisioning.")]
     List,
+    #[clap(about = "Restart the DPU reprovision.")]
+    Restart(DpuReprovisionData),
 }
 
 #[derive(Parser, Debug)]
