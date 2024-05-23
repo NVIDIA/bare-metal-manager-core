@@ -12,7 +12,9 @@
 
 use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::NetworkSegmentSearchConfig;
+use rpc::forge::{
+    NetworkSegment, NetworkSegmentCreationRequest, NetworkSegmentSearchConfig, NetworkSegmentType,
+};
 use rpc::Uuid;
 use tonic::Request;
 
@@ -22,6 +24,50 @@ pub const FIXTURE_CREATED_VPC_UUID: uuid::Uuid =
     uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
 pub const FIXTURE_CREATED_DOMAIN_UUID: uuid::Uuid =
     uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
+
+pub struct NetworkSegmentHelper {
+    inner: NetworkSegmentCreationRequest,
+}
+
+impl NetworkSegmentHelper {
+    pub fn new_with_tenant_defaults() -> Self {
+        Self::new_with_tenant_prefix("192.0.2.0/24", "192.0.2.1")
+    }
+
+    pub fn new_with_tenant_prefix(prefix: &str, gateway: &str) -> Self {
+        let prefixes = vec![rpc::forge::NetworkPrefix {
+            id: None,
+            prefix: prefix.into(),
+            gateway: Some(gateway.into()),
+            reserve_first: 1,
+            state: None,
+            events: vec![],
+            circuit_id: None,
+            free_ip_count: 0,
+        }];
+        let inner = NetworkSegmentCreationRequest {
+            vpc_id: Some(FIXTURE_CREATED_VPC_UUID.into()),
+            name: "TEST_SEGMENT".into(),
+            subdomain_id: None,
+            mtu: Some(1500),
+            prefixes,
+            segment_type: NetworkSegmentType::Tenant as i32,
+            id: None,
+        };
+        Self { inner }
+    }
+
+    pub fn use_default_test_domain(&mut self) {
+        self.inner.subdomain_id = Some(FIXTURE_CREATED_DOMAIN_UUID.into());
+    }
+
+    pub async fn create_with_api(self, api: &TestApi) -> Result<NetworkSegment, tonic::Status> {
+        let request = self.inner;
+        api.create_network_segment(Request::new(request))
+            .await
+            .map(|response| response.into_inner())
+    }
+}
 
 pub async fn create_network_segment_with_api(
     api: &TestApi,

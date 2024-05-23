@@ -756,6 +756,35 @@ where
         let request = request.into_inner();
 
         let new_network_segment = NewNetworkSegment::try_from(request)?;
+
+        if new_network_segment.segment_type == NetworkSegmentType::Tenant {
+            if let Some(site_fabric_prefixes) = self.eth_data.site_fabric_prefixes.as_ref() {
+                let segment_prefixes: Vec<_> = new_network_segment
+                    .prefixes
+                    .iter()
+                    .map(|np| np.prefix)
+                    .collect();
+
+                let uncontained_prefixes: Vec<_> = segment_prefixes
+                    .into_iter()
+                    .filter(|segment_prefix| !site_fabric_prefixes.contains(*segment_prefix))
+                    .collect();
+
+                // Anything in uncontained_prefixes did not match any of our
+                // site fabric prefixes, and if we allowed it to be used then VPC
+                // isolation would not function properly for traffic addressed to
+                // that prefix.
+                if !uncontained_prefixes.is_empty() {
+                    let uncontained_prefixes = itertools::join(uncontained_prefixes, ", ");
+                    let msg = format!(
+                        "One or more requested network segment prefixes were not contained \
+                        within the configured site fabric prefixes: {uncontained_prefixes}"
+                    );
+                    return Err(CarbideError::InvalidArgument(msg).into());
+                }
+            }
+        }
+
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),

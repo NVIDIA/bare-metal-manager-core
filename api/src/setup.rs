@@ -265,6 +265,10 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
 
     let route_servers = db_init::create_initial_route_servers(&db_pool, &carbide_config).await?;
 
+    let site_fabric_prefixes = ethernet_virtualization::SiteFabricPrefixList::from_ipv4_slice(
+        carbide_config.site_fabric_prefixes.as_slice(),
+    );
+
     let eth_data = ethernet_virtualization::EthVirtData {
         asn: carbide_config.asn,
         dhcp_servers: carbide_config.dhcp_servers.clone(),
@@ -277,6 +281,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
             carbide_config.deny_prefixes.as_slice(),
         ]
         .concat(),
+        site_fabric_prefixes,
     };
 
     let health_pool = db_pool.clone();

@@ -27,7 +27,7 @@ use carbide::{
         MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
     },
     db::machine::Machine,
-    ethernet_virtualization::EthVirtData,
+    ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
     ib::{self, IBFabricManager, IBFabricManagerConfig, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     logging::level_filter::ActiveLevel,
@@ -56,6 +56,7 @@ use carbide::{
 };
 use chrono::Duration;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
+use ipnetwork::IpNetwork;
 use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
 use tonic::Request;
@@ -94,6 +95,11 @@ pub const FIXTURE_DPU_MACHINE_ID: &str =
     "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
 pub const FIXTURE_X86_MACHINE_ID: &str =
     "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
+
+// The site fabric prefixes list that the tests run with. Double check against
+// the test logic before changing it, as at least one test relies on this list
+// _excluding_ certain address space.
+pub const TEST_SITE_PREFIXES: &[&str] = &["192.0.2.0/24"];
 
 pub struct TestEnv {
     pub api: Arc<TestApi>,
@@ -421,12 +427,21 @@ pub async fn create_test_env_with_config(
 
     let ib_fabric_manager: Arc<dyn IBFabricManager> = Arc::new(ib_fabric_manager_impl);
 
+    let site_fabric_prefixes = {
+        let prefixes: Vec<IpNetwork> = TEST_SITE_PREFIXES
+            .iter()
+            .map(|p| p.parse().unwrap())
+            .collect();
+        SiteFabricPrefixList::from_ipnetwork_vec(prefixes)
+    };
+
     let eth_virt_data = EthVirtData {
         asn: 65535,
         dhcp_servers: vec![FIXTURE_DHCP_RELAY_ADDRESS.to_string()],
         route_servers: vec![],
         route_servers_enabled: true,
         deny_prefixes: vec![],
+        site_fabric_prefixes,
     };
 
     // Populate resource pools
