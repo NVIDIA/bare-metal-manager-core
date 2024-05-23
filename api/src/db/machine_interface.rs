@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use super::dhcp_entry::DhcpEntry;
 use super::machine::{DbMachineId, MachineSearchConfig};
-use super::{DatabaseError, ObjectFilter, UuidKeyedObjectFilter};
+use super::{ColumnInfo, DatabaseError, ObjectColumnFilter, UuidKeyedObjectFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
@@ -52,6 +52,33 @@ pub struct MachineInterface {
 
 pub struct UsedAdminNetworkIpResolver {
     pub segment_id: uuid::Uuid,
+}
+
+#[derive(Clone)]
+pub struct IdColumn;
+impl ColumnInfo for IdColumn {
+    type ColumnType = uuid::Uuid;
+    fn column_name(&self) -> String {
+        "id".to_string()
+    }
+}
+
+#[derive(Clone)]
+pub struct MacAddressColumn;
+impl ColumnInfo for MacAddressColumn {
+    type ColumnType = MacAddress;
+    fn column_name(&self) -> String {
+        "mac_address".to_string()
+    }
+}
+
+#[derive(Clone)]
+pub struct MachineIdColumn;
+impl ColumnInfo for MachineIdColumn {
+    type ColumnType = MachineId;
+    fn column_name(&self) -> String {
+        "machine_id".to_string()
+    }
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineInterface {
@@ -156,7 +183,7 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
     ) -> Result<Vec<MachineInterface>, DatabaseError> {
-        MachineInterface::find_by(txn, ObjectFilter::One(macaddr.to_string()), "mac_address").await
+        MachineInterface::find_by(txn, ObjectColumnFilter::One(MacAddressColumn, macaddr)).await
     }
 
     pub async fn find_by_ip(
@@ -178,9 +205,10 @@ impl MachineInterface {
     pub async fn find_all(
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<Vec<MachineInterface>> {
-        let interfaces = MachineInterface::find_by(txn, ObjectFilter::All, "")
-            .await
-            .map_err(CarbideError::from)?;
+        let interfaces =
+            MachineInterface::find_by(txn, ObjectColumnFilter::All::<IdColumn, uuid::Uuid>)
+                .await
+                .map_err(CarbideError::from)?;
 
         Ok(interfaces)
     }
@@ -191,9 +219,8 @@ impl MachineInterface {
     ) -> Result<HashMap<MachineId, Vec<MachineInterface>>, DatabaseError> {
         // The .unwrap() in the `group_map_by` call is ok - because we are only
         // searching for Machines which have associated MachineIds
-        let str_ids: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
         Ok(
-            MachineInterface::find_by(txn, ObjectFilter::List(&str_ids), "machine_id")
+            MachineInterface::find_by(txn, ObjectColumnFilter::List(MachineIdColumn, machine_ids))
                 .await?
                 .into_iter()
                 .into_group_map_by(|interface| interface.machine_id.clone().unwrap()),
@@ -253,7 +280,7 @@ impl MachineInterface {
         interface_id: uuid::Uuid,
     ) -> CarbideResult<MachineInterface> {
         let mut interfaces =
-            MachineInterface::find_by(txn, ObjectFilter::One(interface_id.to_string()), "id")
+            MachineInterface::find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
                 .await
                 .map_err(CarbideError::from)?;
         match interfaces.len() {
@@ -443,7 +470,7 @@ impl MachineInterface {
             .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
 
         Ok(
-            MachineInterface::find_by(txn, ObjectFilter::One(interface_id.to_string()), "id")
+            MachineInterface::find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
                 .await?
                 .remove(0),
         )
@@ -509,52 +536,44 @@ impl MachineInterface {
         }
     }
 
-    async fn find_by<'a>(
+    async fn find_by<'a, C, T>(
         txn: &mut Transaction<'_, Postgres>,
-        filter: ObjectFilter<'_, String>,
-        column: &'a str,
-    ) -> Result<Vec<MachineInterface>, DatabaseError> {
-        let base_query = "SELECT * FROM machine_interfaces mi {where}".to_owned();
+        filter: ObjectColumnFilter<'a, C, T>,
+    ) -> Result<Vec<MachineInterface>, DatabaseError>
+    where
+        C: ColumnInfo<ColumnType = T>,
+        T: sqlx::Type<sqlx::Postgres>
+            + Send
+            + Sync
+            + sqlx::Encode<'a, sqlx::Postgres>
+            + sqlx::postgres::PgHasArrayType
+            + Clone,
+    {
+        let mut query = sqlx::QueryBuilder::new("SELECT * FROM machine_interfaces mi");
 
-        let mut interfaces = match &filter {
-            ObjectFilter::All => {
-                sqlx::query_as::<_, MachineInterface>("SELECT * FROM machine_interfaces")
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_interfaces All", e)
-                    })?
-            }
-            ObjectFilter::One(id) => {
-                let query = base_query
-                    .replace("{where}", &format!("WHERE mi.{column}='{}'", id))
-                    .replace("{column}", column);
-                sqlx::query_as::<_, MachineInterface>(&query)
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_interfaces One", e)
-                    })?
-            }
-            ObjectFilter::List(list) => {
+        let mut interfaces = match filter {
+            ObjectColumnFilter::All => query
+                .build_query_as::<MachineInterface>()
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces All", e))?,
+            ObjectColumnFilter::One(ref column, ref id) => query
+                .push(format!(" WHERE mi.{}=", column.column_name().clone()))
+                .push_bind(id.clone())
+                .build_query_as::<MachineInterface>()
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces One", e))?,
+            ObjectColumnFilter::List(ref column, list) => {
                 if list.is_empty() {
                     return Ok(Vec::new());
                 }
 
-                let mut columns = String::new();
-                for item in *list {
-                    if !columns.is_empty() {
-                        columns.push(',');
-                    }
-                    columns.push('\'');
-                    columns.push_str(item);
-                    columns.push('\'');
-                }
-                let query = base_query
-                    .replace("{where}", &format!("WHERE mi.{column} IN ({})", columns))
-                    .replace("{column}", column);
-
-                sqlx::query_as::<_, MachineInterface>(&query)
+                query
+                    .push(format!(" WHERE mi.{} = ANY(", column.column_name().clone()))
+                    .push_bind(list)
+                    .push(")")
+                    .build_query_as::<MachineInterface>()
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| {
@@ -565,7 +584,7 @@ impl MachineInterface {
 
         let interface_ids;
         let component_filter = match filter {
-            ObjectFilter::All => UuidKeyedObjectFilter::All,
+            ObjectColumnFilter::All => UuidKeyedObjectFilter::All,
             _ => {
                 interface_ids = interfaces
                     .iter()

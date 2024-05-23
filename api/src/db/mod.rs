@@ -63,7 +63,7 @@ pub enum UuidKeyedObjectFilter<'a> {
     One(uuid::Uuid),
 }
 
-/// A parameter to find() to filter resources based on a certain ID
+/// A parameter to find() to filter resources based on an implied ID column
 pub enum ObjectFilter<'a, ID> {
     /// Don't filter. Return all objects
     All,
@@ -75,6 +75,27 @@ pub enum ObjectFilter<'a, ID> {
 
     /// Retrieve a single objects
     One(ID),
+}
+
+/// A parameter to find_by() to filter resources based on a specified column
+pub enum ObjectColumnFilter<'a, C: ColumnInfo<ColumnType = T>, T> {
+    /// Don't filter. Return all objects
+    All,
+
+    /// Filter where column = ANY([T])
+    ///
+    /// The filter will return any objects where the value of the column C is
+    /// included in this list [T]. If the list is empty, the filter will return no
+    /// objects.
+    List(C, &'a [T]),
+
+    /// Retrieve a single object where the value of the column C is equal to T
+    One(C, T),
+}
+
+pub trait ColumnInfo: Clone {
+    type ColumnType: sqlx::Type<sqlx::Postgres>;
+    fn column_name(&self) -> String;
 }
 
 ///

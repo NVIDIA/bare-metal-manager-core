@@ -11,8 +11,10 @@
  */
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
-use crate::db::ObjectFilter;
-use crate::{db::DatabaseError, CarbideError, CarbideResult};
+use crate::{
+    db::{ColumnInfo, DatabaseError, ObjectColumnFilter},
+    CarbideError, CarbideResult,
+};
 
 ///
 /// A custom boot response is a representation of custom data for booting machines, either with pxe or user-data
@@ -22,6 +24,15 @@ pub struct MachineBootOverride {
     pub machine_interface_id: uuid::Uuid,
     pub custom_pxe: Option<String>,
     pub custom_user_data: Option<String>,
+}
+
+#[derive(Clone)]
+struct MachineInterfaceIdColumn;
+impl ColumnInfo for MachineInterfaceIdColumn {
+    type ColumnType = uuid::Uuid;
+    fn column_name(&self) -> String {
+        "machine_interface_id".to_string()
+    }
 }
 
 impl<'r> FromRow<'r, PgRow> for MachineBootOverride {
@@ -141,8 +152,7 @@ impl MachineBootOverride {
     ) -> CarbideResult<Option<MachineBootOverride>> {
         let mut interfaces = MachineBootOverride::find_by(
             txn,
-            ObjectFilter::One(machine_interface_id.to_string()),
-            "machine_interface_id",
+            ObjectColumnFilter::One(MachineInterfaceIdColumn, machine_interface_id),
         )
         .await
         .map_err(CarbideError::from)?;
@@ -155,52 +165,48 @@ impl MachineBootOverride {
         }
     }
 
-    async fn find_by<'a>(
+    async fn find_by<'a, C, T>(
         txn: &mut Transaction<'_, Postgres>,
-        filter: ObjectFilter<'_, String>,
-        column: &'a str,
-    ) -> Result<Vec<MachineBootOverride>, DatabaseError> {
-        let base_query = "SELECT * FROM machine_boot_override pxe {where}".to_owned();
+        filter: ObjectColumnFilter<'a, C, T>,
+    ) -> Result<Vec<MachineBootOverride>, DatabaseError>
+    where
+        C: ColumnInfo<ColumnType = T>,
+        T: sqlx::Type<sqlx::Postgres>
+            + Send
+            + Sync
+            + sqlx::Encode<'a, sqlx::Postgres>
+            + sqlx::postgres::PgHasArrayType
+            + Clone,
+    {
+        let mut base_query = sqlx::QueryBuilder::new("SELECT * FROM machine_boot_override pxe");
 
         let custom_pxes = match filter {
-            ObjectFilter::All => {
-                sqlx::query_as::<_, MachineBootOverride>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_boot_override All", e)
-                    })?
-            }
-            ObjectFilter::One(id) => {
-                let query = base_query
-                    .replace("{where}", &format!("WHERE pxe.{column}='{}'", id))
-                    .replace("{column}", column);
-                sqlx::query_as::<_, MachineBootOverride>(&query)
-                    .fetch_all(&mut **txn)
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_boot_override One", e)
-                    })?
-            }
-            ObjectFilter::List(list) => {
+            ObjectColumnFilter::All => base_query
+                .build_query_as::<MachineBootOverride>()
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "machine_boot_override All", e)
+                })?,
+            ObjectColumnFilter::One(column, id) => base_query
+                .push(format!(" WHERE pxe.{}=", column.column_name()))
+                .push_bind(id)
+                .build_query_as::<MachineBootOverride>()
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "machine_boot_override One", e)
+                })?,
+            ObjectColumnFilter::List(column, list) => {
                 if list.is_empty() {
                     return Ok(Vec::new());
                 }
 
-                let mut columns = String::new();
-                for item in list {
-                    if !columns.is_empty() {
-                        columns.push(',');
-                    }
-                    columns.push('\'');
-                    columns.push_str(item);
-                    columns.push('\'');
-                }
-                let query = base_query
-                    .replace("{where}", &format!("WHERE pxe.{column} IN ({})", columns))
-                    .replace("{column}", column);
-
-                sqlx::query_as::<_, MachineBootOverride>(&query)
+                base_query
+                    .push(format!(" WHERE pxe.{} = ANY(", column.column_name()))
+                    .push_bind(list)
+                    .push(")")
+                    .build_query_as::<MachineBootOverride>()
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| {
