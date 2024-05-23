@@ -39,7 +39,10 @@ use carbide::{
 };
 use mac_address::MacAddress;
 use rpc::{
-    forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
+    forge::{
+        forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest, MachineArchitecture,
+        PxeInstructionRequest,
+    },
     site_explorer::ExploredManagedHost as RpcExploredManagedHost,
     BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
@@ -907,6 +910,8 @@ fn test_disable_machine_creation_outside_site_explorer(
     config.site_explorer = Some(explorer_config.clone());
     let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
     let host_sim = env.start_managed_host_sim();
+    let _underlay_segment = create_underlay_network_segment(&env).await;
+    let _admin_segment = create_admin_network_segment(&env).await;
 
     let hardware_info = create_dpu_hardware_info(&host_sim.config);
     let discovery_info = DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
@@ -920,6 +925,34 @@ fn test_disable_machine_creation_outside_site_explorer(
         .await;
 
     assert!(response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
+
+    let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: oob_mac.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(response.machine_interface_id.is_some());
+
+    let response = env
+        .api
+        .get_pxe_instructions(Request::new(PxeInstructionRequest {
+            arch: MachineArchitecture::Arm.into(),
+            interface_id: response.machine_interface_id,
+        }))
+        .await;
+
+    assert!(response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
+
     Ok(())
 }
 
