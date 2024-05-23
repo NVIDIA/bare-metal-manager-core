@@ -13,7 +13,7 @@
 use std::net::IpAddr;
 
 pub use ::rpc::forge as rpc;
-use ipnetwork::Ipv4Network;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::{Postgres, Transaction};
 use tonic::Status;
 
@@ -40,6 +40,49 @@ pub struct EthVirtData {
     pub route_servers: Vec<String>,
     pub route_servers_enabled: bool,
     pub deny_prefixes: Vec<Ipv4Network>,
+    pub site_fabric_prefixes: Option<SiteFabricPrefixList>,
+}
+
+#[derive(Clone)]
+pub struct SiteFabricPrefixList {
+    prefixes: Vec<IpNetwork>,
+}
+
+impl SiteFabricPrefixList {
+    pub fn from_ipnetwork_vec(prefixes: Vec<IpNetwork>) -> Option<Self> {
+        // Under the current configuration semantics, an empty
+        // site_fabric_prefixes list in the site config means we are not using
+        // the VPC isolation feature built on top of it, and it is better not
+        // to construct one of these at all (and thus the Option-wrapped return
+        // type).
+        if prefixes.is_empty() {
+            None
+        } else {
+            Some(Self { prefixes })
+        }
+    }
+
+    pub fn from_ipv4_slice(ipv4_prefixes: &[Ipv4Network]) -> Option<Self> {
+        let prefixes: Vec<_> = ipv4_prefixes
+            .iter()
+            .copied()
+            .map(ipnetwork::IpNetwork::V4)
+            .collect();
+        Self::from_ipnetwork_vec(prefixes)
+    }
+
+    // Check whether the given network matches any of our site fabric prefixes.
+    pub fn contains(&self, network: IpNetwork) -> bool {
+        use IpNetwork::*;
+        self.prefixes
+            .iter()
+            .copied()
+            .any(|site_prefix| match (network, site_prefix) {
+                (V4(network), V4(site_prefix)) => network.is_subnet_of(site_prefix),
+                (V6(network), V6(site_prefix)) => network.is_subnet_of(site_prefix),
+                _ => false,
+            })
+    }
 }
 
 pub async fn admin_network(
@@ -174,4 +217,29 @@ pub async fn tenant_network(
         fqdn: dashed_ip,
         booturl: None,
     })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_site_prefix_list() {
+        let prefixes: Vec<IpNetwork> = vec![
+            IpNetwork::V4("192.0.2.0/25".parse().unwrap()),
+            IpNetwork::V6("2001:DB8::/64".parse().unwrap()),
+        ];
+        let site_prefix_list = SiteFabricPrefixList::from_ipnetwork_vec(prefixes).unwrap();
+
+        let contained_smaller = IpNetwork::V4("192.0.2.64/26".parse().unwrap());
+        let contained_equal = IpNetwork::V4("192.0.2.0/25".parse().unwrap());
+        let uncontained_larger = IpNetwork::V4("192.0.2.0/24".parse().unwrap());
+        let uncontained_different = IpNetwork::V4("198.51.100.0/24".parse().unwrap());
+        assert!(site_prefix_list.contains(contained_smaller));
+        assert!(site_prefix_list.contains(contained_equal));
+        assert!(!site_prefix_list.contains(uncontained_larger));
+        assert!(!site_prefix_list.contains(uncontained_different));
+
+        assert!(SiteFabricPrefixList::from_ipnetwork_vec(vec![]).is_none());
+    }
 }

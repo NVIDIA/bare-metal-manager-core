@@ -30,7 +30,7 @@ use carbide::state_controller::network_segment::handler::NetworkSegmentStateHand
 use common::api_fixtures::create_test_env;
 use common::network_segment::{
     create_network_segment_with_api, get_segment_state, get_segments, text_history,
-    FIXTURE_CREATED_VPC_UUID,
+    NetworkSegmentHelper, FIXTURE_CREATED_VPC_UUID,
 };
 use mac_address::MacAddress;
 
@@ -563,4 +563,38 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
     }
 
     Ok(())
+}
+
+// Attempt to use address space outside of what is configured in
+// site_fabric_prefixes. In the test environment, this is set to 192.0.2.0/24.
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_segment_prefix_in_unconfigured_address_space(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool).await;
+    let bad_prefix_segment =
+        NetworkSegmentHelper::new_with_tenant_prefix("198.51.100.0/24", "198.51.100.1");
+    let response = bad_prefix_segment.create_with_api(&env.api).await;
+
+    // The API should have rejected our request with "invalid argument"; check
+    // that it did.
+    match response {
+        Err(status) => {
+            let status_code = status.code();
+            match status_code {
+                tonic::Code::InvalidArgument => Ok(()),
+                _ => Err(eyre::format_err!(
+                    "Unexpected gRPC error code from API: {status_code}"
+                )),
+            }
+        }
+        Ok(segment) => {
+            let prefixes = segment.prefixes.iter().map(|p| p.prefix.as_str());
+            let prefixes = itertools::join(prefixes, ", ");
+            Err(eyre::eyre!(format!(
+                "The API did not reject our request to create a segment using \
+                prefixes that fall outside of the site's address space: {prefixes}"
+            )))
+        }
+    }
 }
