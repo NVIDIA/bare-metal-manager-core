@@ -17,6 +17,7 @@ use crate::model::{hardware_info::HardwareInfo, RpcDataConversionError};
 use data_encoding::BASE32_DNSSEC;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::postgres::{PgArgumentBuffer, PgHasArrayType, PgTypeInfo};
 
 /// The `MachineId` uniquely identifies a machine that is managed by the Forge system
 ///
@@ -41,6 +42,32 @@ pub struct MachineId {
     hardware_id: String,
     /// The Type of the Machine
     ty: MachineType,
+}
+
+// Make MachineId bindable directly into a sqlx query
+impl sqlx::Encode<'_, sqlx::Postgres> for MachineId {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        buf.extend(self.to_string().as_bytes());
+        sqlx::encode::IsNull::No
+    }
+}
+impl sqlx::Type<sqlx::Postgres> for MachineId {
+    fn type_info() -> PgTypeInfo {
+        <&str as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &PgTypeInfo) -> bool {
+        <&str as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+impl PgHasArrayType for MachineId {
+    fn array_type_info() -> PgTypeInfo {
+        <&str as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <&str as PgHasArrayType>::array_compatible(ty)
+    }
 }
 
 impl MachineId {
