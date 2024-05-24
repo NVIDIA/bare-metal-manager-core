@@ -21,7 +21,6 @@ use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::{
     model::task::Task, model::task::TaskState, PowerState, Redfish, SystemPowerControl,
 };
-
 use tokio::fs::File;
 
 use crate::{
@@ -2436,12 +2435,18 @@ async fn lockdown_host(
         .await?;
 
     // the forge_setup call includes the equivalent of these calls internally in libredfish
-    // 1. serial setup (bios, bmc)
-    // 2. tpm clear (bios)
-    // 3. lockdown (bios, bmc)
-    // 4. boot once to pxe
+    // - serial setup (bios, bmc)
+    // - tpm clear (bios)
+    // - boot once to pxe
     client
         .forge_setup()
+        .await
+        .map_err(|e| StateHandlerError::RedfishError {
+            operation: "forge_setup",
+            error: e,
+        })?;
+    client
+        .lockdown(libredfish::EnabledDisabled::Enabled)
         .await
         .map_err(|e| StateHandlerError::RedfishError {
             operation: "lockdown",
