@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, net::IpAddr};
+use std::{collections::HashMap, net::IpAddr, str::FromStr};
 
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
@@ -343,6 +343,42 @@ pub enum EndpointType {
     Unknown,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum NicMode {
+    Dpu,
+    Nic,
+}
+
+impl FromStr for NicMode {
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<NicMode, Self::Err> {
+        match input {
+            "NicMode" => Ok(NicMode::Nic),
+            "DpuMode" => Ok(NicMode::Dpu),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ComputerSystemAttributes {
+    pub nic_mode: Option<NicMode>,
+}
+
+impl From<ComputerSystemAttributes> for rpc::site_explorer::ComputerSystemAttributes {
+    fn from(attributes: ComputerSystemAttributes) -> Self {
+        rpc::site_explorer::ComputerSystemAttributes {
+            nic_mode: attributes.nic_mode.map(|a| match a {
+                NicMode::Nic => rpc::site_explorer::NicMode::Nic.into(),
+                NicMode::Dpu => rpc::site_explorer::NicMode::Dpu.into(),
+            }),
+        }
+    }
+}
+
 /// `ComputerSystem` definition. Matches redfish definition
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -353,6 +389,8 @@ pub struct ComputerSystem {
     pub manufacturer: Option<String>,
     pub model: Option<String>,
     pub serial_number: Option<String>,
+    #[serde(default)]
+    pub attributes: ComputerSystemAttributes,
 }
 
 impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
@@ -367,6 +405,9 @@ impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
+            attributes: Some(rpc::site_explorer::ComputerSystemAttributes::from(
+                system.attributes,
+            )),
         }
     }
 }
@@ -605,6 +646,9 @@ mod tests {
                 manufacturer: None,
                 model: None,
                 serial_number: Some("MT2242XZ00NX".to_string()),
+                attributes: ComputerSystemAttributes {
+                    nic_mode: Some(NicMode::Dpu),
+                },
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
@@ -649,6 +693,9 @@ mod tests {
                 manufacturer: None,
                 model: None,
                 serial_number: Some("MT2242XZ00NX".to_string()),
+                attributes: ComputerSystemAttributes {
+                    nic_mode: Some(NicMode::Dpu),
+                },
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),

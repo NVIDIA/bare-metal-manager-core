@@ -29,9 +29,9 @@ use carbide::{
     model::{
         machine::{DpuDiscoveringState, MachineState, ManagedHostState},
         site_explorer::{
-            Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
-            EndpointType, EthernetInterface, ExploredManagedHost, Inventory, Manager,
-            NetworkAdapter, Service,
+            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
+            EndpointExplorationReport, EndpointType, EthernetInterface, ExploredManagedHost,
+            Inventory, Manager, NetworkAdapter, NicMode, Service,
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
@@ -174,6 +174,9 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                     manufacturer: None,
                     model: None,
                     serial_number: Some("MT2333XZ0X5W".to_string()),
+                    attributes: ComputerSystemAttributes {
+                        nic_mode: Some(NicMode::Dpu),
+                    },
                 }],
                 chassis: vec![Chassis {
                     id: "Card1".to_string(),
@@ -443,6 +446,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                         mac_address: Some("b8:3f:d2:90:97:a4".to_string()),
                     },
                 ],
+                attributes: ComputerSystemAttributes::default(),
             }],
             chassis: vec![Chassis {
                 id: "1".to_string(),
@@ -629,6 +633,9 @@ async fn test_site_explorer_creates_managed_host(
             manufacturer: None,
             model: None,
             serial_number: Some("MT2328XZ185R".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+            },
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),

@@ -54,12 +54,23 @@ message SiteExplorationReport {
     repeated ExploredManagedHost managed_hosts = 2;
 }
 
+enum NicMode {
+    DPU = 0;
+    NIC = 1;
+}  
+
+message ComputerSystemAttributes {
+    optional NicMode nic_mode = 1;
+}
+
 // `ComputerSystem` definition. Matches redfish definition
 message ComputerSystem {
     string id = 1;
     optional string manufacturer = 2;
     optional string model = 3;
     optional string serial_number = 4;
+    ComputerSystemAttributes attributes = 5;
+
     repeated EthernetInterface ethernet_interfaces = 11;
 }
 

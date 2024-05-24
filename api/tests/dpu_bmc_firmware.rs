@@ -17,8 +17,9 @@ use carbide::{
     model::{
         machine::{BmcFirmwareUpdateSubstate, DpuDiscoveringState, ManagedHostState},
         site_explorer::{
-            Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport,
-            EndpointType, EthernetInterface, ExploredManagedHost, Inventory, Manager, Service,
+            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
+            EndpointExplorationReport, EndpointType, EthernetInterface, ExploredManagedHost,
+            Inventory, Manager, NicMode, Service,
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
@@ -94,6 +95,9 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
             manufacturer: None,
             model: None,
             serial_number: Some("MT2328XZ185R".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+            },
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -199,6 +203,9 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             manufacturer: None,
             model: None,
             serial_number: Some("MT2328XZ185R".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+            },
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -321,6 +328,9 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             manufacturer: None,
             model: None,
             serial_number: Some("MT2328XZ185R".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+            },
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
