@@ -563,11 +563,26 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn change_password(&self, user: &str, new: &str) -> Result<(), RedfishError> {
+        let s_user = user.to_string();
         let mut state = self.state.lock().unwrap();
-        if !state.users.contains_key(&user.to_string()) {
-            return Err(RedfishError::UserNotFound(user.to_string()));
+        if !state.users.contains_key(&s_user) {
+            return Err(RedfishError::UserNotFound(s_user));
         }
-        state.users.insert(user.to_string(), new.to_string());
+        state.users.insert(s_user, new.to_string());
+        Ok(())
+    }
+
+    async fn change_password_by_id(
+        &self,
+        account_id: &str,
+        new_pass: &str,
+    ) -> Result<(), RedfishError> {
+        let s_acct = account_id.to_string();
+        let mut state = self.state.lock().unwrap();
+        if !state.users.contains_key(&s_acct) {
+            return Err(RedfishError::UserNotFound(s_acct));
+        }
+        state.users.insert(s_acct, new_pass.to_string());
         Ok(())
     }
 

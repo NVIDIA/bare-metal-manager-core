@@ -14,7 +14,7 @@ base64 = "0.21.5"
 clap = { workspace = true }
 chrono = "*"
 eyre = "*"
-libredfish = { version = "0.20.0", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { version = "0.21.0", registry = "sw-ngc-forge-cargo-local" }
 hyper = { version = "0.14.27", features=["full"]}
 http = { version = "0.2.9" }
 opentelemetry = { version = "0.21.0", features = ["logs"] }
