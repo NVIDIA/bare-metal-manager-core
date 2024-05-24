@@ -35,6 +35,8 @@ variables:
   CARGO_HOME: $CI_PROJECT_DIR/cargo
   NEED_HELM: "yes"
 
+  FF_TIMESTAMPS: "true" # timestamp log output
+
   #
   # Container Regsitries for intermediate containers (build & runtime), not for publishing.
   #
