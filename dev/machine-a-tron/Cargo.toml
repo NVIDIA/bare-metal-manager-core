@@ -28,7 +28,7 @@ dhcproto = "0.11.0"
 mac_address = "1.1.5"
 futures = "0.3.30"
 figment = { version = "0.10.16", features = ["toml"] }
-libredfish = { version = "0.21.0", registry = "sw-ngc-forge-cargo-local" }
+libredfish = { workspace = true }
 
 # [local-dependencies]
 rpc = { path = "../../rpc" }
