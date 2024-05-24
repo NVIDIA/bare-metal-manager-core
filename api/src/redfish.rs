@@ -45,6 +45,11 @@ pub enum RedfishClientCreationError {
 }
 
 /// Allows to create Redfish clients for a certain Redfish BMC endpoint
+///
+/// TODO: This is a mess. Maybe replace with:
+///  get_credentials(CredentialKey)
+///  create_client(host, port, Enum(CredentialKey or (user,pass)),  should_do_initial_fetch:bool)
+///
 #[async_trait]
 pub trait RedfishClientPool: Send + Sync + 'static {
     /// Creates a new Redfish client for a Machines BMC
@@ -56,16 +61,38 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         credential_key: CredentialKey,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 
+    async fn create_factory_host_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        vendor: bmc_vendor::BMCVendor,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
+
+    async fn create_factory_dpu_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
+
     async fn create_standard_client(
         &self,
         host: &str,
         port: Option<u16>,
+        key: CredentialKey,
     ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
 
     fn create_anonymous_client(
         &self,
         host: &str,
         port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
+
+    fn create_direct_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        username: &str,
+        password: &str,
     ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
 
     async fn get_factory_root_credentials(
@@ -213,16 +240,39 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             .map_err(RedfishClientCreationError::RedfishError)
     }
 
-    async fn create_standard_client(
+    async fn create_factory_host_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        vendor: bmc_vendor::BMCVendor,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        let key = forge_secrets::credentials::CredentialKey::HostRedfish {
+            credential_type: CredentialType::HostHardwareDefault { vendor },
+        };
+        self.create_standard_client(host, port, key).await
+    }
+
+    async fn create_factory_dpu_client(
         &self,
         host: &str,
         port: Option<u16>,
     ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        let key = CredentialKey::DpuRedfish {
+            credential_type: CredentialType::DpuHardwareDefault,
+        };
+        self.create_standard_client(host, port, key).await
+    }
+
+    /// A "standard" client is a client that doesn't make any HTTP calls yet
+    async fn create_standard_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        credential_key: CredentialKey,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
         let credentials = self
             .credential_provider
-            .get_credentials(CredentialKey::DpuRedfish {
-                credential_type: CredentialType::DpuHardwareDefault,
-            })
+            .get_credentials(credential_key)
             .await
             .map_err(RedfishClientCreationError::MissingCredentials)?;
 
@@ -243,6 +293,24 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             .map_err(RedfishClientCreationError::RedfishError)?;
 
         Ok(standard_client)
+    }
+
+    fn create_direct_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        username: &str,
+        password: &str,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        let endpoint = Endpoint {
+            host: host.to_string(),
+            port,
+            user: Some(username.to_string()),
+            password: Some(password.to_string()),
+        };
+        self.pool
+            .create_standard_client(endpoint.clone())
+            .map_err(RedfishClientCreationError::RedfishError)
     }
 
     fn create_anonymous_client(
@@ -982,10 +1050,28 @@ impl RedfishClientPool for RedfishSim {
         }))
     }
 
+    async fn create_factory_host_client(
+        &self,
+        _host: &str,
+        _port: Option<u16>,
+        _vendor: bmc_vendor::BMCVendor,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        Err(RedfishClientCreationError::NotImplemented)
+    }
+
+    async fn create_factory_dpu_client(
+        &self,
+        _host: &str,
+        _port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        Err(RedfishClientCreationError::NotImplemented)
+    }
+
     async fn create_standard_client(
         &self,
         _host: &str,
         _port: Option<u16>,
+        _key: CredentialKey,
     ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
         Err(RedfishClientCreationError::NotImplemented)
     }
@@ -994,6 +1080,16 @@ impl RedfishClientPool for RedfishSim {
         &self,
         _host: &str,
         _port: Option<u16>,
+    ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
+        Err(RedfishClientCreationError::NotImplemented)
+    }
+
+    fn create_direct_client(
+        &self,
+        _host: &str,
+        _port: Option<u16>,
+        _username: &str,
+        _password: &str,
     ) -> Result<Box<RedfishStandard>, RedfishClientCreationError> {
         Err(RedfishClientCreationError::NotImplemented)
     }

@@ -13,6 +13,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use bmc_vendor::BMCVendor;
 use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::{model::service_root::ServiceRoot, Redfish, RedfishError, RoleId};
 
@@ -151,8 +152,25 @@ impl AnonymousRedfishEndpoint {
             )
             .await;
         let (client, has_factory_credentials) = match factory_client {
-            Ok(factory_client) => (factory_client, true),
+            Ok(factory_client) => {
+                tracing::trace!("Authenticated with factory default credentials");
+                (factory_client, true)
+            }
+            Err(RedfishClientCreationError::RedfishError(RedfishError::PasswordChangeRequired)) => {
+                tracing::trace!("Password change required");
+                let client: Box<dyn libredfish::Redfish> = self
+                    .redfish_client_pool
+                    .create_factory_host_client(
+                        &self.address.ip().to_string(),
+                        Some(self.address.port()),
+                        vendor,
+                    )
+                    .await
+                    .map_err(map_redfish_client_creation_error)?;
+                (client, true)
+            }
             Err(RedfishClientCreationError::RedfishError(e)) if e.is_unauthorized() => {
+                tracing::trace!("Factory defaults did not work, trying site defaults");
                 let key = CredentialKey::HostRedfish {
                     credential_type: CredentialType::SiteDefault,
                 };
@@ -164,6 +182,10 @@ impl AnonymousRedfishEndpoint {
                         key,
                     )
                     .await
+                    .map(|c| {
+                        tracing::trace!("Authenticated with site default credentials");
+                        c
+                    })
                     .map_err(map_redfish_client_creation_error)?;
                 (site_client, false)
             }
@@ -185,7 +207,7 @@ struct RedfishEndpoint {
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     address: SocketAddr,
     client: Box<dyn Redfish>,
-    vendor: bmc_vendor::BMCVendor,
+    vendor: BMCVendor,
 }
 
 impl RedfishEndpoint {
@@ -207,19 +229,29 @@ impl RedfishEndpoint {
                 EndpointExplorationError::MissingCredentials
             })?;
 
-        use bmc_vendor::BMCVendor;
         match self.vendor {
             BMCVendor::Lenovo => {
+                // Change (factory_user, factory_pass) to (factory_user, site_pass)
+                // We must do this first, BMC won't allow any other call until this is done
                 self.client
+                    .change_password_by_id("1", site_pass.as_str())
+                    .await
+                    .map_err(map_redfish_error)?;
+
+                // Auth has changed
+                let mid_client = self
+                    .redfish_client_pool
+                    .create_direct_client(
+                        &self.address.ip().to_string(),
+                        Some(self.address.port()),
+                        &factory_user,
+                        &site_pass,
+                    )
+                    .map_err(map_redfish_client_creation_error)?;
+
+                // Change (factory_user, site_pass) to (site_user, site_pass)
+                mid_client
                     .change_username(&factory_user, &site_user)
-                    .await
-                    .map_err(map_redfish_error)?;
-                self.client
-                    .set_forge_password_policy()
-                    .await
-                    .map_err(map_redfish_error)?;
-                self.client
-                    .change_password(site_user.as_str(), site_pass.as_str())
                     .await
                     .map_err(map_redfish_error)?;
             }
@@ -263,6 +295,11 @@ impl RedfishEndpoint {
             )
             .await
             .map_err(map_redfish_client_creation_error)?;
+
+        client
+            .set_forge_password_policy()
+            .await
+            .map_err(map_redfish_error)?;
 
         Ok(RedfishEndpoint {
             client,
