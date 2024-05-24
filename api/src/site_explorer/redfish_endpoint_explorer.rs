@@ -11,12 +11,14 @@
  */
 
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::{Redfish, RedfishError};
 use regex::Regex;
 
+use crate::model::site_explorer::{ComputerSystemAttributes, NicMode};
 use crate::{
     db::machine_interface::MachineInterface,
     model::site_explorer::{
@@ -231,18 +233,28 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
 
 async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishError> {
     let mut system = client.get_system().await?;
-    let fetch_bluefield_oob = system.id.to_lowercase().contains("bluefield");
+    let is_dpu = system.id.to_lowercase().contains("bluefield");
+    let fetch_bluefield_oob = is_dpu;
     let ethernet_interfaces = fetch_ethernet_interfaces(client, true, fetch_bluefield_oob).await?;
 
     // This part processes dpu case and do two things such as
     // 1. update system serial_number in case it is empty using chassis serial_number
     // 2. format serial_number data using the same rules as in fetch_chassis()
-    if system.id.to_lowercase().contains("bluefield") && system.serial_number.is_none() {
+    if is_dpu && system.serial_number.is_none() {
         let chassis = client.get_chassis("Card1").await?;
         system.serial_number = chassis.serial_number;
     }
 
     system.serial_number = system.serial_number.map(|s| s.trim().to_string());
+
+    let bios_attributes = client.bios().await?;
+    let nic_mode: Option<NicMode> = if is_dpu {
+        bios_attributes
+            .get("NicMode")
+            .and_then(|v| v.as_str().and_then(|v| NicMode::from_str(v).ok()))
+    } else {
+        None
+    };
 
     Ok(ComputerSystem {
         ethernet_interfaces,
@@ -250,6 +262,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
         manufacturer: system.manufacturer,
         model: system.model,
         serial_number: system.serial_number,
+        attributes: ComputerSystemAttributes { nic_mode },
     })
 }
 
