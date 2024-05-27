@@ -3180,6 +3180,24 @@ where
                 .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {}", e)))?,
         };
 
+        // Disable booting from discovery image when no machine record exists
+        if self
+            .runtime_config
+            .site_explorer
+            .as_ref()
+            .map_or(false, |s| s.create_machines)
+        {
+            let machine_id = MachineInterface::find_one(&mut txn, interface_id)
+                .await?
+                .machine_id;
+            if machine_id.is_none() {
+                return Err(Status::not_found(format!(
+                    "Machine for interface {} was not discovered by site-explorer",
+                    interface_id
+                )));
+            }
+        }
+
         let arch = rpc::MachineArchitecture::try_from(request.arch)
             .map_err(|_| Status::invalid_argument("Unknown arch received."))?;
         let pxe_script =
