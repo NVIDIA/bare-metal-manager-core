@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::common::api_fixtures;
+use crate::common::api_fixtures::{create_test_env, managed_host::create_managed_host_multi_dpu};
 use rpc::forge::forge_server::Forge;
 use rpc::{forge::MachineIdList, MachineId};
 
@@ -21,16 +21,27 @@ fn setup() {
     common::test_logging::init();
 }
 
-#[sqlx::test(fixtures("create_managed_hosts"))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool) {
-    let expected_machine_id = "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0";
-    let env = api_fixtures::create_test_env(pool).await;
+    let env = create_test_env(pool).await;
+    let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
+    let host_machine = env
+        .api
+        .get_machine(tonic::Request::new(MachineId {
+            id: host_machine_id.to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let expected_machine_id = host_machine
+        .associated_dpu_machine_ids
+        .into_iter()
+        .next()
+        .expect("created managed_host from fixture must have a dpu");
     let response = env
         .api
         .find_connected_devices_by_dpu_machine_ids(tonic::Request::new(MachineIdList {
-            machine_ids: vec![MachineId {
-                id: String::from(expected_machine_id),
-            }],
+            machine_ids: vec![expected_machine_id.clone()],
         }))
         .await
         .expect("Response should have been successful");
@@ -41,13 +52,12 @@ async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool
         "Response should have returned 3 results"
     );
 
-    for connected_device in connected_devices.iter() {
+    for connected_device in connected_devices.into_iter() {
         let id = connected_device
             .id
-            .as_ref()
             .expect("All returned connected_devices should have an id");
         assert_eq!(
-            id.id, expected_machine_id,
+            id, expected_machine_id,
             "All returned connected_devices should match the requested machine ID"
         );
         assert!(
@@ -57,9 +67,10 @@ async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool
     }
 }
 
-#[sqlx::test(fixtures("create_managed_hosts"))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_connected_devices_by_machine_ids_no_ids(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool).await;
+    let env = create_test_env(pool).await;
+    _ = create_managed_host_multi_dpu(&env, 1).await;
     let response = env
         .api
         .find_connected_devices_by_dpu_machine_ids(tonic::Request::new(MachineIdList {
@@ -75,9 +86,10 @@ async fn test_find_connected_devices_by_machine_ids_no_ids(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_managed_hosts"))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_connected_devices_by_machine_ids_missing_id(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool).await;
+    let env = create_test_env(pool).await;
+    _ = create_managed_host_multi_dpu(&env, 1).await;
     let response = env
         .api
         .find_connected_devices_by_dpu_machine_ids(tonic::Request::new(MachineIdList {

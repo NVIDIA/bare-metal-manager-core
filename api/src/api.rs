@@ -2607,7 +2607,10 @@ where
                 e,
             ))
         })?;
-        let search_config = MachineSearchConfig::default();
+        let search_config = MachineSearchConfig {
+            include_associated_machine_id: true,
+            ..Default::default()
+        };
 
         let machine_ids: Result<Vec<MachineId>, CarbideError> = request
             .into_inner()

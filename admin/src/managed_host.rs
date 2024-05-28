@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use ::rpc::forge_tls_client::ApiConfig;
-use ::rpc::site_explorer::ExploredManagedHost;
-use ::rpc::Machine;
+use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 use tracing::warn;
@@ -146,15 +146,11 @@ fn convert_managed_hosts_to_nice_output(
 async fn show_managed_hosts(
     output: &mut dyn std::io::Write,
     output_format: &OutputFormat,
-    machines: Vec<Machine>,
     show_ips: bool,
     more_details: bool,
-    site_explorer_managed_host: Vec<ExploredManagedHost>,
+    managed_host_data: utils::ManagedHostMetadata,
 ) -> CarbideCliResult<()> {
-    // TODO: get_managed_host_output takes two arrays of attached devices for rendering switch
-    // connections, but we don't render those in the CLI as of today, so pass an empty slice.
-    let managed_hosts =
-        utils::get_managed_host_output(&machines, &site_explorer_managed_host, &[], &[]);
+    let managed_hosts = utils::get_managed_host_output(managed_host_data);
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&managed_hosts).unwrap()),
@@ -258,12 +254,11 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         }
     }
 
-    writeln!(
-        &mut lines,
-        "\nDPU:\n----------------------------------------"
-    )?;
-
     for dpu in m.dpus {
+        writeln!(
+            &mut lines,
+            "\nDPU:\n----------------------------------------"
+        )?;
         let data = vec![
             ("  ID", dpu.machine_id.clone()),
             ("  Last reboot", dpu.last_reboot_time),
@@ -308,21 +303,93 @@ pub async fn handle_show(
     output_format: OutputFormat,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
-    let site_report_managed_hosts = rpc::get_site_exploration_report(api_config)
+    let site_explorer_managed_hosts = rpc::get_site_exploration_report(api_config)
         .await?
         .managed_hosts;
 
-    if args.all || args.machine.is_empty() {
-        let machines = rpc::get_all_machines(api_config, None, args.fix)
+    let show_all_machines = args.all || args.machine.is_empty();
+
+    let machines: Vec<Machine> = if show_all_machines {
+        // Get all machines: DPUs will arrive as part of this request
+        rpc::get_all_machines(api_config, None, args.fix)
             .await?
-            .machines;
+            .machines
+    } else {
+        // Get a single managed host: We need to find associated DPU IDs along with the machine ID,
+        // so make a few RPC fetches to get everything in the managed host.
+        // Start by getting the requested machine
+        let requested_machine = rpc::get_machine(args.machine, api_config).await?;
+
+        if !requested_machine.associated_dpu_machine_ids.is_empty() {
+            // If requested machine is a host, get the DPUs too.
+            let dpu_machines =
+                rpc::get_machines_by_ids(api_config, &requested_machine.associated_dpu_machine_ids)
+                    .await?
+                    .machines;
+            [&[requested_machine], dpu_machines.as_slice()].concat()
+        } else if let Some(ref host_id) = requested_machine.associated_host_machine_id {
+            // the requested machine is a DPU, get the host machine...
+            if let Some(host_machine) = rpc::get_machines_by_ids(api_config, &[host_id.clone()])
+                .await?
+                .machines
+                .into_iter()
+                .next()
+            {
+                // ... plus get all the other attached DPUs of that host machine.
+                let dpu_machines = rpc::get_machines_by_ids(
+                    api_config,
+                    host_machine.associated_dpu_machine_ids.as_slice(),
+                )
+                .await?
+                .machines;
+
+                [&[host_machine], dpu_machines.as_slice()].concat()
+            } else {
+                vec![requested_machine]
+            }
+        } else {
+            // Host has no associated DPUs nor associated host, it must not be completely set up.
+            vec![requested_machine]
+        }
+    };
+
+    // Find connected devices for all machines
+    let dpu_machine_ids = machines
+        .iter()
+        .filter_map(|m| m.id.clone())
+        .collect::<Vec<MachineId>>();
+
+    let connected_devices =
+        rpc::find_connected_devices_by_dpu_machine_ids(api_config, dpu_machine_ids.clone())
+            .await?
+            .connected_devices;
+
+    let network_device_ids: HashSet<String> = connected_devices
+        .iter()
+        .filter_map(|d| d.network_device_id.clone())
+        .collect();
+
+    let network_devices = rpc::find_network_devices_by_device_ids(
+        api_config,
+        network_device_ids.iter().map(|id| id.to_owned()).collect(),
+    )
+    .await?
+    .network_devices;
+
+    let managed_host_data = utils::ManagedHostMetadata {
+        machines,
+        site_explorer_managed_hosts,
+        connected_devices,
+        network_devices,
+    };
+
+    if show_all_machines {
         show_managed_hosts(
             output,
             &output_format,
-            machines,
             args.ips,
             args.more,
-            site_report_managed_hosts,
+            managed_host_data,
         )
         .await?;
 
@@ -336,28 +403,7 @@ pub async fn handle_show(
         return Ok(());
     }
 
-    let mut machines = Vec::default();
-    let requested_machine = rpc::get_machine(args.machine, api_config).await?;
-
-    if let Some(associated_machine_id) = requested_machine
-        .associated_dpu_machine_id
-        .as_ref()
-        .or(requested_machine.associated_host_machine_id.as_ref())
-    {
-        let associated_machine: Machine =
-            rpc::get_machine(associated_machine_id.to_string(), api_config).await?;
-        machines.push(associated_machine);
-    }
-
-    machines.push(requested_machine);
-    if args.fix {
-        machines.retain(|m| m.maintenance_reference.is_some());
-    }
-    // TODO: get_managed_host_output takes two arrays of attached devices for rendering switch
-    // connections, but we don't render those in the CLI as of today, so pass an empty slice.
-    for m in
-        utils::get_managed_host_output(&machines, &site_report_managed_hosts, &[], &[]).into_iter()
-    {
+    for m in utils::get_managed_host_output(managed_host_data).into_iter() {
         show_managed_host_details_view(m)?;
     }
 

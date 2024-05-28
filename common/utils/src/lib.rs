@@ -1,7 +1,7 @@
 pub mod admin_cli;
 pub mod cmd;
 pub mod managed_host_display;
-pub use managed_host_display::{get_managed_host_output, ManagedHostOutput};
+pub use managed_host_display::{get_managed_host_output, ManagedHostMetadata, ManagedHostOutput};
 pub mod models;
 
 /// A string to display to the user. Either the 'reason' or 'err' field, or None.

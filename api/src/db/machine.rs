@@ -141,7 +141,7 @@ pub struct Machine {
 
     // Other machine ids associated with this machine
     associated_host_machine_id: Option<MachineId>,
-    associated_dpu_machine_id: Option<MachineId>,
+    associated_dpu_machine_ids: Vec<MachineId>,
 
     // Inventory related to a machine.
     // Software and versions installed on the machine.
@@ -223,7 +223,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             reprovisioning_requested: reprovision_req.map(|x| x.0),
             dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
             associated_host_machine_id: None,
-            associated_dpu_machine_id: None,
+            associated_dpu_machine_ids: Vec::default(),
             inventory: machine_inventory.map(|x| x.0),
             controller_state_outcome: state_outcome.map(|x| x.0),
         })
@@ -337,8 +337,14 @@ impl From<Machine> for rpc::Machine {
             associated_host_machine_id: machine
                 .associated_host_machine_id
                 .map(|id| id.to_string().into()),
+            associated_dpu_machine_ids: machine
+                .associated_dpu_machine_ids
+                .iter()
+                .map(|id| id.to_string().into())
+                .collect(),
             associated_dpu_machine_id: machine
-                .associated_dpu_machine_id
+                .associated_dpu_machine_ids
+                .first()
                 .map(|id| id.to_string().into()),
             inventory: machine.inventory.clone().map(|i| i.into()),
             last_reboot_requested_time: machine
@@ -717,10 +723,16 @@ SELECT m.id FROM
                     machine.associated_host_machine_id =
                         Machine::find_host_machine_id_by_dpu_machine_id(txn, &machine.id).await?;
                 } else {
-                    machine.associated_dpu_machine_id = interfaces_for_machine
+                    machine.associated_dpu_machine_ids = interfaces_for_machine
                         .get(&machine.id)
-                        .and_then(|i| i.first())
-                        .and_then(|i| i.attached_dpu_machine_id().clone());
+                        .map(|interfaces| {
+                            interfaces
+                                .iter()
+                                .map(|i| i.attached_dpu_machine_id().clone())
+                                .collect::<Option<Vec<MachineId>>>()
+                                .unwrap_or_default()
+                        })
+                        .unwrap_or_default();
                 }
             }
 

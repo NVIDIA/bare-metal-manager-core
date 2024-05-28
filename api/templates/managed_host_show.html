@@ -28,23 +28,23 @@
 			<td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
 			<td>{{ host.maintenance_start_time }}</td>
 			<td>{{ host.machine_id|machine_id_link|safe }}</td>
-			<td>{{ host.dpu_machine_id|machine_id_link|safe}}</td>
+			<td>{{ host.dpu_properties(DpuProperty::MachineId)|safe}}</td>
 			<td>{{ host.state }} {{ host.state_reason }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
 			<td style="padding: 0;">
 				<table style="width: 100%;">
 					<tr><th>Host BMC</th><td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>
-					<tr><th>DPU BMC</th><td><a href="/admin/explored_endpoint/{{ host.dpu_bmc_ip }}">{{ host.dpu_bmc_ip }}</a></td></tr>
+					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcIp)|safe }}</td></tr>
 					<tr><th>Host Admin</th><td>{{ host.host_admin_ip }}</td></tr>
-					<tr><th>DPU OOB</th><td>{{ host.dpu_oob_ip }}</td></tr>
+					<tr><th>DPU OOB</th><td>{{ host.dpu_properties(DpuProperty::OobIp)|safe }}</td></tr>
 				</table>
 			</td>
 			<td style="padding: 0;">
 				<table style="width: 100%;">
 					<tr><th>Host BMC</th><td>{{ host.host_bmc_mac }}</td></tr>
-					<tr><th>DPU BMC</th><td>{{ host.dpu_bmc_mac }}</td></tr>
+					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcMac)|safe }}</td></tr>
 					<tr><th>Host PF</th><td>{{ host.host_admin_mac }}</td></tr>
-					<tr><th>DPU OOB</th><td>{{ host.dpu_oob_mac }}</td></tr>
+					<tr><th>DPU OOB</th><td>{{ host.dpu_properties(DpuProperty::OobMac)|safe }}</td></tr>
 				</table>
 			</td>
 		<tr/>
@@ -74,23 +74,23 @@
 		<tr>
 			<td><a href="/admin/managed-host/{{host.machine_id}}">{{ host.hostname }}</a></td>
 			<td>{{ host.machine_id|machine_id_link|safe }}</td>
-			<td>{{ host.dpu_machine_id|machine_id_link|safe }}</td>
+			<td>{{ host.dpu_properties(DpuProperty::MachineId)|safe }}</td>
 			<td title="{{ host.state_reason }}">{{ host.state }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
 			<td style="padding: 0;">
 				<table style="width: 100%;">
 					<tr><th>Host BMC</th><td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>
-					<tr><th>DPU BMC</th><td><a href="/admin/explored_endpoint/{{ host.dpu_bmc_ip }}">{{ host.dpu_bmc_ip }}</a></td></tr>
+					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcIp)|safe }}</td></tr>
 					<tr><th>Host Admin</th><td>{{ host.host_admin_ip }}</td></tr>
-					<tr><th>DPU OOB</th><td>{{ host.dpu_oob_ip }}</td></tr>
+					<tr><th>DPU OOB</th><td>{{ host.dpu_properties(DpuProperty::OobIp)|safe }}</td></tr>
 				</table>
 			</td>
 			<td style="padding: 0;">
 				<table style="width: 100%;">
 					<tr><th>Host BMC</th><td>{{ host.host_bmc_mac }}</td></tr>
-					<tr><th>DPU BMC</th><td>{{ host.dpu_bmc_mac }}</td></tr>
+					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcMac)|safe  }}</td></tr>
 					<tr><th>Host PF</th><td>{{ host.host_admin_mac }}</td></tr>
-					<tr><th>DPU OOB</th><td>{{ host.dpu_oob_mac }}</td></tr>
+					<tr><th>DPU OOB</th><td>{{ host.dpu_properties(DpuProperty::OobMac)|safe  }}</td></tr>
 				</table>
 			</td>
 			<td>{{ host.num_gpus }}</td>

@@ -16,8 +16,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use ::rpc::forge::{
-    self as rpc, DpuResetResponse, MachineBootOverride, MachineSearchConfig, MachineType,
-    NetworkSegmentSearchConfig,
+    self as rpc, DpuResetResponse, MachineBootOverride, MachineIdList, MachineSearchConfig,
+    MachineType, NetworkDeviceIdList, NetworkSegmentSearchConfig,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use ::rpc::{MachineId, Uuid};
@@ -919,6 +919,38 @@ pub async fn trigger_dpu_reset(
         });
         client
             .trigger_dpu_reset(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn find_connected_devices_by_dpu_machine_ids(
+    api_config: &ApiConfig<'_>,
+    machine_ids: Vec<rpc::MachineId>,
+) -> CarbideCliResult<rpc::ConnectedDeviceList> {
+    with_forge_client(api_config, |mut client| async move {
+        let machine_id_list = MachineIdList { machine_ids };
+        client
+            .find_connected_devices_by_dpu_machine_ids(machine_id_list)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn find_network_devices_by_device_ids(
+    api_config: &ApiConfig<'_>,
+    device_ids: Vec<String>,
+) -> CarbideCliResult<rpc::NetworkTopologyData> {
+    with_forge_client(api_config, |mut client| async move {
+        let network_device_id_list = NetworkDeviceIdList {
+            network_device_ids: device_ids.to_vec(),
+        };
+        client
+            .find_network_devices_by_device_ids(network_device_id_list)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
