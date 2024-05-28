@@ -24,7 +24,7 @@ use libredfish::{
         task::Task,
     },
     standard::RedfishStandard,
-    Chassis, Endpoint, PowerState, Redfish, RedfishError, RoleId,
+    Chassis, Endpoint, JobState, PowerState, Redfish, RedfishError, RoleId,
 };
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
@@ -833,8 +833,8 @@ impl Redfish for RedfishSimClient {
         &self,
         _current_uefi_password: &str,
         _new_uefi_password: &str,
-    ) -> Result<(), RedfishError> {
-        Ok(())
+    ) -> Result<Option<String>, RedfishError> {
+        Ok(None)
     }
 
     async fn change_boot_order(&self, _boot_array: Vec<String>) -> Result<(), RedfishError> {
@@ -1019,6 +1019,10 @@ impl Redfish for RedfishSimClient {
         _firmware: &std::path::Path,
         _reboot: bool,
     ) -> Result<String, RedfishError> {
+        todo!();
+    }
+
+    async fn get_job_state(&self, _job_id: &str) -> Result<JobState, RedfishError> {
         todo!();
     }
 }

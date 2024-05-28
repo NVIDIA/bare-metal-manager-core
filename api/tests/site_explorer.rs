@@ -99,7 +99,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             ip: String::new(),
         },
         FakeMachine {
-            mac: "AA:AB:AC:AD:BB:001".to_string(),
+            mac: "AA:AB:AC:AD:BB:01".to_string(),
             dhcp_vendor: "VendorInvalidSegment".to_string(),
             segment: admin_segment,
             ip: String::new(),
@@ -120,8 +120,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 circuit_id: None,
                 remote_id: None,
             }))
-            .await
-            .unwrap()
+            .await?
             .into_inner();
         tracing::info!(
             "DHCP with mac {} assigned ip {}",
