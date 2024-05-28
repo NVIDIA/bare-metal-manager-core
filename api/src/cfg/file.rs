@@ -10,9 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+};
 
 use chrono::Duration;
 use ipnetwork::Ipv4Network;
@@ -22,6 +25,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::state_controller::config::IterationConfig;
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
+use regex::Regex;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 3;
 
@@ -155,6 +159,29 @@ pub struct CarbideConfig {
     /// DPU related configuration parameter
     #[serde(default = "default_dpu_models")]
     pub dpu_models: HashMap<DpuModel, DpuDesc>,
+
+    #[serde(default)]
+    pub host_models: HashMap<String, FirmwareHost>,
+
+    #[serde(default)]
+    pub firmware_global: FirmwareGlobal,
+}
+
+impl CarbideConfig {
+    pub fn get_parsed_hosts(&self) -> ParsedHosts {
+        let mut map: HashMap<String, FirmwareHost> = Default::default();
+        for (_, host) in self.host_models.iter() {
+            map.insert(
+                vendor_model_to_key(host.vendor.to_owned(), host.model.to_owned()),
+                host.clone(),
+            );
+        }
+        ParsedHosts { map }
+    }
+}
+
+fn vendor_model_to_key(vendor: String, model: String) -> String {
+    format!("{vendor}:{model}")
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -521,6 +548,198 @@ fn default_max_database_connections() -> u32 {
     1000
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct FirmwareHost {
+    pub vendor: String,
+    pub model: String,
+
+    pub components: HashMap<FirmwareHostComponentType, FirmwareHostComponent>,
+
+    #[serde(default)]
+    pub ordering: Vec<FirmwareHostComponentType>,
+}
+
+impl FirmwareHost {
+    // Note that examples are specifically not actual matches to real life hosts
+    pub fn example1() -> FirmwareHost {
+        FirmwareHost {
+            vendor: "dell".to_string(),
+            model: "R750".to_string(),
+            components: HashMap::from([
+                (
+                    FirmwareHostComponentType::Bmc,
+                    FirmwareHostComponent {
+                        current_version_reported_as: Some(Regex::new("^idrac").unwrap()),
+                        preingest_upgrade_when_below: Some("0.5".to_string()),
+                        known_firmware: vec![
+                            FirmwareEntry {
+                                version: "1.1".to_string(),
+                                default: false,
+                                filename: Some("/dev/null".to_string()),
+                                url: Some("file://dev/null".to_string()),
+                                checksum: None,
+                                mandatory_upgrade_from_priority: None,
+                            },
+                            FirmwareEntry {
+                                version: "1.0".to_string(),
+                                default: true,
+                                filename: Some("/dev/null".to_string()),
+                                url: Some("file://dev/null".to_string()),
+                                checksum: None,
+                                mandatory_upgrade_from_priority: None,
+                            },
+                            FirmwareEntry {
+                                version: "0.9".to_string(),
+                                default: false,
+                                filename: Some("/dev/null".to_string()),
+                                url: Some("file://dev/null".to_string()),
+                                checksum: None,
+                                mandatory_upgrade_from_priority: None,
+                            },
+                        ],
+                    },
+                ),
+                (
+                    FirmwareHostComponentType::Uefi,
+                    FirmwareHostComponent {
+                        current_version_reported_as: Some(Regex::new("^bios").unwrap()),
+                        preingest_upgrade_when_below: Some("0.5".to_string()),
+                        known_firmware: vec![],
+                    },
+                ),
+            ]),
+            ordering: vec![
+                FirmwareHostComponentType::Uefi,
+                FirmwareHostComponentType::Bmc,
+            ],
+        }
+    }
+
+    pub fn matching_version_id(
+        &self,
+        redfish_id: &str,
+        firmware_type: FirmwareHostComponentType,
+    ) -> bool {
+        // This searches for the regex we've recorded for what this vendor + model + firmware_type gets reported as in the list of firmware versions
+        self.components
+            .get(&firmware_type)
+            .unwrap_or(&FirmwareHostComponent::default()) // Will trigger the unwrap_or below
+            .current_version_reported_as
+            .as_ref()
+            .unwrap_or(&Regex::new("^This should never match anything$").unwrap())
+            .captures(redfish_id)
+            .is_some()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Copy, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum FirmwareHostComponentType {
+    Bmc,
+    Uefi,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct FirmwareHostComponent {
+    #[serde(with = "serde_regex")]
+    pub current_version_reported_as: Option<Regex>,
+    pub preingest_upgrade_when_below: Option<String>,
+    #[serde(default)]
+    pub known_firmware: Vec<FirmwareEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct FirmwareEntry {
+    pub version: String,
+    pub mandatory_upgrade_from_priority: Option<MandatoryUpgradeFromPriority>,
+    #[serde(default)]
+    pub default: bool,
+    pub filename: Option<String>,
+    pub url: Option<String>,
+    pub checksum: Option<String>,
+}
+
+impl FirmwareEntry {
+    pub fn get_filename(&self) -> PathBuf {
+        // At present, we're just using the file key as a local file.  Eventually this gets retrieved from another container to reduce startup times.
+        match &self.filename {
+            None => PathBuf::from("/dev/null"),
+            Some(file_key) => PathBuf::from(file_key),
+        }
+    }
+    pub fn get_url(&self) -> String {
+        match &self.url {
+            None => "file://dev/null".to_string(),
+            Some(url) => url.to_owned(),
+        }
+    }
+    pub fn get_checksum(&self) -> String {
+        match &self.url {
+            None => "".to_string(),
+            Some(checksum) => checksum.to_owned(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MandatoryUpgradeFromPriority {
+    None,
+    Security,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct FirmwareGlobal {
+    #[serde(default)]
+    pub autoupdate: bool,
+    #[serde(default)]
+    pub host_enable_autoupdate: Vec<String>,
+    #[serde(default)]
+    pub host_disable_autoupdate: Vec<String>,
+    #[serde(
+        default = "FirmwareGlobal::run_interval_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub run_interval: Duration,
+    #[serde(default = "FirmwareGlobal::max_uploads_default")]
+    pub max_uploads: i64,
+}
+
+impl FirmwareGlobal {
+    pub fn run_interval_default() -> Duration {
+        Duration::seconds(30)
+    }
+    pub fn max_uploads_default() -> i64 {
+        4
+    }
+}
+
+impl Default for FirmwareGlobal {
+    fn default() -> FirmwareGlobal {
+        FirmwareGlobal {
+            autoupdate: false,
+            host_enable_autoupdate: vec![],
+            host_disable_autoupdate: vec![],
+            run_interval: FirmwareGlobal::run_interval_default(),
+            max_uploads: FirmwareGlobal::max_uploads_default(),
+        }
+    }
+}
+
+pub struct ParsedHosts {
+    map: HashMap<String, FirmwareHost>,
+}
+
+impl ParsedHosts {
+    pub fn find(&self, vendor: String, model: String) -> Option<FirmwareHost> {
+        let key = vendor_model_to_key(vendor, model);
+        let ret = self.map.get(&key).map(|x| x.to_owned());
+        println!("XXX find ret {ret:?}");
+        ret
+    }
+}
+
 /// DPU related config.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -659,6 +878,9 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
             dpu_dhcp_server_enabled: value.dpu_dhcp_server_enabled,
             nvue_enabled: value.nvue_enabled,
+            auto_host_firmware_update: value.firmware_global.autoupdate,
+            host_enable_autoupdate: value.firmware_global.host_enable_autoupdate,
+            host_disable_autoupdate: value.firmware_global.host_disable_autoupdate,
         }
     }
 }
@@ -1333,6 +1555,12 @@ mod tests {
                 ])),
             }
         );
+        assert_eq!(config.host_models.len(), 2);
+        for (_, entry) in config.host_models.iter() {
+            assert_eq!(entry.vendor, "Dell Inc.",);
+        }
+        assert_eq!(config.firmware_global.max_uploads, 3);
+        assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
     }
 
     #[test]

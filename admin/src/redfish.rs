@@ -12,14 +12,17 @@
 
 use color_eyre::eyre::eyre;
 use forge_secrets::credentials::Credentials;
-use libredfish::model::software_inventory::SoftwareInventory;
-use libredfish::model::task::Task;
-use libredfish::model::LinkStatus;
-use libredfish::{Boot, EnabledDisabled, RoleId, SystemPowerControl};
 use libredfish::{
-    Chassis, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish, RedfishError,
+    model::{
+        software_inventory::SoftwareInventory,
+        task::{Task, TaskState},
+        LinkStatus,
+    },
+    Boot, Chassis, EnabledDisabled, EthernetInterface, NetworkDeviceFunction, NetworkPort, Redfish,
+    RedfishError, RoleId, SystemPowerControl,
 };
 use prettytable::{row, Table};
+use std::path::Path;
 use tracing::warn;
 
 use super::cfg::carbide_options::RedfishCommand;
@@ -261,6 +264,56 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             let manager = redfish.get_manager().await?;
             println!("{:#?}", manager);
         }
+        UpdateFirmwareMultipart(details) => {
+            let taskid = redfish
+                .update_firmware_multipart(Path::new(&details.filename), true)
+                .await?;
+            loop {
+                let task = redfish.get_task(&taskid).await?;
+                match &task.task_state {
+                    None => {
+                        println!("No task state");
+                        return Ok(());
+                    }
+                    Some(task_state) => match task_state {
+                        TaskState::New => {
+                            println!("Task has not yet started: {task:?}");
+                        }
+                        TaskState::Starting => {
+                            println!("Task is starting: {task:?}");
+                        }
+                        TaskState::Pending => {
+                            println!("Task is starting: {task:?}");
+                        }
+                        TaskState::Running => {
+                            println!("Task is running: {task:?}");
+                        }
+                        TaskState::Completed => {
+                            println!("Task is complete: {task:?}");
+                            return Ok(());
+                        }
+                        _ => {
+                            println!("Bad task state: {task:?}");
+                            return Ok(());
+                        }
+                    },
+                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+            }
+        }
+        GetTasks => {
+            let tasks = redfish.get_tasks().await?;
+            let mut table = Table::new();
+            table.add_row(row!["id"]);
+            for task in &tasks {
+                table.add_row(row![task]);
+            }
+            table.printstd();
+        }
+        GetTask(details) => {
+            let task = redfish.get_task(&details.taskid).await?;
+            println!("Task info: {task:?}");
+        }
     }
     Ok(())
 }
@@ -367,7 +420,7 @@ fn convert_fws_to_nice_table(fws: Vec<SoftwareInventory>) -> Box<Table> {
     let mut table = Table::new();
     table.add_row(row!["Id", "Version"]);
     for fw in fws {
-        table.add_row(row![fw.id, fw.version.unwrap()]);
+        table.add_row(row![fw.id, fw.version.unwrap_or("(NULL)".to_string())]);
     }
     table.into()
 }

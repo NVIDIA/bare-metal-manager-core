@@ -82,6 +82,19 @@ pub struct ExploredEndpoint {
     /// The version of `report`.
     /// Will increase every time the report gets updated.
     pub report_version: ConfigVersion,
+    /// State within preingestion state machine
+    pub preingestion_state: PreingestionState,
+    /// Indicates that preingestion is waiting for site explorer to refresh the state
+    pub waiting_for_explorer_refresh: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum PreingestionState {
+    Initial,
+    RecheckVersions,
+    UpgradeFirmwareWait { task_id: String },
+    Complete,
 }
 
 impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {

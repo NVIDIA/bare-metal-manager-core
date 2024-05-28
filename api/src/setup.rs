@@ -46,6 +46,7 @@ use crate::{
         service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
     },
     machine_update_manager::MachineUpdateManager,
+    preingestion_manager::PreingestionManager,
     redfish::{RedfishClientPool, RedfishClientPoolImpl},
     resource_pool::{self, common::CommonPools},
     site_explorer::{RedfishEndpointExplorer, SiteExplorer},
@@ -403,6 +404,14 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     let machine_update_manager =
         MachineUpdateManager::new(db_pool.clone(), carbide_config.clone(), meter.clone());
     let _machine_update_manager_stop_handle = machine_update_manager.start()?;
+
+    let preingestion_manager = PreingestionManager::new(
+        db_pool.clone(),
+        carbide_config.clone(),
+        shared_redfish_pool.clone(),
+        meter.clone(),
+    );
+    let _preingestion_manager_stop_handle = preingestion_manager.start()?;
 
     let listen_addr = carbide_config.listen;
     listener::listen_and_serve(api_service, tls_config, listen_addr, authorizer, meter).await

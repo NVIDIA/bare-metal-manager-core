@@ -73,7 +73,7 @@ struct FakeMachine {
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
 async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool).await;
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     let underlay_segment = create_underlay_network_segment(&env).await;
     let admin_segment = create_admin_network_segment(&env).await;
@@ -493,6 +493,18 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             machine_id: None,
         });
     }
+
+    // We don't want to test the preingestion stuff here, so fake that it all completed successfully.
+    let mut txn = pool.begin().await?;
+    for addr in ["192.0.1.2", "192.0.1.3", "192.0.1.4"] {
+        DbExploredEndpoint::set_preingestion_complete(
+            std::net::IpAddr::from_str(addr).unwrap(),
+            &mut txn,
+        )
+        .await
+        .unwrap();
+    }
+    txn.commit().await?;
 
     explorer.run_single_iteration().await.unwrap();
     explorer.run_single_iteration().await.unwrap();

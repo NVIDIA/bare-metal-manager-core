@@ -102,9 +102,66 @@ component_update.cec = { "version" = '4-15', "path" = '/forge-boot-artifacts/blo
 
 [dpu_models.bluefield3]
 # Explicitly replace default settings for sanity check
-component_min_version = {"bmc" = "23.10", "uefi" = "4.5"}
+component_min_version = { "bmc" = "23.10", "uefi" = "4.5" }
 # Alternative approach to set component parameters for component update action
 component_update.bmc.version = '24.04'
 component_update.bmc.path = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg'
 # Force component update action ignoring current version
 component_update.cec.path = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg'
+
+[firmware_global]
+autoupdate = false
+host_enable_autoupdate = [
+    "AAEJOIEFIJL",
+    "AJELIJVLNE",
+    "ALJIFJSEVDI",
+    "fm100dsg80d2f4tq4tt5m8hgib5pcldrm3gvefbduau7gjoitgc0iqg3lpg",
+]
+host_disable_autoupdate = [
+    "FJLSIELIAF",
+    "FVLIWEGLWJE",
+    "FFULIJWCL",
+    "fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0",
+]
+run_interval = "20s"
+max_uploads = 3
+
+[host_models.dell_r750]
+vendor = "Dell Inc."
+model = "PowerEdge R750"
+ordering = ["uefi", "bmc"]
+
+[host_models.dell_r750.components.bmc]
+current_version_reported_as = "^Installed-.*__iDRAC."
+preingest_upgrade_when_below = "0.5"
+known_firmware = [
+    { version = "1.1", filename = "/mnt/persistence/fw/dell/bmc/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750bmc", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
+]
+
+[host_models.dell_r750.components.uefi]
+current_version_reported_as = "^Installed-.*__BIOS.Setup."
+preingest_upgrade_when_below = "0.5"
+known_firmware = [
+    { version = "0.9", mandatory_upgrade_from_priority = "security" },
+    { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
+]
+
+[host_models.dell_r750_plus]
+vendor = "Dell Inc."
+model = "PowerEdge R750+"
+ordering = ["uefi", "bmc"]
+
+[host_models.dell_r750_plus.components.bmc]
+current_version_reported_as = "^Installed-.*__iDRAC."
+preingest_upgrade_when_below = "0.5"
+known_firmware = [
+    { version = "1.1", filename = "/mnt/persistence/fw/dell/bmc/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750bmc", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
+]
+
+[host_models.dell_r750_plus.components.uefi]
+current_version_reported_as = "^Installed-.*__BIOS.Setup."
+preingest_upgrade_when_below = "0.5"
+known_firmware = [
+    { version = "0.9", mandatory_upgrade_from_priority = "security" },
+    { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
+]

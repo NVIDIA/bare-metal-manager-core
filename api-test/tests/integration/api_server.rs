@@ -9,13 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use chrono::Duration;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use carbide::cfg::{
-    default_dpu_models, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, IBFabricConfig,
-    IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
-    NetworkSegmentStateControllerConfig, StateControllerConfig, TlsConfig,
+    default_dpu_models, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, FirmwareGlobal,
+    IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
+    MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
+    TlsConfig,
 };
 use carbide::logging::sqlx_query_tracing;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -180,6 +182,14 @@ pub async fn start(
             },
         },
         dpu_models: default_dpu_models(),
+        host_models: HashMap::new(),
+        firmware_global: FirmwareGlobal {
+            autoupdate: false,
+            host_enable_autoupdate: vec![],
+            host_disable_autoupdate: vec![],
+            max_uploads: 4,
+            run_interval: Duration::seconds(30),
+        },
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

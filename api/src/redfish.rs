@@ -10,11 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
-
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use http::StatusCode;
@@ -26,6 +21,13 @@ use libredfish::{
     standard::RedfishStandard,
     Chassis, Endpoint, JobState, PowerState, Redfish, RedfishError, RoleId,
 };
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tokio::time;
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
 const AMI_USERNAME: &str = "admin";
@@ -1016,10 +1018,12 @@ impl Redfish for RedfishSimClient {
     }
     async fn update_firmware_multipart(
         &self,
-        _firmware: &std::path::Path,
+        _filename: &Path,
         _reboot: bool,
     ) -> Result<String, RedfishError> {
-        todo!();
+        // Simulate it taking a bit of time to upload
+        time::sleep(Duration::from_secs(4)).await;
+        Ok("0".to_string())
     }
 
     async fn get_job_state(&self, _job_id: &str) -> Result<JobState, RedfishError> {
