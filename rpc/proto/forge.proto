@@ -1167,6 +1167,8 @@ message Machine {
 
   // Other machine ids associated with this machine
   optional MachineId associated_host_machine_id = 19;
+  // Deprecated, use associated_dpu_machine_ids. For now, this is filled in with the first DPU ID.
+  // TODO: Once all admin CLI clients have updated, drop this and stop filling it in.
   optional MachineId associated_dpu_machine_id = 20;
 
   optional MachineInventory inventory = 21;
@@ -1176,6 +1178,7 @@ message Machine {
   optional string dpu_agent_version = 24;
 
   // Fields are not ordered numerically, check the whole message for max field number
+  repeated MachineId associated_dpu_machine_ids = 26;
 }
 
 message DpuAgentInventoryReport {

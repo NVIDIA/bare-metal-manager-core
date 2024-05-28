@@ -28,7 +28,9 @@
 			<td>{{ m.id|machine_id_link|safe }}</td>
 			<td>{{ m.state }} {% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}</td>
 			<td>{% if m.is_host %}
-				{{ m.associated_dpu_id|machine_id_link|safe }}
+				{% for dpu_id in m.associated_dpu_ids %}
+					{{ dpu_id|machine_id_link|safe }}
+				{% endfor %}
 				{% else %}
 				{{ m.associated_host_id|machine_id_link|safe }}
 				{% endif %}

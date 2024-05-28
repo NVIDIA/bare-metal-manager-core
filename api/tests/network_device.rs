@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::common::api_fixtures;
+use crate::common::api_fixtures::{create_test_env, managed_host::create_managed_host_multi_dpu};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkDeviceIdList;
 
@@ -21,10 +21,11 @@ fn setup() {
     common::test_logging::init();
 }
 
-#[sqlx::test(fixtures("create_managed_hosts"))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_network_devices_by_device_ids_single_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    _ = create_managed_host_multi_dpu(&env, 1).await;
     let expected_id = "mac=a1:b1:c1:00:00:01";
-    let env = api_fixtures::create_test_env(pool).await;
     let response = env
         .api
         .find_network_devices_by_device_ids(tonic::Request::new(NetworkDeviceIdList {
@@ -52,14 +53,15 @@ async fn test_find_network_devices_by_device_ids_single_id(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_managed_hosts"))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_network_devices_by_device_ids_multiple_ids(pool: sqlx::PgPool) {
     let expected_ids = vec![
         "mac=a1:b1:c1:00:00:01",
         "mac=a2:b2:c2:00:00:02",
         "mac=a3:b3:c3:00:00:03",
     ];
-    let env = api_fixtures::create_test_env(pool).await;
+    let env = create_test_env(pool).await;
+    _ = create_managed_host_multi_dpu(&env, 1).await;
     let response = env
         .api
         .find_network_devices_by_device_ids(tonic::Request::new(NetworkDeviceIdList {
@@ -90,9 +92,10 @@ async fn test_find_network_devices_by_device_ids_multiple_ids(pool: sqlx::PgPool
     }
 }
 
-#[sqlx::test(fixtures("create_managed_hosts"))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_find_network_devices_by_device_ids_no_ids(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool).await;
+    let env = create_test_env(pool).await;
+    _ = create_managed_host_multi_dpu(&env, 1).await;
     let response = env
         .api
         .find_network_devices_by_device_ids(tonic::Request::new(NetworkDeviceIdList {

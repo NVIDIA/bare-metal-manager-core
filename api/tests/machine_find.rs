@@ -26,8 +26,12 @@ use common::{
     api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine},
     mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
 };
+use rpc::forge::forge_server::Forge;
 
-use crate::common::api_fixtures::{dpu::create_dpu_hardware_info, host::create_host_machine};
+use crate::common::api_fixtures::{
+    dpu::create_dpu_hardware_info, host::create_host_machine,
+    managed_host::create_managed_host_multi_dpu,
+};
 
 #[ctor::ctor]
 fn setup() {
@@ -410,4 +414,44 @@ async fn test_find_mixed_host_machine_ids(pool: sqlx::PgPool) {
     assert_eq!(machine_ids.len(), 2);
     assert!(machine_ids.contains(&host_machine_id));
     assert!(machine_ids.contains(&predicted_host_machine_id));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let machine_id = create_managed_host_multi_dpu(&env, 2).await;
+
+    // Now host1 should have two DPUs.
+    let host_machine = env
+        .api
+        .get_machine(tonic::Request::new(rpc::MachineId {
+            id: machine_id.to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let dpu_ids = host_machine.associated_dpu_machine_ids;
+    assert_eq!(
+        dpu_ids.len(),
+        2,
+        "host machine should have had 2 DPU IDs, got {}",
+        dpu_ids.len()
+    );
+
+    for ref dpu_id in dpu_ids.iter() {
+        assert!(
+            dpu_ids.contains(dpu_id),
+            "host machine has an unexpected associated_dpu_machine_id {}",
+            dpu_id
+        );
+    }
+
+    let deprecated_dpu_id = host_machine.associated_dpu_machine_id
+        .expect("host machine should fill in an associated_dpu_machine_id field for backwards compatibility");
+
+    let first_dpu_id = dpu_ids.into_iter().next().unwrap();
+    assert!(
+        deprecated_dpu_id == first_dpu_id,
+        "deprecated DPU field should equal the first DPU ID"
+    );
 }

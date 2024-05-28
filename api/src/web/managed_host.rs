@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use askama::Template;
@@ -22,29 +21,15 @@ use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, GetSiteExplorationRequest};
-use rpc::MachineId;
+use rpc::forge::{self as forgerpc};
 use serde::Deserialize;
 use utils::managed_host_display::{DpuSwitchConnection, ManagedHostAttachedDpu};
+use utils::ManagedHostMetadata;
 
 use super::filters;
 use crate::api::Api;
 
 const UNKNOWN: &str = "Unknown";
-
-macro_rules! get_info_from_first_dpu {
-    ($machine:ident, $prop:ident) => {
-        || -> Option<&str> {
-            let Some(ref dpu) = $machine.dpus.first() else {
-                return None;
-            };
-            let Some(ref $prop) = dpu.$prop else {
-                return None;
-            };
-            Some($prop)
-        }()
-    };
-}
 
 #[derive(Template)]
 #[template(path = "managed_host_show.html")]
@@ -57,16 +42,11 @@ struct ManagedHostShow {
 struct ManagedHostRowDisplay {
     hostname: String,
     machine_id: String,
-    dpu_machine_id: String,
     state: String,
     time_in_state: String,
     state_reason: String,
     is_network_healthy: bool,
     network_err_message: String,
-    dpu_bmc_ip: String,
-    dpu_bmc_mac: String,
-    dpu_oob_ip: String,
-    dpu_oob_mac: String,
     host_admin_ip: String,
     host_admin_mac: String,
     host_bmc_ip: String,
@@ -77,6 +57,57 @@ struct ManagedHostRowDisplay {
     is_link_ref: bool, // is maintenance_reference a URL?
     maintenance_reference: String,
     maintenance_start_time: String,
+    dpus: Vec<AttachedDpuRowDisplay>,
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct AttachedDpuRowDisplay {
+    machine_id: String,
+    bmc_ip: String,
+    bmc_mac: String,
+    oob_ip: String,
+    oob_mac: String,
+}
+
+enum DpuProperty {
+    MachineId,
+    BmcIp,
+    BmcMac,
+    OobIp,
+    OobMac,
+}
+
+impl ManagedHostRowDisplay {
+    fn dpu_properties(&self, property: DpuProperty) -> String {
+        let lines: Vec<String> = match property {
+            DpuProperty::MachineId => self
+                .dpus
+                .iter()
+                .map(|d| {
+                    filters::machine_id_link(d.machine_id.clone()).unwrap_or("UNKNOWN".to_string())
+                })
+                .collect(),
+            DpuProperty::BmcIp => {
+                if self.is_network_healthy {
+                    self.dpus
+                        .iter()
+                        .map(|d| {
+                            format!(
+                                "<a href=\"/admin/explored_endpoint/{}\">{}</a>",
+                                d.bmc_ip, d.bmc_ip
+                            )
+                        })
+                        .collect()
+                } else {
+                    self.dpus.iter().map(|d| d.bmc_ip.clone()).collect()
+                }
+            }
+            DpuProperty::BmcMac => self.dpus.iter().map(|d| d.bmc_mac.clone()).collect(),
+            DpuProperty::OobIp => self.dpus.iter().map(|d| d.oob_ip.clone()).collect(),
+            DpuProperty::OobMac => self.dpus.iter().map(|d| d.oob_mac.clone()).collect(),
+        };
+        lines.join("<br/>")
+    }
 }
 
 impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
@@ -85,26 +116,11 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
         ManagedHostRowDisplay {
             hostname: o.hostname.unwrap_or(UNKNOWN.to_string()),
             machine_id: o.machine_id.unwrap_or(UNKNOWN.to_string()),
-            dpu_machine_id: get_info_from_first_dpu!(o, machine_id)
-                .unwrap_or(UNKNOWN)
-                .to_string(),
             state: o.state,
             time_in_state: o.time_in_state,
             state_reason: o.state_reason,
             is_network_healthy: o.is_network_healthy,
             network_err_message: o.network_err_message.unwrap_or_default(),
-            dpu_bmc_ip: get_info_from_first_dpu!(o, bmc_ip)
-                .unwrap_or_default()
-                .to_string(),
-            dpu_bmc_mac: get_info_from_first_dpu!(o, bmc_mac)
-                .unwrap_or_default()
-                .to_string(),
-            dpu_oob_ip: get_info_from_first_dpu!(o, oob_ip)
-                .unwrap_or_default()
-                .to_string(),
-            dpu_oob_mac: get_info_from_first_dpu!(o, oob_mac)
-                .unwrap_or_default()
-                .to_string(),
             host_bmc_ip: o.host_bmc_ip.unwrap_or_default(),
             host_bmc_mac: o.host_bmc_mac.unwrap_or_default(),
             host_admin_ip: o.host_admin_ip.unwrap_or_default(),
@@ -115,6 +131,19 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             is_link_ref: maint_ref.starts_with("http"),
             maintenance_reference: maint_ref,
             maintenance_start_time: o.maintenance_start_time.unwrap_or_default(),
+            dpus: o.dpus.into_iter().map_into().collect(),
+        }
+    }
+}
+
+impl From<ManagedHostAttachedDpu> for AttachedDpuRowDisplay {
+    fn from(d: ManagedHostAttachedDpu) -> Self {
+        Self {
+            machine_id: d.machine_id.unwrap_or(UNKNOWN.to_string()),
+            bmc_ip: d.bmc_ip.unwrap_or_default(),
+            bmc_mac: d.bmc_mac.unwrap_or_default(),
+            oob_ip: d.oob_ip.unwrap_or_default(),
+            oob_mac: d.oob_mac.unwrap_or_default(),
         }
     }
 }
@@ -192,49 +221,11 @@ async fn fetch_managed_hosts<
     let all_machines = state
         .find_machines(request)
         .await
-        .map(|response| response.into_inner())?;
-
-    let request = tonic::Request::new(GetSiteExplorationRequest {});
-    let site_managed_hosts = state
-        .get_site_exploration_report(request)
-        .await
         .map(|response| response.into_inner())?
-        .managed_hosts;
+        .machines;
 
-    // Find connected devices for all machines
-    let dpu_id_request = tonic::Request::new(forgerpc::MachineIdList {
-        machine_ids: all_machines
-            .machines
-            .iter()
-            .filter_map(|m| m.id.clone())
-            .collect(),
-    });
-    let connected_devices = state
-        .find_connected_devices_by_dpu_machine_ids(dpu_id_request)
-        .await
-        .map(|response| response.into_inner())?
-        .connected_devices;
-
-    let network_device_ids: HashSet<String> = connected_devices
-        .iter()
-        .filter_map(|d| d.network_device_id.clone())
-        .collect();
-
-    let network_devices = state
-        .find_network_devices_by_device_ids(tonic::Request::new(forgerpc::NetworkDeviceIdList {
-            network_device_ids: network_device_ids.iter().map(|id| id.to_owned()).collect(),
-        }))
-        .await
-        .map(|response| response.into_inner())?
-        .network_devices;
-
-    let managed_hosts = utils::get_managed_host_output(
-        &all_machines.machines,
-        &site_managed_hosts,
-        &connected_devices,
-        &network_devices,
-    );
-
+    let managed_host_metadata = ManagedHostMetadata::lookup_from_api(all_machines, state).await;
+    let managed_hosts = utils::get_managed_host_output(managed_host_metadata);
     Ok(managed_hosts)
 }
 
@@ -380,6 +371,8 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
         fqdn: None,
         search_config: Some(forgerpc::MachineSearchConfig {
             include_predicted_host: true,
+            include_dpus: true,
+            include_associated_machine_id: true,
             ..Default::default()
         }),
     });
@@ -398,102 +391,33 @@ pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();
         }
     };
+
     let Some(host_machine) = machine_details.machines.first() else {
         return super::not_found_response(machine_id);
     };
 
-    let mut machines = vec![];
-    let mut dpu_machine_ids = Vec::<MachineId>::new();
-    for interface in host_machine.interfaces.iter() {
-        if interface.primary_interface {
-            if let Some(attached_machine_id) = interface.attached_dpu_machine_id.as_ref() {
-                match get_dpu_machine(state.clone(), attached_machine_id).await {
-                    Ok(attached_machine) => {
-                        dpu_machine_ids.push(attached_machine_id.clone());
-                        machines.push(attached_machine);
-                    }
-                    Err(err) => {
-                        tracing::error!(%attached_machine_id, %err, "get_dpu_machine, skipping");
-                    }
-                }
-            }
-            break;
-        }
-    }
-    machines.push(host_machine.clone());
-    let request = tonic::Request::new(GetSiteExplorationRequest {});
-    let site_managed_hosts = state
-        .get_site_exploration_report(request)
-        .await
-        .map(|response| response.into_inner().managed_hosts)
-        .unwrap_or(vec![]);
-
-    // Find connected devices for this machines
-    let dpu_id_request = tonic::Request::new(forgerpc::MachineIdList {
-        machine_ids: dpu_machine_ids,
-    });
-    let connected_devices = state
-        .find_connected_devices_by_dpu_machine_ids(dpu_id_request)
-        .await
-        .map(|response| response.into_inner().connected_devices)
-        .unwrap_or_default();
-
-    let network_device_ids: HashSet<String> = connected_devices
-        .iter()
-        .filter_map(|d| d.network_device_id.clone())
-        .collect();
-
-    let network_devices = state
-        .find_network_devices_by_device_ids(tonic::Request::new(forgerpc::NetworkDeviceIdList {
-            network_device_ids: network_device_ids.iter().map(|id| id.to_owned()).collect(),
+    let dpu_machines = state
+        .find_machines_by_ids(tonic::Request::new(forgerpc::MachineIdList {
+            machine_ids: host_machine.associated_dpu_machine_ids.clone(),
         }))
         .await
-        .map_or_else(
-            |_err| vec![],
-            |response| response.into_inner().network_devices,
-        );
+        .map(|r| r.into_inner().machines)
+        .inspect_err(|e| {
+            tracing::error!(
+                            %machine_id, %e, "finding associated DPU machines, skipping"
+            )
+        })
+        .unwrap_or_default();
+    let machines: Vec<rpc::Machine> = [vec![host_machine.clone()], dpu_machines].concat();
 
-    let managed_host = utils::get_managed_host_output(
-        &machines,
-        &site_managed_hosts,
-        &connected_devices,
-        &network_devices,
-    )
-    .into_iter()
-    .next()
-    .unwrap(); // safe, there's definitely one machine
+    let managed_host_metadata = ManagedHostMetadata::lookup_from_api(machines, state).await;
+    let managed_host = utils::get_managed_host_output(managed_host_metadata)
+        .into_iter()
+        .next()
+        .unwrap(); // safe, there's definitely one machine
 
     let tmpl: ManagedHostDetail = managed_host.into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
-}
-
-async fn get_dpu_machine<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    state: Arc<Api<C1, C2>>,
-    host_machine_id: &forgerpc::MachineId,
-) -> eyre::Result<forgerpc::Machine> {
-    let request = tonic::Request::new(forgerpc::MachineSearchQuery {
-        id: Some(host_machine_id.clone()),
-        fqdn: None,
-        search_config: Some(forgerpc::MachineSearchConfig {
-            include_dpus: true,
-            ..Default::default()
-        }),
-    });
-
-    let machine_details = state
-        .find_machines(request)
-        .await
-        .map(|response| response.into_inner())?;
-
-    let Some(machine) = machine_details.machines.into_iter().next() else {
-        return Err(eyre::eyre!("Machine not found: {host_machine_id}"));
-    };
-
-    if machine.machine_type() == forgerpc::MachineType::Dpu {
-        Ok(machine)
-    } else {
-        Err(eyre::eyre!("Unexpected machine type"))
-    }
 }
 
 #[derive(Deserialize, Debug)]

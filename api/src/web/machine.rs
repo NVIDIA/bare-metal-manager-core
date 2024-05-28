@@ -38,7 +38,7 @@ struct MachineRowDisplay {
     id: String,
     state: String,
     time_in_state: String,
-    associated_dpu_id: String,
+    associated_dpu_ids: Vec<String>,
     associated_host_id: String,
     sys_vendor: String,
     product_serial: String,
@@ -84,10 +84,11 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             ip_address,
             mac_address,
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
-            associated_dpu_id: m
-                .associated_dpu_machine_id
-                .map(|id| id.id)
-                .unwrap_or_default(),
+            associated_dpu_ids: m
+                .associated_dpu_machine_ids
+                .into_iter()
+                .map(|i| i.id)
+                .collect(),
             associated_host_id: m
                 .associated_host_machine_id
                 .map(|id| id.id)
