@@ -23,8 +23,9 @@ use arc_swap::ArcSwap;
 use carbide::{
     api::Api,
     cfg::{
-        default_dpu_models, CarbideConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-        MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
+        default_dpu_models, CarbideConfig, FirmwareGlobal, FirmwareHost, IbFabricMonitorConfig,
+        IbPartitionStateControllerConfig, MachineStateControllerConfig,
+        NetworkSegmentStateControllerConfig, StateControllerConfig,
     },
     db::machine::Machine,
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
@@ -378,6 +379,14 @@ pub fn get_config() -> CarbideConfig {
             run_interval: std::time::Duration::from_secs(10),
         },
         dpu_models: default_dpu_models(),
+        host_models: HashMap::from([("1".to_string(), FirmwareHost::example1())]),
+        firmware_global: FirmwareGlobal {
+            autoupdate: true,
+            host_enable_autoupdate: vec![],
+            host_disable_autoupdate: vec![],
+            max_uploads: 4,
+            run_interval: Duration::seconds(30),
+        },
     }
 }
 

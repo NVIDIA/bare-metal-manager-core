@@ -15,7 +15,7 @@ clap = { workspace = true }
 chrono = "*"
 eyre = "*"
 libredfish = { workspace = true }
-hyper = { version = "0.14.27", features=["full"]}
+hyper = { version = "0.14.27", features = ["full"] }
 http = { version = "0.2.9" }
 opentelemetry = { version = "0.21.0", features = ["logs"] }
 opentelemetry-semantic-conventions = "0.13.0"

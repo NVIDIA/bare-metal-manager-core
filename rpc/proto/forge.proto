@@ -358,6 +358,10 @@ message RuntimeConfig {
     bool dpu_dhcp_server_enabled = 24;
     bool nvue_enabled = 25;
     uint32 max_database_connections = 26;
+
+    bool auto_host_firmware_update = 27;
+    repeated string host_enable_autoupdate = 28;
+    repeated string host_disable_autoupdate = 29;
  }
 
 message MachineId {

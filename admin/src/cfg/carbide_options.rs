@@ -417,6 +417,12 @@ pub enum RedfishCommand {
     /// - the generated string will meet the uefi password requirements of all vendors
     GenerateHostUefiPassword,
     GetManager,
+    /// Update host firmware
+    UpdateFirmwareMultipart(Multipart),
+    // Get detailed info on a Redfish task
+    GetTask(Task),
+    // Get a list of Redfish tasks
+    GetTasks,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
@@ -475,6 +481,18 @@ pub struct BmcPassword {
     pub new_password: String,
     #[clap(long, help = "BMC user")]
     pub user: String,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct Multipart {
+    #[clap(long, help = "Local filename for the firmware to be installed")]
+    pub filename: String,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct Task {
+    #[clap(long, help = "Task ID")]
+    pub taskid: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]

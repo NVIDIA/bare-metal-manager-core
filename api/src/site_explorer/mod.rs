@@ -552,7 +552,8 @@ impl SiteExplorer {
         // TODO: We reload the endpoint list even though we just regenerated it
         // Could optimize this by keeping it in memory. But since the manipulations
         // are quite complicated in the previous step, this makes things much easier
-        let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
+        let explored_endpoints =
+            DbExploredEndpoint::find_all_preingestion_complete(&mut txn).await?;
 
         let mut explored_dpus = HashMap::new();
         let mut explored_hosts = HashMap::new();
@@ -1047,6 +1048,7 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::site_explorer::PreingestionState;
 
     fn load_bf2_ep_report() -> EndpointExplorationReport {
         let path = concat!(
@@ -1088,6 +1090,8 @@ mod tests {
             address: "10.217.132.202".parse().unwrap(),
             report: ep_report,
             report_version: ConfigVersion::initial(),
+            preingestion_state: PreingestionState::Initial,
+            waiting_for_explorer_refresh: false,
         };
 
         assert_eq!(
