@@ -501,7 +501,9 @@ mod tests {
         );
 
         // Call it again
-        let res = unsafe { discovery_fetch_machine(builder_ffi, &mut out) };
+        let res = unsafe {
+            discovery_fetch_machine_at(builder_ffi, &mut out, api_server.local_http_addr())
+        };
         // .. still succeeds and is correct
         let machine = unsafe { &*out };
         assert_eq!(res, DiscoveryBuilderResult::Success);
