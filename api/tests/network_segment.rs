@@ -547,13 +547,13 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
     };
 
     for prefix in &[31, 32] {
-        let mut request_ = request.clone();
-        request_.prefixes[0].prefix = format!("192.0.2.21/{}", prefix);
-        match env.api.create_network_segment(Request::new(request_)).await {
+        let mut request = request.clone();
+        request.prefixes[0].prefix = format!("192.0.2.21/{}", prefix);
+        match env.api.create_network_segment(Request::new(request)).await {
             Ok(_) => {
-                return Err(eyre::eyre!(format!(
+                return Err(eyre::format_err!(
                     "{prefix} prefix is not allowed, but still code created segment."
-                )));
+                ));
             }
             Err(status) if status.code() == tonic::Code::InvalidArgument => {}
             Err(err) => {
@@ -591,10 +591,10 @@ async fn test_segment_prefix_in_unconfigured_address_space(
         Ok(segment) => {
             let prefixes = segment.prefixes.iter().map(|p| p.prefix.as_str());
             let prefixes = itertools::join(prefixes, ", ");
-            Err(eyre::eyre!(format!(
+            Err(eyre::format_err!(
                 "The API did not reject our request to create a segment using \
                 prefixes that fall outside of the site's address space: {prefixes}"
-            )))
+            ))
         }
     }
 }

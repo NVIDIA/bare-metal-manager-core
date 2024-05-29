@@ -77,7 +77,7 @@ pub async fn create_network_segment_with_api(
     segment_type: i32,
     num_reserved: i32,
 ) -> rpc::forge::NetworkSegment {
-    let mut request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = rpc::forge::NetworkSegmentCreationRequest {
         id,
         mtu: Some(1500),
         name: "TEST_SEGMENT".to_string(),
@@ -91,17 +91,11 @@ pub async fn create_network_segment_with_api(
             circuit_id: None,
             free_ip_count: 0,
         }],
-        subdomain_id: None,
-        vpc_id: None,
+        subdomain_id: use_subdomain.then(|| FIXTURE_CREATED_DOMAIN_UUID.into()),
+        vpc_id: use_vpc.then(|| FIXTURE_CREATED_VPC_UUID.into()),
         segment_type,
     };
-    if use_subdomain {
-        request.subdomain_id = Some(FIXTURE_CREATED_DOMAIN_UUID.into());
-    }
 
-    if use_vpc {
-        request.vpc_id = Some(FIXTURE_CREATED_VPC_UUID.into());
-    }
     api.create_network_segment(Request::new(request))
         .await
         .expect("Unable to create network segment")
