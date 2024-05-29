@@ -343,7 +343,29 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
     {
         let mut managed_host_output = ManagedHostOutput::from(machine);
         let mut dpus = Vec::<ManagedHostAttachedDpu>::new();
-        for dpu_machine_id in machine.associated_dpu_machine_ids.iter() {
+
+        // Note: This code is also called by forge-admin-cli to display managed-hosts, which may be
+        // operating against an old API server that doesn't support associated_dpu_machine_ids. If
+        // so, fall back on getting the DPU ID of the primary interface, which is how we did it in
+        // the single-DPU world.
+        let dpu_machine_ids = if !machine.associated_dpu_machine_ids.is_empty() {
+            machine.associated_dpu_machine_ids.clone()
+        } else {
+            machine
+                .interfaces
+                .iter()
+                .filter_map(|i| {
+                    if i.primary_interface {
+                        Some(i.attached_dpu_machine_id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Option<Vec<MachineId>>>()
+                .unwrap_or(vec![])
+        };
+
+        for dpu_machine_id in dpu_machine_ids {
             let Some(dpu_machine) = dpu_map.get(&dpu_machine_id.id) else {
                 tracing::warn!(
                     "Could not find DPU for associated_dpu_machine_id {}",
