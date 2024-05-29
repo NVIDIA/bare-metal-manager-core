@@ -160,6 +160,7 @@ pub async fn discover_dhcp(
         existing_machine,
         parsed_mac,
         parsed_relay,
+        true,
     )
     .await?;
 

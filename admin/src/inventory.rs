@@ -141,10 +141,13 @@ fn get_bmc_info(
     let mut bmc_element: HashMap<String, BmcInfo> = HashMap::new();
     let mut known_ips: Vec<String> = Vec::new();
 
-    let managed_host_map: HashMap<String, String> = managed_hosts
-        .iter()
-        .map(|x| (x.dpu_bmc_ip.clone(), x.host_bmc_ip.clone()))
-        .collect();
+    let mut managed_host_map: HashMap<String, String> = HashMap::new();
+
+    for managed_host in &managed_hosts {
+        for dpu in &managed_host.dpus {
+            managed_host_map.insert(dpu.bmc_ip.clone(), managed_host.host_bmc_ip.clone());
+        }
+    }
 
     for machine in machines {
         let Some(bmc_ip) = machine.bmc_info.as_ref().map(|x| x.ip.clone()) else {
@@ -180,15 +183,17 @@ fn get_bmc_info(
     }
 
     for managed_host in managed_hosts {
-        if !known_ips.contains(&managed_host.dpu_bmc_ip) {
-            // Found a undiscovered dpu bmc ip.
-            bmc_element.insert(
-                format!("{}-undiscovered-bmc", managed_host.dpu_bmc_ip),
-                BmcInfo {
-                    ansible_host: managed_host.dpu_bmc_ip,
-                    host_bmc_ip: Some(managed_host.host_bmc_ip),
-                },
-            );
+        for dpu in managed_host.dpus {
+            if !known_ips.contains(&dpu.bmc_ip) {
+                // Found a undiscovered dpu bmc ip.
+                bmc_element.insert(
+                    format!("{}-undiscovered-bmc", dpu.bmc_ip),
+                    BmcInfo {
+                        ansible_host: dpu.bmc_ip.clone(),
+                        host_bmc_ip: Some(managed_host.host_bmc_ip.clone()),
+                    },
+                );
+            }
         }
     }
 

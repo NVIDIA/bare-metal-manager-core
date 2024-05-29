@@ -27,7 +27,7 @@ use crate::{
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
 /// only be adjusted in a backward compatible fashion.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct EndpointExplorationReport {
     /// The type of the endpoint
@@ -107,17 +107,36 @@ impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ExploredDpu {
+    /// The DPUs BMC IP
+    pub bmc_ip: IpAddr,
+    /// The MAC address that is visible to the host (provided by the DPU)
+    #[serde(with = "serialize_option_display", default)]
+    pub host_pf_mac_address: Option<MacAddress>,
+
+    #[serde(skip)]
+    pub report: EndpointExplorationReport,
+}
+
+impl From<ExploredDpu> for rpc::site_explorer::ExploredDpu {
+    fn from(dpu: ExploredDpu) -> Self {
+        rpc::site_explorer::ExploredDpu {
+            bmc_ip: dpu.bmc_ip.to_string(),
+            host_pf_mac_address: dpu.host_pf_mac_address.map(|m| m.to_string()),
+        }
+    }
+}
+
 /// A combination of DPU and host that was discovered via Site Exploration
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ExploredManagedHost {
     /// The Hosts BMC IP
     pub host_bmc_ip: IpAddr,
-    /// The DPUs BMC IP
-    pub dpu_bmc_ip: IpAddr,
-    /// The MAC address that is visible to the host (provided by the DPU)
-    #[serde(with = "serialize_option_display", default)]
-    pub host_pf_mac_address: Option<MacAddress>,
+    /// Attached DPUs
+    pub dpus: Vec<ExploredDpu>,
 }
 
 /// Serialization methods for types which support FromStr/Display
@@ -156,8 +175,19 @@ impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
     fn from(host: ExploredManagedHost) -> Self {
         rpc::site_explorer::ExploredManagedHost {
             host_bmc_ip: host.host_bmc_ip.to_string(),
-            dpu_bmc_ip: host.dpu_bmc_ip.to_string(),
-            host_pf_mac_address: host.host_pf_mac_address.map(|mac| mac.to_string()),
+            dpus: host
+                .dpus
+                .iter()
+                .map(|d| rpc::site_explorer::ExploredDpu::from(d.clone()))
+                .collect(),
+            dpu_bmc_ip: host
+                .dpus
+                .first()
+                .map_or("".to_string(), |d| d.bmc_ip.to_string()),
+            host_pf_mac_address: host
+                .dpus
+                .first()
+                .and_then(|d| d.host_pf_mac_address.map(|m| m.to_string())),
         }
     }
 }
@@ -185,6 +215,19 @@ impl EndpointExplorationReport {
             service: Vec::new(),
             vendor: None,
             machine_id: None,
+        }
+    }
+
+    pub fn nic_mode(&self) -> Option<NicMode> {
+        if self.is_dpu()
+            && self
+                .systems
+                .first()
+                .is_some_and(|s| s.attributes.nic_mode.is_some())
+        {
+            Some(self.systems[0].attributes.nic_mode.unwrap())
+        } else {
+            None
         }
     }
 
@@ -353,10 +396,11 @@ pub enum EndpointExplorationError {
 }
 
 /// The type of the endpoint
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum EndpointType {
     Bmc,
+    #[default]
     Unknown,
 }
 
@@ -611,13 +655,16 @@ mod tests {
     fn serialize_explored_managed_host() {
         let host = ExploredManagedHost {
             host_bmc_ip: "1.2.3.4".parse().unwrap(),
-            dpu_bmc_ip: "1.2.3.5".parse().unwrap(),
-            host_pf_mac_address: Some("11:22:33:44:55:66".parse().unwrap()),
+            dpus: vec![ExploredDpu {
+                bmc_ip: "1.2.3.5".parse().unwrap(),
+                host_pf_mac_address: Some("11:22:33:44:55:66".parse().unwrap()),
+                report: Default::default(),
+            }],
         };
         let serialized = serde_json::to_string(&host).unwrap();
         assert_eq!(
             serialized,
-            r#"{"HostBmcIp":"1.2.3.4","DpuBmcIp":"1.2.3.5","HostPfMacAddress":"11:22:33:44:55:66"}"#
+            r#"{"HostBmcIp":"1.2.3.4","Dpus":[{"BmcIp":"1.2.3.5","HostPfMacAddress":"11:22:33:44:55:66"}]}"#
         );
         assert_eq!(
             serde_json::from_str::<ExploredManagedHost>(&serialized).unwrap(),
@@ -626,13 +673,16 @@ mod tests {
 
         let host = ExploredManagedHost {
             host_bmc_ip: "1.2.3.4".parse().unwrap(),
-            dpu_bmc_ip: "1.2.3.5".parse().unwrap(),
-            host_pf_mac_address: None,
+            dpus: vec![ExploredDpu {
+                bmc_ip: "1.2.3.5".parse().unwrap(),
+                host_pf_mac_address: None,
+                report: Default::default(),
+            }],
         };
         let serialized = serde_json::to_string(&host).unwrap();
         assert_eq!(
             serialized,
-            r#"{"HostBmcIp":"1.2.3.4","DpuBmcIp":"1.2.3.5","HostPfMacAddress":null}"#
+            r#"{"HostBmcIp":"1.2.3.4","Dpus":[{"BmcIp":"1.2.3.5","HostPfMacAddress":null}]}"#
         );
         assert_eq!(
             serde_json::from_str::<ExploredManagedHost>(&serialized).unwrap(),

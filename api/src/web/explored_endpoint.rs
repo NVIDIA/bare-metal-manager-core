@@ -46,20 +46,9 @@ impl From<SiteExplorationReport> for ExploredEndpointsShow {
                 Err(_) => None,
             };
             let host = host.and_then(|h| h.report.as_ref());
-            // We can only binary search by host because the endpoints list is
-            // sorted by that
-            let dpu = report
-                .endpoints
-                .iter()
-                .find(|ep| ep.address == mh.dpu_bmc_ip);
-            let dpu = dpu.and_then(|dpu| dpu.report.as_ref());
 
             managed_hosts.push(ExploredManagedHostDisplay {
                 host_bmc_ip: mh.host_bmc_ip,
-                dpu_bmc_ip: mh.dpu_bmc_ip,
-                dpu_machine_id: dpu
-                    .map(|report| report.machine_id().to_string())
-                    .unwrap_or_default(),
                 host_vendor: host
                     .map(|report| report.vendor().to_string())
                     .unwrap_or_default(),
@@ -72,21 +61,37 @@ impl From<SiteExplorationReport> for ExploredEndpointsShow {
                             .collect()
                     })
                     .unwrap_or_default(),
-                dpu_serial_numbers: dpu
-                    .map(|report| {
-                        report
-                            .systems
+                dpus: mh
+                    .dpus
+                    .iter()
+                    .map(|d| {
+                        let report = report
+                            .endpoints
                             .iter()
-                            .filter_map(|sys| sys.serial_number.clone())
-                            .collect()
+                            .find(|ep| ep.address == d.bmc_ip)
+                            .and_then(|dpu| dpu.report.as_ref());
+                        ExploredDpuDisplay {
+                            dpu_bmc_ip: d.bmc_ip.clone(),
+                            dpu_machine_id: report
+                                .map(|r| r.machine_id().to_string())
+                                .unwrap_or_default(),
+                            dpu_serial_numbers: report
+                                .map(|r| {
+                                    r.systems
+                                        .iter()
+                                        .filter_map(|sys| sys.serial_number.clone())
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            host_pf_mac: d.host_pf_mac_address.clone().unwrap_or_default(),
+                            dpu_oob_mac: report
+                                .and_then(|r| r.systems.first())
+                                .and_then(|sys| sys.ethernet_interfaces.first())
+                                .and_then(|iface| iface.mac_address.clone())
+                                .unwrap_or_default(),
+                        }
                     })
-                    .unwrap_or_default(),
-                host_pf_mac: mh.host_pf_mac_address.clone().unwrap_or_default(),
-                dpu_oob_mac: dpu
-                    .and_then(|report| report.systems.first())
-                    .and_then(|sys| sys.ethernet_interfaces.first())
-                    .and_then(|iface| iface.mac_address.clone())
-                    .unwrap_or_default(),
+                    .collect(),
             });
         }
 
@@ -97,16 +102,21 @@ impl From<SiteExplorationReport> for ExploredEndpointsShow {
     }
 }
 
-struct ExploredManagedHostDisplay {
-    host_bmc_ip: String,
+struct ExploredDpuDisplay {
     dpu_bmc_ip: String,
     dpu_machine_id: String,
-    host_vendor: String,
     dpu_serial_numbers: Vec<String>,
-    host_serial_numbers: Vec<String>,
     host_pf_mac: String,
     dpu_oob_mac: String,
 }
+
+struct ExploredManagedHostDisplay {
+    host_bmc_ip: String,
+    host_serial_numbers: Vec<String>,
+    host_vendor: String,
+    dpus: Vec<ExploredDpuDisplay>,
+}
+
 struct ExploredEndpointDisplay {
     address: String,
     endpoint_type: String,

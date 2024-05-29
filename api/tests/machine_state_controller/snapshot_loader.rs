@@ -93,6 +93,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
         &mut txn,
         Some(&hardware_info),
         machine.id(),
+        true,
     )
     .await?;
 
