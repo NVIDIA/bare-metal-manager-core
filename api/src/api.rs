@@ -995,10 +995,13 @@ where
                 ))?)
                 .map_err(CarbideError::from)?;
 
-            if let Some(reprovision_requested) = mh_snapshot.dpu_snapshot.reprovision_requested {
-                if let Some(mut status) = snapshot.status {
-                    status.update = Some(reprovision_requested.into());
-                    snapshot.status = Some(status);
+            // TODO: multidpu: Fix it for multiple dpus.
+            for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+                if let Some(reprovision_requested) = &dpu_snapshot.reprovision_requested {
+                    if let Some(mut status) = snapshot.status {
+                        status.update = Some(reprovision_requested.clone().into());
+                        snapshot.status = Some(status);
+                    }
                 }
             }
 
@@ -1036,10 +1039,14 @@ where
         )?)
         .map_err(CarbideError::from)?;
 
-        if let Some(reprovision_requested) = mh_snapshot.dpu_snapshot.reprovision_requested {
-            if let Some(mut status) = snapshot.status {
-                status.update = Some(reprovision_requested.into());
-                snapshot.status = Some(status);
+        // TODO: multidpu: Fix it for multiple dpus.
+        for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+            if let Some(reprovision_requested) = &dpu_snapshot.reprovision_requested {
+                if let Some(mut status) = snapshot.status {
+                    status.update = Some(reprovision_requested.clone().into());
+                    snapshot.status = Some(status);
+                    break;
+                }
             }
         }
 
@@ -1258,16 +1265,17 @@ where
             }
         };
 
-        let loopback_ip = match snapshot.dpu_snapshot.loopback_ip() {
+        // TODO: multidpu: Fix it for multiple dpus.
+        let loopback_ip = match snapshot.dpu_snapshots[0].loopback_ip() {
             Some(ip) => ip,
             None => {
                 return Err(Status::failed_precondition(format!(
                     "DPU {} needs discovery. Does not have a loopback IP yet.",
-                    snapshot.dpu_snapshot.machine_id
+                    snapshot.dpu_snapshots[0].machine_id
                 )));
             }
         };
-        let use_admin_network = snapshot.dpu_snapshot.use_admin_network();
+        let use_admin_network = snapshot.dpu_snapshots[0].use_admin_network();
 
         let admin_interface_rpc =
             ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
@@ -1362,8 +1370,8 @@ where
                 HBN_SINGLE_VLAN_DEVICE.to_string()
             },
             managed_host_config: Some(network_config),
-            managed_host_config_version: snapshot
-                .dpu_snapshot
+            // TODO: multidpu: Fix it for multiple dpus.
+            managed_host_config_version: snapshot.dpu_snapshots[0]
                 .network_config
                 .version
                 .version_string(),
@@ -1719,7 +1727,12 @@ where
         }
 
         // Check if reprovision is requested.
-        if let Some(rr) = snapshot.dpu_snapshot.reprovision_requested {
+        // TODO: multidpu: Fix it for multiple dpus.
+        if snapshot.dpu_snapshots.is_empty() {
+            return Err(CarbideError::GenericError("No DPU found.".to_string()).into());
+        }
+
+        if let Some(rr) = &snapshot.dpu_snapshots[0].reprovision_requested {
             if rr.started_at.is_some() {
                 return Err(CarbideError::DpuReprovisioningInProgress(format!(
                     "Can't reboot host: {}",
@@ -1728,10 +1741,12 @@ where
                 .into());
             }
 
+            // TODO: multidpu: Fix it for multiple dpus.
             if request.apply_updates_on_reboot {
                 // This will trigger DPU reprovisioning/update via state machine.
+                // TODO: multidpu: Move this flag to host.
                 Machine::approve_dpu_reprovision_request(
-                    &snapshot.dpu_snapshot.machine_id,
+                    &snapshot.dpu_snapshots[0].machine_id,
                     &mut txn,
                 )
                 .await
@@ -3614,9 +3629,11 @@ where
             );
             dpu_machine = Some(machine);
         } else {
-            dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, machine.id())
+            dpu_machine = Machine::find_dpus_by_host_machine_id(&mut txn, machine.id())
                 .await
-                .map_err(CarbideError::from)?;
+                .map_err(CarbideError::from)?
+                .first()
+                .cloned();
             tracing::info!(
                 "Found dpu Machine {:?}",
                 dpu_machine.as_ref().map(|m| m.id().to_string())
@@ -4080,13 +4097,9 @@ where
                 "DPU ID provided. Need managed host.",
             ));
         }
-        let dpu_machine = Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id)
+        let dpu_machines = Machine::find_dpus_by_host_machine_id(&mut txn, &machine_id)
             .await
-            .map_err(CarbideError::from)?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "dpu machine for host",
-                id: machine_id.to_string(),
-            })?;
+            .map_err(CarbideError::from)?;
 
         // We set status on both host and dpu machine to make them easier to query from DB
         let mode = match req.operation() {
@@ -4107,22 +4120,27 @@ where
                 MaintenanceMode::On { reference }
             }
             rpc::MaintenanceOperation::Disable => {
-                if dpu_machine.reprovisioning_requested().is_some() {
-                    return Err(Status::invalid_argument(format!(
-                        "Reprovisioning request is set on DPU: {}. Clear it first.",
-                        dpu_machine.id()
-                    )));
+                for dpu_machine in &dpu_machines {
+                    if dpu_machine.reprovisioning_requested().is_some() {
+                        return Err(Status::invalid_argument(format!(
+                            "Reprovisioning request is set on DPU: {}. Clear it first.",
+                            dpu_machine.id()
+                        )));
+                    }
                 }
                 MaintenanceMode::Off
             }
         };
 
-        Machine::set_maintenance_mode(&mut txn, host_machine.id(), mode.clone())
+        Machine::set_maintenance_mode(&mut txn, host_machine.id(), &mode)
             .await
             .map_err(CarbideError::from)?;
-        Machine::set_maintenance_mode(&mut txn, dpu_machine.id(), mode)
-            .await
-            .map_err(CarbideError::from)?;
+
+        for dpu_machine in &dpu_machines {
+            Machine::set_maintenance_mode(&mut txn, dpu_machine.id(), &mode)
+                .await
+                .map_err(CarbideError::from)?;
+        }
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(

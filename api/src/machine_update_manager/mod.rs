@@ -253,7 +253,7 @@ impl MachineUpdateManager {
         Machine::set_maintenance_mode(
             txn,
             &machine_update.host_machine_id,
-            MaintenanceMode::On {
+            &MaintenanceMode::On {
                 reference: reference.to_string(),
             },
         )
@@ -263,7 +263,7 @@ impl MachineUpdateManager {
         Machine::set_maintenance_mode(
             txn,
             &machine_update.dpu_machine_id,
-            MaintenanceMode::On {
+            &MaintenanceMode::On {
                 reference: reference.to_string(),
             },
         )
@@ -276,11 +276,11 @@ impl MachineUpdateManager {
         txn: &mut Transaction<'_, Postgres>,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
-        Machine::set_maintenance_mode(txn, &machine_update.host_machine_id, MaintenanceMode::Off)
+        Machine::set_maintenance_mode(txn, &machine_update.host_machine_id, &MaintenanceMode::Off)
             .await
             .map_err(CarbideError::from)?;
 
-        Machine::set_maintenance_mode(txn, &machine_update.dpu_machine_id, MaintenanceMode::Off)
+        Machine::set_maintenance_mode(txn, &machine_update.dpu_machine_id, &MaintenanceMode::Off)
             .await
             .map_err(CarbideError::from)?;
         Ok(())

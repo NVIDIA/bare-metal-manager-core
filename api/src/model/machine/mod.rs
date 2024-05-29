@@ -32,11 +32,19 @@ pub mod network;
 pub mod upgrade_policy;
 use machine_id::MachineId;
 
+pub fn get_display_ids(machines: &[MachineSnapshot]) -> String {
+    machines
+        .iter()
+        .map(|x| x.machine_id.to_string())
+        .collect::<Vec<String>>()
+        .join("/")
+}
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
 pub struct ManagedHostStateSnapshot {
     pub host_snapshot: MachineSnapshot,
-    pub dpu_snapshot: MachineSnapshot,
+    pub dpu_snapshots: Vec<MachineSnapshot>,
     /// If there is an instance provisioned on top of the machine, this holds
     /// it's state
     pub instance: Option<InstanceSnapshot>,
