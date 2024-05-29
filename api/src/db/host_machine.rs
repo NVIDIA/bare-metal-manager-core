@@ -147,10 +147,11 @@ WHERE mi.machine_id=$1";
         host.advance(txn, new_state.clone(), Some(version)).await?;
 
         // Keep both host and dpu's states in sync.
-        let Some(dpu) = Machine::find_dpu_by_host_machine_id(txn, host_id).await? else {
-            return Ok(());
-        };
-        dpu.advance(txn, new_state, Some(version)).await?;
+        let dpus = Machine::find_dpus_by_host_machine_id(txn, host_id).await?;
+
+        for dpu in dpus {
+            dpu.advance(txn, new_state.clone(), Some(version)).await?;
+        }
         Ok(())
     }
 }

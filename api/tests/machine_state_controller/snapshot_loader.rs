@@ -126,8 +126,12 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
         .await
         .unwrap();
 
-    assert_eq!(snapshot.dpu_snapshot.machine_id, *machine.id());
-    assert_eq!(snapshot.dpu_snapshot.hardware_info.unwrap(), hardware_info);
+    // TODO: multidpu: Fix it for multiple dpus.
+    assert_eq!(snapshot.dpu_snapshots[0].machine_id, *machine.id());
+    assert_eq!(
+        snapshot.dpu_snapshots[0].hardware_info.clone().unwrap(),
+        hardware_info
+    );
 
     // Now try a non-existent DPU. This happens if we force-delete it.
     let missing_dpu_id =

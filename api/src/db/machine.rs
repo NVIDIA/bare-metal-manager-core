@@ -1044,28 +1044,25 @@ SELECT m.id FROM
         Ok(Some(machine))
     }
 
-    pub async fn find_dpu_by_host_machine_id(
+    pub async fn find_dpus_by_host_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         host_machine_id: &MachineId,
-    ) -> Result<Option<Self>, DatabaseError> {
+    ) -> Result<Vec<Self>, DatabaseError> {
         let query = r#"SELECT m.* From machines m
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.attached_dpu_machine_id
                 WHERE mi.machine_id=$1"#;
-        let machine: Option<Self> = sqlx::query_as(query)
+        let mut machine: Vec<Self> = sqlx::query_as(query)
             .bind(host_machine_id.to_string())
-            .fetch_optional(&mut **txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        let mut machine = match machine {
-            Some(machine) => machine,
-            None => return Ok(None),
-        };
+        for m in &mut machine {
+            m.load_related_data(txn).await?;
+        }
 
-        machine.load_related_data(txn).await?;
-
-        Ok(Some(machine))
+        Ok(machine)
     }
 
     /// Only does the update if the passed observation is newer than any existing one
@@ -1270,7 +1267,7 @@ SELECT m.id FROM
     pub async fn set_maintenance_mode(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
-        mode: MaintenanceMode,
+        mode: &MaintenanceMode,
     ) -> Result<(), DatabaseError> {
         match mode {
             MaintenanceMode::On { reference } => {

@@ -84,19 +84,10 @@ pub struct DbSnapshotLoader;
 
 pub async fn get_machine_snapshot(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    machine_id: &MachineId,
+    machine: &Machine,
 ) -> Result<MachineSnapshot, SnapshotLoaderError> {
-    let machine = Machine::find_one(
-        txn,
-        machine_id,
-        crate::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
-    .ok_or(SnapshotLoaderError::MachineNotFound(machine_id.clone()))?;
-
     let snapshot = MachineSnapshot {
-        machine_id: machine_id.clone(),
+        machine_id: machine.id().clone(),
         bmc_info: machine.bmc_info().clone(),
         bmc_vendor: machine.bmc_vendor(),
         hardware_info: machine.hardware_info().cloned(),
@@ -175,40 +166,45 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &MachineId,
     ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError> {
-        let host_machine_id = if machine_id.machine_type().is_dpu() {
+        let host_machine = if machine_id.machine_type().is_dpu() {
             Machine::find_host_by_dpu_machine_id(txn, machine_id)
                 .await
                 .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
                 .ok_or_else(|| SnapshotLoaderError::HostNotFound(machine_id.clone()))?
-                .id()
-                .clone()
         } else {
-            machine_id.clone()
-        };
-
-        let Some(dpu) = Machine::find_dpu_by_host_machine_id(txn, &host_machine_id)
+            Machine::find_one(
+                txn,
+                machine_id,
+                crate::db::machine::MachineSearchConfig::default(),
+            )
             .await
             .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
-        else {
-            return Err(SnapshotLoaderError::HostNotFound(host_machine_id.clone()));
+            .ok_or_else(|| SnapshotLoaderError::HostNotFound(machine_id.clone()))?
         };
 
-        // TODO: We just loaded all the DPU data. And now we are going to load it again
-        let dpu_snapshot = get_machine_snapshot(txn, dpu.id()).await?;
-        let instance_id = Instance::find_id_by_machine_id(txn, &host_machine_id).await?;
+        let dpus = Machine::find_dpus_by_host_machine_id(txn, host_machine.id())
+            .await
+            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
+
+        let host_snapshot = get_machine_snapshot(txn, &host_machine).await?;
+
+        let mut dpu_snapshots: Vec<MachineSnapshot> = Vec::new();
+        for dpu in &dpus {
+            dpu_snapshots.push(get_machine_snapshot(txn, dpu).await?);
+        }
+        let instance_id = Instance::find_id_by_machine_id(txn, host_machine.id()).await?;
         let instance_snapshot = match instance_id {
             Some(instance_id) => Some(
-                self.load_instance_snapshot(txn, instance_id, dpu_snapshot.current.state.clone())
+                self.load_instance_snapshot(txn, instance_id, host_snapshot.current.state.clone())
                     .await?,
             ),
             None => None,
         };
 
-        let host_snapshot = get_machine_snapshot(txn, &host_machine_id).await?;
         let managed_state = host_snapshot.current.state.clone();
         let snapshot = ManagedHostStateSnapshot {
             host_snapshot,
-            dpu_snapshot: dpu_snapshot.clone(),
+            dpu_snapshots,
             instance: instance_snapshot,
             managed_state,
         };

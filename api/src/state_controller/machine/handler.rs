@@ -43,6 +43,7 @@ use crate::{
             },
         },
         machine::{
+            get_display_ids,
             machine_id::MachineId,
             network::HealthStatus,
             BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, FailureCause,
@@ -111,14 +112,12 @@ impl MachineStateHandler {
         state: &mut ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<MachineStateHandlerContextObjects>,
     ) {
-        ctx.metrics.dpu_firmware_version = state
-            .dpu_snapshot
+        ctx.metrics.dpu_firmware_version = state.dpu_snapshots[0]
             .hardware_info
             .as_ref()
             .and_then(|hi| hi.dpu_info.as_ref().map(|di| di.firmware_version.clone()));
         ctx.metrics.machine_inventory_component_versions.extend(
-            state
-                .dpu_snapshot
+            state.dpu_snapshots[0]
                 .inventory
                 .clone()
                 .components
@@ -132,8 +131,8 @@ impl MachineStateHandler {
         );
 
         // Update DPU network health Prometheus metrics
-        ctx.metrics.dpu_healthy = state.dpu_snapshot.has_healthy_network();
-        if let Some(observation) = state.dpu_snapshot.network_status_observation.as_ref() {
+        ctx.metrics.dpu_healthy = state.dpu_snapshots[0].has_healthy_network();
+        if let Some(observation) = state.dpu_snapshots[0].network_status_observation.as_ref() {
             ctx.metrics.agent_version = observation.agent_version.clone();
             ctx.metrics.dpu_up =
                 Utc::now().signed_duration_since(observation.observed_at) <= self.dpu_up_threshold;
@@ -157,35 +156,42 @@ impl MachineStateHandler {
         let managed_state = &state.managed_state;
 
         // If it's been more than 5 minutes since DPU reported status, consider it unhealthy
-        if state.dpu_snapshot.has_healthy_network() {
-            if let Some(mut observation) =
-                state.dpu_snapshot.network_status_observation.clone().take()
-            {
-                let observed_at = observation.observed_at;
-                let since_last_seen = Utc::now().signed_duration_since(observed_at);
-                if since_last_seen > self.dpu_up_threshold {
-                    observation.health_status = HealthStatus {
-                        is_healthy: false,
-                        passed: vec![],
-                        failed: vec!["HeartbeatTimeout".to_string()],
-                        message: Some(format!("Last seen over {} ago", self.dpu_up_threshold)),
-                    };
-                    observation.observed_at = Utc::now();
-                    let dpu_machine_id = &state.dpu_snapshot.machine_id;
-                    Machine::update_network_status_observation(txn, dpu_machine_id, &observation)
+        for dpu_snapshot in &state.dpu_snapshots {
+            if dpu_snapshot.has_healthy_network() {
+                if let Some(mut observation) =
+                    dpu_snapshot.network_status_observation.clone().take()
+                {
+                    let observed_at = observation.observed_at;
+                    let since_last_seen = Utc::now().signed_duration_since(observed_at);
+                    if since_last_seen > self.dpu_up_threshold {
+                        observation.health_status = HealthStatus {
+                            is_healthy: false,
+                            passed: vec![],
+                            failed: vec!["HeartbeatTimeout".to_string()],
+                            message: Some(format!("Last seen over {} ago", self.dpu_up_threshold)),
+                        };
+                        observation.observed_at = Utc::now();
+                        let dpu_machine_id = &dpu_snapshot.machine_id;
+                        Machine::update_network_status_observation(
+                            txn,
+                            dpu_machine_id,
+                            &observation,
+                        )
                         .await?;
-                    tracing::warn!(
+                        tracing::warn!(
                         host_machine_id = %host_machine_id,
                         dpu_machine_id = %dpu_machine_id,
                         last_seen = %observed_at,
                         "DPU is not sending network status observations, marking unhealthy");
-                    // The next iteration will run with the now unhealthy network
-                    return Ok(StateHandlerOutcome::DoNothing);
+                        // The next iteration will run with the now unhealthy network
+                        return Ok(StateHandlerOutcome::DoNothing);
+                    }
                 }
             }
         }
 
-        if let Some(reprov_request) = &state.dpu_snapshot.reprovision_requested {
+        // TODO: multidpu: Check for all DPUs
+        if let Some(reprov_request) = &state.dpu_snapshots[0].reprovision_requested {
             // Reprovision is started and user requested for restart of reprovision.
             if reprov_request.started_at.is_some()
                 && dpu_reprovision_restart_requested_after_state_transition(
@@ -217,7 +223,7 @@ impl MachineStateHandler {
                     %machine_id,
                     "ManagedHost {}/{} (failed machine: {}) is moved to Failed state with cause: {:?}",
                     state.host_snapshot.machine_id,
-                    state.dpu_snapshot.machine_id,
+                    get_display_ids(&state.dpu_snapshots),
                     machine_id,
                     details
                 );
@@ -250,12 +256,16 @@ impl MachineStateHandler {
 
             ManagedHostState::Ready => {
                 // Check if DPU reprovisionig is requested
+                // TODO: multidpu: Check for all DPUs
                 if let Some(reprovisioning_requested) =
-                    dpu_reprovisioning_needed(&state.dpu_snapshot)
+                    dpu_reprovisioning_needed(&state.dpu_snapshots[0])
                 {
-                    restart_machine(&state.dpu_snapshot, ctx.services, txn).await?;
-                    Machine::update_dpu_reprovision_start_time(&state.dpu_snapshot.machine_id, txn)
-                        .await?;
+                    restart_machine(&state.dpu_snapshots[0], ctx.services, txn).await?;
+                    Machine::update_dpu_reprovision_start_time(
+                        &state.dpu_snapshots[0].machine_id,
+                        txn,
+                    )
+                    .await?;
                     let next_state = ManagedHostState::DPUReprovision {
                         reprovision_state: if reprovisioning_requested.update_firmware {
                             ReprovisionState::FirmwareUpgrade
@@ -271,16 +281,19 @@ impl MachineStateHandler {
                 if state.instance.is_some() {
                     // Instance is requested by user. Let's configure it.
 
+                    // TODO: multidpu: Check for all DPUs
                     // Switch to using the network we just created for the tenant
-                    let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();
-                    netconf.use_admin_network = Some(false);
-                    Machine::try_update_network_config(
-                        txn,
-                        &state.dpu_snapshot.machine_id,
-                        version,
-                        &netconf,
-                    )
-                    .await?;
+                    for dpu_snapshot in &state.dpu_snapshots {
+                        let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
+                        netconf.use_admin_network = Some(false);
+                        Machine::try_update_network_config(
+                            txn,
+                            &dpu_snapshot.machine_id,
+                            version,
+                            &netconf,
+                        )
+                        .await?;
+                    }
 
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkConfig,
@@ -542,8 +555,10 @@ impl MachineStateHandler {
             }
             _ => {}
         };
+
+        // TODO: multidpu: Check for all DPUs
         if next_state.is_some() {
-            restart_machine(&state.dpu_snapshot, ctx.services, txn).await?;
+            restart_machine(&state.dpu_snapshots[0], ctx.services, txn).await?;
             return Ok(next_state);
         }
 
@@ -566,24 +581,29 @@ fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
 }
 
 /// if dpu_agent has responded health after dpu is rebooted, return true.
-fn is_dpu_up(state: &ManagedHostStateSnapshot) -> bool {
-    let observation_time = state
-        .dpu_snapshot
-        .network_status_observation
-        .as_ref()
-        .map(|o| o.observed_at)
-        .unwrap_or(DateTime::<Utc>::MIN_UTC);
-    let state_change_time = state.host_snapshot.current.version.timestamp();
+fn dpus_up(state: &ManagedHostStateSnapshot) -> bool {
+    for dpu_snapshot in &state.dpu_snapshots {
+        let observation_time = dpu_snapshot
+            .network_status_observation
+            .as_ref()
+            .map(|o| o.observed_at)
+            .unwrap_or(DateTime::<Utc>::MIN_UTC);
+        let state_change_time = state.host_snapshot.current.version.timestamp();
 
-    observation_time >= state_change_time
+        if observation_time < state_change_time {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn is_dpu_up_and_network_ready(state: &ManagedHostStateSnapshot) -> bool {
-    if !is_dpu_up(state) {
+    if !dpus_up(state) {
         return false;
     }
 
-    if !is_network_ready(&state.dpu_snapshot) {
+    if !is_network_ready(&state.dpu_snapshots) {
         return false;
     }
 
@@ -605,6 +625,11 @@ impl StateHandler for MachineStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        if state.dpu_snapshots.is_empty() {
+            return Err(StateHandlerError::GenericError(eyre!(
+                "No DPU snapshot found."
+            )));
+        }
         self.record_metrics(state, ctx);
         self.attempt_state_transition(host_machine_id, state, controller_state, txn, ctx)
             .await
@@ -620,12 +645,13 @@ async fn handle_dpu_reprovision(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     next_state_resolver: &impl NextReprovisionState,
 ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+    // TODO: multidpu: Check for all DPUs
     match reprovision_state {
         ReprovisionState::FirmwareUpgrade => {
             // Firmware upgrade is going on.
-            if !rebooted(&state.dpu_snapshot) {
+            if !rebooted(&state.dpu_snapshots[0]) {
                 trigger_reboot_if_needed(
-                    &state.dpu_snapshot,
+                    &state.dpu_snapshots[0],
                     &state.host_snapshot,
                     None,
                     reachability_params,
@@ -717,9 +743,12 @@ async fn handle_dpu_reprovision(
             }
 
             // Clear reprovisioning state.
-            Machine::clear_dpu_reprovisioning_request(txn, &state.dpu_snapshot.machine_id, false)
-                .await
-                .map_err(StateHandlerError::from)?;
+            for dpu_snapshot in &state.dpu_snapshots {
+                Machine::clear_dpu_reprovisioning_request(txn, &dpu_snapshot.machine_id, false)
+                    .await
+                    .map_err(StateHandlerError::from)?;
+            }
+
             handler_host_power_control(
                 &state.host_snapshot,
                 services,
@@ -746,12 +775,13 @@ async fn try_wait_for_dpu_discovery_and_reboot(
     // We are waiting for the `DiscoveryCompleted` RPC call to update the
     // `last_discovery_time` timestamp.
     // This indicates that all forge-scout actions have succeeded.
+    // TODO: multidpu: Check for all DPUs
     if !discovered_after_state_transition(
-        state.dpu_snapshot.current.version,
-        state.dpu_snapshot.last_discovery_time,
+        state.dpu_snapshots[0].current.version,
+        state.dpu_snapshots[0].last_discovery_time,
     ) {
         let _status = trigger_reboot_if_needed(
-            &state.dpu_snapshot,
+            &state.dpu_snapshots[0],
             &state.host_snapshot,
             None,
             reachability_params,
@@ -766,7 +796,7 @@ async fn try_wait_for_dpu_discovery_and_reboot(
         return Ok(Poll::Pending);
     }
 
-    restart_machine(&state.dpu_snapshot, services, txn).await?;
+    restart_machine(&state.dpu_snapshots[0], services, txn).await?;
 
     Ok(Poll::Ready(()))
 }
@@ -776,13 +806,17 @@ async fn set_managed_host_topology_update_needed(
     state: &ManagedHostStateSnapshot,
 ) -> Result<(), StateHandlerError> {
     //Update it for host and DPU both.
-    MachineTopology::set_topology_update_needed(txn, &state.dpu_snapshot.machine_id, true).await?;
+    for dpu_snapshot in &state.dpu_snapshots {
+        MachineTopology::set_topology_update_needed(txn, &dpu_snapshot.machine_id, true).await?;
+    }
     MachineTopology::set_topology_update_needed(txn, &state.host_snapshot.machine_id, true).await?;
     Ok(())
 }
 
 /// This function returns failure cause for both host and dpu.
 fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, FailureDetails)> {
+    // TODO: multidpu: Check for all DPUs
+    // TODO: This might return HashMap<dpu_id, failure> to handle failure from all dpus.
     // Return updated state only for errors which should cause machine to move into failed
     // state.
     if state.host_snapshot.failure_details.cause != FailureCause::NoError {
@@ -790,10 +824,10 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
             state.host_snapshot.machine_id.clone(),
             state.host_snapshot.failure_details.clone(),
         ))
-    } else if state.dpu_snapshot.failure_details.cause != FailureCause::NoError {
+    } else if state.dpu_snapshots[0].failure_details.cause != FailureCause::NoError {
         Some((
-            state.dpu_snapshot.machine_id.clone(),
-            state.dpu_snapshot.failure_details.clone(),
+            state.dpu_snapshots[0].machine_id.clone(),
+            state.dpu_snapshots[0].failure_details.clone(),
         ))
     } else {
         None
@@ -822,8 +856,8 @@ impl DpuMachineStateHandler {
     }
     /// Return `DpuModel` if the explored endpoint is a DPU
     pub fn identify_dpu(&self, state: &mut ManagedHostStateSnapshot) -> DpuModel {
-        let model = state
-            .dpu_snapshot
+        // TODO: multidpu: Check for all DPUs
+        let model = state.dpu_snapshots[0]
             .hardware_info
             .as_ref()
             .and_then(|hi| {
@@ -953,7 +987,8 @@ impl StateHandler for DpuMachineStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let dpu_machine_id = &state.dpu_snapshot.machine_id.clone();
+        // TODO: multidpu: Check for all DPUs
+        let dpu_machine_id = &state.dpu_snapshots[0].machine_id.clone();
         match &state.managed_state {
             ManagedHostState::DpuDiscoveringState {
                 discovering_state: DpuDiscoveringState::Initializing,
@@ -962,8 +997,13 @@ impl StateHandler for DpuMachineStateHandler {
                     .services
                     .redfish_client_pool
                     .create_client(
-                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
-                        state.dpu_snapshot.bmc_info.port,
+                        state.dpu_snapshots[0]
+                            .bmc_info
+                            .ip
+                            .as_ref()
+                            .unwrap()
+                            .as_str(),
+                        state.dpu_snapshots[0].bmc_info.port,
                         CredentialKey::DpuRedfish {
                             credential_type: CredentialType::SiteDefault,
                         },
@@ -1051,7 +1091,12 @@ impl StateHandler for DpuMachineStateHandler {
                     .services
                     .redfish_client_pool
                     .create_client(
-                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
+                        state.dpu_snapshots[0]
+                            .bmc_info
+                            .ip
+                            .as_ref()
+                            .unwrap()
+                            .as_str(),
                         None,
                         CredentialKey::DpuRedfish {
                             credential_type: CredentialType::Machine {
@@ -1156,7 +1201,12 @@ impl StateHandler for DpuMachineStateHandler {
                     .services
                     .redfish_client_pool
                     .create_client(
-                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
+                        state.dpu_snapshots[0]
+                            .bmc_info
+                            .ip
+                            .as_ref()
+                            .unwrap()
+                            .as_str(),
                         None,
                         CredentialKey::DpuRedfish {
                             credential_type: CredentialType::Machine {
@@ -1190,8 +1240,13 @@ impl StateHandler for DpuMachineStateHandler {
                     .services
                     .redfish_client_pool
                     .create_client(
-                        state.dpu_snapshot.bmc_info.ip.as_ref().unwrap().as_str(),
-                        state.dpu_snapshot.bmc_info.port,
+                        state.dpu_snapshots[0]
+                            .bmc_info
+                            .ip
+                            .as_ref()
+                            .unwrap()
+                            .as_str(),
+                        state.dpu_snapshots[0].bmc_info.port,
                         CredentialKey::DpuRedfish {
                             credential_type: CredentialType::Machine {
                                 machine_id: dpu_machine_id.to_string(),
@@ -1293,9 +1348,10 @@ impl StateHandler for DpuMachineStateHandler {
                 let next_state = if self.dpu_nic_firmware_initial_update_enabled {
                     // the initial topology may be based on a different firmware version.  allow it to be
                     // updated once the reboot completes and sends new data.
+                    // TODO: multidpu: Check for all DPUs
                     MachineTopology::set_topology_update_needed(
                         txn,
-                        &state.dpu_snapshot.machine_id,
+                        &state.dpu_snapshots[0].machine_id,
                         true,
                     )
                     .await?;
@@ -1313,9 +1369,10 @@ impl StateHandler for DpuMachineStateHandler {
                 machine_state: MachineState::WaitingForNetworkInstall,
             } => {
                 // rebooted from the init state, where firmware is updated and scout is running.
-                if !rebooted(&state.dpu_snapshot) {
+                // TODO: multidpu: Check for all DPUs
+                if !rebooted(&state.dpu_snapshots[0]) {
                     let status = trigger_reboot_if_needed(
-                        &state.dpu_snapshot,
+                        &state.dpu_snapshots[0],
                         &state.host_snapshot,
                         None,
                         &self.reachability_params,
@@ -1328,7 +1385,7 @@ impl StateHandler for DpuMachineStateHandler {
                 }
 
                 // hbn needs a restart to be able to come online, second reboot of dpu discovery
-                restart_machine(&state.dpu_snapshot, ctx.services, txn).await?;
+                restart_machine(&state.dpu_snapshots[0], ctx.services, txn).await?;
 
                 let next_state = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkConfig,
@@ -1338,7 +1395,7 @@ impl StateHandler for DpuMachineStateHandler {
             ManagedHostState::DPUNotReady {
                 machine_state: MachineState::WaitingForNetworkConfig,
             } => {
-                if !is_network_ready(&state.dpu_snapshot) {
+                if !is_network_ready(&state.dpu_snapshots) {
                     // TODO: Make is_network_ready give us more details as a string
                     return Ok(StateHandlerOutcome::Wait(
                         "Waiting for DPU agent to apply network config and report healthy network"
@@ -1587,22 +1644,28 @@ impl HostMachineStateHandler {
 
 /// 1. Has the network config version that the host wants been applied by DPU?
 /// 2. Is HBN reporting the network is healthy?
-fn is_network_ready(dpu_snapshot: &MachineSnapshot) -> bool {
-    let dpu_expected_version = dpu_snapshot.network_config.version;
-    let dpu_observation = dpu_snapshot.network_status_observation.as_ref();
-    let dpu_observed_version: ConfigVersion = match dpu_observation {
-        None => {
-            return false;
-        }
-        Some(network_status) => match network_status.network_config_version {
+fn is_network_ready(dpu_snapshots: &[MachineSnapshot]) -> bool {
+    for dpu_snapshot in dpu_snapshots {
+        let dpu_expected_version = dpu_snapshot.network_config.version;
+        let dpu_observation = dpu_snapshot.network_status_observation.as_ref();
+        let dpu_observed_version: ConfigVersion = match dpu_observation {
             None => {
                 return false;
             }
-            Some(version) => version,
-        },
-    };
+            Some(network_status) => match network_status.network_config_version {
+                None => {
+                    return false;
+                }
+                Some(version) => version,
+            },
+        };
 
-    (dpu_expected_version == dpu_observed_version) && dpu_snapshot.has_healthy_network()
+        if dpu_expected_version != dpu_observed_version || !dpu_snapshot.has_healthy_network() {
+            return false;
+        }
+    }
+
+    true
 }
 
 async fn handle_host_waitingfordiscovery(
@@ -1656,14 +1719,14 @@ impl StateHandler for HostMachineStateHandler {
                 }
                 MachineState::WaitingForDiscovery => {
                     if !discovered_after_state_transition(
-                        state.dpu_snapshot.current.version,
+                        state.host_snapshot.current.version,
                         state.host_snapshot.last_discovery_time,
                     ) {
                         tracing::trace!(
                             "Waiting for forge-scout to report host online. \
                                          Host last seen {:?}, must come after DPU's {}",
                             state.host_snapshot.last_discovery_time,
-                            state.dpu_snapshot.current.version.timestamp()
+                            state.host_snapshot.current.version.timestamp()
                         );
                         let status = trigger_reboot_if_needed(
                             &state.host_snapshot,
@@ -1733,7 +1796,7 @@ impl StateHandler for HostMachineStateHandler {
                         }
                         LockdownState::WaitForDPUUp => {
                             // Has forge-dpu-agent reported state? That means DPU is up.
-                            if is_dpu_up(state) {
+                            if dpus_up(state) {
                                 // reboot host
                                 // When forge changes BIOS params (for lockdown enable/disable both), host does a power cycle.
                                 // During power cycle, DPU also reboots. Now DPU and Host are coming up together. Since DPU is not ready yet,
@@ -1835,7 +1898,7 @@ impl StateHandler for InstanceStateHandler {
                     // reboot and jump to BootingWithDiscoveryImage
 
                     // Check DPU network config has been applied
-                    if !is_network_ready(&state.dpu_snapshot) {
+                    if !is_network_ready(&state.dpu_snapshots) {
                         return Ok(StateHandlerOutcome::Wait(
                             "Waiting for DPU agent to apply network config and report healthy network"
                                 .to_string(),
@@ -1889,8 +1952,9 @@ impl StateHandler for InstanceStateHandler {
 
                     // Wait for user's approval. Once user approves for dpu
                     // reprovision/update firmware, trigger it.
+                    // TODO: multidpu: Check for all DPUs
                     let reprov_needed = if let Some(reprovisioning_requested) =
-                        dpu_reprovisioning_needed(&state.dpu_snapshot)
+                        dpu_reprovisioning_needed(&state.dpu_snapshots[0])
                     {
                         reprovisioning_requested.user_approval_received
                     } else {
@@ -1901,7 +1965,7 @@ impl StateHandler for InstanceStateHandler {
                         if reprov_needed {
                             // User won't be allowed to clear reprovisioning flag after this.
                             Machine::update_dpu_reprovision_start_time(
-                                &state.dpu_snapshot.machine_id,
+                                &state.dpu_snapshots[0].machine_id,
                                 txn,
                             )
                             .await?;
@@ -1982,13 +2046,14 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     // If we are here, DPU reprov MUST have been be requested.
+                    // TODO: multidpu: Check for all DPUs
                     if let Some(reprovisioning_requested) =
-                        dpu_reprovisioning_needed(&state.dpu_snapshot)
+                        dpu_reprovisioning_needed(&state.dpu_snapshots[0])
                     {
                         // If we are here, it is definitely because user has already given
                         // approval, but a repeat check doesn't harm anyway.
                         if reprovisioning_requested.user_approval_received {
-                            restart_machine(&state.dpu_snapshot, ctx.services, txn).await?;
+                            restart_machine(&state.dpu_snapshots[0], ctx.services, txn).await?;
                             let next_state = ManagedHostState::Assigned {
                                 instance_state: InstanceState::DPUReprovision {
                                     reprovision_state: if reprovisioning_requested.update_firmware
@@ -2015,15 +2080,17 @@ impl StateHandler for InstanceStateHandler {
 
                 InstanceState::SwitchToAdminNetwork => {
                     // Tenant is gone and so is their network, switch back to admin network
-                    let (mut netconf, version) = state.dpu_snapshot.network_config.clone().take();
-                    netconf.use_admin_network = Some(true);
-                    Machine::try_update_network_config(
-                        txn,
-                        &state.dpu_snapshot.machine_id,
-                        version,
-                        &netconf,
-                    )
-                    .await?;
+                    for dpu_snapshot in &state.dpu_snapshots {
+                        let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
+                        netconf.use_admin_network = Some(true);
+                        Machine::try_update_network_config(
+                            txn,
+                            &dpu_snapshot.machine_id,
+                            version,
+                            &netconf,
+                        )
+                        .await?;
+                    }
 
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkReconfig,
@@ -2032,7 +2099,7 @@ impl StateHandler for InstanceStateHandler {
                 }
                 InstanceState::WaitingForNetworkReconfig => {
                     // Has forge-dpu-agent written the network config?
-                    if !is_network_ready(&state.dpu_snapshot) {
+                    if !is_network_ready(&state.dpu_snapshots) {
                         return Ok(StateHandlerOutcome::Wait(
                             "Waiting for DPU agent to apply network config and report healthy network"
                                 .to_string(),

@@ -193,18 +193,18 @@ pub async fn allocate_instance(
     }
 
     // HBN must be working on the DPU before we allow an instance
-    match Machine::find_dpu_by_host_machine_id(&mut txn, &machine_id).await? {
-        Some(dpu_machine) => {
-            if let Ok(false) = dpu_machine.has_healthy_network() {
-                tracing::error!(%machine_id, "DPU with unhealthy network. Instance will have issues.");
-                // TODO(gk) Return this error once this is done: https://jirasw.nvidia.com/browse/FORGE-2243
-                //return Err(CarbideError::UnhealthyNetwork);
-            }
-        }
-        None => {
-            return Err(CarbideError::GenericError(format!(
-                "Machine {machine_id} has no DPU. Cannot allocate."
-            )));
+    let dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+    if dpus.is_empty() {
+        return Err(CarbideError::GenericError(format!(
+            "Machine {machine_id} has no DPU. Cannot allocate."
+        )));
+    }
+
+    for dpu in dpus {
+        if let Ok(false) = dpu.has_healthy_network() {
+            tracing::error!(%machine_id, "DPU {} with unhealthy network. Instance will have issues.", dpu.id());
+            // TODO(gk) Return this error once this is done: https://jirasw.nvidia.com/browse/FORGE-2243
+            //return Err(CarbideError::UnhealthyNetwork);
         }
     }
 

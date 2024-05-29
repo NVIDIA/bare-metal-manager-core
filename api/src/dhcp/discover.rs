@@ -45,26 +45,24 @@ async fn validate_dhcp_request(
         .map_err(CarbideError::from)?;
 
     let Some(remote_id) = remote_id else {
-        //TODO: This has to be fixed in next release when all DPU are re-provisioned with latest
-        //dpu-agent.
         tracing::error!(
             host_machine_id = %host_machine_id,
-            dpu_machine_id = %snapshot.dpu_snapshot.machine_id,
-            "Remote id missing for instance. DPU needs to be reprovisioned. In future release, this will break DHCP.",
+            "Remote id missing for instance.",
         );
         return Ok(());
     };
 
-    let expected_remote_id = snapshot.dpu_snapshot.machine_id.remote_id();
+    for dpu_snapshot in snapshot.dpu_snapshots {
+        let expected_remote_id = dpu_snapshot.machine_id.remote_id();
 
-    if expected_remote_id != remote_id {
-        return Err(CarbideError::InvalidArgument(format!(
-            "Mismatch in remote id. Expected: {}, received: {}",
-            expected_remote_id, remote_id,
-        )));
+        if expected_remote_id == remote_id {
+            return Ok(());
+        }
     }
-
-    Ok(())
+    Err(CarbideError::InvalidArgument(format!(
+        "Mismatch in remote id. Remote id: {} is not matching with any DPU.",
+        remote_id,
+    )))
 }
 
 async fn handle_dhcp_for_instance(

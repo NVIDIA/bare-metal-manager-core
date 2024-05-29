@@ -391,7 +391,7 @@ async fn test_get_machines_in_maintenance(
     Machine::set_maintenance_mode(
         &mut txn,
         &host_machine_id2,
-        MaintenanceMode::On {
+        &MaintenanceMode::On {
             reference: "testing".to_owned(),
         },
     )
@@ -401,7 +401,7 @@ async fn test_get_machines_in_maintenance(
     Machine::set_maintenance_mode(
         &mut txn,
         &dpu_machine_id2,
-        MaintenanceMode::On {
+        &MaintenanceMode::On {
             reference: "testing".to_owned(),
         },
     )
