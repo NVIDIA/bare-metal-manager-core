@@ -183,6 +183,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         endpoint_explorer.clone(),
     );
 
+    // Invalid DPU UEFI version scenario
     let mut dpu_report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
         last_exploration_error: None,
@@ -258,6 +259,82 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     };
     assert!(handled_uefi_err);
 
+    // Supported DPU UEFI version scenario
+    let mut dpu_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "Bluefield_BMC".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("eth0".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("a0:88:c2:08:80:97".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: Vec::new(),
+            manufacturer: None,
+            model: None,
+            serial_number: Some("MT2328XZ185R".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+            },
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+            serial_number: Some("MT2328XZ185R".to_string()),
+            network_adapters: vec![],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: Some("BMC image".to_string()),
+                    version: Some("BF-23.10-3".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_SYS_IMAGE".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-43-geb17a52".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
+    };
+    dpu_report.generate_machine_id();
+
+    assert!(dpu_report.machine_id.as_ref().is_some());
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
+        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+    };
+
+    let handled_uefi_err = match explorer
+        .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+        .await
+    {
+        Err(CarbideError::UnsupportedFirmwareVersion(_)) => false,
+        Ok(_) | Err(_) => true,
+    };
+    assert!(handled_uefi_err);
+
     Ok(())
 }
 
@@ -308,6 +385,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     assert!(!response.address.is_empty());
 
+    // Expected DPU BMC update scenario
     let mut dpu_report = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
         last_exploration_error: None,
@@ -358,7 +436,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 Inventory {
                     id: "BMC_Firmware".to_string(),
                     description: Some("Host image".to_string()),
-                    version: Some("BF-23.10-3".to_string()),
+                    version: Some("BF-23.07-3".to_string()),
                     release_date: None,
                 },
                 Inventory {
@@ -557,6 +635,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     fs::remove_file(bmc_fw_filename).await?;
     Ok(())
 }
+
 /// EndpointExplorer which returns predefined data
 struct FakeEndpointExplorer {
     reports: Arc<

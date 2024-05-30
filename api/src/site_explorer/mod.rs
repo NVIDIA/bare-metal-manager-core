@@ -335,8 +335,12 @@ impl SiteExplorer {
                 for dpu_component in DpuComponent::iter() {
                     if let Some(min_version) = dpu_desc.component_min_version.get(&dpu_component) {
                         if let Some(cur_version) = dpu_report.dpu_component_version(dpu_component) {
-                            if version_compare::compare(&cur_version, min_version)
-                                .is_ok_and(|c| c == version_compare::Cmp::Lt)
+                            if version_compare::compare_to(
+                                &cur_version,
+                                min_version,
+                                version_compare::Cmp::Lt,
+                            )
+                            .unwrap()
                             {
                                 return Err(CarbideError::UnsupportedFirmwareVersion(format!(
                                     "{:?} firmware version {} is not supported. Please update to: {}",
