@@ -45,7 +45,7 @@ impl fmt::Display for BMCVendor {
 
 impl From<&str> for BMCVendor {
     fn from(s: &str) -> BMCVendor {
-        match s {
+        match s.to_lowercase().as_str() {
             "lenovo" => BMCVendor::Lenovo,
             "dell" => BMCVendor::Dell,
             "supermicro" => BMCVendor::Supermicro,

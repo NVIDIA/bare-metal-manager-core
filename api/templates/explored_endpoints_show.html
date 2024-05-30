@@ -24,7 +24,7 @@
 	<tr>
 		<td><a href="/admin/explored_endpoint/{{ mh.host_bmc_ip }}">{{ mh.host_bmc_ip }}</a></td>
 		<td><a href="/admin/explored_endpoint/{{ mh.dpu_bmc_ip }}">{{ mh.dpu_bmc_ip }}</a></td>
-		<td>{{ mh.host_vendor }}</td>
+		<td>{{ mh.host_vendor|capitalize }}</td>
 		<td>{{ mh.dpu_machine_id|machine_id_link|safe }}</td>
 		<td>{{ mh.host_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
 		<td>{{ mh.dpu_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
