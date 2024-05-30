@@ -75,7 +75,13 @@ impl ExpectedMachine {
             .bind(self.bmc_mac_address)
             .fetch_one(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|err: sqlx::Error| match err {
+                sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+                    kind: "expected_machine",
+                    id: self.bmc_mac_address.to_string(),
+                },
+                _ => DatabaseError::new(file!(), line!(), query, err).into(),
+            })?;
 
         self.bmc_username = bmc_username;
         self.bmc_password = bmc_password;
@@ -110,11 +116,28 @@ impl ExpectedMachine {
             })
     }
 
-    pub async fn delete(self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
+    pub async fn delete(self, txn: &mut Transaction<'_, Postgres>) -> CarbideResult<()> {
         let query = "DELETE FROM expected_machines WHERE bmc_mac_address=$1";
 
         sqlx::query(query)
             .bind(self.bmc_mac_address)
+            .execute(&mut **txn)
+            .await
+            .map_err(|err: sqlx::Error| match err {
+                sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+                    kind: "expected_machine",
+                    id: self.bmc_mac_address.to_string(),
+                },
+                _ => DatabaseError::new(file!(), line!(), query, err).into(),
+            })?;
+
+        Ok(())
+    }
+
+    pub async fn clear(txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
+        let query = "DELETE FROM expected_machines";
+
+        sqlx::query(query)
             .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

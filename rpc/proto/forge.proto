@@ -208,6 +208,22 @@ service Forge {
   // Identify the vendor of a BMC without logging into it
   rpc IdentifyBMC(IdentifyBMCRequest) returns (IdentifyBMCResponse);
 
+  // Expected Machine Management
+  // Add expected machine
+  rpc AddExpectedMachine(ExpectedMachine) returns (google.protobuf.Empty);
+  // Delete expected machine
+  rpc DeleteExpectedMachine(ExpectedMachineRequest) returns (google.protobuf.Empty);
+  // Update the BMC credentials for a specific username/password
+  rpc UpdateExpectedMachine(ExpectedMachine) returns (google.protobuf.Empty);
+  // Get the BMC credentials for a specific expected machine
+  rpc GetExpectedMachine(ExpectedMachineRequest) returns (ExpectedMachine);
+  // Get the BMC credentials for all expected machines
+  rpc GetAllExpectedMachines(google.protobuf.Empty) returns (ExpectedMachineList);
+  // Replace all expected machines in site
+  rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
+  // Delete all expected machines in site
+  rpc DeleteAllExpectedMachines(google.protobuf.Empty) returns (google.protobuf.Empty);
+
   ////////////////////////////////////////////////////////////////////////////////
   // Begin Measured Boot API Endpoints
   ////////////////////////////////////////////////////////////////////////////////
@@ -2182,4 +2198,19 @@ message IdentifyBMCRequest {
 message IdentifyBMCResponse {
   string known_vendor = 1;
   string raw_vendor = 2;
+}
+
+message ExpectedMachine {
+  string bmc_mac_address = 1;
+  string bmc_username = 2;
+  string bmc_password = 3;
+  string chassis_serial_number = 4;
+}
+
+message ExpectedMachineRequest {
+  string bmc_mac_address = 1;
+}
+
+message ExpectedMachineList {
+  repeated ExpectedMachine expected_machines = 1;
 }
