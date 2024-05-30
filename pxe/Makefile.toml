@@ -369,7 +369,7 @@ dependencies = [
 	"mv-hbn-configs-to-bfb",
 	"mv-hbn-scripts-to-bfb",
 	"cleanup-hbn-scripts",
-	{ name = "build-forge-dpu-deb", path="${REPO_ROOT}/bluefield" },
+	{ name = "build-forge-dpu-deb-local", path="${REPO_ROOT}/bluefield" },
 	"cp-forge-dpu-package-to-bfb",
 	"bfb-copy-efi",
 	"bfb-remove-extracted-efi",
