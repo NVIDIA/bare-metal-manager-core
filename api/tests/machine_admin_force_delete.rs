@@ -23,8 +23,11 @@ use carbide::{
         InstanceState, ManagedHostState,
     },
 };
+use std::collections::HashSet;
+use std::str::FromStr;
 
 pub mod common;
+use crate::common::api_fixtures::managed_host::create_managed_host_multi_dpu;
 use common::api_fixtures::{
     create_managed_host, create_test_env,
     dpu::create_dpu_machine,
@@ -33,6 +36,7 @@ use common::api_fixtures::{
     instance::create_instance_with_ib_config,
     TestEnv,
 };
+use rpc::forge::MachineIdList;
 
 #[ctor::ctor]
 fn setup() {
@@ -214,6 +218,36 @@ fn validate_delete_response(
     }
 }
 
+fn validate_delete_response_multi_dpu(
+    response: &rpc::forge::AdminForceDeleteMachineResponse,
+    host_machine_id: Option<&MachineId>,
+    dpu_machine_ids: &[rpc::MachineId],
+) {
+    assert_eq!(
+        response
+            .dpu_machine_ids
+            .iter()
+            .map(|i| i.to_owned())
+            .collect::<HashSet<_>>(),
+        dpu_machine_ids
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<HashSet<_>>()
+    );
+    assert_eq!(
+        response.managed_host_machine_id,
+        host_machine_id.map(|id| id.to_string()).unwrap_or_default()
+    );
+    assert!(!response.dpu_bmc_ip.is_empty());
+    if let Some(host_machine_id) = host_machine_id {
+        if host_machine_id.machine_type() == MachineType::Host {
+            assert!(!response.managed_host_bmc_ip.is_empty());
+        }
+    } else {
+        assert!(response.managed_host_bmc_ip.is_empty());
+    }
+}
+
 /// Validates that the Machine has been fully deleted
 async fn validate_machine_deletion(env: &TestEnv, machine_id: &MachineId) {
     // The machine should be now be gone in the API
@@ -371,5 +405,96 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     // Everything should be gone now
     for id in [host_machine_id, dpu_machine_id] {
         validate_machine_deletion(&env, &id).await;
+    }
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host_id = create_managed_host_multi_dpu(&env, 2).await;
+    let host_machine = env
+        .api
+        .get_machine(tonic::Request::new(rpc::MachineId {
+            id: host_id.to_string(),
+        }))
+        .await
+        .expect("Cannot look up the machine we just created")
+        .into_inner();
+
+    let dpu_ids = host_machine.associated_dpu_machine_ids;
+    assert_eq!(
+        dpu_ids.len(),
+        2,
+        "Should have gotten 2 DPUs from the managed host we created"
+    );
+
+    assert!(
+        env.api
+            .find_machines_by_ids(tonic::Request::new(MachineIdList {
+                machine_ids: dpu_ids.clone(),
+            }))
+            .await
+            .is_ok_and(|response| response.into_inner().machines.len() == 2),
+        "Expected to find 2 dpu machines when looking up by ID"
+    );
+
+    // Delete the *host* machine
+    let response = force_delete(&env, &host_id).await;
+
+    validate_delete_response_multi_dpu(&response, Some(&host_id), dpu_ids.as_slice());
+
+    let dpu_db_ids = dpu_ids
+        .into_iter()
+        .map(|i| MachineId::from_str(&i.id).unwrap())
+        .collect::<Vec<_>>();
+
+    for id in [&[host_id], dpu_db_ids.as_slice()].concat().iter() {
+        validate_machine_deletion(&env, id).await;
+    }
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host_id = create_managed_host_multi_dpu(&env, 2).await;
+    let host_machine = env
+        .api
+        .get_machine(tonic::Request::new(rpc::MachineId {
+            id: host_id.to_string(),
+        }))
+        .await
+        .expect("Cannot look up the machine we just created")
+        .into_inner();
+
+    let dpu_ids = host_machine.associated_dpu_machine_ids;
+    assert_eq!(
+        dpu_ids.len(),
+        2,
+        "Should have gotten 2 DPUs from the managed host we created"
+    );
+
+    assert!(
+        env.api
+            .find_machines_by_ids(tonic::Request::new(MachineIdList {
+                machine_ids: dpu_ids.clone(),
+            }))
+            .await
+            .is_ok_and(|response| response.into_inner().machines.len() == 2),
+        "Expected to find 2 dpu machines when looking up by ID"
+    );
+
+    // Delete one of the *dpu* machines, which should cascade and delete the host and other DPU machines
+    let dpu_0_id = MachineId::from_str(dpu_ids.first().unwrap().id.as_str()).unwrap();
+    let response = force_delete(&env, &dpu_0_id).await;
+
+    validate_delete_response_multi_dpu(&response, Some(&host_id), dpu_ids.as_slice());
+
+    let dpu_db_ids = dpu_ids
+        .into_iter()
+        .map(|i| MachineId::from_str(&i.id).unwrap())
+        .collect::<Vec<_>>();
+
+    for id in [&[host_id], dpu_db_ids.as_slice()].concat().iter() {
+        validate_machine_deletion(&env, id).await;
     }
 }

@@ -1052,17 +1052,17 @@ SELECT m.id FROM
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.attached_dpu_machine_id
                 WHERE mi.machine_id=$1"#;
-        let mut machine: Vec<Self> = sqlx::query_as(query)
+        let mut machines: Vec<Self> = sqlx::query_as(query)
             .bind(host_machine_id.to_string())
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        for m in &mut machine {
+        for m in &mut machines {
             m.load_related_data(txn).await?;
         }
 
-        Ok(machine)
+        Ok(machines)
     }
 
     /// Only does the update if the passed observation is newer than any existing one

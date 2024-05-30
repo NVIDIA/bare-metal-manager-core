@@ -3625,23 +3625,27 @@ where
         // TODO: This should maybe just use the snapshot loading functionality that the
         // state controller will use - which already contains the combined state
         let host_machine;
-        let dpu_machine;
+        let dpu_machines;
         if machine.is_dpu() {
-            host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, machine.id()).await?;
-            tracing::info!(
-                "Found host Machine {:?}",
-                host_machine.as_ref().map(|m| m.id().to_string())
-            );
-            dpu_machine = Some(machine);
+            if let Some(host) = Machine::find_host_by_dpu_machine_id(&mut txn, machine.id()).await?
+            {
+                tracing::info!("Found host Machine {:?}", machine.id().to_string());
+                // Get all DPUs attached to this host, in case there are more than one.
+                dpu_machines = Machine::find_dpus_by_host_machine_id(&mut txn, host.id())
+                    .await
+                    .map_err(CarbideError::from)?;
+                host_machine = Some(host);
+            } else {
+                host_machine = None;
+                dpu_machines = vec![];
+            }
         } else {
-            dpu_machine = Machine::find_dpus_by_host_machine_id(&mut txn, machine.id())
+            dpu_machines = Machine::find_dpus_by_host_machine_id(&mut txn, machine.id())
                 .await
-                .map_err(CarbideError::from)?
-                .first()
-                .cloned();
+                .map_err(CarbideError::from)?;
             tracing::info!(
-                "Found dpu Machine {:?}",
-                dpu_machine.as_ref().map(|m| m.id().to_string())
+                "Found dpu Machines {:?}",
+                dpu_machines.iter().map(|m| m.id().to_string()).join(", ")
             );
             host_machine = Some(machine);
         }
@@ -3662,9 +3666,19 @@ where
                 response.managed_host_bmc_ip = ip.to_string();
             }
         }
-        if let Some(dpu_machine) = &dpu_machine {
+        if let Some(dpu_machine) = dpu_machines.first() {
+            response.dpu_machine_ids = dpu_machines.iter().map(|m| m.id().to_string()).collect();
+            // deprecated field:
             response.dpu_machine_id = dpu_machine.id().to_string();
-            if let Some(iface) = dpu_machine.interfaces().first() {
+
+            let dpu_interfaces = dpu_machines
+                .iter()
+                .flat_map(|m| m.interfaces().clone())
+                .collect::<Vec<_>>();
+            if let Some(iface) = dpu_interfaces.first() {
+                response.dpu_machine_interface_ids =
+                    dpu_interfaces.iter().map(|i| i.id().to_string()).collect();
+                // deprecated field:
                 response.dpu_machine_interface_id = iface.id().to_string();
             }
             if let Some(ip) = dpu_machine.bmc_info().ip.as_ref() {
@@ -3683,7 +3697,7 @@ where
                 .await
                 .map_err(CarbideError::from)?;
         }
-        if let Some(dpu_machine) = &dpu_machine {
+        for dpu_machine in dpu_machines.iter() {
             dpu_machine
                 .advance(&mut txn, ManagedHostState::ForceDeletion, None)
                 .await
@@ -3869,7 +3883,7 @@ where
             ))
         })?;
 
-        if let Some(dpu_machine) = &dpu_machine {
+        for dpu_machine in dpu_machines.iter() {
             let mut txn = self.database_connection.begin().await.map_err(|e| {
                 CarbideError::from(DatabaseError::new(
                     file!(),
@@ -4125,7 +4139,7 @@ where
                 MaintenanceMode::On { reference }
             }
             rpc::MaintenanceOperation::Disable => {
-                for dpu_machine in &dpu_machines {
+                for dpu_machine in dpu_machines.iter() {
                     if dpu_machine.reprovisioning_requested().is_some() {
                         return Err(Status::invalid_argument(format!(
                             "Reprovisioning request is set on DPU: {}. Clear it first.",
