@@ -1587,7 +1587,6 @@ SELECT m.id FROM
             qb.push("NOT starts_with(id, 'fm100p')");
         }
 
-        tracing::info!("sql: {}", qb.sql());
         let q = qb.build_query_as();
         let machine_ids: Vec<DbMachineId> = q
             .fetch_all(&mut **txn)
