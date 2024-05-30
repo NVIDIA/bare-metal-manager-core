@@ -332,6 +332,8 @@ mod tests {
             ("v2024.05-rc3-0", None),
             ("v2024.05.02-rc3-0", None),
             ("v2024.05.02-rc4-0-27-gc3ce4d5d", None),
+            ("v2024.05.10-rc1-0-3-g6497fef4d", None),
+            ("v2024.05.10-rc1-3", None),
         ];
         let mut rng = rand::thread_rng();
 

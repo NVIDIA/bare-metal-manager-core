@@ -15,7 +15,7 @@ echo '10.120.180.120 gitlab-master.nvidia.com' >> /etc/hosts
 git fetch --tags
 set +u
 if [[ -z "$CI_COMMIT_TAG" ]]; then
-    echo "VERSION=$(git describe --tags --first-parent --always)" > environment.env
+    echo "VERSION=$(git describe --tags --first-parent --always --long)" > environment.env
 else
     echo "VERSION=$CI_COMMIT_TAG" > environment.env
 fi
