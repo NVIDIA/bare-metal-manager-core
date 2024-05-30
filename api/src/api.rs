@@ -11,7 +11,7 @@
  */
 
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,6 +37,7 @@ use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialTy
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use sqlx::{Postgres, Transaction};
+use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -3432,7 +3433,7 @@ where
             format!("{}:443", req.address)
         };
 
-        let mut addrs = address.to_socket_addrs()?;
+        let mut addrs = lookup_host(address).await?;
         let Some(bmc_addr) = addrs.next() else {
             return Err(tonic::Status::invalid_argument(format!(
                 "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",

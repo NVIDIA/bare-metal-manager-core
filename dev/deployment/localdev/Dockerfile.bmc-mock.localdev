@@ -15,3 +15,4 @@ WORKDIR ./carbide
 COPY .skaffold/target/bmc-mock/debug/bmc-mock /opt/carbide/
 COPY dev/bmc-mock/tls.crt /opt/carbide/
 COPY dev/bmc-mock/tls.key /opt/carbide/
+COPY dev/bmc-mock/dell_poweredge_r750.tar.gz /opt/carbide/

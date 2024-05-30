@@ -22,7 +22,7 @@ use config_version::ConfigVersion;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType};
 use mac_address::MacAddress;
 use sqlx::PgPool;
-use tokio::{sync::oneshot, task::JoinSet};
+use tokio::{net::lookup_host, sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
@@ -806,8 +806,29 @@ impl SiteExplorer {
         for (address, iface, old_report) in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
             let concurrency_limiter = concurrency_limiter.clone();
+
             let bmc_target_port = self.config.override_target_port.unwrap_or(443);
-            let bmc_target_address = self.config.override_target_ip.unwrap_or(address);
+            let bmc_target_addr = match self.config.override_target_ip.as_ref() {
+                Some(override_ip) => {
+                    let addr = match lookup_host((override_ip.as_str(), bmc_target_port)).await {
+                        Ok(mut sockaddr) => sockaddr.next(),
+                        Err(e) => {
+                            tracing::warn!("Could not find override addr: {e}");
+                            return Err(CarbideError::GenericError(e.to_string()));
+                        }
+                    };
+                    let Some(addr) = addr else {
+                        tracing::warn!("Could not find override addr");
+                        return Err(CarbideError::GenericError(
+                            "Could not find override addr".to_string(),
+                        ));
+                    };
+
+                    addr
+                }
+                None => SocketAddr::new(address, bmc_target_port),
+            };
+
             let _abort_handle = task_set.spawn(
                 async move {
                     let start = std::time::Instant::now();
@@ -824,7 +845,7 @@ impl SiteExplorer {
 
                     let mut result = endpoint_explorer
                         .explore_endpoint(
-                            SocketAddr::new(bmc_target_address, bmc_target_port),
+                            bmc_target_addr,
                             &iface,
                             old_report.as_ref().map(|report| &report.1),
                         )
