@@ -13,6 +13,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 use crate::cfg::measurement;
 
@@ -145,6 +146,8 @@ pub enum CarbideCommand {
     Ping(PingOptions),
     #[clap(about = "Set RUST_LOG")]
     SetLogFilter(LogFilterOptions),
+    #[clap(about = "Expected machine handling", subcommand, visible_alias = "em")]
+    ExpectedMachine(ExpectedMachineAction),
 }
 
 #[derive(Parser, Debug)]
@@ -214,6 +217,70 @@ pub struct DpuVersionOptions {
 pub enum HostAction {
     #[clap(about = "Set Host UEFI password")]
     SetUefiPassword(MachineQuery),
+}
+
+#[derive(Parser, Debug)]
+pub enum ExpectedMachineAction {
+    #[clap(about = "Show expected machine data")]
+    Show(ExpectedMachineQuery),
+    #[clap(about = "Add expected machine")]
+    Add(ExpectedMachine),
+    #[clap(about = "Delete expected machine")]
+    Delete(ExpectedMachineQuery),
+    #[clap(about = "Update expected machine")]
+    Update(ExpectedMachine),
+    /// Replace all entries in the expected machines table with the entries from an inputted json file.
+    ///
+    /// Example json file:
+    ///    {
+    ///        "expected_machines":
+    ///        [
+    ///            {
+    ///                "bmc_mac_address": "1a:1b:1c:1d:1e:1f",
+    ///                "bmc_username": "user",
+    ///                "bmc_username": "pass",
+    ///                "chassis_serial_number": "sample_serial-1"
+    ///            },
+    ///            {
+    ///                "bmc_mac_address": "2a:2b:2c:2d:2e:2f",
+    ///                "bmc_username": "user",
+    ///                "bmc_username": "pass",
+    ///                "chassis_serial_number": "sample_serial-2"
+    ///            }
+    ///        ]
+    ///    }
+    #[clap(verbatim_doc_comment)]
+    ReplaceAll(ExpectedMachineReplaceAllRequest),
+    #[clap(about = "Erase all expected machines")]
+    Erase,
+}
+
+#[derive(Parser, Debug, Serialize, Deserialize)]
+pub struct ExpectedMachine {
+    #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
+    pub bmc_mac_address: String,
+    #[clap(short = 'u', long, help = "BMC username of the expected machine")]
+    pub bmc_username: String,
+    #[clap(short = 'p', long, help = "BMC password of the expected machine")]
+    pub bmc_password: String,
+    #[clap(
+        short = 's',
+        long,
+        help = "Chassis serial number of the expected machine"
+    )]
+    pub chassis_serial_number: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct ExpectedMachineQuery {
+    #[clap(default_value(""), help = "BMC MAC Address of the expected machine")]
+    pub bmc_mac_address: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct ExpectedMachineReplaceAllRequest {
+    #[clap(short, long)]
+    pub filename: String,
 }
 
 #[derive(Parser, Debug)]

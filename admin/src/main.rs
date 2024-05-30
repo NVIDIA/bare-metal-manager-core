@@ -12,6 +12,7 @@
 use std::fs;
 use std::io;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 
 use ::rpc::forge as forgerpc;
@@ -31,6 +32,7 @@ use cfg::carbide_options::DpuAction::AgentUpgradePolicy;
 use cfg::carbide_options::DpuAction::Reprovision;
 use cfg::carbide_options::DpuAction::Versions;
 use cfg::carbide_options::DpuReprovision;
+use cfg::carbide_options::ExpectedMachine;
 use cfg::carbide_options::HostAction;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::MachineInterfaces;
@@ -49,6 +51,10 @@ use forge_tls::client_config::get_config_from_file;
 use forge_tls::client_config::get_forge_root_ca_path;
 use forge_tls::client_config::get_proxy_info;
 use prettytable::{row, Table};
+use serde::Deserialize;
+use serde::Serialize;
+use std::fs::File;
+use std::io::BufReader;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 
 mod cfg;
@@ -668,6 +674,81 @@ async fn main() -> color_eyre::Result<()> {
         CarbideCommand::SetLogFilter(opts) => {
             rpc::set_log_filter(api_config, opts.filter, opts.expiry).await?;
         }
+        CarbideCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
+            cfg::carbide_options::ExpectedMachineAction::Show(expected_machine_query) => {
+                if expected_machine_query.bmc_mac_address.is_empty()
+                    || expected_machine_query.bmc_mac_address == "all"
+                    || expected_machine_query.bmc_mac_address == "*"
+                {
+                    let expected_machines = rpc::get_all_expected_machines(api_config).await?;
+                    println!("{:#?}", expected_machines);
+                } else {
+                    let expected_machine = rpc::get_expected_machine(
+                        expected_machine_query.bmc_mac_address,
+                        api_config,
+                    )
+                    .await?;
+                    println!("{:#?}", expected_machine);
+                }
+            }
+            cfg::carbide_options::ExpectedMachineAction::Add(expected_machine_data) => {
+                rpc::add_expected_machine(
+                    expected_machine_data.bmc_mac_address,
+                    expected_machine_data.bmc_username,
+                    expected_machine_data.bmc_password,
+                    expected_machine_data.chassis_serial_number,
+                    api_config,
+                )
+                .await?;
+            }
+            cfg::carbide_options::ExpectedMachineAction::Delete(expected_machine_query) => {
+                rpc::delete_expected_machine(expected_machine_query.bmc_mac_address, api_config)
+                    .await?;
+            }
+            cfg::carbide_options::ExpectedMachineAction::Update(expected_machine_data) => {
+                rpc::update_expected_machine(
+                    expected_machine_data.bmc_mac_address,
+                    expected_machine_data.bmc_username,
+                    expected_machine_data.bmc_password,
+                    expected_machine_data.chassis_serial_number,
+                    api_config,
+                )
+                .await?;
+            }
+            cfg::carbide_options::ExpectedMachineAction::ReplaceAll(request) => {
+                let json_file_path = Path::new(&request.filename);
+                let reader = BufReader::new(File::open(json_file_path)?);
+                #[derive(Debug, Serialize, Deserialize)]
+                struct ExpectedMachineList {
+                    expected_machines: Vec<ExpectedMachine>,
+                    expected_machines_count: Option<usize>,
+                }
+                let expected_machine_list: ExpectedMachineList = serde_json::from_reader(reader)?;
+
+                if expected_machine_list
+                    .expected_machines_count
+                    .is_some_and(|count| count != expected_machine_list.expected_machines.len())
+                {
+                    return Err(CarbideCliError::GenericError(format!(
+                        "Json File specified an invalid count: {:#?}; actual count: {}",
+                        expected_machine_list
+                            .expected_machines_count
+                            .unwrap_or_default(),
+                        expected_machine_list.expected_machines.len()
+                    ))
+                    .into());
+                }
+
+                rpc::replace_all_expected_machines(
+                    expected_machine_list.expected_machines,
+                    api_config,
+                )
+                .await?;
+            }
+            cfg::carbide_options::ExpectedMachineAction::Erase => {
+                rpc::delete_all_expected_machines(api_config).await?;
+            }
+        },
     }
 
     Ok(())

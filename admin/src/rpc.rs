@@ -23,7 +23,7 @@ use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 use ::rpc::{MachineId, Uuid};
 
 use super::{CarbideCliError, CarbideCliResult};
-use crate::cfg::carbide_options::{ForceDeleteMachineQuery, MachineQuery};
+use crate::cfg::carbide_options::{self, ForceDeleteMachineQuery, MachineQuery};
 pub async fn with_forge_client<'a, T, F>(
     api_config: &ApiConfig<'a>,
     callback: impl FnOnce(ForgeClientT) -> F,
@@ -960,6 +960,142 @@ pub async fn find_network_devices_by_device_ids(
         };
         client
             .find_network_devices_by_device_ids(network_device_id_list)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn get_all_expected_machines(
+    api_config: &ApiConfig<'_>,
+) -> Result<rpc::ExpectedMachineList, CarbideCliError> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(());
+
+        client
+            .get_all_expected_machines(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn get_expected_machine(
+    bmc_mac_address: String,
+    api_config: &ApiConfig<'_>,
+) -> Result<rpc::ExpectedMachine, CarbideCliError> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ExpectedMachineRequest { bmc_mac_address });
+
+        client
+            .get_expected_machine(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn delete_expected_machine(
+    bmc_mac_address: String,
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ExpectedMachineRequest { bmc_mac_address });
+
+        client
+            .delete_expected_machine(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn add_expected_machine(
+    bmc_mac_address: String,
+    bmc_username: String,
+    bmc_password: String,
+    chassis_serial_number: String,
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ExpectedMachine {
+            bmc_mac_address,
+            bmc_username,
+            bmc_password,
+            chassis_serial_number,
+        });
+
+        client
+            .add_expected_machine(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn update_expected_machine(
+    bmc_mac_address: String,
+    bmc_username: String,
+    bmc_password: String,
+    chassis_serial_number: String,
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ExpectedMachine {
+            bmc_mac_address,
+            bmc_username,
+            bmc_password,
+            chassis_serial_number,
+        });
+
+        client
+            .update_expected_machine(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn replace_all_expected_machines(
+    expected_machine_list: Vec<carbide_options::ExpectedMachine>,
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ExpectedMachineList {
+            expected_machines: expected_machine_list
+                .into_iter()
+                .map(|machine| rpc::ExpectedMachine {
+                    bmc_mac_address: machine.bmc_mac_address,
+                    bmc_username: machine.bmc_username,
+                    bmc_password: machine.bmc_password,
+                    chassis_serial_number: machine.chassis_serial_number,
+                })
+                .collect(),
+        });
+
+        client
+            .replace_all_expected_machines(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)
+    })
+    .await
+}
+
+pub async fn delete_all_expected_machines(
+    api_config: &ApiConfig<'_>,
+) -> Result<(), CarbideCliError> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(());
+
+        client
+            .delete_all_expected_machines(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)
