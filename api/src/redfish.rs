@@ -10,9 +10,17 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::{
+    collections::HashMap,
+    path::Path,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
-use http::StatusCode;
+use http::{header::InvalidHeaderName, HeaderName, StatusCode};
 use libredfish::{
     model::{
         service_root::{RedfishVendor, ServiceRoot},
@@ -20,12 +28,6 @@ use libredfish::{
     },
     standard::RedfishStandard,
     Chassis, Endpoint, JobState, PowerState, Redfish, RedfishError, RoleId,
-};
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::{Arc, Mutex},
-    time::Duration,
 };
 use tokio::time;
 
@@ -44,6 +46,8 @@ pub enum RedfishClientCreationError {
     NotImplemented,
     #[error(transparent)]
     IdentifyError(#[from] crate::site_explorer::IdentifyError),
+    #[error("Invalid Header")]
+    InvalidHeader(#[from] InvalidHeaderName),
 }
 
 /// Allows to create Redfish clients for a certain Redfish BMC endpoint
@@ -75,6 +79,14 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         host: &str,
         port: Option<u16>,
     ) -> Result<Box<RedfishStandard>, RedfishClientCreationError>;
+
+    async fn create_client_with_custom_headers(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        custom_headers: &[(String, String)],
+        credential_key: CredentialKey,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 
     async fn create_standard_client(
         &self,
@@ -199,6 +211,17 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         port: Option<u16>,
         credential_key: CredentialKey,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        self.create_client_with_custom_headers(host, port, &Vec::default(), credential_key)
+            .await
+    }
+
+    async fn create_client_with_custom_headers(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        custom_headers: &[(String, String)],
+        credential_key: CredentialKey,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let credentials = self
             .credential_provider
             .get_credentials(credential_key.clone())
@@ -235,9 +258,18 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             password: Some(password),
         };
 
+        let custom_headers = custom_headers
+            .iter()
+            .map(|(header_str, value_str)| {
+                let header: HeaderName = HeaderName::from_str(header_str)
+                    .map_err(RedfishClientCreationError::InvalidHeader)?;
+                Ok((header, value_str.clone()))
+            })
+            .collect::<Result<Vec<(HeaderName, String)>, RedfishClientCreationError>>()?;
+
         // Creating the client performs a HTTP request to determine the BMC vendor
         let pool = self.pool.clone();
-        pool.create_client(endpoint)
+        pool.create_client_with_custom_headers(endpoint, custom_headers)
             .await
             .map_err(RedfishClientCreationError::RedfishError)
     }
@@ -1037,6 +1069,16 @@ impl RedfishClientPool for RedfishSim {
         &self,
         host: &str,
         port: Option<u16>,
+        credential_key: CredentialKey,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        self.create_client_with_custom_headers(host, port, &Vec::default(), credential_key)
+            .await
+    }
+    async fn create_client_with_custom_headers(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        _custom_headers: &[(String, String)],
         credential_key: CredentialKey,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         {

@@ -20,8 +20,9 @@ use std::fs::File;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 
+use axum::body::Body;
 use axum::extract::{Path as AxumPath, State as AxumState};
-use axum::http::StatusCode;
+use axum::http::{Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -66,6 +67,7 @@ pub fn tar_router(p: &std::path::Path) -> eyre::Result<Router> {
 async fn get_from_tar(
     AxumState(shared_state): AxumState<BmcState>,
     AxumPath(mut path): AxumPath<String>,
+    request: Request<Body>,
 ) -> impl IntoResponse {
     if path.ends_with('/') {
         path.pop();
@@ -73,7 +75,16 @@ async fn get_from_tar(
     match shared_state.entries.lock().unwrap().get(&path) {
         None => (StatusCode::NOT_FOUND, path),
         Some(s) => {
-            tracing::info!("{path}");
+            if let Some(really_to_ip) = request.headers().get("x-really-to-ip") {
+                let really_to_ip = really_to_ip.to_str().unwrap_or_default();
+                let really_to_mac = request
+                    .headers()
+                    .get("x-really-to-mac")
+                    .map_or("", |mac| mac.to_str().ok().unwrap_or_default());
+                tracing::trace!("{path} for {really_to_ip} ({really_to_mac})");
+            } else {
+                tracing::trace!("{path}");
+            }
             (StatusCode::OK, s.clone())
         }
     }

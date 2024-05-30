@@ -149,7 +149,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
     async fn explore_endpoint(
         &self,
         address: SocketAddr,
-        _interface: &MachineInterface,
+        interface: &MachineInterface,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         if last_report.is_none() {
@@ -172,13 +172,22 @@ impl EndpointExplorer for RedfishEndpointExplorer {
             }
         }
 
+        let headers = vec![
+            ("x-really-to-ip".to_string(), address.to_string()),
+            (
+                "x-really-to-mac".to_string(),
+                interface.mac_address.to_string(),
+            ),
+        ];
+
         let client;
         // Try DpuRedfish and HostRedfish credentials.
         let client_result = self
             .redfish_client_pool
-            .create_client(
+            .create_client_with_custom_headers(
                 &address.ip().to_string(),
                 Some(address.port()),
+                headers.as_slice(),
                 forge_secrets::credentials::CredentialKey::DpuRedfish {
                     credential_type: CredentialType::SiteDefault,
                 },
@@ -190,9 +199,10 @@ impl EndpointExplorer for RedfishEndpointExplorer {
             Err(RedfishClientCreationError::RedfishError(e)) if e.is_unauthorized() => {
                 match self
                     .redfish_client_pool
-                    .create_client(
+                    .create_client_with_custom_headers(
                         &address.ip().to_string(),
                         Some(address.port()),
+                        &headers,
                         forge_secrets::credentials::CredentialKey::HostRedfish {
                             credential_type: CredentialType::SiteDefault,
                         },
@@ -488,6 +498,11 @@ pub(crate) fn map_redfish_client_creation_error(
         RedfishClientCreationError::IdentifyError(msg) => EndpointExplorationError::Other {
             details: msg.to_string(),
         },
+        RedfishClientCreationError::InvalidHeader(original_error) => {
+            EndpointExplorationError::Other {
+                details: format!("RedfishClientError::InvalidHeader: {}", original_error),
+            }
+        }
     }
 }
 

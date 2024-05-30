@@ -10,12 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    net::{IpAddr, SocketAddr},
-    path::PathBuf,
-};
+use std::{collections::HashMap, fmt::Display, net::SocketAddr, path::PathBuf};
 
 use chrono::Duration;
 use ipnetwork::Ipv4Network;
@@ -447,7 +442,7 @@ pub struct SiteExplorerConfig {
 
     /// The IP address to connect to instead of the BMC that made the dhcp request.
     /// This is a debug override and should not be used in production.
-    pub override_target_ip: Option<IpAddr>,
+    pub override_target_ip: Option<String>,
 
     /// The port to connect to for redfish requests.
     /// This is a debug override and should not be used in production.
@@ -1457,7 +1452,7 @@ mod tests {
                 concurrent_explorations: 5,
                 explorations_per_run: 11,
                 create_machines: true,
-                override_target_ip: Some("1.2.3.4".to_owned().parse::<IpAddr>().unwrap()),
+                override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
             }
         );
@@ -1644,7 +1639,7 @@ mod tests {
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: true,
-                override_target_ip: Some("1.2.3.4".to_owned().parse::<IpAddr>().unwrap()),
+                override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
             }
         );

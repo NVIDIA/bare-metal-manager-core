@@ -47,8 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Using qemu: {}", args.use_qemu);
     info!("Using cert_path: {:?}", args.cert_path);
     let router = if let Some(tar_path) = args.targz {
+        info!("Using archive {}", tar_path.to_string_lossy());
         bmc_mock::tar_router(&tar_path).unwrap()
     } else {
+        info!("Using default handlers");
         bmc_mock::default_router(bmc_mock::BmcState {
             use_qemu: args.use_qemu,
         })
