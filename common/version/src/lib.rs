@@ -53,9 +53,12 @@ pub fn build() {
         .unwrap_or_else(|| run("git", &["rev-parse", "--short=8", "HEAD"]));
     println!("cargo:rustc-env=FORGE_BUILD_GIT_HASH={sha}");
 
-    let build_version = option_env!("VERSION")
-        .map(String::from)
-        .unwrap_or_else(|| run("git", &["describe", "--tags", "--first-parent", "--always"]));
+    let build_version = option_env!("VERSION").map(String::from).unwrap_or_else(|| {
+        run(
+            "git",
+            &["describe", "--tags", "--first-parent", "--always", "--long"],
+        )
+    });
     println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
 
     // Only re-calculate all of this when there's a new commit

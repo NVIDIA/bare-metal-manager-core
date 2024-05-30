@@ -10,7 +10,7 @@
 
 [env]
 # e.g. 2023.09-72-g1641d986
-DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always | cut -c 2-)"] }
+DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always --long | cut -c 2-)"] }
 
 [tasks.build-forge-scout]
 category = "Build"

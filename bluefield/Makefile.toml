@@ -9,9 +9,9 @@
 # its affiliates is strictly prohibited.
 
 [env]
-# e.g. 2023.09-72-g1641d986
+# e.g. 2024.05.24-rc1-0-0-g786e94757
 DPU_AGENT_PKG_VERSION = { script = [
-  "echo $(git describe --tags --first-parent --always | cut -c 2-)",
+  "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
 ] }
 
 [tasks.cleanup-local-pkg-files]
