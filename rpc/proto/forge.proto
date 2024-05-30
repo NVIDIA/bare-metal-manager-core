@@ -1534,7 +1534,9 @@ message AdminForceDeleteMachineResponse {
 
     string managed_host_machine_id = 11;
     string managed_host_machine_interface_id = 12;
+    // Deprecated: Use dpu_machine_ids
     string dpu_machine_id = 13;
+    // Deprecated: Use dpu_machine_interface_ids
     string dpu_machine_interface_id = 14;
     string instance_id = 15;
 
@@ -1565,6 +1567,8 @@ message AdminForceDeleteMachineResponse {
     bool host_bmc_interface_deleted = 47;
     bool dpu_bmc_interface_deleted = 48;
 
+    repeated string dpu_machine_ids = 49;
+    repeated string dpu_machine_interface_ids = 50;
 
 }
 

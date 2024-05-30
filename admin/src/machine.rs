@@ -156,7 +156,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
         "Id",
         "State",
         "State Version",
-        "Attached DPU",
+        "Attached DPUs",
         "Primary Interface",
         "IP Address",
         "MAC Address",
@@ -182,15 +182,25 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             )
         } else {
             let mi = machine_interfaces.remove(0);
+            let dpu_ids = if !machine.associated_dpu_machine_ids.is_empty() {
+                machine
+                    .associated_dpu_machine_ids
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+            } else {
+                vec![mi
+                    .attached_dpu_machine_id
+                    .map(|i| i.to_string())
+                    .unwrap_or_else(|| "NA".to_string())]
+            };
 
             (
                 mi.id.unwrap_or_default().to_string(),
                 mi.address.join(","),
                 mi.mac_address,
                 get_machine_type(&machine_id),
-                mi.attached_dpu_machine_id
-                    .map(|x| x.to_string())
-                    .unwrap_or_else(|| "NA".to_string()),
+                dpu_ids.join("\n"),
             )
         };
         let mut vendor = String::new();
