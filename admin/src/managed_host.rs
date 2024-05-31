@@ -19,7 +19,7 @@ use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 use tracing::warn;
 
-use super::{rpc, CarbideCliResult};
+use super::{rpc, CarbideCliError, CarbideCliResult};
 use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
 
 const UNKNOWN: &str = "Unknown";
@@ -144,16 +144,39 @@ fn convert_managed_hosts_to_nice_output(
 }
 
 async fn show_managed_hosts(
+    managed_host_data: utils::ManagedHostMetadata,
     output: &mut dyn std::io::Write,
-    output_format: &OutputFormat,
+    output_format: OutputFormat,
     show_ips: bool,
     more_details: bool,
-    managed_host_data: utils::ManagedHostMetadata,
+    single_host_detail_view: bool,
 ) -> CarbideCliResult<()> {
     let managed_hosts = utils::get_managed_host_output(managed_host_data);
-
     match output_format {
-        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&managed_hosts).unwrap()),
+        OutputFormat::Json => {
+            if single_host_detail_view {
+                // Print a single object, not an array
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        managed_hosts.first().ok_or(CarbideCliError::Empty)?
+                    )?
+                )
+            } else {
+                println!("{}", serde_json::to_string_pretty(&managed_hosts)?)
+            }
+        }
+        OutputFormat::Yaml => {
+            // Print a single object, not an array
+            if single_host_detail_view {
+                println!(
+                    "{}",
+                    serde_yaml::to_string(managed_hosts.first().ok_or(CarbideCliError::Empty)?)?
+                )
+            } else {
+                println!("{}", serde_yaml::to_string(&managed_hosts)?)
+            }
+        }
         OutputFormat::Csv => {
             let result =
                 convert_managed_hosts_to_nice_output(managed_hosts, show_ips, more_details);
@@ -163,10 +186,19 @@ async fn show_managed_hosts(
             }
         }
         _ => {
-            let result =
-                convert_managed_hosts_to_nice_output(managed_hosts, show_ips, more_details);
-            if let Err(error) = result.print(output) {
-                warn!("Error writing table data: {}", error);
+            if single_host_detail_view {
+                show_managed_host_details_view(
+                    managed_hosts
+                        .into_iter()
+                        .next()
+                        .ok_or(CarbideCliError::Empty)?,
+                )?;
+            } else {
+                let result =
+                    convert_managed_hosts_to_nice_output(managed_hosts, show_ips, more_details);
+                if let Err(error) = result.print(output) {
+                    warn!("Error writing table data: {}", error);
+                }
             }
         }
     }
@@ -307,6 +339,14 @@ pub async fn handle_show(
         .await?
         .managed_hosts;
 
+    // TODO(chet): Remove this ~March 2024.
+    // Use tracing::warn for this so its both a little more
+    // noticeable, and a little more annoying/naggy. If people
+    // complain, it means its working.
+    if args.all && args.machine.is_empty() {
+        warn!("redundant `--all` with basic `show` is deprecated. just do `mh show`")
+    }
+
     let show_all_machines = args.all || args.machine.is_empty();
 
     let machines: Vec<Machine> = if show_all_machines {
@@ -376,36 +416,18 @@ pub async fn handle_show(
     .await?
     .network_devices;
 
-    let managed_host_data = utils::ManagedHostMetadata {
-        machines,
-        site_explorer_managed_hosts,
-        connected_devices,
-        network_devices,
-    };
-
-    if show_all_machines {
-        show_managed_hosts(
-            output,
-            &output_format,
-            args.ips,
-            args.more,
-            managed_host_data,
-        )
-        .await?;
-
-        // TODO(chet): Remove this ~March 2024.
-        // Use tracing::warn for this so its both a little more
-        // noticeable, and a little more annoying/naggy. If people
-        // complain, it means its working.
-        if args.all && output_format == OutputFormat::AsciiTable {
-            warn!("redundant `--all` with basic `show` is deprecated. just do `mh show`")
-        }
-        return Ok(());
-    }
-
-    for m in utils::get_managed_host_output(managed_host_data).into_iter() {
-        show_managed_host_details_view(m)?;
-    }
-
-    Ok(())
+    show_managed_hosts(
+        utils::ManagedHostMetadata {
+            machines,
+            site_explorer_managed_hosts,
+            connected_devices,
+            network_devices,
+        },
+        output,
+        output_format,
+        args.ips,
+        args.more,
+        !show_all_machines,
+    )
+    .await
 }
