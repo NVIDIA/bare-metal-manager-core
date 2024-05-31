@@ -1656,6 +1656,7 @@ message ForgeAgentControlResponse {
 		DISCOVERY = 2;  // Run full discovery
 		REBUILD = 3;    // Future thingy
 		RETRY = 4;      // Machine needs more time to come in proper state. Retry again.
+		MEASURE = 5;    // Machine needs to send measurements for attestation.
 	}
 	Action action = 1;
 }
