@@ -145,6 +145,11 @@ async fn handle_action(
         Action::Retry => {
             panic!("Retrieved Retry action, which should be handled internally by query_api_with_retries");
         }
+        Action::Measure => {
+            // TODO(kbakanov,chet): Implement this. Dropping as as placeholder
+            // for now in the name of small, readable MRs.
+            unimplemented!("received MEASURE action, but measure not implemented in this version");
+        }
     }
     Ok(())
 }
