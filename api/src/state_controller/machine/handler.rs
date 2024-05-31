@@ -887,7 +887,6 @@ impl DpuMachineStateHandler {
             DpuComponent::Uefi => "DPU_UEFI",
             DpuComponent::Cec => "Bluefield_FW_ERoT",
         };
-
         let inventories = redfish.get_software_inventories().await.map_err(|e| {
             StateHandlerError::RedfishError {
                 operation: "get_software_inventories",
@@ -927,8 +926,9 @@ impl DpuMachineStateHandler {
                 .to_lowercase()
                 .replace("bf-", "");
             let update_version = component_value.version.as_ref().unwrap();
-            if version_compare::compare(update_version, cur_version)
-                .is_ok_and(|c| c == version_compare::Cmp::Lt)
+
+            if version_compare::compare_to(cur_version, update_version, version_compare::Cmp::Ge)
+                .unwrap()
             {
                 return Ok(None);
             };
