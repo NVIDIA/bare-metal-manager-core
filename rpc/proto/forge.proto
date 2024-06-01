@@ -378,6 +378,8 @@ message RuntimeConfig {
     bool auto_host_firmware_update = 27;
     repeated string host_enable_autoupdate = 28;
     repeated string host_disable_autoupdate = 29;
+
+    uint32 max_find_by_ids = 30;
  }
 
 message MachineId {

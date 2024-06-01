@@ -9,9 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use data_encoding::BASE32_DNSSEC;
 use std::net::IpAddr;
 
 use carbide::{
+    api::rpc as api_rpc,
     db::{
         machine::{Machine, MachineSearchConfig},
         ObjectFilter,
@@ -20,6 +22,8 @@ use carbide::{
 };
 use itertools::Itertools;
 use mac_address::MacAddress;
+use sha2::{Digest, Sha256};
+use tonic::Request;
 
 pub mod common;
 use common::{
@@ -450,8 +454,44 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
         .expect("host machine should fill in an associated_dpu_machine_id field for backwards compatibility");
 
     let first_dpu_id = dpu_ids.into_iter().next().unwrap();
-    assert!(
-        deprecated_dpu_id == first_dpu_id,
+    assert_eq!(
+        deprecated_dpu_id, first_dpu_id,
         "deprecated DPU field should equal the first DPU ID"
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // create vector of machine IDs with more than max allowed
+    // it does not matter if these are real or not, since we are testing an error back for passing more than max
+    let end_index: u32 = env.config.max_find_by_ids + 1;
+    let machine_ids = (1..=end_index)
+        .map(|index| {
+            let serial = format!("machine_{index}");
+            let hash: [u8; 32] = Sha256::new_with_prefix(serial.as_bytes()).finalize().into();
+            let encoded = BASE32_DNSSEC.encode(&hash);
+            api_rpc::MachineId {
+                id: format!("fm100ds{encoded}"),
+            }
+        })
+        .collect();
+    //build request
+    let request: Request<api_rpc::MachineIdList> =
+        Request::new(api_rpc::MachineIdList { machine_ids });
+    // execute
+    let response = env.api.find_machines_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing more than allowed number of machine IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        format!(
+            "no more than {} IDs can be accepted",
+            env.config.max_find_by_ids
+        )
     );
 }
