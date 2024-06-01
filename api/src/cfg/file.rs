@@ -160,6 +160,10 @@ pub struct CarbideConfig {
 
     #[serde(default)]
     pub firmware_global: FirmwareGlobal,
+
+    /// The maximum number of IDs allowed for find_(something)_by_ids APIs
+    #[serde(default = "default_max_find_by_ids")]
+    pub max_find_by_ids: u32,
 }
 
 impl CarbideConfig {
@@ -819,6 +823,10 @@ impl Default for DpuDesc {
     }
 }
 
+pub fn default_max_find_by_ids() -> u32 {
+    100
+}
+
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
@@ -876,6 +884,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             auto_host_firmware_update: value.firmware_global.autoupdate,
             host_enable_autoupdate: value.firmware_global.host_enable_autoupdate,
             host_disable_autoupdate: value.firmware_global.host_disable_autoupdate,
+            max_find_by_ids: value.max_find_by_ids,
         }
     }
 }
@@ -1273,6 +1282,7 @@ mod tests {
             IbPartitionStateControllerConfig::default()
         );
         assert_eq!(config.dpu_models, default_dpu_models());
+        assert_eq!(config.max_find_by_ids, default_max_find_by_ids());
     }
 
     #[test]
@@ -1370,6 +1380,7 @@ mod tests {
                 },
             }
         );
+        assert_eq!(config.max_find_by_ids, 50);
     }
 
     #[test]
@@ -1556,6 +1567,7 @@ mod tests {
         }
         assert_eq!(config.firmware_global.max_uploads, 3);
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
+        assert_eq!(config.max_find_by_ids, 75);
     }
 
     #[test]

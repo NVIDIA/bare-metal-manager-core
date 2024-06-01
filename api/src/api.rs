@@ -2643,6 +2643,14 @@ where
 
         let machine_ids = machine_ids?;
 
+        let max_find_by_ids = self.runtime_config.max_find_by_ids as usize;
+        if machine_ids.len() > max_find_by_ids {
+            return Err(CarbideError::InvalidArgument(format!(
+                "no more than {max_find_by_ids} IDs can be accepted"
+            ))
+            .into());
+        }
+
         let machines: Vec<Machine> =
             Machine::find(&mut txn, ObjectFilter::List(&machine_ids), search_config)
                 .await

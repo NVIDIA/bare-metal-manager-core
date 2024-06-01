@@ -23,8 +23,8 @@ use arc_swap::ArcSwap;
 use carbide::{
     api::Api,
     cfg::{
-        default_dpu_models, CarbideConfig, FirmwareGlobal, FirmwareHost, IbFabricMonitorConfig,
-        IbPartitionStateControllerConfig, MachineStateControllerConfig,
+        default_dpu_models, default_max_find_by_ids, CarbideConfig, FirmwareGlobal, FirmwareHost,
+        IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
         NetworkSegmentStateControllerConfig, StateControllerConfig,
     },
     db::machine::Machine,
@@ -387,6 +387,7 @@ pub fn get_config() -> CarbideConfig {
             max_uploads: 4,
             run_interval: Duration::seconds(30),
         },
+        max_find_by_ids: default_max_find_by_ids(),
     }
 }
 

@@ -3,6 +3,7 @@ dhcp_servers = ["99.101.102.103"]
 rapid_iterations = true
 max_database_connections = 1333
 otlp_endpoint = "https://localhost:4399"
+max_find_by_ids = 50
 
 [tls]
 identity_pemfile_path = "/patched/path/to/cert"

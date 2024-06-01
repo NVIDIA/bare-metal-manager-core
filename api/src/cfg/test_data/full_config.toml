@@ -16,6 +16,7 @@ max_concurrent_machine_updates = 1
 machine_update_run_interval = 60
 dpu_impi_tool_impl = "fake"
 dpu_ipmi_reboot_attempts = 1
+max_find_by_ids = 75
 
 [tls]
 identity_pemfile_path = "/path/to/cert"
