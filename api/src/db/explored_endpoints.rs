@@ -83,11 +83,14 @@ impl DbExploredEndpoint {
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints find_all", e))
     }
 
-    /// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again.
-    pub async fn find_preingest_not_waiting(
+    /// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again and isn't in an error state.
+    pub async fn find_preingest_not_waiting_not_error(
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"') AND waiting_for_explorer_refresh = false;";
+        let query = "SELECT * FROM explored_endpoints 
+                        WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"') 
+                            AND waiting_for_explorer_refresh = false 
+                            AND exploration_report->'last_exploration_error' IS NULL;";
 
         sqlx::query_as::<_, Self>(query)
             .fetch_all(&mut **txn)

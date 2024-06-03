@@ -148,7 +148,7 @@ impl PreingestionManager {
             return Ok(());
         }
 
-        let items = DbExploredEndpoint::find_preingest_not_waiting(&mut txn).await?;
+        let items = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
         let mut task_set = JoinSet::new();
         let active_uploads = Arc::new(Mutex::new(0));
 
@@ -180,9 +180,10 @@ impl PreingestionManager {
             }
         }
 
-        metrics.machines_in_preingestion = DbExploredEndpoint::find_preingest_not_waiting(&mut txn)
-            .await?
-            .len();
+        metrics.machines_in_preingestion =
+            DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+                .await?
+                .len();
         metrics.waiting_for_installation = DbExploredEndpoint::find_preingest_installing(&mut txn)
             .await?
             .len();

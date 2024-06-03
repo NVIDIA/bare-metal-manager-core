@@ -56,9 +56,11 @@ async fn test_preingestion_bmc_upgrade(
 
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
-    assert!(DbExploredEndpoint::find_preingest_not_waiting(&mut txn)
-        .await?
-        .is_empty());
+    assert!(
+        DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+            .await?
+            .is_empty()
+    );
     assert!(
         DbExploredEndpoint::find_all_preingestion_complete(&mut txn)
             .await?
@@ -74,9 +76,11 @@ async fn test_preingestion_bmc_upgrade(
 
     mgr.run_single_iteration().await?;
 
-    assert!(DbExploredEndpoint::find_preingest_not_waiting(&mut txn)
-        .await?
-        .is_empty());
+    assert!(
+        DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+            .await?
+            .is_empty()
+    );
     assert!(
         DbExploredEndpoint::find_all_preingestion_complete(&mut txn)
             .await?
@@ -98,7 +102,7 @@ async fn test_preingestion_bmc_upgrade(
     // At this point, we expect that it shows as having completed upload
     let mut txn = pool.begin().await.unwrap();
 
-    let endpoints = DbExploredEndpoint::find_preingest_not_waiting(&mut txn).await?;
+    let endpoints = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -162,9 +166,11 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    assert!(DbExploredEndpoint::find_preingest_not_waiting(&mut txn)
-        .await?
-        .is_empty());
+    assert!(
+        DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+            .await?
+            .is_empty()
+    );
     assert!(
         DbExploredEndpoint::find_all_preingestion_complete(&mut txn)
             .await?
@@ -187,9 +193,11 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    assert!(DbExploredEndpoint::find_preingest_not_waiting(&mut txn)
-        .await?
-        .is_empty());
+    assert!(
+        DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn)
+            .await?
+            .is_empty()
+    );
     assert!(
         DbExploredEndpoint::find_all_preingestion_complete(&mut txn)
             .await?
