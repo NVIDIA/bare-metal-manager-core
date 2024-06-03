@@ -933,17 +933,6 @@ fn test_disable_machine_creation_outside_site_explorer(
 
     let hardware_info = create_dpu_hardware_info(&host_sim.config);
     let discovery_info = DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
-    let response = env
-        .api
-        .discover_machine(Request::new(MachineDiscoveryInfo {
-            machine_interface_id: None,
-            discovery_data: Some(DiscoveryData::Info(discovery_info)),
-            create_machine: true,
-        }))
-        .await;
-
-    assert!(response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
-
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env
         .api
@@ -960,6 +949,17 @@ fn test_disable_machine_creation_outside_site_explorer(
         .into_inner();
 
     assert!(response.machine_interface_id.is_some());
+
+    let dm_response = env
+        .api
+        .discover_machine(Request::new(MachineDiscoveryInfo {
+            machine_interface_id: response.machine_interface_id.clone(),
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+            create_machine: true,
+        }))
+        .await;
+
+    assert!(dm_response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
 
     let response = env
         .api

@@ -2243,32 +2243,32 @@ where
             "discover_machine loading interface"
         );
 
-        if self
-            .runtime_config
-            .site_explorer
-            .as_ref()
-            .map_or(false, |s| s.create_machines)
-        {
-            Machine::find_one(
-                &mut txn,
-                &stable_machine_id,
-                MachineSearchConfig {
-                    include_dpus: true,
-                    ..MachineSearchConfig::default()
-                },
-            )
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or_else(|| {
-                Status::invalid_argument(format!(
-                    "Machine id {stable_machine_id} was not discovered by site-explorer."
-                ))
-            })?;
-        }
-
         let interface =
             MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
+            if self
+                .runtime_config
+                .site_explorer
+                .as_ref()
+                .map_or(false, |s| s.create_machines)
+            {
+                Machine::find_one(
+                    &mut txn,
+                    &stable_machine_id,
+                    MachineSearchConfig {
+                        include_dpus: true,
+                        ..MachineSearchConfig::default()
+                    },
+                )
+                .await
+                .map_err(CarbideError::from)?
+                .ok_or_else(|| {
+                    Status::invalid_argument(format!(
+                        "Machine id {stable_machine_id} was not discovered by site-explorer."
+                    ))
+                })?;
+            }
+
             let (db_machine, is_new) = if machine_discovery_info.create_machine {
                 Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?
             } else {
