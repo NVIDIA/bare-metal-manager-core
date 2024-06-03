@@ -64,7 +64,7 @@ if [[ -n $git_status ]]; then
   update_git
   if echo "${INITIAL_SYNC_STATUS}" | grep -q "OutOfSync"; then
     echo "Waiting 5 mins to be sure gitlab-master has synced to gitlab cloud..."
-    sleep 60*5
+    sleep $((60*5))
   else
     echo "Waiting up to 5 mins for Argo CD to go out-of-sync..."
     timeout=$((SECONDS + (60*5)))
