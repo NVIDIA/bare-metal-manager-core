@@ -958,6 +958,10 @@ impl SiteExplorer {
                             DbExploredEndpoint::insert(address, &report, &mut txn).await?
                         }
                     }
+                    if !self.config.create_machines {
+                        // We're using manual ingestion, making preingestion updates risky.  Go ahead and skip them.
+                        DbExploredEndpoint::set_preingestion_complete(address, &mut txn).await?
+                    }
                 }
             }
         }
