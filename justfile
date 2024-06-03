@@ -5,8 +5,12 @@ components_dir := "api pxe dns dhcp dev/bmc-mock admin"
 components_name := "carbide-api carbide-pxe carbide-dns dhcp bmc-mock admin"
 
 # Start cargo-watch for components "{{components}}"
-watch: check
-  ln -sf $FORGED_DIRECTORY . && mkdir -p .skaffold/cache && mkdir -p .skaffold/target && parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C {1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
+watch: check forged-link skaffold-dirs
+  parallel --link  -j+0 --tty --tag cargo --color=always watch --why -C {1} -s \"${REPO_ROOT}/.skaffold/build {2}\" ::: {{components_dir}} ::: {{components_name}}
+
+# Build components one time
+build: check forged-link skaffold-dirs
+  parallel --link  -j+0 --tty --tag "${REPO_ROOT}"/.skaffold/build {1} ::: {{components_name}}
 
 _dockerbuild NAME FILE CONTEXT=(invocation_directory()):
   DOCKER_BUILDKIT=1 docker build -t {{NAME}} -f {{FILE}} {{CONTEXT}}
@@ -38,3 +42,14 @@ check-envs:
 check:
   @just -f {{justfile()}} check-binaries-in-path
   @just -f {{justfile()}} check-envs
+
+forged-link: check-envs
+  #!/usr/bin/env bash
+  set -euo pipefail
+  test -e ./forged || ln -s $FORGED_DIRECTORY ./forged || (echo "Could not link FORGED_DIRECTORY $FORGED_DIRECTORY to ./forged, does it exist?" && exit 1)
+
+skaffold-dirs:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  test -d .skaffold/cache || mkdir -p .skaffold/cache
+  test -d .skaffold/target || mkdir -p .skaffold/target
