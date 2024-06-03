@@ -150,6 +150,7 @@ pub async fn get_all_machines(
     api_config: &ApiConfig<'_>,
     machine_type: Option<MachineType>,
     only_maintenance: bool,
+    page_size: usize,
 ) -> CarbideCliResult<rpc::MachineList> {
     let all_machine_ids = match find_machine_ids(api_config, machine_type, only_maintenance).await {
         Ok(all_machine_ids) => all_machine_ids,
@@ -164,7 +165,7 @@ pub async fn get_all_machines(
         machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
     };
 
-    for machine_ids in all_machine_ids.machine_ids.chunks(100) {
+    for machine_ids in all_machine_ids.machine_ids.chunks(page_size) {
         let machines = get_machines_by_ids(api_config, machine_ids).await?;
         all_machines.machines.extend(machines.machines);
     }

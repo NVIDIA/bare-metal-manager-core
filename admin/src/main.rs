@@ -203,7 +203,13 @@ async fn main() -> color_eyre::Result<()> {
         }
         CarbideCommand::Machine(machine) => match machine {
             Machine::Show(machine) => {
-                machine::handle_show(machine, config.format, api_config).await?
+                machine::handle_show(
+                    machine,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?
             }
             Machine::DpuSshCredentials(query) => {
                 let cred = rpc::get_dpu_ssh_credential(query.query, api_config).await?;
@@ -322,8 +328,14 @@ async fn main() -> color_eyre::Result<()> {
                 } else {
                     Box::new(std::io::stdout()) as Box<dyn std::io::Write>
                 };
-                managed_host::handle_show(&mut output_file, managed_host, config.format, api_config)
-                    .await?
+                managed_host::handle_show(
+                    &mut output_file,
+                    managed_host,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?
             }
             ManagedHost::Maintenance(maint) => match maint {
                 MaintenanceAction::On(maint_on) => {
@@ -444,6 +456,7 @@ async fn main() -> color_eyre::Result<()> {
                     config.format,
                     api_config,
                     options.updates_only,
+                    config.internal_page_size,
                 )
                 .await?
             }
@@ -459,7 +472,13 @@ async fn main() -> color_eyre::Result<()> {
                     Box::new(std::io::stdout()) as Box<dyn std::io::Write>
                 };
 
-                dpu::handle_dpu_status(&mut output_file, config.format, api_config).await?
+                dpu::handle_dpu_status(
+                    &mut output_file,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?
             }
             DpuAction::Reset(options) => dpu::trigger_reset(options.id, api_config).await?,
         },
@@ -542,7 +561,9 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
         },
-        CarbideCommand::Inventory(action) => inventory::print_inventory(api_config, action).await?,
+        CarbideCommand::Inventory(action) => {
+            inventory::print_inventory(api_config, action, config.internal_page_size).await?
+        }
         CarbideCommand::Credential(credential_action) => match credential_action {
             CredentialAction::AddUFM(c) => {
                 let username = url_validator(c.url.clone()).await?;

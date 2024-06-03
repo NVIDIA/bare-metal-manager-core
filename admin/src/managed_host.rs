@@ -334,6 +334,7 @@ pub async fn handle_show(
     args: ShowManagedHost,
     output_format: OutputFormat,
     api_config: &ApiConfig<'_>,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
     let site_explorer_managed_hosts = rpc::get_site_exploration_report(api_config)
         .await?
@@ -351,7 +352,7 @@ pub async fn handle_show(
 
     let machines: Vec<Machine> = if show_all_machines {
         // Get all machines: DPUs will arrive as part of this request
-        rpc::get_all_machines(api_config, None, args.fix)
+        rpc::get_all_machines(api_config, None, args.fix, page_size)
             .await?
             .machines
     } else {

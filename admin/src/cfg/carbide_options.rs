@@ -70,6 +70,10 @@ pub struct CarbideOptions {
 
     #[clap(subcommand)]
     pub commands: Option<CarbideCommand>,
+
+    #[clap(short = 'p', long, default_value_t = 100)]
+    #[clap(help = "For commands that internally retrieve data with paging, use this page size.")]
+    pub internal_page_size: usize,
 }
 
 #[derive(Parser, Debug)]
