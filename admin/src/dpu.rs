@@ -195,6 +195,7 @@ pub async fn handle_dpu_versions(
     output_format: OutputFormat,
     api_config: &ApiConfig<'_>,
     updates_only: bool,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
     let expected_versions: HashMap<String, String> = if updates_only {
         let bi = rpc::version(api_config, true).await?;
@@ -204,7 +205,7 @@ pub async fn handle_dpu_versions(
         HashMap::default()
     };
 
-    let dpus = rpc::get_all_machines(api_config, Some(MachineType::Dpu), false)
+    let dpus = rpc::get_all_machines(api_config, Some(MachineType::Dpu), false, page_size)
         .await?
         .machines
         .into_iter()
@@ -378,8 +379,9 @@ pub async fn handle_dpu_status(
     output: &mut dyn std::io::Write,
     output_format: OutputFormat,
     api_config: &ApiConfig<'_>,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
-    let dpus = rpc::get_all_machines(api_config, Some(MachineType::Dpu), false)
+    let dpus = rpc::get_all_machines(api_config, Some(MachineType::Dpu), false, page_size)
         .await?
         .machines;
 

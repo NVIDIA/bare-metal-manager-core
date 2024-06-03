@@ -211,8 +211,9 @@ fn machine_type(machine_id: &Option<MachineId>) -> MachineType {
 pub async fn print_inventory(
     api_config: &ApiConfig<'_>,
     action: InventoryAction,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_machines = rpc::get_all_machines(api_config, None, false).await?;
+    let all_machines = rpc::get_all_machines(api_config, None, false, page_size).await?;
     let all_instances = rpc::get_instances(api_config, None, None, None).await?;
 
     let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines)?;

@@ -236,8 +236,9 @@ async fn show_all_machines(
     json: bool,
     api_config: &ApiConfig<'_>,
     machine_type: Option<forgerpc::MachineType>,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
-    let machines = rpc::get_all_machines(api_config, machine_type, false).await?;
+    let machines = rpc::get_all_machines(api_config, machine_type, false, page_size).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&machines).unwrap());
     } else {
@@ -267,6 +268,7 @@ pub async fn handle_show(
     args: ShowMachine,
     output_format: OutputFormat,
     api_config: &ApiConfig<'_>,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if !args.machine.is_empty() {
@@ -280,7 +282,7 @@ pub async fn handle_show(
             None
         };
 
-        show_all_machines(is_json, api_config, machine_type).await?;
+        show_all_machines(is_json, api_config, machine_type, page_size).await?;
         // TODO(chet): Remove this ~March 2024.
         // Use tracing::warn for this so its both a little more
         // noticeable, and a little more annoying/naggy. If people
