@@ -435,6 +435,7 @@ description = "Download the kubelet pause container on aarch64 gitlab runner"
 command = "docker"
 args = [
 	"pull",
+    "--platform=linux/arm64",
 	"${K8S_PAUSE_URI}",
 ]
 
