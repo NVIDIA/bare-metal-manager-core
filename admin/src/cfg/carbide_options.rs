@@ -148,10 +148,18 @@ pub enum CarbideCommand {
         about = "Query the Version gRPC endpoint repeatedly printing how long it took and any failures."
     )]
     Ping(PingOptions),
-    #[clap(about = "Set RUST_LOG")]
-    SetLogFilter(LogFilterOptions),
+    #[clap(about = "Set carbide-api dynamic features", subcommand)]
+    Set(SetAction),
     #[clap(about = "Expected machine handling", subcommand, visible_alias = "em")]
     ExpectedMachine(ExpectedMachineAction),
+}
+
+#[derive(Parser, Debug)]
+pub enum SetAction {
+    #[clap(about = "Set RUST_LOG")]
+    LogFilter(LogFilterOptions),
+    #[clap(about = "Set create_machines")]
+    CreateMachines(CreateMachinesOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -1206,4 +1214,10 @@ pub struct LogFilterOptions {
         help = "Revert to startup RUST_LOG after this much time, friendly format e.g. '1h', '3min', https://docs.rs/duration-str/latest/duration_str/"
     )]
     pub expiry: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct CreateMachinesOptions {
+    #[clap(long, action = clap::ArgAction::Set, help = "Enable site-explorer create_machines?")]
+    pub enabled: bool,
 }

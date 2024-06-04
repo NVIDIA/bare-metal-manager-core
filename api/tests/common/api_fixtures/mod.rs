@@ -356,7 +356,7 @@ pub fn get_config() -> CarbideConfig {
         dpu_nic_firmware_reprovision_update_enabled: true,
         max_concurrent_machine_updates: None,
         machine_update_run_interval: None,
-        site_explorer: None,
+        site_explorer: carbide::cfg::default_site_explorer_config(),
         dpu_dhcp_server_enabled: false,
         nvue_enabled: true,
         attestation_enabled: false,
@@ -467,6 +467,14 @@ pub async fn create_test_env_with_config(
         .expect("Creating pools should work");
 
     let config = Arc::new(config.unwrap_or(get_config()));
+    let dyn_settings = carbide::dynamic_settings::DynamicSettings {
+        log_filter: Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
+            EnvFilter::builder()
+                .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
+                .unwrap(),
+        )))),
+        create_machines: carbide::dynamic_settings::create_machines(true),
+    };
 
     let api = Arc::new(Api::new(
         config.clone(),
@@ -477,11 +485,7 @@ pub async fn create_test_env_with_config(
         eth_virt_data.clone(),
         common_pools.clone(),
         ib_fabric_manager.clone(),
-        Arc::new(ArcSwap::from(Arc::new(ActiveLevel::new(
-            EnvFilter::builder()
-                .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
-                .unwrap(),
-        )))),
+        dyn_settings,
         Arc::new(IPMIToolTestImpl {}),
     ));
 

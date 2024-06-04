@@ -16,8 +16,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::db::expected_machine::ExpectedMachine;
-use crate::measured_boot;
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
@@ -31,7 +29,6 @@ use ::rpc::protos::forge::{
     ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
-use arc_swap::ArcSwap;
 use config_version::ConfigVersion;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
@@ -47,6 +44,7 @@ use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
+use crate::db::expected_machine::ExpectedMachine;
 use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig, NewIBPartition};
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
@@ -54,11 +52,12 @@ use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
+use crate::dynamic_settings;
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
-use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
+use crate::measured_boot;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
@@ -127,7 +126,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub(crate) runtime_config: Arc<CarbideConfig>,
     dpu_health_log_limiter: LogLimiter<MachineId>,
-    pub log_filter: Arc<ArcSwap<ActiveLevel>>,
+    pub dynamic_settings: dynamic_settings::DynamicSettings,
     ipmi_tool: Arc<dyn IPMITool>,
 }
 
@@ -2249,8 +2248,9 @@ where
             if self
                 .runtime_config
                 .site_explorer
-                .as_ref()
-                .map_or(false, |s| s.create_machines)
+                .create_machines
+                .load()
+                .current
             {
                 Machine::find_one(
                     &mut txn,
@@ -3208,6 +3208,25 @@ where
             Some(interface_id) => Uuid::try_from(interface_id)
                 .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {}", e)))?,
         };
+
+        // Disable booting from discovery image when no machine record exists
+        if self
+            .runtime_config
+            .site_explorer
+            .create_machines
+            .load()
+            .current
+        {
+            let machine_id = MachineInterface::find_one(&mut txn, interface_id)
+                .await?
+                .machine_id;
+            if machine_id.is_none() {
+                return Err(Status::not_found(format!(
+                    "Machine for interface {} was not discovered by site-explorer",
+                    interface_id
+                )));
+            }
+        }
 
         let arch = rpc::MachineArchitecture::try_from(request.arch)
             .map_err(|_| Status::invalid_argument("Unknown arch received."))?;
@@ -5241,39 +5260,65 @@ where
         Ok(tonic::Response::new(()))
     }
 
-    // Override RUST_LOG
-    async fn set_log_filter(
+    // Override RUST_LOG or site-explorer create_machines
+    async fn set_dynamic_config(
         &self,
-        request: tonic::Request<rpc::LogFilterRequest>,
+        request: tonic::Request<rpc::SetDynamicConfigRequest>,
     ) -> Result<tonic::Response<()>, Status> {
         log_request_data(&request);
 
         let req = request.into_inner();
-        if req.filter.is_empty() {
-            return Err(Status::invalid_argument("'filter' cannot be empty"));
+        if req.value.is_empty() {
+            return Err(Status::invalid_argument("'value' cannot be empty"));
         }
 
         let exp_str = req.expiry.as_deref().unwrap_or("1h");
         let expiry = duration_str::parse(exp_str).map_err(|err| {
             Status::invalid_argument(format!("Invalid expiry string '{exp_str}'. {err}"))
         })?;
-        const MAX_LOG_FILTER_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
-        if MAX_LOG_FILTER_EXPIRY < expiry {
+        const MAX_SET_INTERNAL_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
+        if MAX_SET_INTERNAL_EXPIRY < expiry {
             return Err(Status::invalid_argument(
                 "Expiry exceeds max allowed of 60 hours",
             ));
         }
         let expire_at = chrono::Utc::now() + expiry;
 
-        let current_level = self.log_filter.load();
-        let next_level = current_level
-            .with_base(&req.filter, Some(expire_at))
-            .map_err(|err| {
-                Status::invalid_argument(format!("Invalid filter string '{}'. {err}", req.filter))
-            })?;
-        self.log_filter.store(Arc::new(next_level));
-
-        tracing::info!("Log filter updated to '{}'", req.filter);
+        let Ok(requested_setting) = rpc::ConfigSetting::try_from(req.setting) else {
+            return Err(Status::invalid_argument(format!(
+                "Not a supported dynamic config setting: {}",
+                req.setting
+            )));
+        };
+        match requested_setting {
+            rpc::ConfigSetting::LogFilter => {
+                let current_level = self.dynamic_settings.log_filter.load();
+                let next_level = current_level
+                    .with_base(&req.value, Some(expire_at))
+                    .map_err(|err| {
+                        Status::invalid_argument(format!(
+                            "Invalid log filter string '{}'. {err}",
+                            req.value
+                        ))
+                    })?;
+                self.dynamic_settings.log_filter.store(Arc::new(next_level));
+                tracing::info!("Log filter updated to '{}'", req.value);
+            }
+            rpc::ConfigSetting::CreateMachines => {
+                let current_cm = self.dynamic_settings.create_machines.load();
+                let is_enabled = req.value.parse::<bool>().map_err(|err| {
+                    Status::invalid_argument(format!(
+                        "Invalid create_machines string '{}'. {err}",
+                        req.value
+                    ))
+                })?;
+                let next_cm = current_cm.with_base(is_enabled, None);
+                self.dynamic_settings
+                    .create_machines
+                    .store(Arc::new(next_cm));
+                tracing::info!("site-explorer create_machines updated to '{}'", req.value);
+            }
+        }
         Ok(tonic::Response::new(()))
     }
 
@@ -6327,7 +6372,7 @@ where
         eth_data: ethernet_virtualization::EthVirtData,
         common_pools: Arc<CommonPools>,
         ib_fabric_manager: Arc<dyn IBFabricManager>,
-        log_filter: Arc<ArcSwap<ActiveLevel>>,
+        dynamic_settings: dynamic_settings::DynamicSettings,
         ipmi_tool: Arc<dyn IPMITool>,
     ) -> Self {
         Self {
@@ -6343,7 +6388,7 @@ where
                 std::time::Duration::from_secs(5 * 60),
                 std::time::Duration::from_secs(60 * 60),
             ),
-            log_filter,
+            dynamic_settings,
             ipmi_tool,
         }
     }
@@ -6556,7 +6601,7 @@ where
     }
 
     pub fn log_filter_string(&self) -> String {
-        self.log_filter.load().to_string()
+        self.dynamic_settings.log_filter.load().to_string()
     }
 
     async fn identify_bmc_from_db(

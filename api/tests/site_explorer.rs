@@ -256,7 +256,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: true,
+        create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
     };
@@ -265,7 +265,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let explorer = SiteExplorer::new(
         env.credential_provider.clone(),
         env.pool.clone(),
-        Some(&explorer_config),
+        explorer_config,
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
@@ -593,7 +593,7 @@ async fn test_site_explorer_creates_managed_host(
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: true,
+        create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
     };
@@ -601,7 +601,7 @@ async fn test_site_explorer_creates_managed_host(
     let explorer = SiteExplorer::new(
         env.credential_provider.clone(),
         env.pool.clone(),
-        Some(&explorer_config),
+        explorer_config,
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
@@ -913,16 +913,15 @@ fn test_disable_machine_creation_outside_site_explorer(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = common::api_fixtures::get_config();
-    let explorer_config = SiteExplorerConfig {
+    config.site_explorer = SiteExplorerConfig {
         enabled: true,
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: true,
+        create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
     };
-    config.site_explorer = Some(explorer_config.clone());
     let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
     let host_sim = env.start_managed_host_sim();
     let _underlay_segment = create_underlay_network_segment(&env).await;

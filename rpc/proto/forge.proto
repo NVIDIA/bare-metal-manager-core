@@ -159,8 +159,8 @@ service Forge {
   // Maintenance mode operations: enable, disable
   rpc SetMaintenance(MaintenanceRequest) returns (google.protobuf.Empty);
 
-  // Set RUST_LOG dynamically
-  rpc SetLogFilter(LogFilterRequest) returns (google.protobuf.Empty);
+  // Set a dynamic feature, like RUST_LOG
+  rpc SetDynamicConfig(SetDynamicConfigRequest) returns (google.protobuf.Empty);
 
   // Trigger reprovisioning of DPU
   rpc TriggerDpuReprovisioning(DpuReprovisioningRequest) returns (google.protobuf.Empty);
@@ -282,7 +282,7 @@ service Forge {
   rpc RemoveMeasurementTrustedProfile(measured_boot.RemoveMeasurementTrustedProfileRequest) returns (measured_boot.RemoveMeasurementTrustedProfileResponse);
   rpc ListMeasurementTrustedMachines(measured_boot.ListMeasurementTrustedMachinesRequest) returns (measured_boot.ListMeasurementTrustedMachinesResponse);
   rpc ListMeasurementTrustedProfiles(measured_boot.ListMeasurementTrustedProfilesRequest) returns (measured_boot.ListMeasurementTrustedProfilesResponse);
-  
+
   ////////////////////////////////////////////////////////////////////////////////
   // End Measured Boot API Endpoints
   ////////////////////////////////////////////////////////////////////////////////
@@ -2065,9 +2065,15 @@ message MaintenanceRequest {
   optional string reference = 3;
 }
 
-message LogFilterRequest {
-  string filter = 1;
-  optional string expiry = 2;
+message SetDynamicConfigRequest {
+  ConfigSetting setting = 1;
+  string value = 2;
+  optional string expiry = 3;
+}
+
+enum ConfigSetting {
+  LOG_FILTER = 0;
+  CREATE_MACHINES = 1;
 }
 
 message FindIpAddressRequest {

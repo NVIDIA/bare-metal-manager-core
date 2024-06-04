@@ -10,17 +10,19 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display, net::SocketAddr, path::PathBuf};
 
+use arc_swap::ArcSwap;
 use chrono::Duration;
+use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::Ipv4Network;
 use itertools::Itertools;
+use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::state_controller::config::IterationConfig;
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
-use duration_str::{deserialize_duration, deserialize_duration_chrono};
-use regex::Regex;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 3;
 
@@ -128,7 +130,8 @@ pub struct CarbideConfig {
     pub machine_update_run_interval: Option<u64>,
 
     /// SiteExplorer related configuration
-    pub site_explorer: Option<SiteExplorerConfig>,
+    #[serde(default = "default_site_explorer_config")]
+    pub site_explorer: SiteExplorerConfig,
 
     /// Enable DHCP server on DPU to serve host.
     #[serde(default)]
@@ -422,7 +425,7 @@ impl IBFabricConfig {
 }
 
 /// SiteExplorer related configuration
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SiteExplorerConfig {
     #[serde(default)]
     /// Whether SiteExplorer is enabled
@@ -450,9 +453,13 @@ pub struct SiteExplorerConfig {
     #[serde(default = "SiteExplorerConfig::default_explorations_per_run")]
     pub explorations_per_run: u64,
 
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_create_machines",
+        serialize_with = "serialize_create_machines"
+    )]
     /// Whether SiteExplorer should create Managed Host state machine
-    pub create_machines: bool,
+    pub create_machines: Arc<ArcSwap<crate::dynamic_settings::Setting<bool>>>,
 
     /// The IP address to connect to instead of the BMC that made the dhcp request.
     /// This is a debug override and should not be used in production.
@@ -461,6 +468,18 @@ pub struct SiteExplorerConfig {
     /// The port to connect to for redfish requests.
     /// This is a debug override and should not be used in production.
     pub override_target_port: Option<u16>,
+}
+
+impl PartialEq for SiteExplorerConfig {
+    fn eq(&self, other: &SiteExplorerConfig) -> bool {
+        self.enabled == other.enabled
+            && self.run_interval == other.run_interval
+            && self.concurrent_explorations == other.concurrent_explorations
+            && self.explorations_per_run == other.explorations_per_run
+            && self.create_machines.load().current == other.create_machines.load().current
+            && self.override_target_ip == other.override_target_ip
+            && self.override_target_port == other.override_target_port
+    }
 }
 
 impl SiteExplorerConfig {
@@ -475,6 +494,29 @@ impl SiteExplorerConfig {
     const fn default_explorations_per_run() -> u64 {
         10
     }
+}
+
+pub fn deserialize_create_machines<'de, D>(
+    deserializer: D,
+) -> Result<Arc<ArcSwap<crate::dynamic_settings::Setting<bool>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let b = bool::deserialize(deserializer)?;
+    Ok(Arc::new(ArcSwap::new(Arc::new(
+        crate::dynamic_settings::Setting::new(b),
+    ))))
+}
+
+pub fn serialize_create_machines<S>(
+    cm: &Arc<ArcSwap<crate::dynamic_settings::Setting<bool>>>,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let b = cm.load().current;
+    s.serialize_bool(b)
 }
 
 /// IbFabricMonitorConfig related configuration
@@ -555,6 +597,19 @@ fn default_listen() -> SocketAddr {
 
 fn default_max_database_connections() -> u32 {
     1000
+}
+
+// public so that the integration tests can use it
+pub fn default_site_explorer_config() -> SiteExplorerConfig {
+    SiteExplorerConfig {
+        enabled: false,
+        run_interval: std::time::Duration::from_secs(0),
+        concurrent_explorations: 0,
+        explorations_per_run: 0,
+        create_machines: crate::dynamic_settings::create_machines(false),
+        override_target_ip: None,
+        override_target_port: None,
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -1279,7 +1334,7 @@ mod tests {
                 run_interval: IbFabricMonitorConfig::default_run_interval(),
             }
         });
-        assert!(config.site_explorer.is_none());
+        assert!(!config.site_explorer.enabled); // Currently disabled by default
         assert_eq!(
             config.machine_state_controller,
             MachineStateControllerConfig::default()
@@ -1345,13 +1400,13 @@ mod tests {
             }
         );
         assert_eq!(
-            config.site_explorer.as_ref().unwrap(),
-            &SiteExplorerConfig {
+            config.site_explorer,
+            SiteExplorerConfig {
                 enabled: true,
                 run_interval: std::time::Duration::from_secs(300),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
-                create_machines: true,
+                create_machines: crate::dynamic_settings::create_machines(true),
                 override_target_ip: None,
                 override_target_port: None,
             }
@@ -1467,13 +1522,13 @@ mod tests {
             }
         );
         assert_eq!(
-            config.site_explorer.as_ref().unwrap(),
-            &SiteExplorerConfig {
+            config.site_explorer,
+            SiteExplorerConfig {
                 enabled: false,
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 5,
                 explorations_per_run: 11,
-                create_machines: true,
+                create_machines: crate::dynamic_settings::create_machines(true),
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
             }
@@ -1655,13 +1710,13 @@ mod tests {
             }
         );
         assert_eq!(
-            config.site_explorer.as_ref().unwrap(),
-            &SiteExplorerConfig {
+            config.site_explorer,
+            SiteExplorerConfig {
                 enabled: true,
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
-                create_machines: true,
+                create_machines: crate::dynamic_settings::create_machines(true),
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
             }

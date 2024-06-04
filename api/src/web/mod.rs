@@ -149,6 +149,7 @@ struct Index {
     version: &'static str,
     agent_upgrade_policy: &'static str,
     log_filter: String,
+    create_machines: String,
     carbide_config: CarbideConfig,
 }
 
@@ -173,10 +174,18 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
         }
     };
 
+    let create_machines = state
+        .dynamic_settings
+        .create_machines
+        .load()
+        .current
+        .to_string();
+
     let index = Index {
         version: forge_version::v!(build_version),
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
+        create_machines,
         carbide_config: (*state.runtime_config).clone(),
     };
 

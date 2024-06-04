@@ -18,10 +18,8 @@ use std::{
     backtrace::{Backtrace, BacktraceStatus},
     net::IpAddr,
     sync::Arc,
-    time::Duration,
 };
 
-use arc_swap::ArcSwap;
 use config_version::{ConfigVersion, ConfigVersionParseError};
 use db::{bmc_metadata::UserRoles, machine::Machine};
 use dhcp::allocation::DhcpError;
@@ -29,7 +27,6 @@ use eyre::WrapErr;
 use forge_secrets::credentials::CredentialKey;
 use ipmitool::IPMITool;
 use libredfish::SystemPowerControl;
-use logging::level_filter::ActiveLevel;
 use mac_address::MacAddress;
 use model::{
     hardware_info::HardwareInfoError,
@@ -55,6 +52,7 @@ pub mod credentials;
 pub mod db;
 pub mod db_init;
 mod dhcp;
+pub mod dynamic_settings;
 pub mod ethernet_virtualization;
 mod firmware_downloader;
 pub mod ib;
@@ -75,9 +73,6 @@ pub mod setup;
 pub mod site_explorer;
 pub mod state_controller;
 pub mod web;
-
-/// How often to check if the log filter (RUST_LOG) needs resetting
-const LOG_FILTER_RESET_PERIOD: Duration = Duration::from_secs(15 * 60); // 1/4 hour
 
 /// Represents various Errors that can occur throughout the system.
 ///
@@ -355,7 +350,11 @@ pub async fn run(
             })?;
     }
 
-    start_log_filter_reset_task(tconf.filter.clone(), LOG_FILTER_RESET_PERIOD);
+    let dynamic_settings = crate::dynamic_settings::DynamicSettings {
+        log_filter: tconf.filter.clone(),
+        create_machines: carbide_config.site_explorer.create_machines.clone(),
+    };
+    dynamic_settings.start_reset_task(dynamic_settings::RESET_PERIOD);
 
     let forge_vault_client = setup::create_vault_client(tconf.meter.clone()).await?;
 
@@ -374,36 +373,10 @@ pub async fn run(
         forge_vault_client.clone(),
         forge_vault_client,
         tconf.meter,
-        tconf.filter,
+        dynamic_settings,
         ipmi_tool,
     )
     .await
-}
-
-/// The background task that resets RUST_LOG to startup value when the override expires
-/// Overrides are applied in `set_log_filter` RPC.
-pub fn start_log_filter_reset_task(log_filter: Arc<ArcSwap<ActiveLevel>>, period: Duration) {
-    let _ = tokio::task::Builder::new()
-        .name("log_filter_reset")
-        .spawn(async move {
-            loop {
-                tokio::time::sleep(period).await;
-                let f = log_filter.load();
-                if f.has_expired() {
-                    match f.reset_from() {
-                        Ok(next_level) => {
-                            log_filter.store(Arc::new(next_level));
-                        }
-                        Err(err) => {
-                            tracing::error!("Failed resetting log level: {err}");
-                        }
-                    }
-                }
-            }
-        })
-        .map_err(|err| {
-            tracing::error!("log_filter_reset task aborted: {err}");
-        });
 }
 
 pub async fn host_power_control(
