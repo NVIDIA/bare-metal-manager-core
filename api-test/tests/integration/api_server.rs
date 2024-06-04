@@ -153,6 +153,7 @@ pub async fn start(
         site_explorer: None,
         dpu_dhcp_server_enabled: true,
         nvue_enabled: true,
+        attestation_enabled: false,
         ib_config: Some(IBFabricConfig {
             max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
             enabled: false,

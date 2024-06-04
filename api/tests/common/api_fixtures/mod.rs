@@ -359,6 +359,7 @@ pub fn get_config() -> CarbideConfig {
         site_explorer: None,
         dpu_dhcp_server_enabled: false,
         nvue_enabled: true,
+        attestation_enabled: false,
         ib_config: None,
         machine_state_controller: MachineStateControllerConfig {
             dpu_wait_time: Duration::seconds(1),

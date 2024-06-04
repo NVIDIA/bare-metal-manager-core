@@ -102,6 +102,7 @@ pub async fn handle_show_version(
         r!(table, config, machine_update_runtime_interval);
         r!(table, config, dpu_dhcp_server_enabled);
         r!(table, config, nvue_enabled);
+        r!(table, config, attestation_enabled);
 
         _ = table.print_tty(true);
     }
