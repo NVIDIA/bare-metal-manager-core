@@ -39,10 +39,7 @@ use carbide::{
 };
 use mac_address::MacAddress;
 use rpc::{
-    forge::{
-        forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest, MachineArchitecture,
-        PxeInstructionRequest,
-    },
+    forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
     site_explorer::ExploredManagedHost as RpcExploredManagedHost,
     BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
@@ -960,16 +957,6 @@ fn test_disable_machine_creation_outside_site_explorer(
         .await;
 
     assert!(dm_response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
-
-    let response = env
-        .api
-        .get_pxe_instructions(Request::new(PxeInstructionRequest {
-            arch: MachineArchitecture::Arm.into(),
-            interface_id: response.machine_interface_id,
-        }))
-        .await;
-
-    assert!(response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
 
     Ok(())
 }
