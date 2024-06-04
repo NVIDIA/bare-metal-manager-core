@@ -282,7 +282,7 @@ service Forge {
   rpc RemoveMeasurementTrustedProfile(measured_boot.RemoveMeasurementTrustedProfileRequest) returns (measured_boot.RemoveMeasurementTrustedProfileResponse);
   rpc ListMeasurementTrustedMachines(measured_boot.ListMeasurementTrustedMachinesRequest) returns (measured_boot.ListMeasurementTrustedMachinesResponse);
   rpc ListMeasurementTrustedProfiles(measured_boot.ListMeasurementTrustedProfilesRequest) returns (measured_boot.ListMeasurementTrustedProfilesResponse);
-  
+
   ////////////////////////////////////////////////////////////////////////////////
   // End Measured Boot API Endpoints
   ////////////////////////////////////////////////////////////////////////////////
@@ -1397,6 +1397,8 @@ message GetSiteExplorationRequest {
 message ExploreRequest {
   // IP address of the BMC to explore
   string address = 1;
+  // The MAC the host DHCPed from
+  optional string mac_address = 2;
 }
 
 message ManagedHostNetworkConfigRequest {

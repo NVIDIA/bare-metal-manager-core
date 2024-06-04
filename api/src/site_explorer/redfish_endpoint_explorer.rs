@@ -14,11 +14,13 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use forge_secrets::credentials::{CredentialKey, CredentialType};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType};
 use libredfish::{Redfish, RedfishError};
 use regex::Regex;
 
+use crate::db::expected_machine::ExpectedMachine;
 use crate::model::site_explorer::{ComputerSystemAttributes, NicMode};
+use crate::redfish::RedfishAuth;
 use crate::{
     db::machine_interface::MachineInterface,
     model::site_explorer::{
@@ -32,12 +34,17 @@ use crate::{
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct RedfishEndpointExplorer {
     redfish_client_pool: Arc<dyn RedfishClientPool>,
+    credential_provider: Arc<dyn CredentialProvider>,
 }
 
 impl RedfishEndpointExplorer {
-    pub fn new(redfish_client_pool: Arc<dyn RedfishClientPool>) -> Self {
+    pub fn new(
+        redfish_client_pool: Arc<dyn RedfishClientPool>,
+        credential_provider: Arc<dyn CredentialProvider>,
+    ) -> Self {
         Self {
             redfish_client_pool,
+            credential_provider,
         }
     }
 
@@ -51,7 +58,8 @@ impl RedfishEndpointExplorer {
             .create_client(
                 &address.ip().to_string(),
                 Some(address.port()),
-                credential_key,
+                RedfishAuth::Key(credential_key),
+                true,
             )
             .await?;
 
@@ -139,7 +147,12 @@ impl RedfishEndpointExplorer {
             }
         };
         self.redfish_client_pool
-            .create_client(&address.ip().to_string(), Some(address.port()), creds)
+            .create_client(
+                &address.ip().to_string(),
+                Some(address.port()),
+                RedfishAuth::Key(creds),
+                true,
+            )
             .await
     }
 }
@@ -150,10 +163,18 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         &self,
         address: SocketAddr,
         interface: &MachineInterface,
+        expected: Option<ExpectedMachine>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         if last_report.is_none() {
-            match super::initial_setup::host(self.redfish_client_pool.clone(), address).await {
+            match super::initial_setup::host(
+                self.redfish_client_pool.clone(),
+                self.credential_provider.clone(),
+                address,
+                expected,
+            )
+            .await
+            {
                 // Host already setup, continue with normal exploration
                 Ok(None) => {}
                 // We changed something, wait for the reboot
@@ -188,9 +209,10 @@ impl EndpointExplorer for RedfishEndpointExplorer {
                 &address.ip().to_string(),
                 Some(address.port()),
                 headers.as_slice(),
-                forge_secrets::credentials::CredentialKey::DpuRedfish {
+                RedfishAuth::Key(CredentialKey::DpuRedfish {
                     credential_type: CredentialType::SiteDefault,
-                },
+                }),
+                true,
             )
             .await;
 
@@ -203,9 +225,10 @@ impl EndpointExplorer for RedfishEndpointExplorer {
                         &address.ip().to_string(),
                         Some(address.port()),
                         &headers,
-                        forge_secrets::credentials::CredentialKey::HostRedfish {
+                        RedfishAuth::Key(CredentialKey::HostRedfish {
                             credential_type: CredentialType::SiteDefault,
-                        },
+                        }),
+                        true,
                     )
                     .await
                 {

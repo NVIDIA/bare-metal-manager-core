@@ -338,6 +338,8 @@ pub enum EndpointExplorationError {
     Unauthorized { details: String },
     #[error("Credentials for the machine are not available")]
     MissingCredentials,
+    #[error("None of the credentials we have worked, tried: {0}")]
+    InvalidCredentials(String),
     #[error("Endpoint is not a BMC with Redfish support")]
     MissingRedfish,
     #[error("BMC vendor field is not populated. Unsupported BMC.")]

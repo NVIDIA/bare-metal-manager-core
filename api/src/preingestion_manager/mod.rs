@@ -12,16 +12,18 @@
 
 mod metrics;
 
-use forge_secrets::credentials::CredentialType;
+use std::{sync::Arc, time::Duration};
+
+use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::model::task::TaskState;
 use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, Postgres, Transaction};
-use std::{sync::Arc, time::Duration};
 use tokio::{
     sync::{oneshot, Mutex},
     task::JoinSet,
 };
 
+use self::metrics::PreingestionMetrics;
 use crate::{
     cfg::{
         CarbideConfig, FirmwareEntry, FirmwareGlobal, FirmwareHost, FirmwareHostComponentType,
@@ -30,11 +32,9 @@ use crate::{
     db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
     firmware_downloader::FirmwareDownloader,
     model::site_explorer::{ExploredEndpoint, PreingestionState},
-    redfish::{RedfishClientCreationError, RedfishClientPool},
+    redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool},
     CarbideError,
 };
-
-use self::metrics::PreingestionMetrics;
 
 /// DatabaseResult is a mirror of CarbideResult, but we should only be bubbling up an error if it was a database error and we need to reconnect.
 type DatabaseResult<T> = Result<T, DatabaseError>;
@@ -464,9 +464,10 @@ impl PreingestionManagerStatic {
             .create_client(
                 &endpoint.address.to_string(),
                 None,
-                forge_secrets::credentials::CredentialKey::HostRedfish {
+                RedfishAuth::Key(CredentialKey::HostRedfish {
                     credential_type: CredentialType::SiteDefault,
-                },
+                }),
+                true,
             )
             .await
             .map_err(|e| match e {
@@ -636,9 +637,10 @@ async fn initiate_update(
         .create_client(
             &endpoint_clone.address.to_string(),
             None,
-            forge_secrets::credentials::CredentialKey::HostRedfish {
+            RedfishAuth::Key(CredentialKey::HostRedfish {
                 credential_type: CredentialType::SiteDefault,
-            },
+            }),
+            true,
         )
         .await
     {
