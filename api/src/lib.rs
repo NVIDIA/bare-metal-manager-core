@@ -38,7 +38,7 @@ use model::{
     tenant::TenantError,
     ConfigValidationError, RpcDataConversionError,
 };
-use redfish::RedfishClientPool;
+use redfish::{RedfishAuth, RedfishClientPool};
 use state_controller::snapshot_loader::SnapshotLoaderError;
 use tonic::Status;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -426,7 +426,12 @@ pub async fn host_power_control(
     });
 
     let client = redfish_client_pool
-        .create_client(bmc_ip, machine_snapshot.bmc_info.port, key)
+        .create_client(
+            bmc_ip,
+            machine_snapshot.bmc_info.port,
+            RedfishAuth::Key(key),
+            true,
+        )
         .await
         .map_err(|e| {
             CarbideError::GenericError(format!("Failed to create redfish client: {}", e))

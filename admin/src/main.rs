@@ -10,7 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use std::fs;
+use std::fs::File;
 use std::io;
+use std::io::BufReader;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -53,8 +55,6 @@ use forge_tls::client_config::get_proxy_info;
 use prettytable::{row, Table};
 use serde::Deserialize;
 use serde::Serialize;
-use std::fs::File;
-use std::io::BufReader;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 
 mod cfg;
@@ -645,7 +645,7 @@ async fn main() -> color_eyre::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&exploration_report)?);
             }
             SiteExplorer::Explore(opts) => {
-                let report = rpc::explore(api_config, &opts.address).await?;
+                let report = rpc::explore(api_config, &opts.address, opts.mac).await?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
             }
         },

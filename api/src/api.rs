@@ -16,8 +16,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::db::expected_machine::ExpectedMachine;
-use crate::measured_boot;
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
@@ -47,6 +45,7 @@ use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
+use crate::db::expected_machine::ExpectedMachine;
 use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig, NewIBPartition};
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
@@ -59,6 +58,7 @@ use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
+use crate::measured_boot;
 use crate::model::instance::status::network::InstanceInterfaceStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::machine::network::MachineNetworkStatusObservation;
@@ -73,6 +73,7 @@ use crate::model::tenant::{
     UpdateTenantKeyset,
 };
 use crate::model::RpcDataConversionError;
+use crate::redfish::RedfishAuth;
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
@@ -1792,10 +1793,11 @@ where
             .create_client(
                 bmc_ip,
                 snapshot.host_snapshot.bmc_info.port,
-                CredentialKey::Bmc {
+                RedfishAuth::Key(CredentialKey::Bmc {
                     machine_id: machine_id.to_string(),
                     user_role: UserRoles::Administrator.to_string(),
-                },
+                }),
+                true,
             )
             .await
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
@@ -3433,10 +3435,39 @@ where
             )));
         };
 
-        let explorer =
-            crate::site_explorer::RedfishEndpointExplorer::new(self.redfish_pool.clone());
+        let maybe_mac = if let Some(mac_str) = req.mac_address {
+            let mac = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
+
+            let mut txn = self.database_connection.begin().await.map_err(|e| {
+                CarbideError::from(DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "begin find_many_by_bmc_mac_address",
+                    e,
+                ))
+            })?;
+            let mut expected =
+                ExpectedMachine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
+            txn.commit().await.map_err(|e| {
+                CarbideError::from(DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "commit find_many_by_bmc_mac_address",
+                    e,
+                ))
+            })?;
+
+            expected.remove(&mac)
+        } else {
+            None
+        };
+
+        let explorer = crate::site_explorer::RedfishEndpointExplorer::new(
+            self.redfish_pool.clone(),
+            self.credential_provider.clone(),
+        );
         let report = explorer
-            .explore_endpoint(bmc_addr, &Default::default(), None)
+            .explore_endpoint(bmc_addr, &Default::default(), maybe_mac, None)
             .await
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
@@ -3789,10 +3820,11 @@ where
                     .create_client(
                         ip,
                         machine.bmc_info().port,
-                        CredentialKey::Bmc {
+                        RedfishAuth::Key(CredentialKey::Bmc {
                             machine_id: machine.id().to_string(),
                             user_role: UserRoles::Administrator.to_string(),
-                        },
+                        }),
+                        true,
                     )
                     .await
                 {
@@ -5323,10 +5355,11 @@ where
             .create_client(
                 bmc_ip,
                 snapshot.host_snapshot.bmc_info.port,
-                CredentialKey::Bmc {
+                RedfishAuth::Key(CredentialKey::Bmc {
                     machine_id: machine_id.to_string(),
                     user_role: UserRoles::Administrator.to_string(),
-                },
+                }),
+                true,
             )
             .await
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;

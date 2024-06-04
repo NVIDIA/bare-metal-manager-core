@@ -13,7 +13,7 @@
 use std::net::SocketAddr;
 
 use crate::{
-    db::machine_interface::MachineInterface,
+    db::{expected_machine::ExpectedMachine, machine_interface::MachineInterface},
     model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},
 };
 
@@ -29,6 +29,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         address: SocketAddr,
         interface: &MachineInterface,
+        expected: Option<ExpectedMachine>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
 }

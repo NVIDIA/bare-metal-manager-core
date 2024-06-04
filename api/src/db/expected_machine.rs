@@ -9,13 +9,15 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::collections::HashMap;
+
+use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
+use super::DatabaseError;
 use crate::CarbideError;
 use crate::CarbideResult;
-
-use super::DatabaseError;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
@@ -49,6 +51,26 @@ impl ExpectedMachine {
             .fetch_optional(&mut **txn)
             .await
             .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
+    }
+
+    pub async fn find_many_by_bmc_mac_address(
+        txn: &mut Transaction<'_, Postgres>,
+        bmc_mac_addresses: &[MacAddress],
+    ) -> CarbideResult<HashMap<MacAddress, ExpectedMachine>> {
+        let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=ANY($1)";
+        let v: Vec<ExpectedMachine> = sqlx::query_as(sql)
+            .bind(bmc_mac_addresses)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|err: sqlx::Error| {
+                CarbideError::from(DatabaseError::new(file!(), line!(), sql, err))
+            })?;
+        Ok(v.into_iter()
+            .into_group_map_by(|exp| exp.bmc_mac_address)
+            .drain()
+            .filter(|(_, v)| v.len() == 1)
+            .map(|(k, mut v)| (k, v.pop().unwrap()))
+            .collect())
     }
 
     pub async fn find_all(

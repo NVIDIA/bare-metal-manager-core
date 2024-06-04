@@ -54,7 +54,7 @@ use crate::{
             NextReprovisionState, ReprovisionRequest, ReprovisionState, RetryInfo,
         },
     },
-    redfish::RedfishClientCreationError,
+    redfish::{RedfishAuth, RedfishClientCreationError},
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
@@ -1004,9 +1004,10 @@ impl StateHandler for DpuMachineStateHandler {
                             .unwrap()
                             .as_str(),
                         state.dpu_snapshots[0].bmc_info.port,
-                        CredentialKey::DpuRedfish {
+                        RedfishAuth::Key(CredentialKey::DpuRedfish {
                             credential_type: CredentialType::SiteDefault,
-                        },
+                        }),
+                        true,
                     )
                     .await?;
 
@@ -1044,9 +1045,10 @@ impl StateHandler for DpuMachineStateHandler {
                     .create_client(
                         bmc_ip.as_str(),
                         None,
-                        CredentialKey::HostRedfish {
+                        RedfishAuth::Key(CredentialKey::HostRedfish {
                             credential_type: CredentialType::SiteDefault,
-                        },
+                        }),
+                        true,
                     )
                     .await
                     .map_err(StateHandlerError::RedfishClientCreationError)?;
@@ -1098,11 +1100,12 @@ impl StateHandler for DpuMachineStateHandler {
                             .unwrap()
                             .as_str(),
                         None,
-                        CredentialKey::DpuRedfish {
+                        RedfishAuth::Key(CredentialKey::DpuRedfish {
                             credential_type: CredentialType::Machine {
                                 machine_id: dpu_machine_id.to_string(),
                             },
-                        },
+                        }),
+                        true,
                     )
                     .await
                     .map_err(StateHandlerError::RedfishClientCreationError)?;
@@ -1137,9 +1140,10 @@ impl StateHandler for DpuMachineStateHandler {
                                 .create_client(
                                     bmc_ip.as_str(),
                                     None,
-                                    CredentialKey::HostRedfish {
+                                    RedfishAuth::Key(CredentialKey::HostRedfish {
                                         credential_type: CredentialType::SiteDefault,
-                                    },
+                                    }),
+                                    true,
                                 )
                                 .await
                                 .map_err(StateHandlerError::RedfishClientCreationError)?;
@@ -1208,11 +1212,12 @@ impl StateHandler for DpuMachineStateHandler {
                             .unwrap()
                             .as_str(),
                         None,
-                        CredentialKey::DpuRedfish {
+                        RedfishAuth::Key(CredentialKey::DpuRedfish {
                             credential_type: CredentialType::Machine {
                                 machine_id: dpu_machine_id.to_string(),
                             },
-                        },
+                        }),
+                        true,
                     )
                     .await
                 {
@@ -1247,11 +1252,12 @@ impl StateHandler for DpuMachineStateHandler {
                             .unwrap()
                             .as_str(),
                         state.dpu_snapshots[0].bmc_info.port,
-                        CredentialKey::DpuRedfish {
+                        RedfishAuth::Key(CredentialKey::DpuRedfish {
                             credential_type: CredentialType::Machine {
                                 machine_id: dpu_machine_id.to_string(),
                             },
-                        },
+                        }),
+                        true,
                     )
                     .await;
 
@@ -2409,10 +2415,11 @@ async fn host_power_state(
         .create_client(
             bmc_ip,
             host_snapshot.bmc_info.port,
-            CredentialKey::Bmc {
+            RedfishAuth::Key(CredentialKey::Bmc {
                 machine_id: host_snapshot.machine_id.to_string(),
                 user_role: UserRoles::Administrator.to_string(),
-            },
+            }),
+            true,
         )
         .await?;
 
@@ -2494,10 +2501,11 @@ async fn lockdown_host(
         .create_client(
             bmc_ip,
             machine_snapshot.bmc_info.port,
-            CredentialKey::Bmc {
+            RedfishAuth::Key(CredentialKey::Bmc {
                 machine_id: machine_snapshot.machine_id.to_string(),
                 user_role: UserRoles::Administrator.to_string(),
-            },
+            }),
+            true,
         )
         .await?;
 

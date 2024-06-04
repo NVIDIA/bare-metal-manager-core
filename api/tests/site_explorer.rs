@@ -21,6 +21,7 @@ use std::{
 use carbide::{
     cfg::{default_dpu_models, SiteExplorerConfig},
     db::{
+        expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
@@ -973,6 +974,7 @@ impl EndpointExplorer for FakeEndpointExplorer {
         &self,
         address: SocketAddr,
         _interface: &MachineInterface,
+        _expected: Option<ExpectedMachine>,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {address} is getting explored");

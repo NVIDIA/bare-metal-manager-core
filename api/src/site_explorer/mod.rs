@@ -29,6 +29,7 @@ use crate::{
     cfg::{DpuComponent, DpuDesc, DpuModel, SiteExplorerConfig},
     db::{
         bmc_metadata::BmcMetaDataUpdateRequest,
+        expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
         machine::{Machine, MachineSearchConfig},
@@ -59,6 +60,28 @@ pub use identify::{identify_bmc, IdentifyError};
 pub(crate) mod initial_setup;
 
 use self::metrics::{exploration_error_to_metric_label, SiteExplorationMetrics};
+
+struct Endpoint {
+    address: IpAddr,
+    iface: MachineInterface,
+    old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
+    pub(crate) expected: Option<ExpectedMachine>,
+}
+
+impl Endpoint {
+    fn new(
+        address: IpAddr,
+        iface: MachineInterface,
+        old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
+    ) -> Self {
+        Self {
+            address,
+            iface,
+            old_report,
+            expected: None,
+        }
+    }
+}
 
 /// The SiteExplorer periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the SiteExplorer will:
@@ -775,14 +798,10 @@ impl SiteExplorer {
         let num_explore_endpoints = (self.config.explorations_per_run as usize)
             .min(unexplored_endpoints.len() + update_endpoints.len());
         #[allow(clippy::type_complexity)]
-        let mut explore_endpoint_data: Vec<(
-            IpAddr,
-            MachineInterface,
-            Option<(ConfigVersion, EndpointExplorationReport)>,
-        )> = Vec::with_capacity(num_explore_endpoints);
+        let mut explore_endpoint_data = Vec::with_capacity(num_explore_endpoints);
         // We prioritize all endpoints that we've never looked at
         for (address, iface) in unexplored_endpoints.iter().take(num_explore_endpoints) {
-            explore_endpoint_data.push((*address, (*iface).clone(), None))
+            explore_endpoint_data.push(Endpoint::new(*address, (*iface).clone(), None))
         }
         let remaining_explore_endpoints = num_explore_endpoints - explore_endpoint_data.len();
         // If we have any capacity available, we update knowledge about endpoints we looked at earlier on
@@ -794,7 +813,7 @@ impl SiteExplorer {
             for (address, iface, endpoint) in
                 update_endpoints.iter().take(remaining_explore_endpoints)
             {
-                explore_endpoint_data.push((
+                explore_endpoint_data.push(Endpoint::new(
                     *address,
                     (*iface).clone(),
                     Some((endpoint.report_version, endpoint.report.clone())),
@@ -807,7 +826,23 @@ impl SiteExplorer {
             self.config.concurrent_explorations as usize,
         ));
 
-        for (address, iface, old_report) in explore_endpoint_data.into_iter() {
+        let macs = explore_endpoint_data
+            .iter()
+            .map(|d| d.iface.mac_address)
+            .collect::<Vec<_>>();
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "begin find_many_by_bmc_mac_address", e)
+        })?;
+        let mut expected = ExpectedMachine::find_many_by_bmc_mac_address(&mut txn, &macs).await?;
+        txn.commit().await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "end find_many_by_bmc_mac_address", e)
+        })?;
+
+        for endpoint in explore_endpoint_data.iter_mut() {
+            endpoint.expected = expected.remove(&endpoint.iface.mac_address);
+        }
+
+        for endpoint in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
             let concurrency_limiter = concurrency_limiter.clone();
 
@@ -830,7 +865,7 @@ impl SiteExplorer {
 
                     addr
                 }
-                None => SocketAddr::new(address, bmc_target_port),
+                None => SocketAddr::new(endpoint.address, bmc_target_port),
             };
 
             let _abort_handle = task_set.spawn(
@@ -850,8 +885,9 @@ impl SiteExplorer {
                     let mut result = endpoint_explorer
                         .explore_endpoint(
                             bmc_target_addr,
-                            &iface,
-                            old_report.as_ref().map(|report| &report.1),
+                            &endpoint.iface,
+                            endpoint.expected,
+                            endpoint.old_report.as_ref().map(|report| &report.1),
                         )
                         .await;
 
@@ -860,7 +896,12 @@ impl SiteExplorer {
                         report.generate_machine_id();
                     }
 
-                    (address, old_report, result, start.elapsed())
+                    (
+                        endpoint.address,
+                        endpoint.old_report,
+                        result,
+                        start.elapsed(),
+                    )
                 }
                 .in_current_span(),
             );

@@ -75,6 +75,7 @@ impl Credentials {
 ///
 /// Abstract over a credentials provider that functions as a kv map between "key" -> "cred"
 pub trait CredentialProvider: Send + Sync {
+    // TODO: Should this take CredentialKey by ref? It's not Copy
     async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report>;
     async fn set_credentials(
         &self,
