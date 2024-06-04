@@ -15,10 +15,11 @@ mod file;
 
 pub use command_line::{Command, Daemon, Options};
 pub use file::{
-    default_dpu_models, default_max_find_by_ids, AgentUpgradePolicyChoice, AuthConfig,
-    CarbideConfig, DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel, FirmwareEntry,
-    FirmwareGlobal, FirmwareHost, FirmwareHostComponent, FirmwareHostComponentType, IBFabricConfig,
-    IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
+    default_dpu_models, default_max_find_by_ids, default_site_explorer_config,
+    AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, DpuComponent, DpuComponentUpdate, DpuDesc,
+    DpuModel, FirmwareEntry, FirmwareGlobal, FirmwareHost, FirmwareHostComponent,
+    FirmwareHostComponentType, IBFabricConfig, IbFabricMonitorConfig,
+    IbPartitionStateControllerConfig, MachineStateControllerConfig,
     NetworkSegmentStateControllerConfig, ParsedHosts, SiteExplorerConfig, StateControllerConfig,
     TlsConfig,
 };

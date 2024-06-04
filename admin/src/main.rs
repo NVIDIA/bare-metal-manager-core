@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
+use ::rpc::forge::ConfigSetting;
 use ::rpc::forge::MachineType;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::CredentialType;
@@ -39,6 +40,7 @@ use cfg::carbide_options::HostAction;
 use cfg::carbide_options::IpAction;
 use cfg::carbide_options::MachineInterfaces;
 use cfg::carbide_options::RouteServer;
+use cfg::carbide_options::SetAction;
 use cfg::carbide_options::Shell;
 use cfg::carbide_options::SiteExplorer;
 use cfg::carbide_options::{
@@ -692,9 +694,26 @@ async fn main() -> color_eyre::Result<()> {
             }
         }
         CarbideCommand::Ping(opts) => ping::ping(api_config, opts).await?,
-        CarbideCommand::SetLogFilter(opts) => {
-            rpc::set_log_filter(api_config, opts.filter, opts.expiry).await?;
-        }
+        CarbideCommand::Set(subcmd) => match subcmd {
+            SetAction::LogFilter(opts) => {
+                rpc::set_dynamic_config(
+                    api_config,
+                    ConfigSetting::LogFilter,
+                    opts.filter,
+                    Some(opts.expiry),
+                )
+                .await?
+            }
+            SetAction::CreateMachines(opts) => {
+                rpc::set_dynamic_config(
+                    api_config,
+                    ConfigSetting::CreateMachines,
+                    opts.enabled.to_string(),
+                    None,
+                )
+                .await?
+            }
+        },
         CarbideCommand::ExpectedMachine(expected_machine_action) => match expected_machine_action {
             cfg::carbide_options::ExpectedMachineAction::Show(expected_machine_query) => {
                 if expected_machine_query.bmc_mac_address.is_empty()

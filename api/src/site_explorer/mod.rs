@@ -15,7 +15,6 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::Arc,
-    time::Duration,
 };
 
 use config_version::ConfigVersion;
@@ -107,25 +106,14 @@ impl SiteExplorer {
     const DB_LOCK_QUERY: &'static str =
         "SELECT pg_try_advisory_xact_lock((SELECT 'site_explorer_lock'::regclass::oid)::integer);";
 
-    /// Create a SiteExplorer with the default modules.
     pub fn new(
         credential_provider: Arc<dyn CredentialProvider + 'static>,
         database_connection: sqlx::PgPool,
-        config: Option<&SiteExplorerConfig>,
+        explorer_config: SiteExplorerConfig,
         dpu_models: &HashMap<DpuModel, DpuDesc>,
         meter: opentelemetry::metrics::Meter,
         endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> Self {
-        let explorer_config = config.cloned().unwrap_or(SiteExplorerConfig {
-            enabled: false,
-            run_interval: Duration::from_secs(0),
-            concurrent_explorations: 0,
-            explorations_per_run: 0,
-            create_machines: false,
-            override_target_ip: None,
-            override_target_port: None,
-        });
-
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
         // reporting gets stuck. Therefore round up the iteration interval by 1min.
@@ -273,7 +261,7 @@ impl SiteExplorer {
         // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
         let identified_hosts = self.identify_managed_hosts(metrics).await?;
 
-        if self.config.create_machines {
+        if self.config.create_machines.load().current {
             self.create_machines(metrics, &identified_hosts).await?;
         }
 
@@ -999,7 +987,7 @@ impl SiteExplorer {
                             DbExploredEndpoint::insert(address, &report, &mut txn).await?
                         }
                     }
-                    if !self.config.create_machines {
+                    if !self.config.create_machines.load().current {
                         // We're using manual ingestion, making preingestion updates risky.  Go ahead and skip them.
                         DbExploredEndpoint::set_preingestion_complete(address, &mut txn).await?
                     }

@@ -13,7 +13,6 @@
 use std::sync::Arc;
 use std::{env, path::Path};
 
-use arc_swap::ArcSwap;
 use eyre::WrapErr;
 use figment::{
     providers::{Env, Format, Toml},
@@ -41,10 +40,7 @@ use crate::{
     ib_fabric_monitor::IbFabricMonitor,
     ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl},
     listener,
-    logging::{
-        level_filter::ActiveLevel,
-        service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
-    },
+    logging::service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
     machine_update_manager::MachineUpdateManager,
     preingestion_manager::PreingestionManager,
     redfish::{RedfishClientPool, RedfishClientPoolImpl},
@@ -206,7 +202,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     credential_provider: Arc<C1>,
     certificate_provider: Arc<C2>,
     meter: opentelemetry::metrics::Meter,
-    log_filter: Arc<ArcSwap<ActiveLevel>>,
+    dynamic_settings: crate::dynamic_settings::DynamicSettings,
     ipmi_tool: Arc<dyn IPMITool>,
 ) -> eyre::Result<()> {
     let rf_pool = libredfish::RedfishClientPool::builder()
@@ -310,7 +306,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         eth_data,
         common_pools.clone(),
         ib_fabric_manager.clone(),
-        log_filter,
+        dynamic_settings,
         ipmi_tool.clone(),
     ));
 
@@ -394,7 +390,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     let site_explorer = SiteExplorer::new(
         credential_provider.clone(),
         db_pool.clone(),
-        carbide_config.site_explorer.as_ref(),
+        carbide_config.site_explorer.clone(),
         &carbide_config.dpu_models,
         meter.clone(),
         Arc::new(RedfishEndpointExplorer::new(

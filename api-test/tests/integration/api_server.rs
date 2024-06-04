@@ -150,7 +150,7 @@ pub async fn start(
         dpu_nic_firmware_reprovision_update_enabled: false,
         max_concurrent_machine_updates: Some(1),
         machine_update_run_interval: None,
-        site_explorer: None,
+        site_explorer: carbide::cfg::default_site_explorer_config(),
         dpu_dhcp_server_enabled: true,
         nvue_enabled: true,
         attestation_enabled: false,

@@ -902,18 +902,20 @@ pub async fn get_machines_by_ids(
     .await
 }
 
-pub async fn set_log_filter(
+pub async fn set_dynamic_config(
     api_config: &ApiConfig<'_>,
-    filter: String,
-    expiry: String,
+    feature: rpc::ConfigSetting,
+    value: String,
+    expiry: Option<String>,
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(rpc::LogFilterRequest {
-            filter,
-            expiry: Some(expiry),
+        let request = tonic::Request::new(rpc::SetDynamicConfigRequest {
+            setting: feature.into(),
+            value,
+            expiry,
         });
         client
-            .set_log_filter(request)
+            .set_dynamic_config(request)
             .await
             .map_err(CarbideCliError::ApiInvocationError)?;
         Ok(())

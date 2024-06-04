@@ -61,7 +61,7 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: true,
+        create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
     };
@@ -70,7 +70,7 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     let explorer = SiteExplorer::new(
         env.credential_provider.clone(),
         env.pool.clone(),
-        Some(&explorer_config),
+        explorer_config,
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
@@ -169,7 +169,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: true,
+        create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
     };
@@ -178,7 +178,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let explorer = SiteExplorer::new(
         env.credential_provider.clone(),
         env.pool.clone(),
-        Some(&explorer_config),
+        explorer_config,
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
@@ -354,7 +354,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
-        create_machines: true,
+        create_machines: carbide::dynamic_settings::create_machines(true),
         override_target_ip: None,
         override_target_port: None,
     };
@@ -363,7 +363,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let explorer = SiteExplorer::new(
         env.credential_provider.clone(),
         env.pool.clone(),
-        Some(&explorer_config),
+        explorer_config,
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),

@@ -22,7 +22,9 @@ mod common;
 async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
     let env = create_test_env(db_pool.clone()).await;
     // Real env does this in api/lib.rs::run
-    carbide::start_log_filter_reset_task(env.api.log_filter.clone(), Duration::from_millis(300));
+    env.api
+        .dynamic_settings
+        .start_reset_task(Duration::from_millis(300));
 
     // 1. It's correct when we start
     // This is actually set in TestEnv so not especially useful check, but we need it later
@@ -34,11 +36,12 @@ async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
     assert_eq!(local, base, "Startup log filter does not match RUST_LOG");
 
     // 2. set_log_filter changes it correctly
-    let req = rpc::forge::LogFilterRequest {
-        filter: "trace".to_string(),
+    let req = rpc::forge::SetDynamicConfigRequest {
+        setting: rpc::forge::ConfigSetting::LogFilter.into(),
+        value: "trace".to_string(),
         expiry: Some("500ms".to_string()),
     };
-    env.api.set_log_filter(tonic::Request::new(req)).await?;
+    env.api.set_dynamic_config(tonic::Request::new(req)).await?;
     let current = env.api.log_filter_string();
     // it should be something like: "trace until 2024-03-27 18:20:33.723829221 UTC"
     assert!(
