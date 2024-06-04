@@ -140,6 +140,8 @@ impl<IO: StateControllerIO> StateController<IO> {
             error_types = tracing::field::Empty,
             times_in_state_s = tracing::field::Empty,
             handler_latencies_us = tracing::field::Empty,
+            app_timing_start_time = format!("{:?}", chrono::Utc::now()),
+            app_timing_end_time = tracing::field::Empty,
             sql_queries = 0,
             sql_total_rows_affected = 0,
             sql_total_rows_returned = 0,
@@ -199,6 +201,8 @@ impl<IO: StateControllerIO> StateController<IO> {
                 .last_iteration_metrics
                 .store(Some(Arc::new(metrics)));
         }
+
+        controller_span.record("app_timing_end_time", format!("{:?}", chrono::Utc::now()));
 
         iteration_result
     }
