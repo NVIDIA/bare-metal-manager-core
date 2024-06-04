@@ -236,6 +236,9 @@ where
 
     fn on_close(&self, id: span::Id, ctx: Context<'_, S>) {
         let span = ctx.span(&id).expect("Span not found, this is a bug");
+
+        let end_time_pre_lock = chrono::Utc::now();
+
         let mut extensions = span.extensions_mut();
 
         let Some(mut data) = extensions.remove::<LogFmtData>() else {
@@ -259,7 +262,14 @@ where
             "timing_start_time".to_string(),
             format!("{:?}", data.timing.start_time),
         );
-        let elapsed = chrono::Utc::now().signed_duration_since(data.timing.start_time);
+        let end_time = chrono::Utc::now();
+        data.attributes
+            .insert("timing_end_time".to_string(), format!("{:?}", end_time));
+        data.attributes.insert(
+            "timing_end_time_pre_lock".to_string(),
+            format!("{:?}", end_time_pre_lock),
+        );
+        let elapsed = end_time.signed_duration_since(data.timing.start_time);
         data.attributes.insert(
             "timing_elapsed_us".to_string(),
             elapsed.num_microseconds().unwrap_or_default().to_string(),
