@@ -380,6 +380,7 @@ message RuntimeConfig {
     repeated string host_disable_autoupdate = 29;
 
     uint32 max_find_by_ids = 30;
+    bool attestation_enabled = 31;
  }
 
 message MachineId {

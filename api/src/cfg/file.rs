@@ -139,6 +139,16 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub nvue_enabled: bool,
 
+    /// Controls whether or not machine attestion is required before a machine
+    /// can go from Discovered -> Ready (and, when enabled, introduces the new
+    /// `Measuring` state to the flow).
+    ///
+    /// This control exists so we can roll it out on a site-by-site basis,
+    /// which includes making sure the latest Scout image for the site has
+    /// been deployed with attestation support (and knows Action::MEASURE).
+    #[serde(default)]
+    pub attestation_enabled: bool,
+
     /// MachineStateController related configuration parameter
     #[serde(default)]
     pub machine_state_controller: MachineStateControllerConfig,
@@ -881,6 +891,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             machine_update_runtime_interval: value.machine_update_run_interval.unwrap_or_default(),
             dpu_dhcp_server_enabled: value.dpu_dhcp_server_enabled,
             nvue_enabled: value.nvue_enabled,
+            attestation_enabled: value.attestation_enabled,
             auto_host_firmware_update: value.firmware_global.autoupdate,
             host_enable_autoupdate: value.firmware_global.host_enable_autoupdate,
             host_disable_autoupdate: value.firmware_global.host_disable_autoupdate,
