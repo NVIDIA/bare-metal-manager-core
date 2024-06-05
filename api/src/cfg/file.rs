@@ -459,7 +459,7 @@ pub struct SiteExplorerConfig {
         serialize_with = "serialize_create_machines"
     )]
     /// Whether SiteExplorer should create Managed Host state machine
-    pub create_machines: Arc<ArcSwap<crate::dynamic_settings::Setting<bool>>>,
+    pub create_machines: Arc<ArcSwap<bool>>,
 
     /// The IP address to connect to instead of the BMC that made the dhcp request.
     /// This is a debug override and should not be used in production.
@@ -476,7 +476,7 @@ impl PartialEq for SiteExplorerConfig {
             && self.run_interval == other.run_interval
             && self.concurrent_explorations == other.concurrent_explorations
             && self.explorations_per_run == other.explorations_per_run
-            && self.create_machines.load().current == other.create_machines.load().current
+            && *self.create_machines.load() == *other.create_machines.load()
             && self.override_target_ip == other.override_target_ip
             && self.override_target_port == other.override_target_port
     }
@@ -496,27 +496,19 @@ impl SiteExplorerConfig {
     }
 }
 
-pub fn deserialize_create_machines<'de, D>(
-    deserializer: D,
-) -> Result<Arc<ArcSwap<crate::dynamic_settings::Setting<bool>>>, D::Error>
+pub fn deserialize_create_machines<'de, D>(deserializer: D) -> Result<Arc<ArcSwap<bool>>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let b = bool::deserialize(deserializer)?;
-    Ok(Arc::new(ArcSwap::new(Arc::new(
-        crate::dynamic_settings::Setting::new(b),
-    ))))
+    Ok(Arc::new(ArcSwap::new(Arc::new(b))))
 }
 
-pub fn serialize_create_machines<S>(
-    cm: &Arc<ArcSwap<crate::dynamic_settings::Setting<bool>>>,
-    s: S,
-) -> Result<S::Ok, S::Error>
+pub fn serialize_create_machines<S>(cm: &Arc<ArcSwap<bool>>, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    let b = cm.load().current;
-    s.serialize_bool(b)
+    s.serialize_bool(**cm.load())
 }
 
 /// IbFabricMonitorConfig related configuration
