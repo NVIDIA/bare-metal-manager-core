@@ -95,7 +95,7 @@ use crate::{
     model::{
         hardware_info::{HardwareInfo, MachineInventory},
         instance::status::network::InstanceNetworkStatusObservation,
-        machine::{machine_id::MachineId, MachineState},
+        machine::{machine_id::MachineId, MachineState, MeasuringState},
     },
     redfish::RedfishClientPool,
     state_controller::snapshot_loader::DbSnapshotLoader,
@@ -3106,6 +3106,14 @@ where
                         },
                     ..
                 } => Action::Discovery,
+                // If the API is configured with attestation_enabled, and
+                // the machine has been Discovered (and progressed on to the
+                // point where it is WaitingForMeasurements), then let Scout (or
+                // whoever the caller is) know that it's time for measurements
+                // to be sent.
+                ManagedHostState::Measuring {
+                    measuring_state: MeasuringState::WaitingForMeasurements,
+                } => Action::Measure,
                 ManagedHostState::WaitingForCleanup { .. }
                 | ManagedHostState::Failed {
                     details:
