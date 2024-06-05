@@ -55,6 +55,7 @@ mod dhcp;
 pub mod dynamic_settings;
 pub mod ethernet_virtualization;
 mod firmware_downloader;
+mod handlers;
 pub mod ib;
 pub mod ib_fabric_monitor;
 pub mod instance;
