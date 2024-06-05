@@ -2247,13 +2247,7 @@ where
         let interface =
             MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
-            if self
-                .runtime_config
-                .site_explorer
-                .create_machines
-                .load()
-                .current
-            {
+            if **self.runtime_config.site_explorer.create_machines.load() {
                 Machine::find_one(
                     &mut txn,
                     &stable_machine_id,
@@ -3212,13 +3206,7 @@ where
         };
 
         // Disable booting from discovery image when no machine record exists
-        if self
-            .runtime_config
-            .site_explorer
-            .create_machines
-            .load()
-            .current
-        {
+        if **self.runtime_config.site_explorer.create_machines.load() {
             let machine_id = MachineInterface::find_one(&mut txn, interface_id)
                 .await?
                 .machine_id;
@@ -5337,17 +5325,15 @@ where
                 tracing::info!("Log filter updated to '{}'", req.value);
             }
             rpc::ConfigSetting::CreateMachines => {
-                let current_cm = self.dynamic_settings.create_machines.load();
                 let is_enabled = req.value.parse::<bool>().map_err(|err| {
                     Status::invalid_argument(format!(
                         "Invalid create_machines string '{}'. {err}",
                         req.value
                     ))
                 })?;
-                let next_cm = current_cm.with_base(is_enabled, None);
                 self.dynamic_settings
                     .create_machines
-                    .store(Arc::new(next_cm));
+                    .store(Arc::new(is_enabled));
                 tracing::info!("site-explorer create_machines updated to '{}'", req.value);
             }
         }

@@ -261,7 +261,7 @@ impl SiteExplorer {
         // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
         let identified_hosts = self.identify_managed_hosts(metrics).await?;
 
-        if self.config.create_machines.load().current {
+        if **self.config.create_machines.load() {
             self.create_machines(metrics, &identified_hosts).await?;
         }
 
@@ -987,7 +987,7 @@ impl SiteExplorer {
                             DbExploredEndpoint::insert(address, &report, &mut txn).await?
                         }
                     }
-                    if !self.config.create_machines.load().current {
+                    if !**self.config.create_machines.load() {
                         // We're using manual ingestion, making preingestion updates risky.  Go ahead and skip them.
                         DbExploredEndpoint::set_preingestion_complete(address, &mut txn).await?
                     }

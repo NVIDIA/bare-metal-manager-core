@@ -174,12 +174,7 @@ pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 's
         }
     };
 
-    let create_machines = state
-        .dynamic_settings
-        .create_machines
-        .load()
-        .current
-        .to_string();
+    let create_machines = state.dynamic_settings.create_machines.load().to_string();
 
     let index = Index {
         version: forge_version::v!(build_version),
