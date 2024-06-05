@@ -19,7 +19,7 @@ use crate::{
     model::controller_outcome::PersistentStateHandlerOutcome,
     model::machine::{
         machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState, ManagedHostState,
-        ManagedHostStateSnapshot,
+        ManagedHostStateSnapshot, MeasuringState,
     },
     state_controller::{
         io::StateControllerIO,
@@ -134,6 +134,13 @@ impl StateControllerIO for MachineStateControllerIO {
             }
         }
 
+        fn measuring_state_name(measuring_state: &MeasuringState) -> &'static str {
+            match measuring_state {
+                MeasuringState::WaitingForMeasurements => "waitingformeasurements",
+                MeasuringState::PendingBundle => "pendingbundle",
+            }
+        }
+
         fn cleanup_state_name(cleanup_state: &CleanupState) -> &'static str {
             match cleanup_state {
                 CleanupState::HostCleanup => "hostcleanup",
@@ -162,6 +169,9 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::ForceDeletion => ("forcedeletion", ""),
             ManagedHostState::Failed { .. } => ("failed", ""),
             ManagedHostState::DPUReprovision { .. } => ("reprovisioning", ""),
+            ManagedHostState::Measuring { measuring_state } => {
+                ("measuring", measuring_state_name(measuring_state))
+            }
         }
     }
 
@@ -215,6 +225,20 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::DPUReprovision { .. } => {
                 time_in_state > std::time::Duration::from_secs(30 * 60)
             }
+            ManagedHostState::Measuring { measuring_state } => match measuring_state {
+                // The API shouldn't be waiting for measurements for long. As soon
+                // as it transitions into this state, Scout should get an Action::Measure
+                // action, and it should pretty quickly send measurements in (~seconds).
+                MeasuringState::WaitingForMeasurements => {
+                    time_in_state > std::time::Duration::from_secs(30 * 60)
+                }
+                // If the machine is waiting for a matching bundle, this could
+                // take a bit, since it means either auto-bundle generation OR
+                // manual bundle generation needs to happen. In the case of new
+                // turn ups, this could take hours or even days (e.g. if new gear
+                // is sitting there).
+                MeasuringState::PendingBundle => false,
+            },
         }
     }
 }

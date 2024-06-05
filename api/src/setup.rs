@@ -339,6 +339,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
                 power_down_wait: carbide_config.machine_state_controller.power_down_wait,
                 failure_retry_time: carbide_config.machine_state_controller.failure_retry_time,
             },
+            carbide_config.attestation_enabled,
         )))
         .ipmi_tool(ipmi_tool.clone())
         .build_and_spawn()

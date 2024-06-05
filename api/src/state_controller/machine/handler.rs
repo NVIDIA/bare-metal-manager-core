@@ -51,7 +51,7 @@ use crate::{
             LockdownMode::{self, Enable},
             LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
             MachineSnapshot, MachineState, ManagedHostState, ManagedHostStateSnapshot,
-            NextReprovisionState, ReprovisionRequest, ReprovisionState, RetryInfo,
+            MeasuringState, NextReprovisionState, ReprovisionRequest, ReprovisionState, RetryInfo,
         },
     },
     redfish::{RedfishAuth, RedfishClientCreationError},
@@ -72,6 +72,13 @@ pub struct ReachabilityParams {
     pub failure_retry_time: chrono::Duration,
 }
 
+/// Parameters used by the HostStateMachineHandler.
+#[derive(Copy, Clone, Debug)]
+pub struct HostHandlerParams {
+    pub attestation_enabled: bool,
+    pub reachability_params: ReachabilityParams,
+}
+
 /// The actual Machine State handler
 #[derive(Debug, Clone)]
 pub struct MachineStateHandler {
@@ -90,10 +97,14 @@ impl MachineStateHandler {
         dpu_nic_firmware_reprovision_update_enabled: bool,
         dpu_models: HashMap<DpuModel, DpuDesc>,
         reachability_params: ReachabilityParams,
+        attestation_enabled: bool,
     ) -> Self {
         MachineStateHandler {
             dpu_up_threshold,
-            host_handler: HostMachineStateHandler::new(reachability_params),
+            host_handler: HostMachineStateHandler::new(HostHandlerParams {
+                attestation_enabled,
+                reachability_params,
+            }),
             dpu_handler: DpuMachineStateHandler::new(
                 dpu_nic_firmware_initial_update_enabled,
                 dpu_models,
@@ -487,7 +498,6 @@ impl MachineStateHandler {
                     }
                 }
             }
-
             ManagedHostState::DPUReprovision { reprovision_state } => {
                 if let Some(next_state) = handle_dpu_reprovision(
                     reprovision_state,
@@ -502,6 +512,29 @@ impl MachineStateHandler {
                     Ok(StateHandlerOutcome::Transition(next_state))
                 } else {
                     Ok(StateHandlerOutcome::DoNothing)
+                }
+            }
+            // ManagedHostState::Measuring is introduced into the flow when
+            // attestation_enabled is set to true (defaults to false), and
+            // is injected right after post-discovery reboot, and right before
+            // the machine goes to Ready.
+            ManagedHostState::Measuring { measuring_state } => {
+                if let Some(next_state) =
+                    handle_measuring_state(measuring_state, state, txn).await?
+                {
+                    Ok(StateHandlerOutcome::Transition(next_state))
+                } else {
+                    Ok(StateHandlerOutcome::Wait(
+                        match measuring_state {
+                            MeasuringState::WaitingForMeasurements => {
+                                "Waiting for machine to send measurement report"
+                            }
+                            MeasuringState::PendingBundle => {
+                                "Waiting for matching measurement bundle for machine profile"
+                            }
+                        }
+                        .to_string(),
+                    ))
                 }
             }
         }
@@ -633,6 +666,56 @@ impl StateHandler for MachineStateHandler {
         self.record_metrics(state, ctx);
         self.attempt_state_transition(host_machine_id, state, controller_state, txn, ctx)
             .await
+    }
+}
+
+/// Handle state machine workflow for the Measuring state
+/// and corresponding substates (as in, is the API still waiting
+/// for measurements, and if not, did the measurements match
+/// an existing bundle).
+//
+// TODO(chet): Integrate this further. Initial MR is to focus
+// on the state machine integration bits, and a subsequent MR
+// will be for actually integrating w/ the measured boot logic.
+//
+// _state and _txn will be used as part of that integration,
+// where _txn will of course be used to query the database for
+// the latest state, and state.host_snapshot.machine_id will
+// be used to check the machine.
+async fn handle_measuring_state(
+    measuring_state: &MeasuringState,
+    _state: &ManagedHostStateSnapshot,
+    _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Option<ManagedHostState>, StateHandlerError> {
+    match measuring_state {
+        // In this state, the machine has been discovered, and the
+        // API is now waiting for a measurement report, which is up
+        // to Scout to send (as part of reacting to an Action::Measure
+        // response from the API).
+        //
+        // Once a measurement report is received, it will be verified
+        // (where if that fails, will move to ManagedHostState::Failed
+        // with a MeasurementsFailedSignatureCheck reason), and matched
+        // against a bundle.
+        //
+        // If no match is found, then the machine will hang out in
+        // MeasuringState::PendingBundle.
+        MeasuringState::WaitingForMeasurements => {
+            // TODO(chet): This will be where code is integrated via
+            // get_machine_measured_state (and then match on states),
+            // but for now, just skip right to ManagedHostState::Ready.
+            Ok(Some(ManagedHostState::Ready))
+        }
+        // In this state, a measurement report of PCR values has been
+        // received (and verified), but the values don't match a bundle
+        // yet. Check to see if they match one now (which happens via
+        // bundle promotion). If not, keep on waiting.
+        MeasuringState::PendingBundle => {
+            // TODO(chet): This will be where code is integrated via
+            // get_machine_measured_state (and then match on states),
+            // but for now, just skip right to ManagedHostState::Ready.
+            Ok(Some(ManagedHostState::Ready))
+        }
     }
 }
 
@@ -1637,13 +1720,13 @@ fn cleanedup_after_state_transition(
 /// A `StateHandler` implementation for host machines
 #[derive(Debug, Clone)]
 pub struct HostMachineStateHandler {
-    reachability_params: ReachabilityParams,
+    host_handler_params: HostHandlerParams,
 }
 
 impl HostMachineStateHandler {
-    pub fn new(reachability_params: ReachabilityParams) -> Self {
+    pub fn new(host_handler_params: HostHandlerParams) -> Self {
         Self {
-            reachability_params,
+            host_handler_params,
         }
     }
 }
@@ -1738,7 +1821,7 @@ impl StateHandler for HostMachineStateHandler {
                             &state.host_snapshot,
                             &state.host_snapshot,
                             None,
-                            &self.reachability_params,
+                            &self.host_handler_params.reachability_params,
                             ctx.services,
                             Some(CredentialKey::HostRedfish {
                                 credential_type: CredentialType::SiteDefault,
@@ -1754,17 +1837,24 @@ impl StateHandler for HostMachineStateHandler {
                 }
 
                 MachineState::Discovered => {
-                    // Check if machine is rebooted. If yes, move to Ready state.
+                    // Check if machine is rebooted. If yes, move to Ready state
+                    // or Measuring state, depending on if machine attestation
+                    // is enabled or not.
                     if rebooted(&state.host_snapshot) {
-                        // Machine is ready for Instance Creation.
-                        let next_state = ManagedHostState::Ready;
+                        let next_state = if self.host_handler_params.attestation_enabled {
+                            ManagedHostState::Measuring {
+                                measuring_state: MeasuringState::WaitingForMeasurements,
+                            }
+                        } else {
+                            ManagedHostState::Ready
+                        };
                         Ok(StateHandlerOutcome::Transition(next_state))
                     } else {
                         let status = trigger_reboot_if_needed(
                             &state.host_snapshot,
                             &state.host_snapshot,
                             None,
-                            &self.reachability_params,
+                            &self.host_handler_params.reachability_params,
                             ctx.services,
                             None,
                             txn,
@@ -1782,11 +1872,11 @@ impl StateHandler for HostMachineStateHandler {
                             // reachability before it goes down, it will give us wrong result.
                             if wait(
                                 &state.host_snapshot.current.version.timestamp(),
-                                self.reachability_params.dpu_wait_time,
+                                self.host_handler_params.reachability_params.dpu_wait_time,
                             ) {
                                 Ok(StateHandlerOutcome::Wait(format!(
                                     "Forced wait of {} for DPU to power down",
-                                    self.reachability_params.dpu_wait_time
+                                    self.host_handler_params.reachability_params.dpu_wait_time
                                 )))
                             } else {
                                 let next_state = ManagedHostState::HostNotReady {

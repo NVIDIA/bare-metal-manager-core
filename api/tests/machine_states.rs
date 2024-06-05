@@ -163,6 +163,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -212,6 +213,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -287,6 +289,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
@@ -336,6 +339,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -561,6 +565,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
 
     // Transition to WaitingForNetworkConfig

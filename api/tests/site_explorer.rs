@@ -805,6 +805,7 @@ async fn test_site_explorer_creates_managed_host(
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;

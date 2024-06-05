@@ -1399,6 +1399,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
 
     let mut txn = env.pool.begin().await.unwrap();

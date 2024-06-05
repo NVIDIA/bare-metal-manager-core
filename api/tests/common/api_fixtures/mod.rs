@@ -118,6 +118,7 @@ pub struct TestEnv {
     pub reachability_params: ReachabilityParams,
     pub ib_partition_state_controller_io: IBPartitionStateControllerIO,
     pub test_meter: TestMeter,
+    pub attestation_enabled: bool,
 }
 
 impl TestEnv {
@@ -489,6 +490,8 @@ pub async fn create_test_env_with_config(
         Arc::new(IPMIToolTestImpl {}),
     ));
 
+    let attestation_enabled = false;
+
     TestEnv {
         api,
         common_pools,
@@ -507,6 +510,7 @@ pub async fn create_test_env_with_config(
             power_down_wait: Duration::seconds(0),
             failure_retry_time: Duration::seconds(0),
         },
+        attestation_enabled,
         ib_partition_state_controller_io: IBPartitionStateControllerIO::default(),
         test_meter,
     }

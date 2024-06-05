@@ -163,6 +163,7 @@ pub async fn advance_created_instance_into_ready_state(
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
 
     // - first run: state controller moves state to WaitingForNetworkConfig
@@ -239,6 +240,7 @@ pub async fn delete_instance(
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
 
     let mut txn = env.pool.begin().await.unwrap();
