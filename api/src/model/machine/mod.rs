@@ -181,6 +181,12 @@ pub enum ManagedHostState {
 
     /// State used to indicate that DPU reprovisioning is going on.
     DPUReprovision { reprovision_state: ReprovisionState },
+
+    /// State used to indicate the API is currently waiting on the
+    /// machine to send attestation measurements, or waiting for
+    /// measurements to match a valid/approved measurement bundle,
+    /// before continuing on towards a Ready state.
+    Measuring { measuring_state: MeasuringState },
 }
 
 impl ManagedHostState {
@@ -205,6 +211,27 @@ pub enum ReprovisionState {
     WaitingForNetworkConfig,
 }
 
+/// MeasuringState contains states used for host attestion (or
+/// measured boot).
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MeasuringState {
+    /// WaitingForMeasurements is reported when the machine
+    /// has reached a state where the API is now expecting
+    /// measurements from the machine, which Scout sends upon
+    /// receiving an Action::Measure from the API.
+    WaitingForMeasurements,
+
+    /// PendingBundle is reported when the API has received
+    /// measurements from the machine, but the measurements
+    /// do not match a known bundle. At this point, a matching
+    /// bundle needs to be created, either via "promoting" a
+    /// measurement report from a machine (through manual
+    /// interaction or trusted approval automation), or by
+    /// manually creating a new bundle.
+    PendingBundle,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum FailureCause {
@@ -212,6 +239,32 @@ pub enum FailureCause {
     NVMECleanFailed { err: String },
     Discovery { err: String },
     UnhandledState { err: String },
+
+    // Host Attestation / Measured Boot related failure causes.
+    //
+    // MeasurementsFailedSignatureCheck is returned when the
+    // signed PCR quote fails signature verification. That is,
+    // we cannot verify the PCR (Platform Configuration Register,
+    // in the context of Trusted Platform Modules) values were
+    // signed by the TPM. If this state is being reported, a TPM
+    // event log should have been dumped by the API for viewing.
+    MeasurementsFailedSignatureCheck { err: String },
+
+    // MeasurementsRetired is returned when the measurements
+    // provided by the machine match a bundle that has been
+    // marked as retired, thus not allowing the machine to
+    // move forward towards a Ready state.
+    MeasurementsRetired { err: String },
+
+    // MeasurementsRevoked is returned when the measurements
+    // provided by the machine match a bundle that has been
+    // marked as revoked, thus not allowing the machine to
+    // move forward towards a Ready state.
+    //
+    // The difference between retired and revoked is that a
+    // retired bundle can be moved out of retirement, whereas
+    // a revoked bundle cannot.
+    MeasurementsRevoked { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -402,6 +455,11 @@ impl Display for FailureCause {
             FailureCause::NoError => write!(f, "NoError"),
             FailureCause::Discovery { .. } => write!(f, "Discovery"),
             FailureCause::UnhandledState { .. } => write!(f, "UnknownState"),
+            FailureCause::MeasurementsFailedSignatureCheck { .. } => {
+                write!(f, "MeasurementsFailedSignatureCheck")
+            }
+            FailureCause::MeasurementsRetired { .. } => write!(f, "MeasurementsRetired"),
+            FailureCause::MeasurementsRevoked { .. } => write!(f, "MeasurementsRevoked"),
         }
     }
 }
@@ -413,6 +471,12 @@ impl Display for FailureDetails {
 }
 
 impl Display for ReprovisionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Display for MeasuringState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
@@ -440,6 +504,9 @@ impl Display for ManagedHostState {
             }
             ManagedHostState::DPUReprovision { reprovision_state } => {
                 write!(f, "Reprovisioning/{}", reprovision_state)
+            }
+            ManagedHostState::Measuring { measuring_state } => {
+                write!(f, "Measuring/{}", measuring_state)
             }
         }
     }

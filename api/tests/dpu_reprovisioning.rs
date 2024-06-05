@@ -172,6 +172,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -471,6 +472,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
 
     let dpu_rpc_id = rpc::forge::MachineId {
@@ -657,6 +659,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -957,6 +960,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -1282,6 +1286,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -1516,6 +1521,7 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
 
     let (dpu_machine_id, host_machine_id) =
@@ -1661,6 +1667,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
         true,
         default_dpu_models(),
         env.reachability_params,
+        env.attestation_enabled,
     );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
