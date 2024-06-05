@@ -20,13 +20,11 @@ pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
     CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, IbPartition,
-    IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
-    IbPartitionList, IbPartitionQuery, InstanceList, InstancePhoneHomeLastContactRequest,
-    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse, TenantKeySetList, UpdateTenantKeysetRequest,
-    UpdateTenantKeysetResponse, UpdateTenantRequest, UpdateTenantResponse,
-    ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, InstanceList,
+    InstancePhoneHomeLastContactRequest, InstancePhoneHomeLastContactResponse,
+    MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse, TenantKeySetList,
+    UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
+    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
 use config_version::ConfigVersion;
@@ -45,7 +43,7 @@ use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::expected_machine::ExpectedMachine;
-use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig, NewIBPartition};
+use crate::db::ib_partition::IBPartition;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
@@ -82,7 +80,6 @@ use crate::{
     db::{
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         domain::Domain,
-        domain::NewDomain,
         instance::{DeleteInstance, FindInstanceTypeFilter, Instance},
         machine::Machine,
         machine_interface::MachineInterface,
@@ -90,7 +87,7 @@ use crate::{
         network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment},
         resource_record::DnsQuestion,
         route_servers::RouteServer,
-        vpc::{NewVpc, UpdateVpc, Vpc},
+        vpc::Vpc,
         DatabaseError, ObjectFilter, UuidKeyedObjectFilter,
     },
     ethernet_virtualization,
@@ -123,8 +120,8 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
     certificate_provider: Arc<C2>,
     redfish_pool: Arc<dyn RedfishClientPool>,
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
-    common_pools: Arc<CommonPools>,
-    ib_fabric_manager: Arc<dyn IBFabricManager>,
+    pub(crate) common_pools: Arc<CommonPools>,
+    pub(crate) ib_fabric_manager: Arc<dyn IBFabricManager>,
     pub(crate) runtime_config: Arc<CarbideConfig>,
     dpu_health_log_limiter: LogLimiter<MachineId>,
     pub dynamic_settings: dynamic_settings::DynamicSettings,
@@ -165,544 +162,84 @@ where
         &self,
         request: Request<rpc::Domain>,
     ) -> Result<Response<rpc::Domain>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin create_domain",
-                e,
-            ))
-        })?;
-
-        let response = Ok(NewDomain::try_from(request.into_inner())?
-            .persist(&mut txn)
-            .await
-            .map(rpc::Domain::from)
-            .map(Response::new)?);
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit create_domain",
-                e,
-            ))
-        })?;
-
-        response
+        crate::handlers::domain::create(self, request).await
     }
 
     async fn update_domain(
         &self,
         request: Request<rpc::Domain>,
     ) -> Result<Response<rpc::Domain>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin update_domain",
-                e,
-            ))
-        })?;
-
-        let rpc::Domain { id, name, .. } = request.into_inner();
-
-        // TODO(jdg): Move this out into a function and share it with delete
-        let uuid = match id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(_err) => {
-                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
-                }
-            },
-            None => {
-                return Err(CarbideError::MissingArgument("id").into());
-            }
-        };
-
-        let mut domains = Domain::find(&mut txn, UuidKeyedObjectFilter::One(uuid))
-            .await
-            .map_err(CarbideError::from)?;
-
-        let mut dom = match domains.len() {
-            0 => {
-                return Err(CarbideError::NotFoundError {
-                    kind: "domain",
-                    id: uuid.to_string(),
-                }
-                .into())
-            }
-            1 => domains.remove(0),
-            _ => {
-                return Err(Status::internal(
-                    "Found more than one domain with the specified UUID",
-                ));
-            }
-        };
-
-        dom.name = name;
-        let response = Ok(dom
-            .update(&mut txn)
-            .await
-            .map_err(CarbideError::from)
-            .map(rpc::Domain::from)
-            .map(Response::new)?);
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit update_domain",
-                e,
-            ))
-        })?;
-
-        response
+        crate::handlers::domain::update(self, request).await
     }
 
     async fn delete_domain(
         &self,
         request: Request<rpc::DomainDeletion>,
     ) -> Result<Response<rpc::DomainDeletionResult>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin delete_domain",
-                e,
-            ))
-        })?;
-
-        let rpc::DomainDeletion { id, .. } = request.into_inner();
-
-        // load from find from domain.rs
-        let uuid = match id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(_err) => {
-                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
-                }
-            },
-            None => {
-                return Err(CarbideError::MissingArgument("id").into());
-            }
-        };
-
-        let mut domains = Domain::find(&mut txn, UuidKeyedObjectFilter::One(uuid))
-            .await
-            .map_err(CarbideError::from)?;
-
-        let dom = match domains.len() {
-            0 => {
-                return Err(CarbideError::NotFoundError {
-                    kind: "domain",
-                    id: uuid.to_string(),
-                }
-                .into())
-            }
-            1 => domains.remove(0),
-            _ => {
-                return Err(Status::internal(
-                    "Found more than one domain with the specified UUID",
-                ));
-            }
-        };
-
-        // TODO: This needs to validate that nothing references the domain anymore
-        // (like NetworkSegments)
-
-        let response = Ok(dom
-            .delete(&mut txn)
-            .await
-            .map_err(CarbideError::from)
-            .map(|_| rpc::DomainDeletionResult {})
-            .map(Response::new)?);
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit delete_domain",
-                e,
-            ))
-        })?;
-
-        response
+        crate::handlers::domain::delete(self, request).await
     }
 
     async fn find_domain(
         &self,
         request: Request<rpc::DomainSearchQuery>,
     ) -> Result<Response<rpc::DomainList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_domain", e))
-        })?;
-
-        let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
-        let domains = match (id, name) {
-            (Some(id), _) => {
-                let uuid = match Uuid::try_from(id) {
-                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                    Err(err) => {
-                        return Err(Status::invalid_argument(format!(
-                            "Invalid UUID supplied: {}",
-                            err
-                        )));
-                    }
-                };
-                Domain::find(&mut txn, uuid).await
-            }
-            (None, Some(name)) => Domain::find_by_name(&mut txn, &name).await,
-            (None, None) => Domain::find(&mut txn, UuidKeyedObjectFilter::All).await,
-        };
-
-        let result = domains
-            .map(|domain| rpc::DomainList {
-                domains: domain.into_iter().map(rpc::Domain::from).collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(result)
+        crate::handlers::domain::find(self, request).await
     }
 
     async fn create_vpc(
         &self,
         request: Request<rpc::VpcCreationRequest>,
     ) -> Result<Response<rpc::Vpc>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "begin create_vpc", e))
-        })?;
-
-        let mut vpc = NewVpc::try_from(request.into_inner())?
-            .persist(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-        vpc.vni = Some(self.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
-        Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap())
-            .await
-            .map_err(CarbideError::from)?;
-
-        let rpc_out: rpc::Vpc = vpc.into();
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "commit create_vpc", e))
-        })?;
-
-        Ok(Response::new(rpc_out))
+        crate::handlers::vpc::create(self, request).await
     }
 
     async fn update_vpc(
         &self,
         request: Request<rpc::VpcUpdateRequest>,
     ) -> Result<Response<rpc::VpcUpdateResult>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "begin update_vpc", e))
-        })?;
-
-        UpdateVpc::try_from(request.into_inner())?
-            .update(&mut txn)
-            .await?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "commit update_vpc", e))
-        })?;
-
-        Ok(Response::new(rpc::VpcUpdateResult {}))
+        crate::handlers::vpc::update(self, request).await
     }
 
     async fn delete_vpc(
         &self,
         request: Request<rpc::VpcDeletionRequest>,
     ) -> Result<Response<rpc::VpcDeletionResult>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "begin delete_vpc", e))
-        })?;
-
-        // TODO: This needs to validate that nothing references the VPC anymore
-        // (like NetworkSegments)
-        let vpc_id: uuid::Uuid = request
-            .into_inner()
-            .id
-            .ok_or(CarbideError::MissingArgument("id"))?
-            .try_into()
-            .map_err(CarbideError::from)?;
-
-        let vpc = match Vpc::try_delete(&mut txn, vpc_id)
-            .await
-            .map_err(CarbideError::from)?
-        {
-            Some(vpc) => vpc,
-            None => {
-                // VPC didn't exist or was deleted in the past. We are not allowed
-                // to free the VNI again
-                return Err(CarbideError::NotFoundError {
-                    kind: "vpc",
-                    id: vpc_id.to_string(),
-                }
-                .into());
-            }
-        };
-
-        if let Some(vni) = vpc.vni {
-            self.common_pools
-                .ethernet
-                .pool_vpc_vni
-                .release(&mut txn, vni)
-                .await
-                .map_err(CarbideError::from)?;
-        }
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "commit delete_vpc", e))
-        })?;
-
-        Ok(Response::new(rpc::VpcDeletionResult {}))
+        crate::handlers::vpc::delete(self, request).await
     }
 
     async fn find_vpcs(
         &self,
         request: Request<rpc::VpcSearchQuery>,
     ) -> Result<Response<rpc::VpcList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_vpcs", e))
-        })?;
-
-        let rpc::VpcSearchQuery { id, name, .. } = request.into_inner();
-
-        let vpcs = match (id, name) {
-            (Some(id), _) => {
-                let uuid = match Uuid::try_from(id) {
-                    Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                    Err(err) => {
-                        return Err(Status::invalid_argument(format!(
-                            "Supplied invalid UUID: {}",
-                            err
-                        )));
-                    }
-                };
-                Vpc::find(&mut txn, uuid).await
-            }
-            (None, Some(name)) => Vpc::find_by_name(&mut txn, &name).await,
-            (None, None) => Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await,
-        };
-
-        let result = vpcs
-            .map(|vpc| rpc::VpcList {
-                vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        Ok(result)
+        crate::handlers::vpc::find(self, request).await
     }
 
     async fn find_ib_partitions(
         &self,
-        request: Request<IbPartitionQuery>,
-    ) -> Result<Response<IbPartitionList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin find_ib_partitions",
-                e,
-            ))
-        })?;
-
-        let rpc::IbPartitionQuery {
-            id, search_config, ..
-        } = request.into_inner();
-
-        let uuid_filter = match id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
-                }
-            },
-            None => UuidKeyedObjectFilter::All,
-        };
-
-        let search_config = search_config
-            .map(IBPartitionSearchConfig::from)
-            .unwrap_or(IBPartitionSearchConfig::default());
-        let results = IBPartition::find(&mut txn, uuid_filter, search_config)
-            .await
-            .map_err(CarbideError::from)?;
-        let mut ib_partitions = Vec::with_capacity(results.len());
-        for result in results {
-            ib_partitions.push(result.try_into()?);
-        }
-
-        Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
+        request: Request<rpc::IbPartitionQuery>,
+    ) -> Result<Response<rpc::IbPartitionList>, Status> {
+        crate::handlers::ib_partition::find(self, request).await
     }
 
     async fn create_ib_partition(
         &self,
-        req: Request<IbPartitionCreationRequest>,
-    ) -> Result<Response<IbPartition>, Status> {
-        log_request_data(&req);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin create_ib_partition",
-                e,
-            ))
-        })?;
-
-        let mut resp = NewIBPartition::try_from(req.into_inner())?;
-        resp.config.pkey = self.allocate_pkey(&mut txn, &resp.config.name).await?;
-        let resp = resp
-            .create(&mut txn, &self.ib_fabric_manager.get_config())
-            .await
-            .map_err(|e| match e.source {
-                // During IB paritiont creation, it will check the existing partition by a 'select' query.
-                // The 'RowNotFound' error means that the carbide can not find a valid row for the new IBPartition.
-                sqlx::Error::RowNotFound => Status::invalid_argument(
-                    "Maximum Limit of Infiniband partitions had been reached",
-                ),
-                _ => CarbideError::from(e).into(),
-            })?;
-        let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit create_ib_partition",
-                e,
-            ))
-        })?;
-
-        Ok(resp)
+        request: Request<rpc::IbPartitionCreationRequest>,
+    ) -> Result<Response<rpc::IbPartition>, Status> {
+        crate::handlers::ib_partition::create(self, request).await
     }
 
     async fn delete_ib_partition(
         &self,
-        request: Request<IbPartitionDeletionRequest>,
-    ) -> Result<Response<IbPartitionDeletionResult>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin delete_ib_partition",
-                e,
-            ))
-        })?;
-
-        let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
-
-        let uuid = match id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(_err) => {
-                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
-                }
-            },
-            None => {
-                return Err(CarbideError::MissingArgument("id").into());
-            }
-        };
-
-        let mut segments = IBPartition::find(
-            &mut txn,
-            UuidKeyedObjectFilter::One(uuid),
-            IBPartitionSearchConfig::default(),
-        )
-        .await
-        .map_err(CarbideError::from)?;
-
-        let segment = match segments.len() {
-            1 => segments.remove(0),
-            _ => {
-                return Err(CarbideError::NotFoundError {
-                    kind: "ib_partition",
-                    id: uuid.to_string(),
-                }
-                .into())
-            }
-        };
-
-        let resp = segment
-            .mark_as_deleted(&mut txn)
-            .await
-            .map(|_| rpc::IbPartitionDeletionResult {})
-            .map(Response::new)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit delete_ib_partition",
-                e,
-            ))
-        })?;
-
-        Ok(resp)
+        request: Request<rpc::IbPartitionDeletionRequest>,
+    ) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
+        crate::handlers::ib_partition::delete(self, request).await
     }
 
     async fn ib_partitions_for_tenant(
         &self,
         request: Request<rpc::TenantSearchQuery>,
-    ) -> Result<Response<IbPartitionList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin find_ib_partions_for_tenant",
-                e,
-            ))
-        })?;
-
-        let rpc::TenantSearchQuery {
-            tenant_organization_id,
-        } = request.into_inner();
-
-        let _tenant_organization_id: String = match tenant_organization_id {
-            Some(id) => id,
-            None => {
-                return Err(CarbideError::MissingArgument("tenant_organization_id").into());
-            }
-        };
-
-        let results = IBPartition::for_tenant(&mut txn, _tenant_organization_id)
-            .await
-            .map_err(CarbideError::from)?;
-
-        let mut ib_partitions = Vec::with_capacity(results.len());
-
-        for result in results {
-            ib_partitions.push(result.try_into()?);
-        }
-
-        Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
+    ) -> Result<Response<rpc::IbPartitionList>, Status> {
+        crate::handlers::ib_partition::for_tenant(self, request).await
     }
 
     async fn find_network_segments(
@@ -6350,7 +5887,7 @@ where
     }
 }
 
-fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
+pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
     tracing::Span::current().record(
         "request",
         truncate(
@@ -6532,7 +6069,7 @@ where
     /// Allocate a value from the vpc vni resource pool.
     ///
     /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_vpc_vni(
+    pub(crate) async fn allocate_vpc_vni(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
@@ -6564,7 +6101,7 @@ where
     ///
     /// If the pool doesn't exist return error.
     /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_pkey(
+    pub(crate) async fn allocate_pkey(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
