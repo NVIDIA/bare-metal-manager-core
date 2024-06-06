@@ -12,15 +12,16 @@
 
 // Coordinates downloading firmware in the background with multiple possible requestors
 
-use eyre::{eyre, Report, WrapErr};
-use futures_util::StreamExt;
-use reqwest::Client;
 use std::{
     collections::HashSet,
     path::Path,
     sync::{Arc, Mutex},
     time::Duration,
 };
+
+use eyre::{eyre, Report, WrapErr};
+use futures_util::StreamExt;
+use reqwest::Client;
 use tokio::fs::File;
 
 #[derive(Clone, Debug)]
@@ -234,9 +235,9 @@ fn verify_checksum(filename: &String, checksum: &String) -> Result<(), Report> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_firmware_downloader_repeated() {
@@ -265,33 +266,6 @@ mod tests {
         let _ = std::fs::remove_file(filename);
     }
 
-    #[tokio::test]
-    async fn test_firmware_actual() {
-        // Test downloading from a real URL
-        let filename = Path::new("/tmp/test_firmware_actual");
-        let url = "https://google.com".to_string();
-        let _ = std::fs::remove_file(filename);
-        let downloader = FirmwareDownloader::new();
-
-        let mut count = 0;
-        loop {
-            if !downloader.available(filename, &url, "").await {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                count += 1;
-            } else {
-                // If it went very quick, something is wrong
-                assert!(count >= 2);
-                let mut contents = vec![];
-                let mut file = File::open(&filename).await.unwrap();
-                file.read_to_end(&mut contents).await.unwrap();
-                let contents = std::str::from_utf8(&contents).unwrap();
-                // Should be about 57k
-                assert!(contents.len() > 40000);
-                let _ = std::fs::remove_file(filename);
-                return;
-            }
-        }
-    }
     #[tokio::test]
     async fn test_checksum() -> Result<(), std::io::Error> {
         // Test that the checksum validation works
