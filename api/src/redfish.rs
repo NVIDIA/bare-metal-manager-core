@@ -35,8 +35,8 @@ const AMI_USERNAME: &str = "admin";
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
-    #[error("Failed to look up credentials {0}")]
-    MissingCredentials(eyre::Report),
+    #[error("Missing credential {key}: {cause}")]
+    MissingCredentials { key: String, cause: eyre::Report },
     #[error("Failed redfish request {0}")]
     RedfishError(RedfishError),
     #[error("Failed subtask to create redfish client  {0}")]
@@ -47,6 +47,8 @@ pub enum RedfishClientCreationError {
     IdentifyError(#[from] crate::site_explorer::IdentifyError),
     #[error("Invalid Header")]
     InvalidHeader(#[from] InvalidHeaderName),
+    #[error("Failed setting credential {key}: {cause}")]
+    SetCredentials { key: String, cause: eyre::Report },
 }
 
 pub enum RedfishAuth {
@@ -193,7 +195,10 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
                     .credential_provider
                     .get_credentials(credential_key.clone())
                     .await
-                    .map_err(RedfishClientCreationError::MissingCredentials)?;
+                    .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                        key: credential_key.to_key_str(),
+                        cause,
+                    })?;
 
                 let (username, password) = match credentials {
                     Credentials::UsernamePassword { username, password } => {
@@ -268,7 +273,10 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             .credential_provider
             .get_credentials(new_credential_key.clone())
             .await
-            .map_err(RedfishClientCreationError::MissingCredentials)?;
+            .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                key: new_credential_key.to_key_str(),
+                cause,
+            })?;
 
         let (username, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
@@ -304,18 +312,22 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
     ) -> Result<(), RedfishClientCreationError> {
         let username = FORGE_DPU_BMC_USERNAME;
         let password = Credentials::generate_password();
+        let credential_key = CredentialKey::DpuRedfish {
+            credential_type: CredentialType::Machine { machine_id },
+        };
         self.credential_provider
             .set_credentials(
-                CredentialKey::DpuRedfish {
-                    credential_type: CredentialType::Machine { machine_id },
-                },
+                credential_key.clone(),
                 Credentials::UsernamePassword {
                     username: username.to_string(),
                     password: password.clone(),
                 },
             )
             .await
-            .map_err(RedfishClientCreationError::MissingCredentials)?;
+            .map_err(|cause| RedfishClientCreationError::SetCredentials {
+                key: credential_key.to_key_str(),
+                cause,
+            })?;
         if let Err(e) = client
             .create_user(username, password.as_str(), RoleId::Administrator)
             .await
@@ -371,26 +383,34 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
                 Credentials::UsernamePassword { username, password } => (username, password),
             };
 
+            let credential_key = CredentialKey::DpuUefi {
+                credential_type: CredentialType::SiteDefault,
+            };
             let credentials = self
                 .credential_provider
-                .get_credentials(CredentialKey::DpuUefi {
-                    credential_type: CredentialType::SiteDefault,
-                })
+                .get_credentials(credential_key.clone())
                 .await
-                .map_err(RedfishClientCreationError::MissingCredentials)?;
+                .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                    key: credential_key.to_key_str(),
+                    cause,
+                })?;
 
             (_, new_password) = match credentials {
                 Credentials::UsernamePassword { username, password } => (username, password),
             };
         } else {
             // the current password is always an empty string for the host uefi
+            let credential_key = CredentialKey::HostUefi {
+                credential_type: CredentialType::SiteDefault,
+            };
             let credentials = self
                 .credential_provider
-                .get_credentials(CredentialKey::HostUefi {
-                    credential_type: CredentialType::SiteDefault,
-                })
+                .get_credentials(credential_key.clone())
                 .await
-                .map_err(RedfishClientCreationError::MissingCredentials)?;
+                .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                    key: credential_key.to_key_str(),
+                    cause,
+                })?;
 
             (_, new_password) = match credentials {
                 Credentials::UsernamePassword { username, password } => (username, password),

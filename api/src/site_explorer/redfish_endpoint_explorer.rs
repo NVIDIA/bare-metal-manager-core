@@ -508,8 +508,17 @@ pub(crate) fn map_redfish_client_creation_error(
     error: RedfishClientCreationError,
 ) -> EndpointExplorationError {
     match error {
-        RedfishClientCreationError::MissingCredentials(_) => {
-            EndpointExplorationError::MissingCredentials
+        RedfishClientCreationError::MissingCredentials { key, cause } => {
+            EndpointExplorationError::MissingCredentials {
+                key,
+                cause: format!("{cause:#}"),
+            }
+        }
+        RedfishClientCreationError::SetCredentials { key, cause } => {
+            EndpointExplorationError::SetCredentials {
+                key,
+                cause: format!("{cause:#}"),
+            }
         }
         RedfishClientCreationError::RedfishError(e) => map_redfish_error(e),
         RedfishClientCreationError::SubtaskError(e) => EndpointExplorationError::Other {

@@ -336,8 +336,10 @@ pub enum EndpointExplorationError {
     #[error("Unauthorized: {details}")]
     #[serde(rename_all = "PascalCase")]
     Unauthorized { details: String },
-    #[error("Credentials for the machine are not available")]
-    MissingCredentials,
+    #[error("Missing credential {key}: {cause}")]
+    MissingCredentials { key: String, cause: String },
+    #[error("Failed setting credential {key}: {cause}")]
+    SetCredentials { key: String, cause: String },
     #[error("None of the credentials we have worked, tried: {0}")]
     InvalidCredentials(String),
     #[error("Endpoint is not a BMC with Redfish support")]

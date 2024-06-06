@@ -189,7 +189,7 @@ impl AnonymousRedfishEndpoint {
         let site_key = CredentialKey::HostRedfish {
             credential_type: CredentialType::SiteDefault,
         };
-        match credential_provider.get_credentials(site_key).await {
+        match credential_provider.get_credentials(site_key.clone()).await {
             Ok(Credentials::UsernamePassword { username, password }) => {
                 auths.push(Auth {
                     username,
@@ -200,7 +200,10 @@ impl AnonymousRedfishEndpoint {
             }
             Err(err) => {
                 tracing::error!(%err, "Site default credentials missing from Vault");
-                return Err(EndpointExplorationError::MissingCredentials);
+                return Err(EndpointExplorationError::MissingCredentials {
+                    key: site_key.to_key_str(),
+                    cause: err.to_string(),
+                });
             }
         }
 
@@ -324,7 +327,10 @@ impl RedfishEndpoint {
         let (site_user, site_pass) = match maybe_creds {
             Err(err) => {
                 tracing::error!(%err, "Site default credentials missing from Vault");
-                return Err(EndpointExplorationError::MissingCredentials);
+                return Err(EndpointExplorationError::MissingCredentials {
+                    key: site_key.to_key_str(),
+                    cause: err.to_string(),
+                });
             }
             Ok(Credentials::UsernamePassword { username, password }) => (username, password),
         };
