@@ -1029,7 +1029,7 @@ scheduled-test:run-cloud-api-tests:
     - job: scheduled-test:verify-site-controller-version
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-  timeout: 2h 30m
+  timeout: 3h
   retry:
     when:
       - runner_system_failure
