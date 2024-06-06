@@ -470,6 +470,8 @@ pub enum RedfishCommand {
     ThermalMetrics,
     /// Clear Trusted Platform Module (TPM)
     TpmReset,
+    /// Reset BMC to factory defaults
+    BmcResetToDefaults,
     /// Reboot the BMC itself
     BmcReset,
     /// Get Secure boot status
