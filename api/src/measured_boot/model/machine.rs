@@ -27,6 +27,7 @@ use crate::measured_boot::interface::machine::{
     get_mock_machine_attrs_for_machine_id, get_mock_machine_by_id, get_mock_machines_records,
     insert_mock_machine_attr_records, insert_mock_machine_record,
 };
+use crate::model::machine::machine_id::MachineId;
 use rpc::protos::measured_boot::{MeasurementMachineStatePb, MockMachinePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
@@ -269,6 +270,19 @@ pub async fn get_discovery_attributes(
     }
 
     common::filter_machine_discovery_attrs(&attr_map)
+}
+
+/// get_measurement_machine_state figures out the current state of the given
+/// machine ID by checking its most recent bundle (or lack thereof), and
+/// using that result to give it a corresponding MeasurementMachineState.
+pub async fn get_measurement_machine_state(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: MachineId,
+) -> eyre::Result<MeasurementMachineState> {
+    // TODO(chet): This will eventually not wrap "get_mock_machine_state"
+    // once I clean up all of the old mock stuff, but for now this actually
+    // does the trick, and leads to a bit smaller of an integration MR.
+    get_mock_machine_state(txn, MockMachineId(machine_id.to_string())).await
 }
 
 ///////////////////////////////////////////////////////////////////////////////

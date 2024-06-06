@@ -34,6 +34,9 @@ use crate::{
     },
     host_power_control,
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
+    measured_boot::{
+        dto::records::MeasurementMachineState, model::machine::get_measurement_machine_state,
+    },
     model::{
         instance::{
             config::infiniband::InstanceIbInterfaceConfig,
@@ -673,19 +676,10 @@ impl StateHandler for MachineStateHandler {
 /// and corresponding substates (as in, is the API still waiting
 /// for measurements, and if not, did the measurements match
 /// an existing bundle).
-//
-// TODO(chet): Integrate this further. Initial MR is to focus
-// on the state machine integration bits, and a subsequent MR
-// will be for actually integrating w/ the measured boot logic.
-//
-// _state and _txn will be used as part of that integration,
-// where _txn will of course be used to query the database for
-// the latest state, and state.host_snapshot.machine_id will
-// be used to check the machine.
 async fn handle_measuring_state(
     measuring_state: &MeasuringState,
-    _state: &ManagedHostStateSnapshot,
-    _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    state: &ManagedHostStateSnapshot,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Option<ManagedHostState>, StateHandlerError> {
     match measuring_state {
         // In this state, the machine has been discovered, and the
@@ -701,20 +695,76 @@ async fn handle_measuring_state(
         // If no match is found, then the machine will hang out in
         // MeasuringState::PendingBundle.
         MeasuringState::WaitingForMeasurements => {
-            // TODO(chet): This will be where code is integrated via
-            // get_machine_measured_state (and then match on states),
-            // but for now, just skip right to ManagedHostState::Ready.
-            Ok(Some(ManagedHostState::Ready))
+            let machine_id = state.host_snapshot.machine_id.clone();
+            let state = get_measurement_machine_state(txn, machine_id.clone())
+                .await
+                .map_err(StateHandlerError::GenericError)?;
+            Ok(match state {
+                // "Discovered" is the MeasurementMachineState equivalent of
+                // "no measurements have been sent yet". If that's the case,
+                // then continue waiting for measurements.
+                MeasurementMachineState::Discovered => None,
+                MeasurementMachineState::PendingBundle => Some(ManagedHostState::Measuring {
+                    measuring_state: MeasuringState::PendingBundle,
+                }),
+                MeasurementMachineState::Measured => Some(ManagedHostState::Ready),
+                MeasurementMachineState::MeasuringFailed => {
+                    // TODO(chet): Need to differentiate between retired and revoked
+                    // in here. I'll do that in a subsequent MR.
+                    let failure_details = FailureDetails {
+                        cause: FailureCause::MeasurementsRevoked {
+                            err: "measurements matched revoked bundle".to_string(),
+                        },
+                        failed_at: chrono::Utc::now(),
+                        source: FailureSource::StateMachine,
+                    };
+                    Some(ManagedHostState::Failed {
+                        details: failure_details,
+                        machine_id: machine_id.clone(),
+                        retry_count: 0,
+                    })
+                }
+            })
         }
         // In this state, a measurement report of PCR values has been
         // received (and verified), but the values don't match a bundle
         // yet. Check to see if they match one now (which happens via
         // bundle promotion). If not, keep on waiting.
         MeasuringState::PendingBundle => {
-            // TODO(chet): This will be where code is integrated via
-            // get_machine_measured_state (and then match on states),
-            // but for now, just skip right to ManagedHostState::Ready.
-            Ok(Some(ManagedHostState::Ready))
+            let machine_id = state.host_snapshot.machine_id.clone();
+            let state = get_measurement_machine_state(txn, machine_id.clone())
+                .await
+                .map_err(StateHandlerError::GenericError)?;
+            Ok(match state {
+                // "PendingBundle" is the current state, so if this is returned,
+                // just keep on waiting for a matching bundle.
+                MeasurementMachineState::PendingBundle => None,
+                // "Discovered" is the MeasurementMachineState equivalent of
+                // "no measurements have been sent yet". If this is happens,
+                // it means measurements must have been wiped, so lets transition
+                // *back* to WaitingForMeasurements (which will tell the API to
+                // ask Scout for measurements again).
+                MeasurementMachineState::Discovered => Some(ManagedHostState::Measuring {
+                    measuring_state: MeasuringState::WaitingForMeasurements,
+                }),
+                MeasurementMachineState::Measured => Some(ManagedHostState::Ready),
+                MeasurementMachineState::MeasuringFailed => {
+                    // TODO(chet): Need to differentiate between retired and revoked
+                    // in here. I'll do that in a subsequent MR.
+                    let failure_details = FailureDetails {
+                        cause: FailureCause::MeasurementsRevoked {
+                            err: "measurements matched revoked bundle".to_string(),
+                        },
+                        failed_at: chrono::Utc::now(),
+                        source: FailureSource::StateMachine,
+                    };
+                    Some(ManagedHostState::Failed {
+                        details: failure_details,
+                        machine_id: machine_id.clone(),
+                        retry_count: 0,
+                    })
+                }
+            })
         }
     }
 }
