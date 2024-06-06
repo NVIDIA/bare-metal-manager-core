@@ -6,6 +6,7 @@ StartLimitIntervalSec=300
 StartLimitBurst=5
 
 [Service]
+ExecStartPre=-/usr/bin/prometheus_fd_discovery
 ExecStart=/usr/bin/otelcol-contrib --config=/etc/otelcol-contrib/config.yaml
 KillMode=mixed
 Restart=always
