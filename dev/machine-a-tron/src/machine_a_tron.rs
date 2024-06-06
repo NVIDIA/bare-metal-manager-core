@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::{
+    api_client,
     config::MachineATronContext,
     dhcp_relay::DhcpRelayClient,
     host_machine::HostMachine,
@@ -32,6 +33,7 @@ impl MachineATron {
     pub async fn run(&mut self, dhcp_client: &mut DhcpRelayClient) {
         let running = Arc::new(AtomicBool::new(true));
         let (app_tx, mut app_rx) = channel(5000);
+        let mut machines: Vec<String> = Vec::new();
 
         let (tui_handle, ui_event_tx) = if self.app_context.app_config.tui_enabled {
             let (ui_tx, ui_rx) = channel(5000);
@@ -60,6 +62,7 @@ impl MachineATron {
                 let mut machine =
                     HostMachine::new(app_context, config.clone(), ui_event_tx.clone());
 
+                machines.push(machine.get_machine_id_str());
                 let join_handle = tokio::spawn(async move {
                     while running.as_ref().load(Ordering::Relaxed) {
                         let work_done = machine
@@ -87,6 +90,18 @@ impl MachineATron {
                     tracing::info!("quit");
                     running.store(false, Ordering::Relaxed);
                 }
+            }
+        }
+
+        for machine_id in machines {
+            tracing::info!(
+                "Attempting to delete machine with id: {} from db.",
+                machine_id
+            );
+            if let Err(e) =
+                api_client::force_delete_machine(&self.app_context.clone(), machine_id).await
+            {
+                tracing::error!("Force delete Api call failed with {}", e)
             }
         }
 
