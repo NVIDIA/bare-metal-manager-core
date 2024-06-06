@@ -34,6 +34,7 @@ pub mod machine;
 pub mod metadata;
 pub mod network_devices;
 pub mod network_segment;
+pub mod os;
 pub mod resource_pool;
 pub mod site_explorer;
 pub mod tenant;

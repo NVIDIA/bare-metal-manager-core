@@ -10,14 +10,20 @@
 	<tr><th>Tenant Org</th><td>{{ tenant_org }}</td></tr>
 	<tr><th>Tenant State</th><td>{{ tenant_state }}</td></tr>
 	<tr><th>Tenant State Details</th><td>{{ tenant_state_details }}</td></tr>
+	<tr><th>Config Version</th><td>{{ config_version }}</td></tr>
 	<tr><th>Configs Synced</th><td>{{ configs_synced }}</td></tr>
 	<tr><th>Network Config Synced</th><td>{{ network_config_synced }}</td></tr>
 	<tr><th>Network Config Version</th><td>{{ network_config_version }}</td></tr>
-	<tr><th>Always Boot Custom iPXE</th><td>{{ always_boot_custom_ipxe }}</td></tr>
-	<tr><th>Custom iPXE</th><td>{{ custom_ipxe }}</td></tr>
-	{% if !userdata.is_empty() %}
-		<tr><th>Userdata</th><td><form><textarea disabled>{{ userdata }}</textarea></form></td></tr>
+</table>
+
+<h2>Operating System</h2>
+<table>
+	<tr><th>iPXE Script</th><td>{{ os.ipxe_script }}</td></tr>
+	{% if !os.userdata.is_empty() %}
+	<tr><th>Userdata</th><td><form><textarea disabled>{{ os.userdata }}</textarea></form></td></tr>
 	{% endif %}
+	<tr><th>Always Boot With iPXE</th><td>{{ os.always_boot_with_ipxe }}</td></tr>
+	<tr><th>Phone Home Enabled</th>{{ os.phone_home_enabled }}</tr>
 </table>
 
 <h2>Interfaces</h2>

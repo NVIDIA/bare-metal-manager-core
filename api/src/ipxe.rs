@@ -232,12 +232,14 @@ exit ||
                             .map_err(CarbideError::from)?;
                     }
 
-                    if instance.tenant_config.always_boot_with_custom_ipxe
-                        || instance.use_custom_pxe_on_boot
-                    {
-                        instance.tenant_config.custom_ipxe
-                    } else {
-                        "exit".to_string()
+                    match instance.os.variant {
+                        crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
+                            if ipxe.always_boot_with_ipxe || instance.use_custom_pxe_on_boot {
+                                ipxe.ipxe_script
+                            } else {
+                                "exit".to_string()
+                            }
+                        }
                     }
                 }
                 InstanceState::BootingWithDiscoveryImage { .. } => {

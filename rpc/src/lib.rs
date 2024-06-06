@@ -261,6 +261,8 @@ impl MachineInterface {
 mod tests {
     use std::time::Duration;
 
+    use self::forge::{operating_system::Variant, IpxeOperatingSystem, OperatingSystem};
+
     use super::*;
 
     #[test]
@@ -289,6 +291,23 @@ mod tests {
     fn test_serialize_machine_id_as_json() {
         let id = MachineId::from("fms100ABCD".to_string());
         assert_eq!("\"fms100ABCD\"", serde_json::to_string(&id).unwrap());
+    }
+
+    #[test]
+    fn test_serialize_os() {
+        let os = OperatingSystem {
+            phone_home_enabled: true,
+            variant: Some(Variant::Ipxe(IpxeOperatingSystem {
+                ipxe_script: "abc".to_string(),
+                user_data: Some("def".to_string()),
+                always_boot_with_ipxe: true,
+            })),
+        };
+
+        assert_eq!(
+            "{\"phone_home_enabled\":true,\"variant\":{\"Ipxe\":{\"ipxe_script\":\"abc\",\"user_data\":\"def\",\"always_boot_with_ipxe\":true}}}",
+            serde_json::to_string(&os).unwrap()
+        );
     }
 
     /// Test to check that serializing a type with a custom Timestamp implementation works

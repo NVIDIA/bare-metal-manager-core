@@ -49,6 +49,8 @@ service Forge {
   // to determine whether all updates have been applied.
   // Note: This is commented because we will not immediately implement the method
   // rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
+  rpc UpdateInstanceOperatingSystem(InstanceOperatingSystemUpdateRequest) returns (Instance);
+
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
   rpc FindInstanceByMachineID(MachineId) returns (InstanceList);
 
@@ -731,17 +733,17 @@ message InstancePowerRequest {
   }
   Operation operation = 2;
 
-  // Whether the `custom_ipxe` script that had been provided during instance creation
+  // Whether the `ipxe_script` script that had been provided during instance creation
   // should be executed again during the next reboot.
   //
   // If the flag is set to `false` or not specified, Forge will only provide the
-  // `custom_ipxe` script on the first boot attempt. For every subsequent boot,
+  // `ipxe_script` script on the first boot attempt. For every subsequent boot,
   // the instance will use the default boot action - which is usually to boot from
   // the hard drive.
   //
-  // If the `always_boot_with_custom_ipxe` flag is set during instance creation,
-  // Forge will also provide the `custom_ipxe` script on every reboot. Thereby the
-  // `always_boot_with_custom_ipxe` takes precedence over `boot_with_custom_ipxe`.
+  // If the `always_boot_with_ipxe` flag is set during instance creation,
+  // Forge will also provide the `ipxe_script` script on every reboot. Thereby the
+  // `always_boot_with_ipxe` takes precedence over `boot_with_custom_ipxe`.
   bool boot_with_custom_ipxe = 3;
 
   // In case update is needed, and user wants to approve, they can inform via this flag.
@@ -796,14 +798,9 @@ message TenantConfig {
   // Identifies the tenant that uses this instance
   string tenant_organization_id = 1;
 
-  // TODO: If we want to make those user-changeable, it might also be worthwhile to
-  // move them into a message `InstanceImageConfig` or something along that.
-  // Alternative is to instruct users to simply provision new images if they need
-  // a different image.
-  // In the model where `Instance`s also exist before being allocated by the user
-  // then this one has at least one state change - from being empty to being populated.
-  // We could also move all of this into a `message InstanceTenantConfig` to be
-  // able to get from empty to populated.
+  // These fields are deprecated. If no `os` or `os_reference` object is defined
+  // in `InstanceConfig`, the fields would still be utilized. Otherwise
+  // the `os` configurations would take precedence.
   optional string user_data = 11;
   string custom_ipxe = 12;
 
@@ -822,12 +819,47 @@ message TenantConfig {
   // `true`.
   bool always_boot_with_custom_ipxe = 13;
 
-  // If this flag is set to true` the instance will not transition to a Ready state until
+  // If this flag is set to `true` the instance will not transition to a Ready state until
   // InstancePhoneHomeLastContact is updated
   bool phone_home_enabled = 14;
 
   //TODO: make an API that allows these to be updated.  For now, they're set only at instance allocation.
   repeated string tenantKeysetIds = 8; // this may be empty
+}
+
+message OperatingSystem {
+  // Contains the operating system definition based on the variant of operating system
+  oneof variant {
+    IpxeOperatingSystem ipxe = 1;
+    // TODO: Image based OS, Block storage, etc
+  }
+
+  // If this flag is set to `true` the instance will not transition to a Ready state until
+  // InstancePhoneHomeLastContact is updated
+  bool phone_home_enabled = 11;
+}
+
+message IpxeOperatingSystem {
+  // The iPXE script which is booted into
+  string ipxe_script = 1;
+  // Optional user-data that is associated with the iPXE script
+  // This can be a cloud-init script
+  optional string user_data = 2;
+
+  // If this flag is set to `true`, the instance will receive the `ipxe_script` instructions
+  // on every reboot attempts. Depending on the type of iPXE instructions, this might
+  // lead the instance to reinstall itself on every reboot.
+  //
+  // If the flag is set to `false` or not specified, Forge will only provide the
+  // `ipxe_script` script on the first boot attempt. For every subsequent boot,
+  // the instance will use the default boot action - which is usually to boot from
+  // the hard drive.
+  //
+  // If the `ipxe_script` instructions should only be used for specific reboots
+  // in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
+  // API to reboot instances with the `boot_with_custom_ipxe` parameter set to
+  // `true`.
+  bool always_boot_with_ipxe = 3;
 }
 
 // Desired configuration for an instance
@@ -837,6 +869,11 @@ message InstanceConfig {
   // a tenant. On assignment, the config changes once. Due to the one-time
   // change no version field is required.
   TenantConfig tenant = 1;
+
+  // Operating system. This is required if no operating system reference is provided
+  OperatingSystem os = 2;
+  // Can be used to reference an OS in the OS library based on a unique ID
+  // string os_reference = 3;
 
   // Configures instance networking configurations
   InstanceNetworkConfig network = 11;
@@ -883,6 +920,23 @@ message InstanceInfinibandConfig {
 //   // The updated instance network configuration
 //   InstanceNetworkConfig network_config = 3;
 // }
+
+// Updates the operating system utilized by an instance
+message InstanceOperatingSystemUpdateRequest {
+  // The ID of the instance that should get an updated operating system
+  UUID instance_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current instance config version on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // Operating system. This is required if no operating system reference is provided
+  OperatingSystem os = 3;
+  // Can be used to reference an OS in the OS library based on a unique ID
+  // string os_reference = 4;
+}
 
 // Current status of an instance
 message InstanceStatus {
@@ -984,6 +1038,16 @@ message Instance {
   // This field can be used in InstanceInfinibandConfigUpdateRequest::if_version_match
   // to only request updates if the version hasn't been updated in between.
   string ib_config_version = 202;
+
+  // Current version of the instance configuration
+  // This field can be used in `if_version_match` fields in various instance update
+  // requests in order to request only applying updates if the version hasn't been
+  // updated in between.
+  //
+  // This version field versions all instance data except networking configurations.
+  // In a future version of Forge we might however remove the separate network
+  // configuration versioning.
+  string config_version = 203;
 }
 
 message InstanceUpdateStatus {

@@ -65,6 +65,7 @@ use crate::model::machine::{
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::network_segment::NetworkSegmentControllerState;
+use crate::model::os::OperatingSystemVariant;
 use crate::model::tenant::{
     Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
     UpdateTenantKeyset,
@@ -1245,18 +1246,14 @@ where
             }
         })?;
 
-        let always_boot_with_custom_ipxe = snapshot
+        let always_boot_with_ipxe = snapshot
             .instance
-            .map(|instance| {
-                instance
-                    .config
-                    .tenant
-                    .map(|tenant| tenant.always_boot_with_custom_ipxe)
-                    .unwrap_or_default()
+            .map(|instance| match instance.config.os.variant {
+                OperatingSystemVariant::Ipxe(ipxe) => ipxe.always_boot_with_ipxe,
             })
             .unwrap_or_default();
 
-        if !always_boot_with_custom_ipxe {
+        if !always_boot_with_ipxe {
             Instance::use_custom_ipxe_on_next_boot(
                 &machine_id,
                 request.boot_with_custom_ipxe,
@@ -2903,8 +2900,12 @@ where
                 })?
                 .to_owned();
 
+                let user_data = match instance.os.variant {
+                    OperatingSystemVariant::Ipxe(ipxe) => ipxe.user_data,
+                };
+
                 rpc::CloudInitInstructions {
-                    custom_cloud_init: instance.tenant_config.user_data,
+                    custom_cloud_init: user_data,
                     discovery_instructions: None,
                     metadata: Some(rpc::CloudInitMetaData {
                         instance_id: instance.id.to_string(),
@@ -5078,6 +5079,13 @@ where
         })?;
 
         Ok(Response::new(()))
+    }
+
+    async fn update_instance_operating_system(
+        &self,
+        _request: tonic::Request<rpc::InstanceOperatingSystemUpdateRequest>,
+    ) -> Result<tonic::Response<rpc::Instance>, Status> {
+        Err(Status::internal("not implemented"))
     }
 
     async fn delete_expected_machine(

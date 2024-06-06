@@ -41,6 +41,7 @@ pub async fn create_instance(
 
     let config = rpc::InstanceConfig {
         tenant: Some(tenant_config),
+        os: Some(default_os_config()),
         network,
         infiniband,
     };
@@ -62,6 +63,7 @@ pub async fn create_instance_with_labels(
 
     let config = rpc::InstanceConfig {
         tenant: Some(tenant_config),
+        os: Some(default_os_config()),
         network,
         infiniband,
     };
@@ -95,14 +97,27 @@ pub fn single_interface_network_config(segment_id: uuid::Uuid) -> rpc::InstanceN
     }
 }
 
+pub fn default_os_config() -> rpc::forge::OperatingSystem {
+    rpc::forge::OperatingSystem {
+        phone_home_enabled: false,
+        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+            rpc::forge::IpxeOperatingSystem {
+                ipxe_script: "SomeRandomiPxe".to_string(),
+                user_data: Some("SomeRandomData".to_string()),
+                always_boot_with_ipxe: false,
+            },
+        )),
+    }
+}
+
 pub fn default_tenant_config() -> rpc::TenantConfig {
     rpc::TenantConfig {
-        user_data: Some("SomeRandomData".to_string()),
-        custom_ipxe: "SomeRandomiPxe".to_string(),
+        user_data: None,
+        custom_ipxe: "".to_string(),
+        phone_home_enabled: false,
+        always_boot_with_custom_ipxe: false,
         tenant_organization_id: "Tenant1".to_string(),
         tenant_keyset_ids: vec![],
-        always_boot_with_custom_ipxe: false,
-        phone_home_enabled: false,
     }
 }
 
@@ -111,6 +126,7 @@ pub fn config_for_ib_config(
 ) -> rpc::forge::InstanceConfig {
     rpc::forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
         network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: Some(ib_config),
     }

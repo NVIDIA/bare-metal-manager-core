@@ -20,6 +20,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::{DatabaseError, UuidKeyedObjectFilter};
+use crate::model::os::{IpxeOperatingSystem, OperatingSystemVariant};
 use crate::{
     db::{instance_address::InstanceAddress, machine::DbMachineId},
     model::{
@@ -33,6 +34,7 @@ use crate::{
         },
         machine::machine_id::MachineId,
         metadata::Metadata,
+        os::OperatingSystem,
         tenant::TenantOrganizationId,
     },
     CarbideError, CarbideResult,
@@ -45,6 +47,7 @@ pub struct Instance {
     pub requested: DateTime<Utc>,
     pub started: DateTime<Utc>,
     pub finished: Option<DateTime<Utc>>,
+    pub os: OperatingSystem,
     pub tenant_config: TenantConfig,
     pub use_custom_pxe_on_boot: bool,
     pub deleted: Option<DateTime<Utc>>,
@@ -54,7 +57,7 @@ pub struct Instance {
     pub ib_status_observation: Option<InstanceInfinibandStatusObservation>,
     pub phone_home_last_contact: Option<DateTime<Utc>>,
     pub metadata: Metadata,
-    pub metadata_version: ConfigVersion,
+    pub config_version: ConfigVersion,
 }
 
 #[derive(Debug, Clone)]
@@ -65,11 +68,12 @@ pub struct InstanceList {
 pub struct NewInstance<'a> {
     pub machine_id: MachineId,
     pub instance_id: uuid::Uuid,
+    pub os: &'a OperatingSystem,
     pub tenant_config: &'a TenantConfig,
     pub network_config: Versioned<&'a InstanceNetworkConfig>,
     pub ib_config: Versioned<&'a InstanceInfinibandConfig>,
     pub metadata: Metadata,
-    pub metadata_version: ConfigVersion,
+    pub config_version: ConfigVersion,
 }
 
 pub struct DeleteInstance {
@@ -89,20 +93,28 @@ impl<'r> FromRow<'r, PgRow> for Instance {
         #[derive(serde::Deserialize)]
         struct OptionalIbStatusObservation(Option<InstanceInfinibandStatusObservation>);
 
-        let user_data: Option<String> = row.try_get("user_data")?;
-        let custom_ipxe = row.try_get("custom_ipxe")?;
         let machine_id: DbMachineId = row.try_get("machine_id")?;
         let tenant_org_str = row.try_get::<String, _>("tenant_org")?;
         let tenant_org = TenantOrganizationId::try_from(tenant_org_str)
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
+        let os_user_data: Option<String> = row.try_get("os_user_data")?;
+        let os_ipxe_script: String = row.try_get("os_ipxe_script")?;
+        let os_always_boot_with_ipxe = row.try_get("os_always_boot_with_ipxe")?;
+        let os_phone_home_enabled = row.try_get("os_phone_home_enabled")?;
+
+        let os = OperatingSystem {
+            variant: OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
+                ipxe_script: os_ipxe_script,
+                user_data: os_user_data,
+                always_boot_with_ipxe: os_always_boot_with_ipxe,
+            }),
+            phone_home_enabled: os_phone_home_enabled,
+        };
+
         let tenant_config = TenantConfig {
             tenant_organization_id: tenant_org,
-            custom_ipxe,
-            user_data,
-            always_boot_with_custom_ipxe: row.try_get("always_boot_with_custom_ipxe")?,
             tenant_keyset_ids: row.try_get("keyset_ids")?,
-            phone_home_enabled: row.try_get("phone_home_enabled")?,
         };
 
         let network_config_version_str: &str = row.try_get("network_config_version")?;
@@ -122,8 +134,8 @@ impl<'r> FromRow<'r, PgRow> for Instance {
         let ib_status_observation: sqlx::types::Json<OptionalIbStatusObservation> =
             row.try_get("ib_status_observation")?;
 
-        let version_str: &str = row.try_get("metadata_version")?;
-        let metadata_version = version_str
+        let version_str: &str = row.try_get("config_version")?;
+        let config_version = version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
@@ -142,6 +154,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             started: row.try_get("started")?,
             finished: row.try_get("finished")?,
             tenant_config,
+            os,
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             deleted: row.try_get("deleted")?,
             network_config: Versioned::new(network_config.0, network_config_version),
@@ -150,7 +163,7 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             ib_status_observation: ib_status_observation.0 .0,
             phone_home_last_contact: row.try_get("phone_home_last_contact")?,
             metadata,
-            metadata_version,
+            config_version,
         })
     }
 }
@@ -473,12 +486,23 @@ impl<'a> NewInstance<'a> {
         let ib_config_version = self.ib_config.version.version_string();
         let ib_status_observation = Option::<InstanceInfinibandStatusObservation>::None;
 
+        let os_ipxe_script;
+        let os_user_data;
+        let os_always_boot_with_ipxe;
+        match &self.os.variant {
+            OperatingSystemVariant::Ipxe(ipxe) => {
+                os_ipxe_script = &ipxe.ipxe_script;
+                os_user_data = &ipxe.user_data;
+                os_always_boot_with_ipxe = ipxe.always_boot_with_ipxe;
+            }
+        }
+
         let query = "INSERT INTO instances (
                         id,
                         machine_id,
-                        user_data,
-                        custom_ipxe,
-                        always_boot_with_custom_ipxe,
+                        os_user_data,
+                        os_ipxe_script,
+                        os_always_boot_with_ipxe,
                         tenant_org,
                         use_custom_pxe_on_boot,
                         network_config,
@@ -488,20 +512,20 @@ impl<'a> NewInstance<'a> {
                         ib_config_version,
                         ib_status_observation,
                         keyset_ids,
-                        phone_home_enabled,
-                        name, 
-                        description, 
+                        os_phone_home_enabled,
+                        name,
+                        description,
                         labels,
-                        metadata_version
+                        config_version
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17, $18)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.instance_id)
             .bind(self.machine_id.to_string())
-            .bind(&self.tenant_config.user_data)
-            .bind(&self.tenant_config.custom_ipxe)
-            .bind(self.tenant_config.always_boot_with_custom_ipxe)
+            .bind(os_user_data)
+            .bind(os_ipxe_script)
+            .bind(os_always_boot_with_ipxe)
             .bind(self.tenant_config.tenant_organization_id.as_str())
             .bind(sqlx::types::Json(&self.network_config.value))
             .bind(&network_version_string)
@@ -510,11 +534,11 @@ impl<'a> NewInstance<'a> {
             .bind(&ib_config_version)
             .bind(sqlx::types::Json(ib_status_observation))
             .bind(&self.tenant_config.tenant_keyset_ids)
-            .bind(self.tenant_config.phone_home_enabled)
+            .bind(self.os.phone_home_enabled)
             .bind(&self.metadata.name)
             .bind(&self.metadata.description)
             .bind(sqlx::types::Json(&self.metadata.labels))
-            .bind(&self.metadata_version.version_string())
+            .bind(&self.config_version.version_string())
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

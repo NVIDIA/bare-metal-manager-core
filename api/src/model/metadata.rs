@@ -17,8 +17,8 @@ use std::collections::HashMap;
 pub struct Metadata {
     /// user-defined resource name
     pub name: String,
-    /// optional user-defined resource description                    
+    /// optional user-defined resource description
     pub description: String,
-    /// optional user-defined key/ value pairs             
+    /// optional user-defined key/ value pairs
     pub labels: HashMap<String, String>,
 }

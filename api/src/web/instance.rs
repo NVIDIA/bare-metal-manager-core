@@ -170,12 +170,19 @@ struct InstanceDetail {
     configs_synced: String,
     network_config_synced: String,
     network_config_version: String,
-    custom_ipxe: String,
-    userdata: String,
-    always_boot_custom_ipxe: bool,
+    config_version: String,
     interfaces: Vec<InstanceInterface>,
     ib_interfaces: Vec<InstanceIbInterface>,
+    os: InstanceOs,
     keysets: Vec<String>,
+}
+
+#[derive(Default)]
+struct InstanceOs {
+    ipxe_script: String,
+    userdata: String,
+    always_boot_with_ipxe: bool,
+    phone_home_enabled: bool,
 }
 
 struct InstanceInterface {
@@ -279,6 +286,23 @@ impl From<forgerpc::Instance> for InstanceDetail {
             }
         }
 
+        let os = instance
+            .config
+            .as_ref()
+            .and_then(|config| config.os.as_ref())
+            .map(|os| match &os.variant {
+                Some(os_variant) => match os_variant {
+                    forgerpc::operating_system::Variant::Ipxe(ipxe) => InstanceOs {
+                        ipxe_script: ipxe.ipxe_script.clone(),
+                        userdata: ipxe.user_data.clone().unwrap_or_default(),
+                        always_boot_with_ipxe: ipxe.always_boot_with_ipxe,
+                        phone_home_enabled: os.phone_home_enabled,
+                    },
+                },
+                None => InstanceOs::default(),
+            })
+            .unwrap_or_default();
+
         let keysets = instance
             .config
             .as_ref()
@@ -322,24 +346,8 @@ impl From<forgerpc::Instance> for InstanceDetail {
                 .map(|state| format!("{:?}", state))
                 .unwrap_or_default(),
             network_config_version: instance.network_config_version,
-            custom_ipxe: instance
-                .config
-                .as_ref()
-                .and_then(|config| config.tenant.as_ref())
-                .map(|tenant| tenant.custom_ipxe.clone())
-                .unwrap_or_default(),
-            userdata: instance
-                .config
-                .as_ref()
-                .and_then(|config| config.tenant.as_ref())
-                .and_then(|tenant| tenant.user_data.clone())
-                .unwrap_or_default(),
-            always_boot_custom_ipxe: instance
-                .config
-                .as_ref()
-                .and_then(|config| config.tenant.as_ref())
-                .map(|tenant| tenant.always_boot_with_custom_ipxe)
-                .unwrap_or_default(),
+            config_version: instance.config_version,
+            os,
             interfaces,
             ib_interfaces,
             keysets,
