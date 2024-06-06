@@ -253,7 +253,7 @@ where
         let app = app.clone();
         let connection_succeeded_counter = connection_succeeded_counter.clone();
         let connection_failed_counter = connection_failed_counter.clone();
-        tokio::task::Builder::new().name("http listener").spawn(async move {
+        tokio::task::Builder::new().name("http conn handler").spawn(async move {
             if let Some(tls_acceptor) = tls_acceptor {
                 match tls_acceptor.accept(conn).await {
                     Ok(conn) => {
