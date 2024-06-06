@@ -91,7 +91,7 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
   otel/site:
-    endpoint: otel.forge:443
+    endpoint: otel-receiver.forge:443
     tls:
       ca_file: /opt/forge/forge_root.pem
 
