@@ -81,26 +81,21 @@ processors:
           - set(body, cache)
 
 exporters:
-  file:
-    path: /tmp/otel-out.json
-    rotation:
-      max_megabytes: 1
-      max_backups: 2
+  otlp/site:
+    endpoint: otel-receiver.forge:443
+    tls:
+      ca_file: /opt/forge/forge_root.pem
   prometheus:
     endpoint: "127.0.0.1:9999"
     resource_to_telemetry_conversion:
       enabled: true
-  otel/site:
-    endpoint: otel-receiver.forge:443
-    tls:
-      ca_file: /opt/forge/forge_root.pem
 
 service:
   pipelines:
     logs:
       receivers: [journald]
       processors: [memory_limiter, batch, resourcedetection, transform]
-      exporters: [file, otlp/site]
+      exporters: [otlp/site]
     metrics:
       receivers: [prometheus, hostmetrics, hostmetrics/disk]
       processors: [memory_limiter, batch/metrics, resourcedetection]
