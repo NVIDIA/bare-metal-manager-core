@@ -17,7 +17,8 @@ use rpc::forge::{forge_server::Forge, PxeInstructions};
 use crate::common::api_fixtures::{
     create_managed_host,
     instance::{
-        create_instance_with_config, default_tenant_config, single_interface_network_config,
+        create_instance_with_config, default_os_config, default_tenant_config,
+        single_interface_network_config,
     },
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
@@ -167,13 +168,19 @@ pub async fn create_instance(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
-    always_boot_with_custom_ipxe: bool,
+    always_boot_with_ipxe: bool,
 ) -> (uuid::Uuid, rpc::Instance) {
-    let mut tenant_config = default_tenant_config();
-    tenant_config.always_boot_with_custom_ipxe = always_boot_with_custom_ipxe;
+    let mut os = default_os_config();
+    match &mut os.variant {
+        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
+            ipxe.always_boot_with_ipxe = always_boot_with_ipxe;
+        }
+        None => panic!("OS must be created"),
+    }
 
     let config = rpc::InstanceConfig {
-        tenant: Some(tenant_config),
+        tenant: Some(default_tenant_config()),
+        os: Some(os),
         network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };

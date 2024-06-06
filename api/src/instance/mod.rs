@@ -136,6 +136,7 @@ pub async fn allocate_instance(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
 
+    let os = request.config.os;
     let tenant_config = request
         .config
         .tenant
@@ -144,23 +145,22 @@ pub async fn allocate_instance(
 
     let network_config = Versioned::new(request.config.network, ConfigVersion::initial());
     let ib_config = Versioned::new(request.config.infiniband, ConfigVersion::initial());
-    let metadata_version = ConfigVersion::initial();
+    let config_version = ConfigVersion::initial();
 
     let instance_metadata = request.metadata;
     let tenant_organization_id = tenant_config.clone().tenant_organization_id;
 
     tenant_consistent_check(&mut txn, tenant_organization_id, &ib_config).await?;
 
-    // SSH keys can have 3 segments <algorithm> <key> <owner>
-    // We are interested only in key.
     let new_instance = NewInstance {
         instance_id: request.instance_id,
         machine_id: request.machine_id,
+        os: &os,
         tenant_config: &tenant_config,
         network_config: network_config.as_ref(),
         ib_config: ib_config.as_ref(),
         metadata: instance_metadata,
-        metadata_version,
+        config_version,
     };
 
     let machine_id = new_instance.machine_id.clone();

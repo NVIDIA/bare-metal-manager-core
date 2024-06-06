@@ -41,6 +41,9 @@ pub struct InstanceSnapshot {
     /// The Instance might not yet be in that state, but work would be underway
     /// to get the Instance into this state
     pub config: InstanceConfig,
+    /// Current version of all instance configurations except the networking related ones
+    pub config_version: ConfigVersion,
+
     /// Current version of the networking configuration that is stored as part
     /// of [InstanceConfig::network]
     pub network_config_version: ConfigVersion,
@@ -56,9 +59,9 @@ pub struct InstanceSnapshot {
     pub delete_requested: bool,
 
     pub name: String,
-    /// optional user-defined resource description                    
+    /// optional user-defined resource description
     pub description: String,
-    /// optional user-defined key/ value pairs             
+    /// optional user-defined key/ value pairs
     pub labels: HashMap<String, String>,
 }
 
@@ -73,6 +76,7 @@ impl TryFrom<InstanceSnapshot> for rpc::Instance {
             machine_id: Some(snapshot.machine_id.to_string().into()),
             config: Some(snapshot.config.try_into()?),
             status: Some(status.try_into()?),
+            config_version: snapshot.config_version.version_string(),
             network_config_version: snapshot.network_config_version.version_string(),
             ib_config_version: snapshot.ib_config_version.version_string(),
             metadata: {
@@ -107,10 +111,7 @@ impl InstanceSnapshot {
             &self.observations,
             self.machine_state.clone(),
             self.delete_requested,
-            self.config
-                .tenant
-                .as_ref()
-                .map_or(false, |tenant| tenant.phone_home_enabled),
+            self.config.os.phone_home_enabled,
         )
     }
 }

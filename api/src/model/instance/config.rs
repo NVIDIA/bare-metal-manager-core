@@ -22,6 +22,7 @@ use crate::model::{
         infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
         tenant_config::TenantConfig,
     },
+    os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
     ConfigValidationError, RpcDataConversionError,
 };
 
@@ -39,6 +40,9 @@ pub struct InstanceConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant: Option<TenantConfig>,
 
+    /// Operating system that is used by the instance
+    pub os: OperatingSystem,
+
     /// Configures instance networking
     #[serde(default)]
     pub network: InstanceNetworkConfig,
@@ -51,6 +55,29 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: rpc::InstanceConfig) -> Result<Self, Self::Error> {
+        let os: OperatingSystem = match config.os {
+            Some(os) => OperatingSystem::try_from(os)?,
+            None => {
+                // Deprecated path: The OS is not specified in an extra field,
+                // but in TenantConfig
+                match &config.tenant {
+                    Some(tenant) => OperatingSystem {
+                        variant: OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
+                            ipxe_script: tenant.custom_ipxe.clone(),
+                            user_data: tenant.user_data.clone(),
+                            always_boot_with_ipxe: tenant.always_boot_with_custom_ipxe,
+                        }),
+                        phone_home_enabled: tenant.phone_home_enabled,
+                    },
+                    None => {
+                        return Err(RpcDataConversionError::MissingArgument(
+                            "InstanceConfig::os or InstanceConfig::tenant",
+                        ))
+                    }
+                }
+            }
+        };
+
         let tenant = match config.tenant {
             Some(tenant) => Some(TenantConfig::try_from(tenant)?),
             None => None,
@@ -68,6 +95,7 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
 
         Ok(InstanceConfig {
             tenant,
+            os,
             network,
             infiniband,
         })
@@ -79,10 +107,24 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
 
     fn try_from(config: InstanceConfig) -> Result<rpc::InstanceConfig, Self::Error> {
         let tenant = match config.tenant {
-            Some(tenant) => Some(rpc::TenantConfig::try_from(tenant)?),
+            Some(tenant) => {
+                let mut tenant = rpc::TenantConfig::try_from(tenant)?;
+                // Retryfit the OS details that are now stored in `os`
+                // TODO: Deprecated this once nobody excepts OS details in TenantConfig anymore
+                match &config.os.variant {
+                    crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
+                        tenant.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
+                        tenant.custom_ipxe = ipxe.ipxe_script.clone();
+                        tenant.user_data = ipxe.user_data.clone();
+                    }
+                };
+                tenant.phone_home_enabled = config.os.phone_home_enabled;
+                Some(tenant)
+            }
             None => None,
         };
 
+        let os = rpc::OperatingSystem::try_from(config.os)?;
         let network = rpc::InstanceNetworkConfig::try_from(config.network)?;
         let infiniband = rpc::InstanceInfinibandConfig::try_from(config.infiniband)?;
         let infiniband = match infiniband.ib_interfaces.is_empty() {
@@ -92,6 +134,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
 
         Ok(rpc::InstanceConfig {
             tenant,
+            os: Some(os),
             network: Some(network),
             infiniband,
         })
@@ -104,6 +147,8 @@ impl InstanceConfig {
         if let Some(tenant) = self.tenant.as_ref() {
             tenant.validate()?;
         }
+
+        self.os.validate()?;
 
         self.network.validate()?;
 

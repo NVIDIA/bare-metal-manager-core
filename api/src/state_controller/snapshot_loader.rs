@@ -246,8 +246,10 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
             config: InstanceConfig {
                 tenant: Some(instance.tenant_config),
                 network: instance.network_config.value,
+                os: instance.os,
                 infiniband: instance.ib_config.value,
             },
+            config_version: instance.config_version,
             network_config_version: instance.network_config.version,
             ib_config_version: instance.ib_config.version,
             observations: InstanceStatusObservations {

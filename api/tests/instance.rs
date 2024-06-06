@@ -55,7 +55,7 @@ use common::api_fixtures::{
     create_managed_host, create_test_env, dpu,
     instance::{
         advance_created_instance_into_ready_state, create_instance, create_instance_with_labels,
-        default_tenant_config, delete_instance, single_interface_network_config,
+        default_os_config, default_tenant_config, delete_instance, single_interface_network_config,
         FIXTURE_CIRCUIT_ID,
     },
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
@@ -115,6 +115,41 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         vec![],
     )
     .await;
+
+    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+    assert_eq!(instances.len(), 1);
+    let instance = instances.remove(0);
+
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::forge::TenantState::Ready
+    );
+
+    let tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
+    let expected_os = default_os_config();
+    let os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    assert_eq!(os, &expected_os);
+
+    // For backward compatibilty reasons, the OS details are still signaled
+    // via `TenantConfig`
+    let mut expected_tenant_config = default_tenant_config();
+    match &expected_os.variant {
+        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
+            expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
+            expected_tenant_config.user_data = ipxe.user_data.clone();
+            expected_tenant_config.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
+        }
+        _ => panic!("Unexpected OS"),
+    }
+    expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
+    assert_eq!(tenant_config, &expected_tenant_config);
 
     let mut txn = env
         .pool
@@ -188,26 +223,6 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
             .next()
             .unwrap()
             .1
-    );
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await
-        .unwrap()
-        .unwrap();
-
-    let snapshot_loader = DbSnapshotLoader {};
-    let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
-        .await
-        .unwrap();
-
-    let tenant_config = snapshot
-        .config
-        .tenant
-        .as_ref()
-        .expect("Expecting tenant status");
-    assert_eq!(
-        tenant_config.clone(),
-        default_tenant_config().try_into().unwrap()
     );
 
     assert!(matches!(
@@ -478,6 +493,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
     let config = rpc::InstanceConfig {
+        os: Some(default_os_config()),
         tenant: Some(default_tenant_config()),
         network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
@@ -525,6 +541,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
 
     // Create an instance in non-ready state
     let config = rpc::InstanceConfig {
+        os: Some(default_os_config()),
         tenant: Some(default_tenant_config()),
         network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: Default::default(),
@@ -686,6 +703,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
 
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
+        os: Some(default_os_config()),
         network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
@@ -1071,6 +1089,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
         instance_id: uuid::Uuid::new_v4(),
         machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),
         config: InstanceConfig {
+            os: default_os_config().try_into().unwrap(),
             tenant: Some(default_tenant_config().try_into().unwrap()),
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
             infiniband: InstanceInfinibandConfig::default(),
@@ -1298,6 +1317,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
                 id: host_machine_id.to_string(),
             }),
             config: Some(rpc::InstanceConfig {
+                os: Some(default_os_config()),
                 tenant: Some(default_tenant_config()),
                 network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
                 infiniband: None,
@@ -1317,16 +1337,18 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
     }
     Ok(())
 }
+
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let mut tenant_config = default_tenant_config();
-    tenant_config.phone_home_enabled = true;
+    let mut os = default_os_config();
+    os.phone_home_enabled = true;
     let instance_config = rpc::InstanceConfig {
-        tenant: Some(tenant_config),
+        tenant: Some(default_tenant_config()),
+        os: Some(os),
         network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
@@ -1517,4 +1539,61 @@ async fn test_instance_hostname(db_pool: sqlx::PgPool) {
 
     assert_eq!("192-0-2-3", response.tenant_interfaces[0].fqdn);
     assert_eq!("192-0-2-3", response.tenant_interfaces[1].fqdn);
+}
+
+/// Instance creation using legacy method to pass OS
+/// This should be removed once the mechanism is removed
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_creation_with_os_in_tenantconfig(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let mut tenant_config = default_tenant_config();
+    // We don't use this OS object, but just copy parameters over
+    // carbide is supposed to build an equivalent Os object from it
+    let os_config = default_os_config();
+    match &os_config.variant {
+        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
+            tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
+            tenant_config.user_data = ipxe.user_data.clone();
+            tenant_config.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
+            tenant_config.phone_home_enabled = os_config.phone_home_enabled;
+        }
+        _ => panic!("Unsupported OS"),
+    }
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(tenant_config.clone()),
+        os: None,
+        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        infiniband: None,
+    };
+
+    let (instance_id, _instance) =
+        create_instance_with_config(&env, &dpu_machine_id, &host_machine_id, config, None).await;
+
+    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+    assert_eq!(instances.len(), 1);
+    let instance = instances.remove(0);
+
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::forge::TenantState::Ready
+    );
+
+    let actual_tenant_config = instance.config.as_ref().unwrap().tenant.as_ref().unwrap();
+    let actual_os = instance.config.as_ref().unwrap().os.as_ref().unwrap();
+    assert_eq!(actual_os, &os_config);
+    assert_eq!(actual_tenant_config, &tenant_config);
 }

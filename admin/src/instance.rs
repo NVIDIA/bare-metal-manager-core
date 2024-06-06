@@ -89,7 +89,7 @@ fn convert_instance_to_nice_format(
 
     let mut extra_info = vec![
         (
-            "CUSTOM IPXE",
+            "IPXE SCRIPT",
             instance
                 .config
                 .as_ref()
@@ -107,7 +107,7 @@ fn convert_instance_to_nice_format(
                 .unwrap_or_default(),
         ),
         (
-            "ALWAYS BOOT CUSTOM IPXE",
+            "ALWAYS BOOT WITH IPXE",
             instance
                 .config
                 .as_ref()
