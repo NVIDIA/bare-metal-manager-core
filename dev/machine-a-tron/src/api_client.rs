@@ -347,3 +347,23 @@ pub async fn find_network_segments(
     })
     .await
 }
+
+pub async fn force_delete_machine(
+    app_context: &MachineATronContext,
+    machine_id: String,
+) -> ClientApiResult<rpc::forge::AdminForceDeleteMachineResponse> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .admin_force_delete_machine(tonic::Request::new(
+                rpc::forge::AdminForceDeleteMachineRequest {
+                    host_query: machine_id,
+                    delete_interfaces: true,
+                    delete_bmc_interfaces: true,
+                },
+            ))
+            .await
+            .map(|response| response.into_inner())
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+}
