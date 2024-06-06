@@ -57,7 +57,7 @@ use crate::{
             MeasuringState, NextReprovisionState, ReprovisionRequest, ReprovisionState, RetryInfo,
         },
     },
-    redfish::{RedfishAuth, RedfishClientCreationError},
+    redfish::RedfishAuth,
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
@@ -1167,9 +1167,10 @@ impl StateHandler for DpuMachineStateHandler {
                     },
             } => {
                 let bmc_ip = state.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
-                    StateHandlerError::RedfishClientCreationError(
-                        RedfishClientCreationError::MissingCredentials(eyre!("No host BMC IP")),
-                    )
+                    StateHandlerError::MissingData {
+                        object_id: state.host_snapshot.machine_id.to_string(),
+                        missing: "BMC IP",
+                    }
                 })?;
 
                 let host_client = ctx
@@ -1258,11 +1259,10 @@ impl StateHandler for DpuMachineStateHandler {
                             // For Cec firmware update need also to reboot a host
                             let bmc_ip =
                                 state.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
-                                    StateHandlerError::RedfishClientCreationError(
-                                        RedfishClientCreationError::MissingCredentials(eyre!(
-                                            "No host BMC IP"
-                                        )),
-                                    )
+                                    StateHandlerError::MissingData {
+                                        object_id: state.host_snapshot.machine_id.to_string(),
+                                        missing: "BMC IP",
+                                    }
                                 })?;
 
                             // Use host client with site-default credentials.
