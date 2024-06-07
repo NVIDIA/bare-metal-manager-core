@@ -791,7 +791,6 @@ impl ParsedHosts {
     pub fn find(&self, vendor: String, model: String) -> Option<FirmwareHost> {
         let key = vendor_model_to_key(vendor, model);
         let ret = self.map.get(&key).map(|x| x.to_owned());
-        println!("XXX find ret {ret:?}");
         ret
     }
 }

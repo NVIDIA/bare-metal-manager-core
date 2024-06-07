@@ -53,16 +53,24 @@ impl PreingestionInstruments {
                     "The amount of known machines currently being evaluated prior to ingestion",
                 )
                 .init(),
-                waiting_for_installation: meter.u64_observable_gauge("forge_preingestion_waiting_installation").with_description("The amount of machines which have had firmware uploaded to them and are currently in the process of installing that firmware").init(),
+            waiting_for_installation: meter
+                .u64_observable_gauge("forge_preingestion_waiting_installation")
+                .with_description(
+                    "The amount of machines which have had firmware uploaded to them and are currently in the process of installing that firmware"
+                ).init(),
             delayed_uploading: meter
-            .u64_observable_gauge("forge_preingestion_waiting_download")
-            .with_description("The amount of machines that are waiting for firmware downloads on other machines to complete before doing thier own").
-            init(),
+                .u64_observable_gauge("forge_preingestion_waiting_download")
+                .with_description("The amount of machines that are waiting for firmware downloads on other machines to complete before doing thier own")
+                .init(),
         }
     }
 
     pub fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
-        vec![self.machines_in_preingestion.as_any()]
+        vec![
+            self.machines_in_preingestion.as_any(),
+            self.waiting_for_installation.as_any(),
+            self.delayed_uploading.as_any(),
+        ]
     }
     pub fn emit_gauges(
         &self,
