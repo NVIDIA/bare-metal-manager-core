@@ -12,7 +12,6 @@
 
 pub mod common;
 
-use crate::common::test_meter::TestMeter;
 use carbide::{
     db::explored_endpoints::DbExploredEndpoint,
     db::DatabaseError,
@@ -38,13 +37,12 @@ async fn test_preingestion_bmc_upgrade(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let test_meter = TestMeter::default();
 
     let mgr = PreingestionManager::new(
         pool.clone(),
         env.config.clone(),
         env.redfish_sim.clone(),
-        test_meter.meter(),
+        env.test_meter.meter(),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -206,6 +204,12 @@ async fn test_preingestion_bmc_upgrade(
     );
     txn.commit().await?;
 
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_preingestion_waiting_download")
+            .unwrap(),
+        "0"
+    );
     Ok(())
 }
 
