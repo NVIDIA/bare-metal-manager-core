@@ -44,3 +44,21 @@ pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> 
 
     Ok(formatted)
 }
+
+/// Formats labels into HTML
+pub fn label_list_fmt(labels: &[rpc::forge::Label]) -> ::askama::Result<String> {
+    let mut result = String::new();
+    for label in labels.iter() {
+        if !result.is_empty() {
+            result += "<br>";
+        }
+        result += "<b>";
+        askama_escape::Html.write_escaped(&mut result, &label.key)?;
+        result += "</b>";
+        if let Some(value) = label.value.as_ref() {
+            result += ": ";
+            askama_escape::Html.write_escaped(&mut result, value)?;
+        }
+    }
+    Ok(result)
+}
