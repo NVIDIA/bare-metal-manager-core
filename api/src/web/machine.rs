@@ -244,7 +244,6 @@ struct MachineDetail {
     time_in_state: String,
     state_reason: String,
     machine_type: String,
-    hostname: String,
     is_host: bool,
     network_config: String,
     history: Vec<MachineHistoryDisplay>,
@@ -297,12 +296,8 @@ impl From<forgerpc::Machine> for MachineDetail {
             });
         }
 
-        let mut hostname = String::new();
         let mut interfaces = Vec::new();
         for (i, interface) in m.interfaces.into_iter().enumerate() {
-            if interface.primary_interface {
-                hostname = interface.hostname.clone();
-            }
             interfaces.push(MachineInterfaceDisplay {
                 index: i,
                 id: interface.id.clone().unwrap_or_default().to_string(),
@@ -379,7 +374,6 @@ impl From<forgerpc::Machine> for MachineDetail {
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
             network_config: String::new(), // filled in later
-            hostname,
             history,
             bios_version,
             board_version,

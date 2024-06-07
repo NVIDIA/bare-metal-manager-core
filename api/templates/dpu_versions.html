@@ -21,9 +21,9 @@
 	<tbody>
 	{% for m in machines %}
 		<tr>
-			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
+			<td><a href="/admin/machine/{{ m.id }}">{{ m.id }}</a></td>
 			<td>{{ m.state }}</td>
-      <td>{{ m.dpu_type }}</td>
+			<td>{{ m.dpu_type }}</td>
 			<td>{{ m.firmware_version }}</td>
 			<td>{{ m.bmc_version}}</td>
 			<td>{{ m.bios_version }}</td>

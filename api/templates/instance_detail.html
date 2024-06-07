@@ -3,9 +3,8 @@
 {% block title %}Instance Detail{% endblock %}
 
 {% block content %}
-<h1>Instance</h1>
+<h1>Instance {{ id }}</h1>
 <table>
-	<tr><th>ID</th><td>{{ id }}</td></tr>
 	<tr><th>Machine ID</th><td><a href="/admin/machine/{{ machine_id }}">{{ machine_id }}</a></td></tr>
 	<tr><th>Tenant Org</th><td>{{ tenant_org }}</td></tr>
 	<tr><th>Tenant State</th><td>{{ tenant_state }}</td></tr>
@@ -25,10 +24,8 @@
 
 <h2>Operating System</h2>
 <table>
-	<tr><th>iPXE Script</th><td>{{ os.ipxe_script }}</td></tr>
-	{% if !os.userdata.is_empty() %}
+	<tr><th>iPXE Script</th><td><form><textarea disabled>{{ os.ipxe_script }}</textarea></form></td></tr>
 	<tr><th>Userdata</th><td><form><textarea disabled>{{ os.userdata }}</textarea></form></td></tr>
-	{% endif %}
 	<tr><th>Always Boot With iPXE</th><td>{{ os.always_boot_with_ipxe }}</td></tr>
 	<tr><th>Phone Home Enabled</th>{{ os.phone_home_enabled }}</tr>
 </table>

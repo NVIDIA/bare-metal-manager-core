@@ -40,7 +40,6 @@ struct ManagedHostShow {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct ManagedHostRowDisplay {
-    hostname: String,
     machine_id: String,
     state: String,
     time_in_state: String,
@@ -114,7 +113,6 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
     fn from(o: utils::ManagedHostOutput) -> Self {
         let maint_ref = o.maintenance_reference.unwrap_or_default();
         ManagedHostRowDisplay {
-            hostname: o.hostname.unwrap_or(UNKNOWN.to_string()),
             machine_id: o.machine_id.unwrap_or(UNKNOWN.to_string()),
             state: o.state,
             time_in_state: o.time_in_state,

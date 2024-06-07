@@ -3,7 +3,7 @@
 {% block title %}Managed Host{% endblock %}
 
 {% block content %}
-<h1>Managed Host {{ hostname }}</h1>
+<h1>Managed Host {{ machine_id }}</h1>
 <table>
 	<tr><th>State</th><td>{{ state }}</td></tr>
 	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
@@ -47,6 +47,7 @@
 	<tr><th>Memory</th><td>{{ host_memory }}</td></tr>
 	<tr><th>Admin IP</th><td>{{ host_admin_ip }}</td></tr>
 	<tr><th>Admin MAC</th><td>{{ host_admin_mac }}</td></tr>
+	<tr><th>Admin Hostname</th><td>{{ hostname }}</td></tr>
 	<tr><th>Network</th><td>{% if is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy"></div>{{ network_err_message }}{% endif %}</div></td></tr>
 	<tr><th>BMC Version</th><td>{{ host_bmc_version }}</td></tr>
 	<tr><th>BMC Firmware Version</th><td>{{ host_bmc_firmware_version }}</td></tr>
