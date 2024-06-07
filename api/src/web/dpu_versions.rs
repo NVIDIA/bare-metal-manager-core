@@ -32,7 +32,6 @@ struct DpuVersions {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Row {
     id: String,
-    hostname: String,
     state: String,
     dpu_type: String,
     firmware_version: String,
@@ -43,17 +42,6 @@ struct Row {
 
 impl From<forgerpc::Machine> for Row {
     fn from(machine: forgerpc::Machine) -> Self {
-        let mut machine_interfaces = machine
-            .interfaces
-            .into_iter()
-            .filter(|x| x.primary_interface)
-            .collect::<Vec<forgerpc::MachineInterface>>();
-        let hostname = if machine_interfaces.is_empty() {
-            "None".to_string()
-        } else {
-            let mi = machine_interfaces.remove(0);
-            mi.hostname
-        };
         let state = match machine.state.split_once(' ') {
             Some((state, _)) => state.to_owned(),
             None => machine.state,
@@ -61,7 +49,6 @@ impl From<forgerpc::Machine> for Row {
 
         Row {
             id: machine.id.unwrap_or_default().id,
-            hostname,
             dpu_type: machine
                 .discovery_info
                 .as_ref()

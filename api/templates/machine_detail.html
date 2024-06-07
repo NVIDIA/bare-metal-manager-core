@@ -3,10 +3,9 @@
 {% block title %}{{ id }}{% endblock %}
 
 {% block content %}
-<h1>{{ machine_type }} {{ hostname }}</h1>
+<h1>{{ machine_type }} {{ id }}</h1>
 
 <table>
-	<tr><th>ID</th><td>{{ id }}</td></tr>
 	{% if !is_host %}
 		<tr><th>Host ID</th><td><a href="/admin/managed-host/{{ host_id }}">{{ host_id }}</a></td></tr>
 	{% endif %}

@@ -10,11 +10,10 @@
 <table>
 	<thead>
 		<tr>
-			<th>Hostname</th>
-			<th>Maintenance Ref</th>
-			<th>Maintenance Start</th>
 			<th>Host ID</th>
 			<th>DPU ID</th>
+			<th>Maintenance Ref</th>
+			<th>Maintenance Start</th>
 			<th>State</th>
 			<th>DPU Health</th>
 			<th>IPs</th>
@@ -24,11 +23,10 @@
 	<tbody>
 	{% for host in maintenance %}
 		<tr>
-			<td><a href="/admin/managed-host/{{host.machine_id}}">{{ host.hostname }}</a></td>
-			<td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
-			<td>{{ host.maintenance_start_time }}</td>
 			<td>{{ host.machine_id|machine_id_link|safe }}</td>
 			<td>{{ host.dpu_properties(DpuProperty::MachineId)|safe}}</td>
+			<td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
+			<td>{{ host.maintenance_start_time }}</td>
 			<td>{{ host.state }} {{ host.state_reason }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
 			<td style="padding: 0;">
@@ -57,7 +55,6 @@
 <table>
 	<thead>
 		<tr>
-			<th>Hostname</th>
 			<th>Host ID</th>
 			<th>DPU ID</th>
 			<th>State</th>
@@ -72,7 +69,6 @@
 	<tbody>
 	{% for host in active %}
 		<tr>
-			<td><a href="/admin/managed-host/{{host.machine_id}}">{{ host.hostname }}</a></td>
 			<td>{{ host.machine_id|machine_id_link|safe }}</td>
 			<td>{{ host.dpu_properties(DpuProperty::MachineId)|safe }}</td>
 			<td title="{{ host.state_reason }}">{{ host.state }}</td>
