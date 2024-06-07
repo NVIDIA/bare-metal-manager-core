@@ -15,6 +15,7 @@
 use carbide::db::machine::Machine;
 use carbide::db::network_prefix::NetworkPrefix;
 use carbide::db::UuidKeyedObjectFilter;
+use carbide::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use carbide::{
     cfg::default_dpu_models,
     db::machine_interface::MachineInterface,
@@ -37,6 +38,8 @@ use crate::common::api_fixtures::{
     discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
     TestEnv,
 };
+
+use strum::IntoEnumIterator;
 
 use super::FIXTURE_DHCP_RELAY_ADDRESS;
 
@@ -188,7 +191,7 @@ pub async fn create_host_machine(
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler.clone(),
-        2,
+        1,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::WaitingForDiscovery,
@@ -213,11 +216,19 @@ pub async fn create_host_machine(
 
     discovery_completed(env, host_rpc_machine_id.clone(), None).await;
 
+    host_uefi_setup(
+        env,
+        &host_machine_id,
+        handler.clone(),
+        host_rpc_machine_id.clone(),
+    )
+    .await;
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler.clone(),
-        3,
+        2,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::WaitingForLockdown {
@@ -262,4 +273,34 @@ pub async fn create_host_machine(
     txn.commit().await.unwrap();
 
     host_rpc_machine_id
+}
+
+pub async fn host_uefi_setup(
+    env: &TestEnv,
+    host_machine_id: &MachineId,
+    handler: MachineStateHandler,
+    host_rpc_machine_id: rpc::forge::MachineId,
+) {
+    for state in UefiSetupState::iter() {
+        let mut txn = env.pool.begin().await.unwrap();
+        env.run_machine_state_controller_iteration_until_state_matches(
+            host_machine_id,
+            handler.clone(),
+            1,
+            &mut txn,
+            ManagedHostState::HostNotReady {
+                machine_state: UefiSetup {
+                    uefi_setup_info: UefiSetupInfo {
+                        uefi_password_jid: None,
+                        uefi_setup_state: state,
+                    },
+                },
+            },
+        )
+        .await;
+        txn.commit().await.unwrap();
+
+        let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+        assert_eq!(response.action, Action::Noop as i32);
+    }
 }

@@ -31,6 +31,7 @@ pub mod machine_id;
 pub mod network;
 pub mod upgrade_policy;
 use machine_id::MachineId;
+use strum_macros::EnumIter;
 
 pub fn get_display_ids(machines: &[MachineSnapshot]) -> String {
     machines
@@ -119,6 +120,7 @@ pub struct MachineSnapshot {
     pub failure_details: FailureDetails,
     /// Reprovisioning is needed?
     pub reprovision_requested: Option<ReprovisionRequest>,
+    pub bios_password_set_time: Option<DateTime<Utc>>,
 }
 
 impl MachineSnapshot {
@@ -313,6 +315,9 @@ pub enum MachineState {
     Init,
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
+    UefiSetup {
+        uefi_setup_info: UefiSetupInfo,
+    },
     WaitingForDiscovery,
     Discovered,
     /// Lockdown handling.
@@ -326,6 +331,24 @@ pub enum MachineState {
 pub struct LockdownInfo {
     pub state: LockdownState,
     pub mode: LockdownMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct UefiSetupInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uefi_password_jid: Option<String>,
+    pub uefi_setup_state: UefiSetupState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum UefiSetupState {
+    SetUefiPassword,
+    WaitForPasswordJobScheduled,
+    PowercycleHost,
+    WaitForPasswordJobCompletion,
+    LockdownHost,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

@@ -17,25 +17,16 @@
 use std::{
     backtrace::{Backtrace, BacktraceStatus},
     net::IpAddr,
-    sync::Arc,
 };
 
 use config_version::{ConfigVersion, ConfigVersionParseError};
-use db::{bmc_metadata::UserRoles, machine::Machine};
 use dhcp::allocation::DhcpError;
 use eyre::WrapErr;
-use forge_secrets::credentials::CredentialKey;
-use ipmitool::IPMITool;
-use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
 use model::{
-    hardware_info::HardwareInfoError,
-    machine::{machine_id::MachineId, MachineSnapshot},
-    network_devices::LldpError,
-    tenant::TenantError,
-    ConfigValidationError, RpcDataConversionError,
+    hardware_info::HardwareInfoError, machine::machine_id::MachineId, network_devices::LldpError,
+    tenant::TenantError, ConfigValidationError, RpcDataConversionError,
 };
-use redfish::{RedfishAuth, RedfishClientPool};
 use state_controller::snapshot_loader::SnapshotLoaderError;
 use tonic::Status;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -378,67 +369,4 @@ pub async fn run(
         ipmi_tool,
     )
     .await
-}
-
-pub async fn host_power_control(
-    machine_snapshot: &MachineSnapshot,
-    action: SystemPowerControl,
-    key: Option<CredentialKey>,
-    ipmi_tool: Arc<dyn IPMITool>,
-    redfish_client_pool: Arc<dyn RedfishClientPool>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> CarbideResult<()> {
-    let bmc_ip = machine_snapshot
-        .bmc_info
-        .ip
-        .as_deref()
-        .ok_or_else(|| CarbideError::MissingArgument("bmc_info.ip"))?;
-
-    let key = key.unwrap_or(CredentialKey::Bmc {
-        machine_id: machine_snapshot.machine_id.to_string(),
-        user_role: UserRoles::Administrator.to_string(),
-    });
-
-    let client = redfish_client_pool
-        .create_client(
-            bmc_ip,
-            machine_snapshot.bmc_info.port,
-            RedfishAuth::Key(key),
-            true,
-        )
-        .await
-        .map_err(|e| {
-            CarbideError::GenericError(format!("Failed to create redfish client: {}", e))
-        })?;
-
-    if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
-        // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
-        // Supermicro will boot the users OS if we don't do this
-        client
-            .boot_once(libredfish::Boot::Pxe)
-            .await
-            .map_err(CarbideError::RedfishError)?;
-    }
-
-    let is_reboot = (action == SystemPowerControl::GracefulRestart)
-        || (action == SystemPowerControl::ForceRestart);
-
-    // vikings reboot their DPU's if redfish reset is used. \
-    // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
-    if is_reboot && machine_snapshot.bmc_vendor.is_nvidia() {
-        ipmi_tool
-            .restart(&machine_snapshot.machine_id, bmc_ip.to_string(), false)
-            .await
-            .map_err(|e: eyre::ErrReport| {
-                CarbideError::GenericError(format!("Failed to restart machine: {}", e))
-            })?;
-    } else {
-        client
-            .power(action)
-            .await
-            .map_err(CarbideError::RedfishError)?;
-    }
-
-    Machine::update_reboot_requested_time(&machine_snapshot.machine_id, txn, action.into()).await?;
-    Ok(())
 }

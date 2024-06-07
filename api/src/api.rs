@@ -16,6 +16,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::redfish::{host_power_control, poll_redfish_job, set_host_uefi_password};
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
     CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
@@ -35,6 +36,7 @@ use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
 use sqlx::{Postgres, Transaction};
 use tokio::net::lookup_host;
+use tokio::time::{sleep, Instant};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -52,6 +54,7 @@ use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::dynamic_settings;
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
+use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::ipxe::PxeInstructions;
 use crate::logging::log_limiter::LogLimiter;
@@ -102,7 +105,6 @@ use crate::{
     state_controller::snapshot_loader::DbSnapshotLoader,
     CarbideError, CarbideResult,
 };
-use crate::{host_power_control, ip_finder};
 use crate::{resource_pool, site_explorer};
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
@@ -4920,34 +4922,33 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let bmc_ip = snapshot.host_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
-            CarbideError::NotFoundError {
-                kind: "bmc_ip",
-                id: machine_id.to_string(),
+        let job_id =
+            set_host_uefi_password(&snapshot.host_snapshot, self.redfish_pool.clone()).await?;
+
+        let mut start = Instant::now();
+        let mut sleep_duration: Duration = tokio::time::Duration::from_secs(5);
+        let mut timeout: Duration = tokio::time::Duration::from_secs(60);
+        if let Some(jid) = job_id.clone() {
+            loop {
+                sleep(sleep_duration).await;
+                if poll_redfish_job(
+                    jid.clone(),
+                    libredfish::JobState::Scheduled,
+                    self.redfish_pool.clone(),
+                    &snapshot.host_snapshot,
+                )
+                .await?
+                {
+                    break;
+                }
             }
-        })?;
 
-        let client = self
-            .redfish_pool
-            .create_client(
-                bmc_ip,
-                snapshot.host_snapshot.bmc_info.port,
-                RedfishAuth::Key(CredentialKey::Bmc {
-                    machine_id: machine_id.to_string(),
-                    user_role: UserRoles::Administrator.to_string(),
-                }),
-                true,
-            )
-            .await
-            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
-
-        self.redfish_pool
-            .uefi_setup(client.as_ref(), false)
-            .await
-            .map_err(|e| {
-                tracing::error!(%e, "Failed to run uefi_setup call");
-                CarbideError::GenericError(format!("Failed redfish ForceRestart subtask: {}", e))
-            })?;
+            if start.elapsed() > timeout {
+                return Err(Status::invalid_argument(format!(
+                    "timed out waiting for uefi password change job {jid} to be scheduled"
+                )));
+            }
+        }
 
         host_power_control(
             &snapshot.host_snapshot,
@@ -4958,6 +4959,31 @@ where
             &mut txn,
         )
         .await?;
+
+        start = Instant::now();
+        sleep_duration = tokio::time::Duration::from_secs(30);
+        timeout = tokio::time::Duration::from_secs(600);
+        if let Some(jid) = job_id.clone() {
+            loop {
+                sleep(sleep_duration).await;
+                if poll_redfish_job(
+                    jid.clone(),
+                    libredfish::JobState::Completed,
+                    self.redfish_pool.clone(),
+                    &snapshot.host_snapshot,
+                )
+                .await?
+                {
+                    break;
+                }
+
+                if start.elapsed() > timeout {
+                    return Err(Status::invalid_argument(
+                    format!("timed out waiting (since {start:#?}) for uefi password change job {jid} to complete")
+                    ));
+                }
+            }
+        }
 
         Ok(Response::new(rpc::SetHostUefiPasswordResponse {}))
     }

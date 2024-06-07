@@ -153,6 +153,9 @@ pub struct Machine {
 
     /// The result of the last attempt to change state
     controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+
+    // Is the bios password set on the machine
+    bios_password_set_time: Option<DateTime<Utc>>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -226,6 +229,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             associated_dpu_machine_ids: Vec::default(),
             inventory: machine_inventory.map(|x| x.0),
             controller_state_outcome: state_outcome.map(|x| x.0),
+            bios_password_set_time: row.try_get("bios_password_set_time")?,
         })
     }
 }
@@ -941,6 +945,10 @@ SELECT m.id FROM
         self.reprovisioning_requested.clone()
     }
 
+    pub fn bios_password_set_time(&self) -> Option<DateTime<Utc>> {
+        self.bios_password_set_time
+    }
+
     pub async fn update_reboot_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
@@ -981,6 +989,20 @@ SELECT m.id FROM
         let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(self.id().to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn update_bios_password_set(
+        machine_id: &MachineId,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET bios_password_set_time=NOW() WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(machine_id.to_string())
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

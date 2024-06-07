@@ -729,6 +729,8 @@ dependencies = [
  "serde_regex",
  "sha2 0.10.8",
  "sqlx",
+ "strum",
+ "strum_macros",
  "thiserror",
  "tokio",
  "tokio-rustls 0.24.1",

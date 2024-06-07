@@ -32,7 +32,6 @@ use crate::{
         machine::Machine,
         machine_topology::MachineTopology,
     },
-    host_power_control,
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     measured_boot::{
         dto::records::MeasurementMachineState, model::machine::get_measurement_machine_state,
@@ -55,9 +54,10 @@ use crate::{
             LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver,
             MachineSnapshot, MachineState, ManagedHostState, ManagedHostStateSnapshot,
             MeasuringState, NextReprovisionState, ReprovisionRequest, ReprovisionState, RetryInfo,
+            UefiSetupInfo, UefiSetupState,
         },
     },
-    redfish::RedfishAuth,
+    redfish::{host_power_control, poll_redfish_job, set_host_uefi_password, RedfishAuth},
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
@@ -406,8 +406,7 @@ impl MachineStateHandler {
                                 Some(*retry_count as u64);
                             // Anytime host discovery is successful, move to next state.
                             Machine::clear_failure_details(machine_id, txn).await?;
-                            let next_state =
-                                handle_host_waitingfordiscovery(txn, ctx, state).await?;
+                            let next_state = handler_host_lockdown(txn, ctx, state).await?;
                             return Ok(StateHandlerOutcome::Transition(next_state));
                         }
 
@@ -1807,7 +1806,7 @@ fn is_network_ready(dpu_snapshots: &[MachineSnapshot]) -> bool {
     true
 }
 
-async fn handle_host_waitingfordiscovery(
+async fn handler_host_lockdown(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     state: &mut ManagedHostStateSnapshot,
@@ -1823,6 +1822,134 @@ async fn handle_host_waitingfordiscovery(
             },
         },
     })
+}
+
+/// TODO: we need to handle the case where the job is deleted for some reason
+async fn handle_host_uefi_setup(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    state: &mut ManagedHostStateSnapshot,
+    uefi_setup_info: UefiSetupInfo,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    match uefi_setup_info.uefi_setup_state.clone() {
+        UefiSetupState::SetUefiPassword => {
+            let job_id = set_host_uefi_password(
+                &state.host_snapshot,
+                ctx.services.redfish_client_pool.clone(),
+            )
+            .await
+            .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("{}", e)))?;
+
+            Ok(StateHandlerOutcome::Transition(
+                ManagedHostState::HostNotReady {
+                    machine_state: MachineState::UefiSetup {
+                        uefi_setup_info: UefiSetupInfo {
+                            uefi_password_jid: job_id,
+                            uefi_setup_state: UefiSetupState::WaitForPasswordJobScheduled,
+                        },
+                    },
+                },
+            ))
+        }
+        UefiSetupState::WaitForPasswordJobScheduled => {
+            if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
+                if !poll_redfish_job(
+                    job_id.clone(),
+                    libredfish::JobState::Scheduled,
+                    ctx.services.redfish_client_pool.clone(),
+                    &state.host_snapshot,
+                )
+                .await
+                .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("{}", e)))?
+                {
+                    return Ok(StateHandlerOutcome::Wait(format!(
+                        "waiting for job {:#?} to complete",
+                        job_id
+                    )));
+                }
+            }
+
+            Ok(StateHandlerOutcome::Transition(
+                ManagedHostState::HostNotReady {
+                    machine_state: MachineState::UefiSetup {
+                        uefi_setup_info: UefiSetupInfo {
+                            uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
+                            uefi_setup_state: UefiSetupState::PowercycleHost,
+                        },
+                    },
+                },
+            ))
+        }
+        UefiSetupState::PowercycleHost => {
+            host_power_control(
+                &state.host_snapshot,
+                SystemPowerControl::ForceRestart,
+                None,
+                ctx.services.ipmi_tool.clone(),
+                ctx.services.redfish_client_pool.clone(),
+                txn,
+            )
+            .await
+            .map_err(|e| {
+                StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
+            })?;
+
+            Ok(StateHandlerOutcome::Transition(
+                ManagedHostState::HostNotReady {
+                    machine_state: MachineState::UefiSetup {
+                        uefi_setup_info: UefiSetupInfo {
+                            uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
+                            uefi_setup_state: UefiSetupState::WaitForPasswordJobCompletion,
+                        },
+                    },
+                },
+            ))
+        }
+        UefiSetupState::WaitForPasswordJobCompletion => {
+            if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
+                if !poll_redfish_job(
+                    job_id.clone(),
+                    libredfish::JobState::Completed,
+                    ctx.services.redfish_client_pool.clone(),
+                    &state.host_snapshot,
+                )
+                .await
+                .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("{}", e)))?
+                {
+                    return Ok(StateHandlerOutcome::Wait(format!(
+                        "waiting for job {:#?} to complete",
+                        job_id
+                    )));
+                }
+            }
+
+            state.host_snapshot.bios_password_set_time = Some(chrono::offset::Utc::now());
+            Machine::update_bios_password_set(&state.host_snapshot.machine_id, txn)
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!(
+                        "update_host_bios_password_set failed: {}",
+                        e
+                    ))
+                })?;
+
+            Ok(StateHandlerOutcome::Transition(
+                ManagedHostState::HostNotReady {
+                    machine_state: MachineState::UefiSetup {
+                        uefi_setup_info: UefiSetupInfo {
+                            uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
+                            uefi_setup_state: UefiSetupState::LockdownHost,
+                        },
+                    },
+                },
+            ))
+        }
+        UefiSetupState::LockdownHost => Ok(StateHandlerOutcome::Transition(
+            handler_host_lockdown(txn, ctx, state).await.map_err(|e| {
+                StateHandlerError::GenericError(eyre!("handle_host_lockdown failed: {}", e))
+            })?,
+        )),
+    }
 }
 
 #[async_trait::async_trait]
@@ -1882,38 +2009,20 @@ impl StateHandler for HostMachineStateHandler {
                         return Ok(StateHandlerOutcome::Wait(status.status));
                     }
 
-                    let new_state = handle_host_waitingfordiscovery(txn, ctx, state).await?;
-                    Ok(StateHandlerOutcome::Transition(new_state))
+                    Ok(StateHandlerOutcome::Transition(
+                        ManagedHostState::HostNotReady {
+                            machine_state: MachineState::UefiSetup {
+                                uefi_setup_info: UefiSetupInfo {
+                                    uefi_password_jid: None,
+                                    uefi_setup_state: UefiSetupState::SetUefiPassword,
+                                },
+                            },
+                        },
+                    ))
                 }
-
-                MachineState::Discovered => {
-                    // Check if machine is rebooted. If yes, move to Ready state
-                    // or Measuring state, depending on if machine attestation
-                    // is enabled or not.
-                    if rebooted(&state.host_snapshot) {
-                        let next_state = if self.host_handler_params.attestation_enabled {
-                            ManagedHostState::Measuring {
-                                measuring_state: MeasuringState::WaitingForMeasurements,
-                            }
-                        } else {
-                            ManagedHostState::Ready
-                        };
-                        Ok(StateHandlerOutcome::Transition(next_state))
-                    } else {
-                        let status = trigger_reboot_if_needed(
-                            &state.host_snapshot,
-                            &state.host_snapshot,
-                            None,
-                            &self.host_handler_params.reachability_params,
-                            ctx.services,
-                            None,
-                            txn,
-                        )
-                        .await?;
-                        Ok(StateHandlerOutcome::Wait(status.status))
-                    }
+                MachineState::UefiSetup { uefi_setup_info } => {
+                    Ok(handle_host_uefi_setup(txn, ctx, state, uefi_setup_info.clone()).await?)
                 }
-
                 MachineState::WaitingForLockdown { lockdown_info } => {
                     match lockdown_info.state {
                         LockdownState::TimeWaitForDPUDown => {
@@ -1962,6 +2071,33 @@ impl StateHandler for HostMachineStateHandler {
                                 Ok(StateHandlerOutcome::Wait("Waiting for DPU to report UP by sending a network status observation".to_string()))
                             }
                         }
+                    }
+                }
+                MachineState::Discovered => {
+                    // Check if machine is rebooted. If yes, move to Ready state
+                    // or Measuring state, depending on if machine attestation
+                    // is enabled or not.
+                    if rebooted(&state.host_snapshot) {
+                        let next_state = if self.host_handler_params.attestation_enabled {
+                            ManagedHostState::Measuring {
+                                measuring_state: MeasuringState::WaitingForMeasurements,
+                            }
+                        } else {
+                            ManagedHostState::Ready
+                        };
+                        Ok(StateHandlerOutcome::Transition(next_state))
+                    } else {
+                        let status = trigger_reboot_if_needed(
+                            &state.host_snapshot,
+                            &state.host_snapshot,
+                            None,
+                            &self.host_handler_params.reachability_params,
+                            ctx.services,
+                            None,
+                            txn,
+                        )
+                        .await?;
+                        Ok(StateHandlerOutcome::Wait(status.status))
                     }
                 }
                 MachineState::WaitingForNetworkInstall => {
