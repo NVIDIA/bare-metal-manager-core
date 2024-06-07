@@ -10,7 +10,7 @@
 	{% when Some with (report) %}
 	<tr><th>Endpoint Type</th><td>{{ report.endpoint_type }}</td></tr>
 	<tr><th>Vendor</th><td>{% match report.vendor %}{% when Some with (vendor) %} {{ vendor|capitalize }} {% else %}{% endmatch %}</td></tr>
-	<tr><th>Machine ID</th><td>{% match report.machine_id %}{% when Some with (machine_id) %} <a href="/admin/machine/{{ machine_id }}">{{ machine_id }}</a> {% else %}{% endmatch %}</td></tr>
+	<tr><th>Machine ID</th><td>{% match report.machine_id %}{% when Some with (machine_id) %} {{ machine_id|machine_id_link|safe }} {% else %}{% endmatch %}</td></tr>
 	<tr><th>Last Exploration Error</th><td>{% match report.last_exploration_error %}{% when Some with (last_exploration_error) %} {{ last_exploration_error }} {% else %}{% endmatch %}</td></tr>
 	{% else %}
 	{% endmatch %}

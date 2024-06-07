@@ -5,7 +5,7 @@
 {% block content %}
 <h1>Instance {{ id }}</h1>
 <table>
-	<tr><th>Machine ID</th><td><a href="/admin/machine/{{ machine_id }}">{{ machine_id }}</a></td></tr>
+	<tr><th>Machine ID</th><td>{{ machine_id|machine_id_link|safe}}</td></tr>
 	<tr><th>Tenant Org</th><td>{{ tenant_org }}</td></tr>
 	<tr><th>Tenant State</th><td>{{ tenant_state }}</td></tr>
 	<tr><th>Tenant State Details</th><td>{{ tenant_state_details }}</td></tr>

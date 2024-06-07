@@ -38,7 +38,7 @@
 <h2>Host</h2>
 
 <table>
-	<tr><th>ID</th><td><a href="/admin/machine/{{ machine_id }}">{{ machine_id }}</a></td></tr>
+	<tr><th>ID</th><td>{{ machine_id|machine_id_link|safe }}</td></tr>
 	<tr><th>Last reboot</th><td>{{ host_last_reboot_time }}</td></tr>
 	<tr><th>Serial Number</th><td>{{ host_serial_number }}</td></tr>
 	<tr><th>BIOS Version</th><td>{{ host_bios_version }}</td></tr>
@@ -58,7 +58,7 @@
 {% for dpu in dpus %}
 <h2>DPU {{loop.index}}</h2>
 <table>
-	<tr><th>ID</th><td><a href="/admin/machine/{{ dpu.machine_id }}">{{ dpu.machine_id }}</a></td></tr>
+	<tr><th>ID</th><td>{{ dpu.machine_id|machine_id_link|safe }}</td></tr>
 	<tr><th>Last reboot</th><td>{{ dpu.last_reboot_time }}</td></tr>
 	<tr><th>Last seen</th><td>{{ dpu.last_observation_time }}</td></tr>
 	<tr><th>Serial Number</th><td>{{ dpu.serial_number }}</td></tr>
