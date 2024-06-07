@@ -9,10 +9,10 @@
 <table>
 	<thead>
 	<tr>
-		<th>Hostname</th>
 		<th>ID</th>
 		<th>State</th>
 		<th>Associated DPU/Host</th>
+		<th>Hostname</th>
 		<th>IP Address</th>
 		<th>MAC Address</th>
 		<th>Sys Vendor</th>
@@ -24,17 +24,17 @@
 	<tbody>
 	{% for m in machines %}
 		<tr>
-			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
 			<td>{{ m.id|machine_id_link|safe }}</td>
 			<td>{{ m.state }} {% if !m.state.contains("Ready") %}({{ m.time_in_state }}){% endif %}</td>
 			<td>{% if m.is_host %}
 				{% for dpu_id in m.associated_dpu_ids %}
-					{{ dpu_id|machine_id_link|safe }}
+				{{ dpu_id|machine_id_link|safe }}
 				{% endfor %}
 				{% else %}
 				{{ m.associated_host_id|machine_id_link|safe }}
 				{% endif %}
 			</td>
+			<td><a href="/admin/machine/{{ m.id }}">{{ m.hostname }}</a></td>
 			<td>{{ m.ip_address }}</td>
 			<td>{{ m.mac_address }}</td>
 			<td>{{ m.sys_vendor}}</td>

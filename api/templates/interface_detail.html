@@ -6,8 +6,8 @@
 <h1>Machine Interface</h1>
 <table>
 	<tr><th>ID</th><td>{{ id }}</td></tr>
-	<tr><th>DPU ID</th><td><a href="/admin/machine/{{ dpu_machine_id }}">{{ dpu_machine_id }}</a></td></tr>
-	<tr><th>Machine ID</th><td><a href="/admin/machine/{{ machine_id }}">{{ machine_id }}</a></td></tr>
+	<tr><th>DPU ID</th><td>{{ dpu_machine_id|machine_id_link|safe }}</td></tr>
+	<tr><th>Machine ID</th><td>{{ machine_id|machine_id_link|safe }}</td></tr>
 	<tr><th>Segment ID</th><td><a href="/admin/network-segment/{{ segment_id }}">{{ segment_id }}</a></td></tr>
 	<tr><th>Domain ID</th><td><a href="/admin/domain">{{ domain_id }}</a></td></tr>
 	<tr><th>Domain Name</th><td>{{ domain_name }}</td></tr>

@@ -36,7 +36,7 @@
 	<tr><th>Index</th><td>{{ interface.index }}</td></tr>
 	<tr><th>ID</th><td><a href="/admin/interface/{{ interface.id }}">{{ interface.id }}</a></td></tr>
 	{% if is_host %}
-		<tr><th>DPU ID</th><td><a href="/admin/machine/{{ interface.dpu_id }}">{{ interface.dpu_id }}</a></td></tr>
+		<tr><th>DPU ID</th><td>{{ interface.dpu_id|machine_id_link|safe }}</td></tr>
 	{% endif %}
 	<tr><th>Segment ID</th><td><a href="/admin/network-segment/{{ interface.segment_id }}">{{ interface.segment_id }}</a></td></tr>
 	<tr><th>Domain ID</th><td>{{ interface.domain_id }}</td></tr>

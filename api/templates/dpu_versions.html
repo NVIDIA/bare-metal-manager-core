@@ -21,7 +21,7 @@
 	<tbody>
 	{% for m in machines %}
 		<tr>
-			<td><a href="/admin/machine/{{ m.id }}">{{ m.id }}</a></td>
+			<td>{{ m.id|machine_id_link|safe }}</td>
 			<td>{{ m.state }}</td>
 			<td>{{ m.dpu_type }}</td>
 			<td>{{ m.firmware_version }}</td>

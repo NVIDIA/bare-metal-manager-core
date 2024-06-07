@@ -20,6 +20,7 @@ use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 
+use super::filters;
 use crate::api::Api;
 use crate::web::machine;
 
