@@ -16,6 +16,13 @@
 	<tr><th>Network Config Version</th><td>{{ network_config_version }}</td></tr>
 </table>
 
+<h2>Metadata</h2>
+<table>
+	<tr><th>Name</th><td>{{ metadata.name }}</td></tr>
+	<tr><th>Description</th><td>{{ metadata.description }}</td></tr>
+	<tr><th>Labels</th><td>{{ metadata.labels|label_list_fmt|safe }}</td></tr>
+</table>
+
 <h2>Operating System</h2>
 <table>
 	<tr><th>iPXE Script</th><td>{{ os.ipxe_script }}</td></tr>
