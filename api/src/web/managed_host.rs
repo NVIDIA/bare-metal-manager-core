@@ -194,7 +194,7 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
                 .into_response();
         }
     };
-    managed_hosts.sort_unstable_by(|h1, h2| h1.hostname.cmp(&h2.hostname));
+    managed_hosts.sort_unstable_by(|h1, h2| h1.machine_id.cmp(&h2.machine_id));
     (StatusCode::OK, Json(managed_hosts)).into_response()
 }
 
