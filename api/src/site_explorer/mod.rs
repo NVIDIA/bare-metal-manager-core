@@ -39,7 +39,7 @@ use crate::{
     },
     model::{
         bmc_info::BmcInfo,
-        hardware_info::{DpuData, HardwareInfo},
+        hardware_info::{DpuData, HardwareInfo, NetworkInterface},
         machine::{machine_id::MachineId, DpuDiscoveringState, ManagedHostState},
         site_explorer::{
             Chassis, EndpointExplorationReport, EndpointType, ExploredEndpoint,
@@ -438,10 +438,22 @@ impl SiteExplorer {
             ..Default::default()
         };
 
+        let oob_interface = dpu_report.systems.first().and_then(|s| {
+            s.ethernet_interfaces.first().and_then(|e| {
+                e.mac_address.as_ref().map(|m| {
+                    vec![NetworkInterface {
+                        mac_address: m.clone(),
+                        pci_properties: None,
+                    }]
+                })
+            })
+        });
+
         let hardware_info = HardwareInfo {
             dmi_data: Some(dmi_data),
             dpu_info: Some(dpu_data),
             machine_type: "aarch64".to_string(),
+            network_interfaces: oob_interface.unwrap_or_default(),
             ..Default::default()
         };
 

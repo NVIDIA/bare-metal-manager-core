@@ -18,8 +18,10 @@ use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialType};
+use futures::TryFutureExt;
 use libredfish::{
-    model::task::Task, model::task::TaskState, PowerState, Redfish, SystemPowerControl,
+    model::task::{Task, TaskState},
+    Boot, PowerState, Redfish, SystemPowerControl,
 };
 use tokio::fs::File;
 
@@ -1446,6 +1448,85 @@ impl StateHandler for DpuMachineStateHandler {
                         operation: "forge_setup",
                         error: e,
                     });
+                }
+
+                if let Err(e) = client.disable_secure_boot().await {
+                    tracing::error!(%e, "Failed to run disable_secure_boot call");
+                    return Err(StateHandlerError::RedfishError {
+                        operation: "disable_secure_boot",
+                        error: e,
+                    });
+                }
+
+                // If we have OOB mac - set explicitly to boot from OOB mac,
+                // otherwise set boot to HttpBoot
+                if let Some(oob_mac) = state.dpu_snapshots[0]
+                    .hardware_info
+                    .as_ref()
+                    .and_then(|h| h.network_interfaces.first().map(|n| n.mac_address.clone()))
+                {
+                    let oob_boot_pattern = format!(
+                        "UEFI HTTPv4 (MAC:{})",
+                        oob_mac.replace(':', "").to_uppercase()
+                    );
+                    let boot_order = client
+                        .get_system()
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "get_system",
+                            error: e,
+                        })
+                        .await?
+                        .boot
+                        .boot_order;
+
+                    let mut new_boot_order: Vec<String> = Vec::new();
+                    let mut found = false;
+
+                    for member in boot_order {
+                        let b = client
+                            .get_boot_option(member.as_str())
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "get_boot_option",
+                                error: e,
+                            })
+                            .await?;
+                        if b.display_name
+                            .to_uppercase()
+                            .starts_with(oob_boot_pattern.as_str())
+                        {
+                            found = true;
+                            new_boot_order.insert(0, b.id);
+                        } else {
+                            new_boot_order.push(b.id);
+                        }
+                    }
+
+                    // If we couldn't find boot order by patter, still try to boot from UEFI http.
+                    if !found {
+                        client
+                            .boot_once(Boot::UefiHttp)
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "boot_once",
+                                error: e,
+                            })
+                            .await?;
+                    } else {
+                        client
+                            .change_boot_order(new_boot_order)
+                            .map_err(|e| StateHandlerError::RedfishError {
+                                operation: "change_boot_order",
+                                error: e,
+                            })
+                            .await?;
+                    }
+                } else {
+                    client
+                        .boot_once(Boot::UefiHttp)
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "boot_once",
+                            error: e,
+                        })
+                        .await?;
                 }
 
                 if let Err(e) = client.power(SystemPowerControl::ForceRestart).await {

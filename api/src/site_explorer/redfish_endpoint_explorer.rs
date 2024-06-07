@@ -287,8 +287,7 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
 async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishError> {
     let mut system = client.get_system().await?;
     let is_dpu = system.id.to_lowercase().contains("bluefield");
-    let fetch_bluefield_oob = is_dpu;
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, fetch_bluefield_oob).await?;
+    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu).await?;
 
     // This part processes dpu case and do two things such as
     // 1. update system serial_number in case it is empty using chassis serial_number
