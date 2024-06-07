@@ -34,8 +34,8 @@ struct MachineShow {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct MachineRowDisplay {
-    hostname: String,
     id: String,
+    hostname: String,
     state: String,
     time_in_state: String,
     associated_dpu_ids: Vec<String>,
