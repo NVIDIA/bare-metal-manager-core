@@ -25,15 +25,13 @@ use crate::{
     site_explorer::redfish_endpoint_explorer::map_redfish_error,
 };
 
-/// Takes the address of the BMC of a host and:
-/// - ensures it has site default authentication
-/// - and will UEFI HTTP boot (forge_setup)
+/// Takes the address of the BMC of a host and ensures it has site default authentication
 ///
 /// site explorer creates the machine in DpuDiscoveringState::Initializing which leads to
 ///  the Configuring state.
 /// forge_setup will be run by api/src/state_controller/machine/handler.rs
 ///  in that state ManagedHostState::DpuDiscoveringState / DpuDiscoveringState::Configuring.
-/// forge_setup does most of the BIOS / BMC setup.
+///  and will do the BIOS/BMC things such as enabling UEFI HTTP boot.
 pub async fn host(
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     credential_provider: Arc<dyn CredentialProvider>,
@@ -41,7 +39,6 @@ pub async fn host(
     expected: Option<ExpectedMachine>,
 ) -> Result<Option<EndpointExplorationReport>, EndpointExplorationError> {
     tracing::info!(%address, "Running first time setup");
-    let mut has_changes = false;
 
     let endpoint = UnknownEndpoint {
         address,
@@ -59,26 +56,6 @@ pub async fn host(
         tracing::trace!(%address, "Has factory default credentials. Changing them to site default.");
         // Ensures site user/pass exist
         endpoint = endpoint.convert_to_site_auth(credential_provider).await?;
-        has_changes = true;
-    }
-
-    let setup_status = endpoint
-        .client
-        .forge_setup_status()
-        .await
-        .map_err(map_redfish_error)?;
-    if !setup_status.is_done {
-        // First pass at setting all the BMC/BIOS values.
-        // On some vendors (Supermicro) this will fail because some values don't appear until
-        // others are set. That's fine, the state machine runs it again later.
-        let _ = endpoint.client.forge_setup().await;
-        has_changes = true;
-        tracing::trace!(%address, "BMC/BIOS values set.");
-    } else {
-        tracing::trace!(%address, "BMC/BIOS settings are up to date");
-    }
-
-    if has_changes {
         tracing::trace!(%address, "Rebooting");
         endpoint
             .client
@@ -86,7 +63,7 @@ pub async fn host(
             .await
             .map_err(map_redfish_error)?;
         // if we changed something site explorer should stop now as we're waiting for a reboot
-        Ok(Some(EndpointExplorationReport {
+        return Ok(Some(EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
             vendor: Some(endpoint.vendor),
@@ -95,10 +72,11 @@ pub async fn host(
             chassis: vec![],
             service: vec![],
             machine_id: None,
-        }))
-    } else {
-        Ok(None)
+        }));
     }
+
+    // We didn't do anything, site-explorer can continue
+    Ok(None)
 }
 
 struct UnknownEndpoint {
