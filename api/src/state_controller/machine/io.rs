@@ -108,6 +108,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineState::Init => "init",
                 MachineState::WaitingForNetworkInstall => "waitingfornetworkinstall",
                 MachineState::WaitingForNetworkConfig => "waitingfornetworkconfig",
+                MachineState::UefiSetup { .. } => "uefisetup",
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
                 MachineState::Discovered => "discovered",
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",

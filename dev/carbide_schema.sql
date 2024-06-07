@@ -1169,7 +1169,8 @@ CREATE TABLE public.machines (
     reprovisioning_requested jsonb,
     dpu_agent_upgrade_requested jsonb,
     last_reboot_requested jsonb,
-    agent_reported_inventory jsonb
+    agent_reported_inventory jsonb,
+    bios_password_set_time timestamp with time zone DEFAULT NULL
 );
 
 

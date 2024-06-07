@@ -105,6 +105,7 @@ pub async fn get_machine_snapshot(
         failure_details: machine.failure_details(),
         reprovision_requested: machine.reprovisioning_requested(),
         last_reboot_requested: machine.last_reboot_requested(),
+        bios_password_set_time: machine.bios_password_set_time(),
     };
 
     Ok(snapshot)

@@ -26,7 +26,14 @@ use libredfish::{
         service_root::{RedfishVendor, ServiceRoot},
         task::Task,
     },
-    Chassis, Endpoint, JobState, PowerState, Redfish, RedfishError, RoleId,
+    Chassis, Endpoint, JobState, PowerState, Redfish, RedfishError, RoleId, SystemPowerControl,
+};
+
+use crate::{
+    db::{bmc_metadata::UserRoles, machine::Machine},
+    ipmitool::IPMITool,
+    model::machine::MachineSnapshot,
+    CarbideError, CarbideResult,
 };
 use tokio::time;
 
@@ -95,7 +102,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         &self,
         client: &dyn Redfish,
         dpu: bool,
-    ) -> Result<(), RedfishClientCreationError>;
+    ) -> Result<Option<String>, RedfishClientCreationError>;
 }
 
 #[derive(Debug)]
@@ -347,7 +354,8 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         &self,
         client: &dyn Redfish,
         dpu: bool,
-    ) -> Result<(), RedfishClientCreationError> {
+    ) -> Result<Option<String>, RedfishClientCreationError> {
+        let mut job_id = None;
         let bios_attrs = client
             .bios()
             .await
@@ -358,7 +366,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             .map_or(true, |v| v.as_object().is_none())
         {
             tracing::warn!("Bios attributes don't have CurrentUefiPassword.");
-            return Ok(());
+            return Ok(job_id);
         }
 
         let mut current_password = String::new();
@@ -417,12 +425,12 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
             };
         }
 
-        client
+        job_id = client
             .change_uefi_password(current_password.as_str(), new_password.as_str())
             .await
             .map_err(RedfishClientCreationError::RedfishError)?;
 
-        Ok(())
+        Ok(job_id)
     }
 }
 
@@ -948,7 +956,7 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn get_job_state(&self, _job_id: &str) -> Result<JobState, RedfishError> {
-        todo!();
+        Ok(JobState::Unknown)
     }
 }
 
@@ -1024,9 +1032,164 @@ impl RedfishClientPool for RedfishSim {
         &self,
         _client: &dyn Redfish,
         _dpu: bool,
-    ) -> Result<(), RedfishClientCreationError> {
-        Ok(())
+    ) -> Result<Option<String>, RedfishClientCreationError> {
+        Ok(None)
     }
+}
+
+/// redfish utility functions
+///
+/// host_power_control allows control over the power of the host
+pub async fn host_power_control(
+    machine_snapshot: &MachineSnapshot,
+    action: SystemPowerControl,
+    key: Option<CredentialKey>,
+    ipmi_tool: Arc<dyn IPMITool>,
+    redfish_client_pool: Arc<dyn RedfishClientPool>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> CarbideResult<()> {
+    let bmc_ip = machine_snapshot
+        .bmc_info
+        .ip
+        .as_deref()
+        .ok_or_else(|| CarbideError::MissingArgument("bmc_info.ip"))?;
+
+    let key = key.unwrap_or(CredentialKey::Bmc {
+        machine_id: machine_snapshot.machine_id.to_string(),
+        user_role: UserRoles::Administrator.to_string(),
+    });
+
+    let client = redfish_client_pool
+        .create_client(
+            bmc_ip,
+            machine_snapshot.bmc_info.port,
+            RedfishAuth::Key(key),
+            true,
+        )
+        .await
+        .map_err(|e| {
+            CarbideError::GenericError(format!("Failed to create redfish client: {}", e))
+        })?;
+
+    if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
+        // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
+        // Supermicro will boot the users OS if we don't do this
+        client
+            .boot_once(libredfish::Boot::Pxe)
+            .await
+            .map_err(CarbideError::RedfishError)?;
+    }
+
+    let is_reboot = (action == SystemPowerControl::GracefulRestart)
+        || (action == SystemPowerControl::ForceRestart);
+
+    // vikings reboot their DPU's if redfish reset is used. \
+    // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
+    if is_reboot && machine_snapshot.bmc_vendor.is_nvidia() {
+        ipmi_tool
+            .restart(&machine_snapshot.machine_id, bmc_ip.to_string(), false)
+            .await
+            .map_err(|e: eyre::ErrReport| {
+                CarbideError::GenericError(format!("Failed to restart machine: {}", e))
+            })?;
+    } else {
+        client
+            .power(action)
+            .await
+            .map_err(CarbideError::RedfishError)?;
+    }
+
+    Machine::update_reboot_requested_time(&machine_snapshot.machine_id, txn, action.into()).await?;
+    Ok(())
+}
+
+/// set_host_uefi_password sets the UEFI password on the host and then power-cycles it.
+/// It returns the job ID for the UEFI password change for vendors that require
+/// generating a job to set the UEFI password.
+pub async fn set_host_uefi_password(
+    host_snapshot: &MachineSnapshot,
+    redfish_client_pool: Arc<dyn RedfishClientPool>,
+) -> CarbideResult<Option<String>> {
+    let bmc_ip = host_snapshot.bmc_info.ip.as_deref().ok_or_else(|| {
+        CarbideError::GenericError(format!(
+            "missing bmc_ip in the host's snapshot: {:#?}",
+            host_snapshot
+        ))
+    })?;
+
+    let client: Box<dyn Redfish> = redfish_client_pool
+        .create_client(
+            bmc_ip,
+            host_snapshot.bmc_info.port,
+            RedfishAuth::Key(CredentialKey::Bmc {
+                machine_id: host_snapshot.machine_id.to_string(),
+                user_role: UserRoles::Administrator.to_string(),
+            }),
+            true,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(%e, "Failed to run create_client call");
+            CarbideError::GenericError(format!("Failed to create redfish client: {}", e))
+        })?;
+
+    let job_id = redfish_client_pool
+        .uefi_setup(client.as_ref(), false)
+        .await
+        .map_err(|e| {
+            tracing::error!(%e, "Failed to run uefi_setup call");
+            CarbideError::GenericError(format!("Failed redfish uefi_setup subtask: {}", e))
+        })?;
+
+    Ok(job_id)
+}
+
+/// poll_redfish_job returns true if the job specified by job_id is at the state specified by job_state.
+/// it will return an error if the job could not be found.
+pub async fn poll_redfish_job(
+    job_id: String,
+    expected_state: libredfish::JobState,
+    redfish_client_pool: Arc<dyn RedfishClientPool>,
+    host_snapshot: &MachineSnapshot,
+) -> CarbideResult<bool> {
+    let bmc_ip = host_snapshot.bmc_info.ip.as_deref().ok_or_else(|| {
+        CarbideError::GenericError(format!(
+            "missing bmc_ip in the host's snapshot: {:#?}",
+            host_snapshot
+        ))
+    })?;
+
+    let client: Box<dyn Redfish> = redfish_client_pool
+        .create_client(
+            bmc_ip,
+            host_snapshot.bmc_info.port,
+            RedfishAuth::Key(CredentialKey::Bmc {
+                machine_id: host_snapshot.machine_id.to_string(),
+                user_role: UserRoles::Administrator.to_string(),
+            }),
+            true,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(%e, "Failed to run create_client call");
+            CarbideError::GenericError(format!("Failed to create redfish client: {}", e))
+        })?;
+
+    let job_state = client
+        .get_job_state(&job_id)
+        .await
+        .map_err(CarbideError::RedfishError)?;
+
+    if job_state != expected_state {
+        tracing::trace!(
+            "Current state for redfish job {:#?}: {:#?}",
+            job_id,
+            job_state
+        );
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 #[cfg(test)]
