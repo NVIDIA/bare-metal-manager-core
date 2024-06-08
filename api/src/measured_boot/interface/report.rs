@@ -15,10 +15,11 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
-use crate::measured_boot::dto::keys::{MeasurementReportId, MockMachineId};
+use crate::measured_boot::dto::keys::MeasurementReportId;
 use crate::measured_boot::dto::records::{MeasurementReportRecord, MeasurementReportValueRecord};
 
 use crate::measured_boot::interface::common;
+use crate::model::machine::machine_id::MachineId;
 use sqlx::{Pool, Postgres, QueryBuilder, Transaction};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -102,7 +103,7 @@ pub async fn match_latest_reports_with_txn(
 
 pub async fn insert_measurement_report_record(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
 ) -> eyre::Result<MeasurementReportRecord> {
     let query = "insert into measurement_reports(machine_id) values($1) returning *";
     Ok(sqlx::query_as::<_, MeasurementReportRecord>(query)
@@ -197,7 +198,7 @@ pub async fn get_measurement_report_record_by_id(
 
 pub async fn get_measurement_report_records_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
 ) -> eyre::Result<Vec<MeasurementReportRecord>> {
     common::get_objects_where_id(txn, machine_id).await
 }

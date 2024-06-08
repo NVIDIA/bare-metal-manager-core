@@ -14,111 +14,90 @@
  * gRPC handlers for measured boot mock-machine related API calls.
  */
 
-use tonic::Status;
-
-use crate::measured_boot::interface::machine::get_mock_machines_records;
+use crate::measured_boot::interface::machine::get_candidate_machine_records;
 use crate::measured_boot::{
-    dto::keys::MockMachineId, interface::common::PcrRegisterValue, model::machine::MockMachine,
+    interface::common::PcrRegisterValue, model::machine::CandidateMachine,
     model::report::MeasurementReport,
 };
-use rpc::protos::measured_boot::show_mock_machine_request;
+use crate::model::machine::machine_id::MachineId;
+use crate::model::RpcDataConversionError;
+use crate::CarbideError;
+use rpc::protos::measured_boot::show_candidate_machine_request;
 use rpc::protos::measured_boot::{
-    AttestMockMachineRequest, AttestMockMachineResponse, CreateMockMachineRequest,
-    CreateMockMachineResponse, DeleteMockMachineRequest, DeleteMockMachineResponse,
-    ListMockMachineRequest, ListMockMachineResponse, ShowMockMachineRequest,
-    ShowMockMachineResponse, ShowMockMachinesRequest, ShowMockMachinesResponse,
+    AttestCandidateMachineRequest, AttestCandidateMachineResponse, ListCandidateMachinesRequest,
+    ListCandidateMachinesResponse, ShowCandidateMachineRequest, ShowCandidateMachineResponse,
+    ShowCandidateMachinesRequest, ShowCandidateMachinesResponse,
 };
 use sqlx::{Pool, Postgres};
+use std::str::FromStr;
+use tonic::Status;
 
 ///////////////////////////////////////////////////////////////////////////////
-/// handle_create_mock_machine handles the CreateMockMachine API endpoint.
+/// handle_attest_candidate_machine handles the AttestCandidateMachine API endpoint.
 ///////////////////////////////////////////////////////////////////////////////
 
-pub async fn handle_create_mock_machine(
+pub async fn handle_attest_candidate_machine(
     db_conn: &Pool<Postgres>,
-    req: &CreateMockMachineRequest,
-) -> Result<CreateMockMachineResponse, Status> {
-    let mock_machine = MockMachine::new(db_conn, MockMachineId(req.machine_id.clone()), &req.attrs)
-        .await
-        .map_err(|e| Status::internal(format!("failed to create machine: {}", e)))?;
-
-    Ok(CreateMockMachineResponse {
-        machine: Some(mock_machine.into()),
-    })
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// handle_delete_mock_machine handles the DeleteMockMachine API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
-pub async fn handle_delete_mock_machine(
-    db_conn: &Pool<Postgres>,
-    req: &DeleteMockMachineRequest,
-) -> Result<DeleteMockMachineResponse, Status> {
-    Ok(DeleteMockMachineResponse {
-        machine: MockMachine::delete_where_id(db_conn, MockMachineId(req.machine_id.clone()))
-            .await
-            .map_err(|e| Status::internal(format!("failed to delete machine: {}", e)))?
-            .or(None)
-            .map(|machine| machine.into()),
-    })
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// handle_attest_mock_machine handles the AttestMockMachine API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
-pub async fn handle_attest_mock_machine(
-    db_conn: &Pool<Postgres>,
-    req: &AttestMockMachineRequest,
-) -> Result<AttestMockMachineResponse, Status> {
+    req: &AttestCandidateMachineRequest,
+) -> Result<AttestCandidateMachineResponse, Status> {
     let report = MeasurementReport::new(
         db_conn,
-        MockMachineId(req.machine_id.clone()),
+        MachineId::from_str(&req.machine_id).map_err(|_| {
+            CarbideError::from(RpcDataConversionError::InvalidMachineId(
+                req.machine_id.clone(),
+            ))
+        })?,
         &PcrRegisterValue::from_pb_vec(&req.pcr_values),
     )
     .await
     .map_err(|e| Status::internal(format!("failed saving measurements: {}", e)))?;
 
-    Ok(AttestMockMachineResponse {
+    Ok(AttestCandidateMachineResponse {
         report: Some(report.into()),
     })
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// handle_show_mock_machine handles the ShowMockMachine API endpoint.
+/// handle_show_candidate_machine handles the ShowCandidateMachine API endpoint.
 ///////////////////////////////////////////////////////////////////////////////
 
-pub async fn handle_show_mock_machine(
+pub async fn handle_show_candidate_machine(
     db_conn: &Pool<Postgres>,
-    req: &ShowMockMachineRequest,
-) -> Result<ShowMockMachineResponse, Status> {
+    req: &ShowCandidateMachineRequest,
+) -> Result<ShowCandidateMachineResponse, Status> {
     let machine = match &req.selector {
         // Show a machine with the given ID.
-        Some(show_mock_machine_request::Selector::MachineId(machine_uuid)) => {
-            MockMachine::from_id(db_conn, MockMachineId(machine_uuid.clone()))
-                .await
-                .map_err(|e| Status::internal(format!("{}", e)))?
+        Some(show_candidate_machine_request::Selector::MachineId(machine_uuid)) => {
+            CandidateMachine::from_id(
+                db_conn,
+                MachineId::from_str(machine_uuid).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(
+                        machine_uuid.clone(),
+                    ))
+                })?,
+            )
+            .await
+            .map_err(|e| Status::internal(format!("{}", e)))?
         }
         // Show all system profiles.
         None => return Err(Status::invalid_argument("selector required")),
     };
 
-    Ok(ShowMockMachineResponse {
+    Ok(ShowCandidateMachineResponse {
         machine: Some(machine.into()),
     })
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// handle_show_mock_machines handles the ShowMockMachines API endpoint.
+/// handle_show_candidate_machines handles the ShowCandidateMachines API endpoint.
 ///////////////////////////////////////////////////////////////////////////////
 
-pub async fn handle_show_mock_machines(
+pub async fn handle_show_candidate_machines(
     db_conn: &Pool<Postgres>,
-    _req: &ShowMockMachinesRequest,
-) -> Result<ShowMockMachinesResponse, Status> {
-    Ok(ShowMockMachinesResponse {
-        machines: MockMachine::get_all(db_conn)
+    _req: &ShowCandidateMachinesRequest,
+) -> Result<ShowCandidateMachinesResponse, Status> {
+    Ok(ShowCandidateMachinesResponse {
+        machines: CandidateMachine::get_all(db_conn)
             .await
             .map_err(|e| Status::internal(format!("{}", e)))?
             .drain(..)
@@ -128,15 +107,15 @@ pub async fn handle_show_mock_machines(
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// handle_list_mock_machine handles the ListMockMachine API endpoint.
+/// handle_list_candidate_machines handles the ListCandidateMachine API endpoint.
 ///////////////////////////////////////////////////////////////////////////////
 
-pub async fn handle_list_mock_machine(
+pub async fn handle_list_candidate_machines(
     db_conn: &Pool<Postgres>,
-    _req: &ListMockMachineRequest,
-) -> Result<ListMockMachineResponse, Status> {
-    Ok(ListMockMachineResponse {
-        machines: get_mock_machines_records(db_conn)
+    _req: &ListCandidateMachinesRequest,
+) -> Result<ListCandidateMachinesResponse, Status> {
+    Ok(ListCandidateMachinesResponse {
+        machines: get_candidate_machine_records(db_conn)
             .await
             .map_err(|e| Status::internal(format!("failed to read records: {}", e)))?
             .iter()

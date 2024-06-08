@@ -16,20 +16,18 @@
 
 use crate::measurement::global;
 use crate::measurement::global::cmds::cli_output;
-use crate::measurement::machine::args::{Attest, CmdMockMachine, Create, Delete, Show};
+use crate::measurement::machine::args::{Attest, CmdMachine, Show};
 use ::rpc::forge_tls_client::ForgeClientT;
-use ::rpc::protos::measured_boot::{show_mock_machine_request, ListMockMachineRequest};
+use ::rpc::protos::measured_boot::{show_candidate_machine_request, ListCandidateMachinesRequest};
 use ::rpc::protos::measured_boot::{
-    AttestMockMachineRequest, CreateMockMachineRequest, DeleteMockMachineRequest,
-    ShowMockMachineRequest, ShowMockMachinesRequest,
+    AttestCandidateMachineRequest, ShowCandidateMachineRequest, ShowCandidateMachinesRequest,
 };
 use carbide::measured_boot::interface::common::{PcrRegisterValue, ToTable};
 use carbide::measured_boot::{
-    dto::records::MockMachineRecord,
-    model::{machine::MockMachine, report::MeasurementReport},
+    dto::records::CandidateMachineSummary,
+    model::{machine::CandidateMachine, report::MeasurementReport},
 };
 use serde::Serialize;
-use std::collections::HashMap;
 
 ///////////////////////////////////////////////////////////////////////////////
 /// ExecResult exists just to print CLI results out
@@ -57,32 +55,18 @@ impl ToTable for ExecResult {
 ///////////////////////////////////////////////////////////////////////////////
 
 pub async fn dispatch(
-    cmd: &CmdMockMachine,
+    cmd: &CmdMachine,
     cli: &mut global::cmds::CliData<'_, '_>,
 ) -> eyre::Result<()> {
     match cmd {
-        CmdMockMachine::Create(local_args) => {
-            cli_output(
-                create(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                global::cmds::Destination::Stdout(),
-            )?;
-        }
-        CmdMockMachine::Delete(local_args) => {
-            cli_output(
-                delete(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                global::cmds::Destination::Stdout(),
-            )?;
-        }
-        CmdMockMachine::Attest(local_args) => {
+        CmdMachine::Attest(local_args) => {
             cli_output(
                 attest(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
                 global::cmds::Destination::Stdout(),
             )?;
         }
-        CmdMockMachine::Show(local_args) => {
+        CmdMachine::Show(local_args) => {
             if local_args.machine_id.is_some() {
                 cli_output(
                     show_by_id(cli.grpc_conn, local_args).await?,
@@ -97,7 +81,7 @@ pub async fn dispatch(
                 )?;
             }
         }
-        CmdMockMachine::List(_) => {
+        CmdMachine::List(_) => {
             cli_output(
                 list(cli.grpc_conn).await?,
                 &cli.args.format,
@@ -106,54 +90,6 @@ pub async fn dispatch(
         }
     }
     Ok(())
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// create creates a new mock machine.
-///////////////////////////////////////////////////////////////////////////////
-
-pub async fn create(grpc_conn: &mut ForgeClientT, create: &Create) -> eyre::Result<MockMachine> {
-    // Prepare.
-    let mut attrs = HashMap::from([
-        (String::from("vendor"), create.vendor.clone()),
-        (String::from("product"), create.product.clone()),
-    ]);
-    for kv_pair in create.extra_attrs.iter() {
-        attrs.insert(kv_pair.key.clone(), kv_pair.value.clone());
-    }
-
-    // Request.
-    let request = CreateMockMachineRequest {
-        machine_id: create.machine_id.to_string(),
-        attrs,
-    };
-
-    // Response.
-    let response = grpc_conn
-        .create_mock_machine(request)
-        .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
-
-    MockMachine::from_grpc(response.get_ref().machine.as_ref())
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// delete deletes a mock machine.
-///////////////////////////////////////////////////////////////////////////////
-
-pub async fn delete(grpc_conn: &mut ForgeClientT, delete: &Delete) -> eyre::Result<MockMachine> {
-    // Request.
-    let request = DeleteMockMachineRequest {
-        machine_id: delete.machine_id.to_string(),
-    };
-
-    // Response.
-    let response = grpc_conn
-        .delete_mock_machine(request)
-        .await
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
-
-    MockMachine::from_grpc(response.get_ref().machine.as_ref())
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -166,14 +102,14 @@ pub async fn attest(
     attest: &Attest,
 ) -> eyre::Result<MeasurementReport> {
     // Request.
-    let request = AttestMockMachineRequest {
+    let request = AttestCandidateMachineRequest {
         machine_id: attest.machine_id.to_string(),
         pcr_values: PcrRegisterValue::to_pb_vec(&attest.values),
     };
 
     // Response.
     let response = grpc_conn
-        .attest_mock_machine(request)
+        .attest_candidate_machine(request)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
@@ -184,26 +120,29 @@ pub async fn attest(
 /// show_by_id shows all info about a given machine ID.
 ///////////////////////////////////////////////////////////////////////////////
 
-pub async fn show_by_id(grpc_conn: &mut ForgeClientT, show: &Show) -> eyre::Result<MockMachine> {
+pub async fn show_by_id(
+    grpc_conn: &mut ForgeClientT,
+    show: &Show,
+) -> eyre::Result<CandidateMachine> {
     // Prepare.
     let Some(machine_id) = &show.machine_id else {
         return Err(eyre::eyre!("machine_id must be set to get a machine"));
     };
 
     // Request.
-    let request = ShowMockMachineRequest {
-        selector: Some(show_mock_machine_request::Selector::MachineId(
+    let request = ShowCandidateMachineRequest {
+        selector: Some(show_candidate_machine_request::Selector::MachineId(
             machine_id.to_string(),
         )),
     };
 
     // Response.
     let response = grpc_conn
-        .show_mock_machine(request)
+        .show_candidate_machine(request)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
-    MockMachine::from_grpc(response.get_ref().machine.as_ref())
+    CandidateMachine::from_grpc(response.get_ref().machine.as_ref())
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -213,44 +152,44 @@ pub async fn show_by_id(grpc_conn: &mut ForgeClientT, show: &Show) -> eyre::Resu
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _show: &Show,
-) -> eyre::Result<Vec<MockMachine>> {
+) -> eyre::Result<Vec<CandidateMachine>> {
     // Request.
-    let request = ShowMockMachinesRequest {};
+    let request = ShowCandidateMachinesRequest {};
 
     // Response.
     grpc_conn
-        .show_mock_machines(request)
+        .show_candidate_machines(request)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?
         .get_ref()
         .machines
         .iter()
         .map(|machine| {
-            MockMachine::try_from(machine.clone())
+            CandidateMachine::try_from(machine.clone())
                 .map_err(|e| eyre::eyre!("conversion failed: {}", e))
         })
-        .collect::<eyre::Result<Vec<MockMachine>>>()
+        .collect::<eyre::Result<Vec<CandidateMachine>>>()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 /// list lists all machine IDs.
 ///////////////////////////////////////////////////////////////////////////////
 
-pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MockMachineRecord>> {
+pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<CandidateMachineSummary>> {
     // Request.
-    let request = ListMockMachineRequest {};
+    let request = ListCandidateMachinesRequest {};
 
     // Response.
     grpc_conn
-        .list_mock_machine(request)
+        .list_candidate_machines(request)
         .await
         .map_err(|e| eyre::eyre!(e.to_string()))?
         .get_ref()
         .machines
         .iter()
         .map(|machine| {
-            MockMachineRecord::try_from(machine.clone())
+            CandidateMachineSummary::try_from(machine.clone())
                 .map_err(|e| eyre::eyre!("conversion failed: {}", e))
         })
-        .collect::<eyre::Result<Vec<MockMachineRecord>>>()
+        .collect::<eyre::Result<Vec<CandidateMachineSummary>>>()
 }

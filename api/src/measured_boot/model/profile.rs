@@ -169,7 +169,9 @@ impl MeasurementSystemProfile {
         attrs: &HashMap<String, String>,
     ) -> eyre::Result<Self> {
         match match_profile(txn, attrs).await? {
-            Some(info) => Ok(MeasurementSystemProfile::load_from_id_with_txn(txn, info).await?),
+            Some(profile_id) => {
+                Ok(MeasurementSystemProfile::load_from_id_with_txn(txn, profile_id).await?)
+            }
             None => Ok(MeasurementSystemProfile::new_with_txn(txn, None, attrs).await?),
         }
     }

@@ -18,14 +18,13 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::measured_boot::dto::keys::MockMachineId;
     use crate::measured_boot::dto::records::{MeasurementBundleState, MeasurementMachineState};
     use crate::measured_boot::interface::common::parse_pcr_index_input;
     use crate::measured_boot::interface::common::PcrRegisterValue;
     use crate::measured_boot::model::journal::MeasurementJournal;
-    use crate::measured_boot::model::machine::MockMachine;
     use crate::measured_boot::model::profile::MeasurementSystemProfile;
     use crate::measured_boot::model::report::MeasurementReport;
+    use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
 
     // test_measured_boot_integration tests all sorts of
     // things like it was a real active environment.
@@ -33,72 +32,86 @@ mod tests {
     pub async fn test_measured_boot_integration(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // A machine needs to be created for a report.
         let mut txn = pool.begin().await?;
 
+        let dell_r750_topology = load_topology_json("dell_r750.json");
+        let dgx_h100_topology = load_topology_json("lenovo_sr670.json");
+        let dgx_h100_v1_topology = load_topology_json("lenovo_sr670_v2.json");
+
+        // princess-network
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &dell_r750_topology,
+        )
+        .await?;
+
+        // beer-louisiana
+        let beer_louisiana = create_test_machine(
+            &mut txn,
+            "fm100htrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0",
+            &dell_r750_topology,
+        )
+        .await?;
+
+        // lime-coconut
+        let lime_coconut = create_test_machine(
+            &mut txn,
+            "fm100htdekjaiocbggbkttpjnjf4i1ac9li56c0ulsef42nien02mgl66tg",
+            &dell_r750_topology,
+        )
+        .await?;
+
+        // slippery-lilac
+        let slippery_lilac = create_test_machine(
+            &mut txn,
+            "fm100ht68sf2m52idrpslcjkpdj5r3tb3j5o0bkfubhoglbq47u18nknfog",
+            &dgx_h100_topology,
+        )
+        .await?;
+
+        // silly-salamander
+        let silly_salamander = create_test_machine(
+            &mut txn,
+            "fm100ht6mda2rgqr432ii8m9dfvph87ckr906kke4oaug7h2t6vi626g86g",
+            &dgx_h100_v1_topology,
+        )
+        .await?;
+
+        // cat-videos
+        let cat_videos = create_test_machine(
+            &mut txn,
+            "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
+            &dgx_h100_v1_topology,
+        )
+        .await?;
+
         let dell_r750_attrs = [
-            ("vendor".to_string(), "dell".to_string()),
-            ("product".to_string(), "r750".to_string()),
+            ("sys_vendor".to_string(), "Dell, Inc.".to_string()),
+            ("product_name".to_string(), "PowerEdge R750".to_string()),
+            ("bios_version".to_string(), "1.8.2".to_string()),
         ]
         .into_iter()
         .collect();
 
         let dgx_h100_attrs = [
-            ("vendor".to_string(), "nvidia".to_string()),
-            ("product".to_string(), "dgx_h100".to_string()),
+            ("sys_vendor".to_string(), "Lenovo".to_string()),
+            (
+                "product_name".to_string(),
+                "ThinkSystem SR670 V2".to_string(),
+            ),
+            ("bios_version".to_string(), "U8E122J-1.51".to_string()),
         ]
         .into_iter()
         .collect();
 
-        let dgx_h100_v1_attrs = [
-            ("vendor".to_string(), "nvidia".to_string()),
-            ("product".to_string(), "dgx_h100".to_string()),
-            ("fw".to_string(), "v1".to_string()),
-        ]
-        .into_iter()
-        .collect();
-
-        let princess_network = MockMachine::new_with_txn(
-            &mut txn,
-            MockMachineId("princess-network".to_string()),
-            &dell_r750_attrs,
-        )
-        .await?;
-
-        let beer_louisiana = MockMachine::new_with_txn(
-            &mut txn,
-            MockMachineId("beer-louisiana".to_string()),
-            &dell_r750_attrs,
-        )
-        .await?;
-
-        let lime_coconut = MockMachine::new_with_txn(
-            &mut txn,
-            MockMachineId("lime-coconut".to_string()),
-            &dell_r750_attrs,
-        )
-        .await?;
-
-        let slippery_lilac = MockMachine::new_with_txn(
-            &mut txn,
-            MockMachineId("slippery-lilac".to_string()),
-            &dgx_h100_attrs,
-        )
-        .await?;
-
-        let silly_salamander = MockMachine::new_with_txn(
-            &mut txn,
-            MockMachineId("silly-salamander".to_string()),
-            &dgx_h100_v1_attrs,
-        )
-        .await?;
-
-        let cat_videos = MockMachine::new_with_txn(
-            &mut txn,
-            MockMachineId("cat-videos".to_string()),
-            &dgx_h100_v1_attrs,
-        )
-        .await?;
+        //let dgx_h100_v1_attrs: HashMap<String, String> = [
+        //    ("vendor".to_string(), "nvidia".to_string()),
+        //    ("product".to_string(), "dgx_h100".to_string()),
+        //    ("fw".to_string(), "v1".to_string()),
+        //]
+        //.into_iter()
+        //.collect();
 
         let princess_values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {

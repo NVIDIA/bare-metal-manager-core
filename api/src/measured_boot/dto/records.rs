@@ -22,29 +22,30 @@
  *  what type of key is being passed around. A bunch of uuid::Uuid is meh.
 */
 
-use crate::measured_boot::interface::common::ToTable;
-
+use super::keys::UuidEmptyStringError;
+use crate::db::machine::DbMachineId;
+use crate::db::machine_topology::TopologyData;
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
-    MeasurementSystemProfileAttrId, MeasurementSystemProfileId, MockMachineAttrId, MockMachineId,
+    MeasurementSystemProfileAttrId, MeasurementSystemProfileId,
 };
-use crate::measured_boot::interface::common::PcrRegisterValue;
-
-use super::keys::UuidEmptyStringError;
 use crate::measured_boot::dto::traits::DbTable;
+use crate::measured_boot::interface::common::PcrRegisterValue;
+use crate::measured_boot::interface::common::ToTable;
+use crate::model::machine::machine_id::MachineId;
 use chrono::DateTime;
 use rpc::protos::measured_boot::{
-    MeasurementApprovedMachineRecordPb, MeasurementApprovedProfileRecordPb,
-    MeasurementApprovedTypePb, MeasurementBundleRecordPb, MeasurementBundleStatePb,
-    MeasurementBundleValueRecordPb, MeasurementJournalRecordPb, MeasurementMachineStatePb,
-    MeasurementReportRecordPb, MeasurementReportValueRecordPb,
-    MeasurementSystemProfileAttrRecordPb, MeasurementSystemProfileRecordPb,
-    MockMachineAttrRecordPb, MockMachineRecordPb, Uuid,
+    CandidateMachineSummaryPb, MeasurementApprovedMachineRecordPb,
+    MeasurementApprovedProfileRecordPb, MeasurementApprovedTypePb, MeasurementBundleRecordPb,
+    MeasurementBundleStatePb, MeasurementBundleValueRecordPb, MeasurementJournalRecordPb,
+    MeasurementMachineStatePb, MeasurementReportRecordPb, MeasurementReportValueRecordPb,
+    MeasurementSystemProfileAttrRecordPb, MeasurementSystemProfileRecordPb, Uuid,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgRow;
 use sqlx::types::chrono::Utc;
-use sqlx::FromRow;
+use sqlx::{FromRow, Row};
 use std::convert::Into;
 use std::error::Error;
 use std::fmt;
@@ -602,16 +603,27 @@ impl TryFrom<MeasurementBundleValueRecordPb> for MeasurementBundleValueRecord {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MeasurementReportRecord {
     // report_id is the auto-generated UUID specific to this report.
     pub report_id: MeasurementReportId,
 
     // machine_id is the "mock" machine ID that this report is for.
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
 
     // ts is the timestamp the report record was created.
     pub ts: chrono::DateTime<Utc>,
+}
+
+impl<'r> FromRow<'r, PgRow> for MeasurementReportRecord {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: DbMachineId = row.try_get("machine_id")?;
+        Ok(Self {
+            report_id: row.try_get("report_id")?,
+            machine_id: machine_id.into_inner(),
+            ts: row.try_get("ts")?,
+        })
+    }
 }
 
 impl MeasurementReportRecord {
@@ -649,7 +661,7 @@ impl TryFrom<MeasurementReportRecordPb> for MeasurementReportRecord {
 
         Ok(Self {
             report_id: MeasurementReportId::try_from(msg.report_id)?,
-            machine_id: MockMachineId(msg.machine_id),
+            machine_id: MachineId::from_str(&msg.machine_id)?,
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
         })
     }
@@ -764,7 +776,7 @@ impl TryFrom<MeasurementReportValueRecordPb> for MeasurementReportValueRecord {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MeasurementJournalRecord {
     // journal is the auto-generated UUID specific to this
     // journal entry.
@@ -774,7 +786,7 @@ pub struct MeasurementJournalRecord {
     // entry. Technically this can be derived from report_id,
     // but it makes things easier just having it right here
     // versus needing to join against the reports table.
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
 
     // report_id is the report record that this journal entry is for.
     #[serde(skip_serializing_if = "serde_just_print_summary")]
@@ -801,6 +813,21 @@ pub struct MeasurementJournalRecord {
 
     // ts is the timestamp the journal record was created.
     pub ts: chrono::DateTime<Utc>,
+}
+
+impl<'r> FromRow<'r, PgRow> for MeasurementJournalRecord {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: DbMachineId = row.try_get("machine_id")?;
+        Ok(Self {
+            journal_id: row.try_get("journal_id")?,
+            machine_id: machine_id.into_inner(),
+            report_id: row.try_get("report_id")?,
+            profile_id: row.try_get("profile_id")?,
+            bundle_id: row.try_get("bundle_id")?,
+            state: row.try_get("state")?,
+            ts: row.try_get("ts")?,
+        })
+    }
 }
 
 impl MeasurementJournalRecord {
@@ -843,7 +870,7 @@ impl TryFrom<MeasurementJournalRecordPb> for MeasurementJournalRecord {
 
         Ok(Self {
             journal_id: MeasurementJournalId::try_from(msg.journal_id)?,
-            machine_id: MockMachineId(msg.machine_id),
+            machine_id: MachineId::from_str(&msg.machine_id)?,
             report_id: MeasurementReportId::try_from(msg.report_id)?,
             profile_id: match msg.profile_id {
                 Some(profile_id) => Some(MeasurementSystemProfileId::try_from(profile_id)?),
@@ -971,39 +998,77 @@ impl From<MeasurementMachineStatePb> for MeasurementMachineState {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// MockMachineRecord defines a single row from
-/// the mock_machines table.
-
+/// CandidateMachineRecord defines a single row from
+/// the machine_topologies table. Sort of. Where other records
+/// implement the whole record, this is just a partial match
+/// for the purpose of more easily migrating from the PoC MockMachines
+/// code to the production CandidateMachines code. This *could* pull
+/// the whole row, but we don't really
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
 ///////////////////////////////////////////////////////////////////////////////
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize)]
-pub struct MockMachineRecord {
-    // machine_id is the ID of the machine. In real life, this would
-    // be like fm100hxxxxx, but for this, it's just whatever we want.
-    pub machine_id: MockMachineId,
+#[derive(Debug, Clone, Serialize)]
+pub struct CandidateMachineRecord {
+    // machine_id is the ID of the machine, e.g. fm100hxxxxx.
+    pub machine_id: MachineId,
+
+    // topology is the topology JSON blob.
+    pub topology: sqlx::types::Json<TopologyData>,
+
+    // created is the timestamp this record was created.
+    pub created: chrono::DateTime<Utc>,
+
+    // updated is the timestamp this record was updated.
+    pub updated: chrono::DateTime<Utc>,
+}
+
+impl<'r> FromRow<'r, PgRow> for CandidateMachineRecord {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: DbMachineId = row.try_get("machine_id")?;
+        Ok(Self {
+            machine_id: machine_id.into_inner(),
+            topology: row.try_get("topology")?,
+            created: row.try_get("created")?,
+            updated: row.try_get("updated")?,
+        })
+    }
+}
+
+impl From<CandidateMachineRecord> for CandidateMachineSummaryPb {
+    fn from(val: CandidateMachineRecord) -> Self {
+        Self {
+            machine_id: val.machine_id.to_string(),
+            ts: Some(val.created.into()),
+        }
+    }
+}
+
+impl DbTable for CandidateMachineRecord {
+    fn db_table_name() -> &'static str {
+        "machine_topologies"
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CandidateMachineSummary {
+    // machine_id is the ID of the machine, e.g. fm100hxxxxx.
+    pub machine_id: MachineId,
 
     // ts is the timestamp this record was created.
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl MockMachineRecord {
-    pub fn from_grpc(msg: MockMachineRecordPb) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input mock machine record: {}", e)))
+impl CandidateMachineSummary {
+    pub fn from_grpc(msg: CandidateMachineSummaryPb) -> Result<Self, Status> {
+        Self::try_from(msg).map_err(|e| {
+            Status::invalid_argument(format!("bad input candidate machine record: {}", e))
+        })
     }
 }
 
-impl DbTable for MockMachineRecord {
-    fn db_table_name() -> &'static str {
-        "mock_machines"
-    }
-}
-
-impl From<MockMachineRecord> for MockMachineRecordPb {
-    fn from(val: MockMachineRecord) -> Self {
+impl From<CandidateMachineSummary> for CandidateMachineSummaryPb {
+    fn from(val: CandidateMachineSummary) -> Self {
         Self {
             machine_id: val.machine_id.to_string(),
             ts: Some(val.ts.into()),
@@ -1011,22 +1076,22 @@ impl From<MockMachineRecord> for MockMachineRecordPb {
     }
 }
 
-impl TryFrom<MockMachineRecordPb> for MockMachineRecord {
+impl TryFrom<CandidateMachineSummaryPb> for CandidateMachineSummary {
     type Error = Box<dyn std::error::Error>;
 
-    fn try_from(msg: MockMachineRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
+    fn try_from(msg: CandidateMachineSummaryPb) -> Result<Self, Box<dyn std::error::Error>> {
         if msg.machine_id.is_empty() {
             return Err(UuidEmptyStringError {}.into());
         }
 
         Ok(Self {
-            machine_id: MockMachineId(msg.machine_id),
+            machine_id: MachineId::from_str(&msg.machine_id)?,
             ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
         })
     }
 }
 
-impl ToTable for MockMachineRecord {
+impl ToTable for CandidateMachineSummary {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["machine_id", self.machine_id]);
@@ -1035,7 +1100,7 @@ impl ToTable for MockMachineRecord {
     }
 }
 
-impl ToTable for Vec<MockMachineRecord> {
+impl ToTable for Vec<CandidateMachineSummary> {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
         table.add_row(prettytable::row!["machine_id", "created_ts"]);
@@ -1043,80 +1108,6 @@ impl ToTable for Vec<MockMachineRecord> {
             table.add_row(prettytable::row![rec.machine_id, rec.ts]);
         }
         Ok(table.to_string())
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// MockMachineAttrRecord defines a single row from
-/// the mock_machines_attrs table in the database.
-///
-/// Impls DbTable trait for generic selects defined in db/interface/common.rs.
-///////////////////////////////////////////////////////////////////////////////
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct MockMachineAttrRecord {
-    // attribute_id is the auto-generated UUID of this record.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
-    pub attribute_id: MockMachineAttrId,
-
-    // machine_id is the machine ID this attribute is associated with.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
-    pub machine_id: MockMachineId,
-
-    // key is the key of this attribute.
-    pub key: String,
-
-    // value is the value for this attribute.
-    pub value: String,
-
-    // ts is the timestamp this record was created.
-    #[serde(skip_serializing_if = "serde_just_print_summary")]
-    pub ts: chrono::DateTime<Utc>,
-}
-
-impl MockMachineAttrRecord {
-    pub fn from_grpc(msg: MockMachineAttrRecordPb) -> Result<Self, Status> {
-        Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input mock machine attr record: {}", e))
-        })
-    }
-}
-
-impl DbTable for MockMachineAttrRecord {
-    fn db_table_name() -> &'static str {
-        "mock_machines_attrs"
-    }
-}
-
-impl From<MockMachineAttrRecord> for MockMachineAttrRecordPb {
-    fn from(val: MockMachineAttrRecord) -> Self {
-        Self {
-            attribute_id: Some(Uuid {
-                value: val.attribute_id.to_string(),
-            }),
-            machine_id: val.machine_id.to_string(),
-            key: val.key,
-            value: val.value,
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MockMachineAttrRecordPb> for MockMachineAttrRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MockMachineAttrRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
-        if msg.machine_id.is_empty() {
-            return Err(UuidEmptyStringError {}.into());
-        }
-        Ok(Self {
-            attribute_id: MockMachineAttrId::try_from(msg.attribute_id)?,
-            machine_id: MockMachineId(msg.machine_id),
-            key: msg.key.clone(),
-            value: msg.value.clone(),
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
     }
 }
 
@@ -1180,13 +1171,13 @@ impl From<MeasurementApprovedTypePb> for MeasurementApprovedType {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeasurementApprovedMachineRecord {
     // approval_id is the auto-generated UUID for this approval record.
     pub approval_id: MeasurementApprovedMachineId,
 
     // machine_id is the ID of the machine this approval is for.
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
 
     // state is the type of approval (oneshot or persist).
     pub approval_type: MeasurementApprovedType,
@@ -1204,6 +1195,20 @@ pub struct MeasurementApprovedMachineRecord {
 
     // ts is the timestamp the approval record was created.
     pub ts: chrono::DateTime<Utc>,
+}
+
+impl<'r> FromRow<'r, PgRow> for MeasurementApprovedMachineRecord {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let machine_id: DbMachineId = row.try_get("machine_id")?;
+        Ok(Self {
+            approval_id: row.try_get("approval_id")?,
+            machine_id: machine_id.into_inner(),
+            approval_type: row.try_get("approval_type")?,
+            pcr_registers: row.try_get("pcr_registers")?,
+            comments: row.try_get("comments")?,
+            ts: row.try_get("ts")?,
+        })
+    }
 }
 
 impl MeasurementApprovedMachineRecord {
@@ -1256,7 +1261,7 @@ impl TryFrom<MeasurementApprovedMachineRecordPb> for MeasurementApprovedMachineR
 
         Ok(Self {
             approval_id: MeasurementApprovedMachineId::try_from(msg.approval_id)?,
-            machine_id: MockMachineId(msg.machine_id),
+            machine_id: MachineId::from_str(&msg.machine_id)?,
             approval_type: MeasurementApprovedType::from(approval_type),
             pcr_registers: match !msg.pcr_registers.is_empty() {
                 true => Some(msg.pcr_registers.clone()),

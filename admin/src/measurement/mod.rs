@@ -53,8 +53,8 @@ pub async fn dispatch(
         // Handle everything with the `report` subcommand.
         Cmd::Report(cmd) => report::cmds::dispatch(cmd, &mut cli_data).await?,
 
-        // Handle everything with the `mock-machine` subcommand.
-        Cmd::Scout(cmd) => machine::cmds::dispatch(cmd, &mut cli_data).await?,
+        // Handle everything with the `machine` subcommand.
+        Cmd::Machine(cmd) => machine::cmds::dispatch(cmd, &mut cli_data).await?,
 
         // Handle everything with the `site` subcommand.
         Cmd::Site(cmd) => site::cmds::dispatch(cmd, &mut cli_data).await?,

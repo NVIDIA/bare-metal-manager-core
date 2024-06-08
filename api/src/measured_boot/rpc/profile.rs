@@ -283,7 +283,7 @@ pub async fn handle_list_measurement_system_profile_machines(
             .await
             .map_err(|e| Status::internal(format!("{}", e)))?
             .drain(..)
-            .map(|bundle_id| bundle_id.into())
+            .map(|machine_id| machine_id.to_string())
             .collect()
         }
         // ...or do it by profile name.
@@ -293,7 +293,7 @@ pub async fn handle_list_measurement_system_profile_machines(
             .await
             .map_err(|e| Status::internal(format!("{}", e)))?
             .drain(..)
-            .map(|bundle_id| bundle_id.into())
+            .map(|machine_id| machine_id.to_string())
             .collect(),
         // ...and it has to be either by ID or name.
         None => return Err(Status::invalid_argument("selector required")),

@@ -17,7 +17,7 @@
 
 use crate::measured_boot::dto::keys::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
-    MockMachineId, UuidEmptyStringError,
+    UuidEmptyStringError,
 };
 use crate::measured_boot::dto::records::{MeasurementJournalRecord, MeasurementMachineState};
 use crate::measured_boot::interface::common;
@@ -26,10 +26,12 @@ use crate::measured_boot::interface::journal::{
     delete_journal_where_id, get_measurement_journal_record_by_id,
     get_measurement_journal_records_for_machine_id, insert_measurement_journal_record,
 };
+use crate::model::machine::machine_id::MachineId;
 use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
+use std::str::FromStr;
 use utils::admin_cli::{just_print_summary, serde_just_print_summary};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -42,7 +44,7 @@ use utils::admin_cli::{just_print_summary, serde_just_print_summary};
 #[derive(Debug, Serialize, Clone)]
 pub struct MeasurementJournal {
     pub journal_id: MeasurementJournalId,
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
     #[serde(skip_serializing_if = "serde_just_print_summary")]
     pub report_id: MeasurementReportId,
     #[serde(skip_serializing_if = "serde_just_print_summary")]
@@ -79,7 +81,7 @@ impl TryFrom<MeasurementJournalPb> for MeasurementJournal {
 
         Ok(Self {
             journal_id: MeasurementJournalId::try_from(msg.journal_id)?,
-            machine_id: MockMachineId(msg.machine_id),
+            machine_id: MachineId::from_str(&msg.machine_id)?,
             report_id: MeasurementReportId::try_from(msg.report_id)?,
             profile_id: match msg.profile_id {
                 Some(profile_id) => Some(MeasurementSystemProfileId::try_from(profile_id)?),
@@ -103,7 +105,7 @@ impl MeasurementJournal {
 
     pub async fn new(
         db_conn: &Pool<Postgres>,
-        machine_id: MockMachineId,
+        machine_id: MachineId,
         report_id: MeasurementReportId,
         profile_id: Option<MeasurementSystemProfileId>,
         bundle_id: Option<MeasurementBundleId>,
@@ -118,7 +120,7 @@ impl MeasurementJournal {
 
     pub async fn new_with_txn(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: MockMachineId,
+        machine_id: MachineId,
         report_id: MeasurementReportId,
         profile_id: Option<MeasurementSystemProfileId>,
         bundle_id: Option<MeasurementBundleId>,
@@ -184,14 +186,14 @@ impl MeasurementJournal {
 
     pub async fn get_all_for_machine_id(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: MockMachineId,
+        machine_id: MachineId,
     ) -> eyre::Result<Vec<MeasurementJournal>> {
         get_measurement_journals_for_machine_id(txn, machine_id).await
     }
 
     pub async fn get_latest_for_machine_id(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: MockMachineId,
+        machine_id: MachineId,
     ) -> eyre::Result<Option<MeasurementJournal>> {
         get_latest_journal_for_id(txn, machine_id).await
     }
@@ -266,7 +268,7 @@ impl ToTable for Vec<MeasurementJournal> {
 
 async fn create_measurement_journal(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
     report_id: MeasurementReportId,
     profile_id: Option<MeasurementSystemProfileId>,
     bundle_id: Option<MeasurementBundleId>,
@@ -344,7 +346,7 @@ async fn get_measurement_journals(
 
 async fn get_measurement_journals_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
 ) -> eyre::Result<Vec<MeasurementJournal>> {
     let records = get_measurement_journal_records_for_machine_id(txn, machine_id).await?;
     Ok(records
@@ -368,7 +370,7 @@ async fn get_measurement_journals_for_machine_id(
 
 pub async fn get_latest_journal_for_id(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
 ) -> eyre::Result<Option<MeasurementJournal>> {
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
     match sqlx::query_as::<_, MeasurementJournalRecord>(query)

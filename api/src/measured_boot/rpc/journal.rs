@@ -18,10 +18,8 @@ use crate::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
 use crate::measured_boot::rpc::common::begin_txn;
-use crate::measured_boot::{
-    dto::keys::{MeasurementJournalId, MockMachineId},
-    model::journal::MeasurementJournal,
-};
+use crate::measured_boot::{dto::keys::MeasurementJournalId, model::journal::MeasurementJournal};
+use crate::model::machine::machine_id::MachineId;
 use rpc::protos::measured_boot::{
     list_measurement_journal_request, show_measurement_journal_request, MeasurementJournalRecordPb,
 };
@@ -32,6 +30,7 @@ use rpc::protos::measured_boot::{
     ShowMeasurementJournalsResponse,
 };
 use sqlx::{Pool, Postgres};
+use std::str::FromStr;
 use tonic::Status;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -116,15 +115,18 @@ pub async fn handle_list_measurement_journal(
 
     let journals: Vec<MeasurementJournalRecordPb> = match &req.selector {
         Some(list_measurement_journal_request::Selector::MachineId(machine_id)) => {
-            get_measurement_journal_records_for_machine_id(
-                &mut txn,
-                MockMachineId(machine_id.clone()),
-            )
-            .await
-            .map_err(|e| Status::internal(format!("failed to fetch journals for machine: {}", e)))?
-            .drain(..)
-            .map(|journal| journal.into())
-            .collect()
+            let machine_id = MachineId::from_str(machine_id).map_err(|e| {
+                Status::internal(format!("failed to fetch journals for machine: {}", e))
+            })?;
+
+            get_measurement_journal_records_for_machine_id(&mut txn, machine_id)
+                .await
+                .map_err(|e| {
+                    Status::internal(format!("failed to fetch journals for machine: {}", e))
+                })?
+                .drain(..)
+                .map(|journal| journal.into())
+                .collect()
         }
         None => get_measurement_journal_records(&mut txn)
             .await

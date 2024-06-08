@@ -292,116 +292,78 @@ message ListMeasurementJournalResponse {
 // RPC messages for Mock Machines
 ////////////////////////////////////////////////////////////////////////////////
 
-// CreateMockMachineRequest is used to create a new mock
-// machine entry in the database.
-//
-// machine_id: The machine ID to use.
-//      attrs: A map of k/v pairs to set as discovery attributes.
-
-message CreateMockMachineRequest {
-    string machine_id = 1;
-    map<string, string> attrs = 2;
-}
-
-// CreateMockMachineResponse returns the newly created MockMachine.
-//
-// machine: The fully-populated MockMachine instance (info
-//          + attrs) from the database.
-
-message CreateMockMachineResponse {
-    MockMachinePb machine = 1;
-}
-
-// DeleteMockMachineRequest deletes a MockMachine and its attributes
-// from the database.
-//
-// machine_id: The machine ID to delete.
-
-message DeleteMockMachineRequest {
-    string machine_id = 1;
-}
-
-// DeleteMockMachineResponse returns the deleted MockMachine.
-//
-// machine: The fully-populated MockMachine instance (info
-//          + attrs) that was deleted from the database.
-
-message DeleteMockMachineResponse {
-    MockMachinePb machine = 1;
-}
-
-// AttestMockMachineRequest is used to mock an attestation flow
+// AttestCandidateMachineRequest is used to mock an attestation flow
 // for a mock machine, sending the PCR values to attest.
 //
 // machine_id: The machine ID to attest.
 // pcr_values: The list of PCR values (which is the register
 //             index + sha256 value).
 
-message AttestMockMachineRequest {
+message AttestCandidateMachineRequest {
     string machine_id = 1;
     repeated PcrRegisterValuePb pcr_values = 2;
 }
 
-// AttestMockMachineResponse returns the measurement report
+// AttestCandidateMachineResponse returns the measurement report
 // created for the attestation attempt.
 //
 // report: A populated MeasurementReport, containing its
 //         info + received values.
 
-message AttestMockMachineResponse {
+message AttestCandidateMachineResponse {
     MeasurementReportPb report = 1;
 }
 
-// ShowMockMachineRequest is used to show info about a
+// ShowCandidateMachineRequest is used to show info about a
 // mock machine.
 //
 // selector: The selector to show by, where:
 //      machine_id: The machine ID to use.
 
-message ShowMockMachineRequest {
+message ShowCandidateMachineRequest {
     oneof selector {
         string machine_id = 1;
     }
 }
 
-// ShowMockMachineResponse returns the selected MockMachine.
+// ShowCandidateMachineResponse returns the selected CandidateMachine.
 //
-// machine: The fully-populated MockMachine instance (info
+// machine: The fully-populated CandidateMachine instance (info
 //          + attrs) from the database.
 
-message ShowMockMachineResponse {
-    MockMachinePb machine = 1;
+message ShowCandidateMachineResponse {
+    CandidateMachinePb machine = 1;
 }
 
-// ShowMockMachinesRequest shows all info about all
+// ShowCandidateMachinesRequest shows all info about all
 // mock machines.
 
-message ShowMockMachinesRequest {
+message ShowCandidateMachinesRequest {
 }
 
-// ShowMockMachinesResponse returns all populated
+// ShowCandidateMachinesResponse returns all populated
 // mock machine models from the database, which includes
 // their info + attributes.
 //
-// machines: The list of MockMachine models.
+// machines: The list of CandidateMachine models.
 
-message ShowMockMachinesResponse {
-    repeated MockMachinePb machines = 1;
+message ShowCandidateMachinesResponse {
+    repeated CandidateMachinePb machines = 1;
 }
 
-// ListMockMachineRequest lists all high-level details about
+// ListCandidateMachinesRequest lists all high-level details about
 // mock machines, without their full attributes.
 
-message ListMockMachineRequest {
+message ListCandidateMachinesRequest {
 }
 
-// ListMockMachineResponse returns all high-level details about
+// ListCandidateMachinesResponse returns all high-level details about
 // mock machines.
 //
-// machines: The list of MockMachineRecords.
+// machines: The list of CandidateMachineRecords.
 
-message ListMockMachineResponse {
-    repeated MockMachineRecordPb machines = 1;
+message ListCandidateMachinesResponse {
+    repeated CandidateMachineSummaryPb machines = 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -770,7 +732,7 @@ message ListMeasurementSystemProfileMachinesRequest {
 // ListMeasurementSystemProfileMachinesResponse returns a list of
 // all machine IDs associated with the selected profile.
 //
-// machine_ids: A list of MockMachineId (represented as strings).
+// machine_ids: A list of CandidateMachineId (represented as strings).
 
 message ListMeasurementSystemProfileMachinesResponse {
     repeated string machine_ids = 1;
@@ -1083,26 +1045,17 @@ message MeasurementSystemProfileAttrRecordPb {
 ////////////////////////////////////////
 // Mock Machines
 
-// MockMachinePb is bound to the MockMachine model in model/machine.rs.
-message MockMachinePb {
+// CandidateMachinePb is bound to the CandidateMachine model
+// in model/machine.rs.
+message CandidateMachinePb {
     string machine_id = 1;
-    repeated MockMachineAttrRecordPb attrs = 2;
+    map<string, string> attrs = 2;
     MeasurementMachineStatePb state = 3;
-    google.protobuf.Timestamp ts = 4;
+    google.protobuf.Timestamp created_ts = 4;
+    google.protobuf.Timestamp updated_ts = 5;
 }
 
-// MockMachineAttrRecordPb is bound to the MockMachineAttrRecord
-// struct in dto/machine.rs, which backs a record from the
-// mock_machines_attrs table.
-message MockMachineAttrRecordPb {
-    UUID attribute_id = 1;
-    string machine_id = 2;
-    string key = 3;
-    string value = 4;
-    google.protobuf.Timestamp ts = 5;
-}
-
-message MockMachineRecordPb {
+message CandidateMachineSummaryPb {
     string machine_id = 1;
     google.protobuf.Timestamp ts = 2;
 }

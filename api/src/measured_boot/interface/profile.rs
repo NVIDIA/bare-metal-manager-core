@@ -15,14 +15,14 @@
  *  tables in the database, leveraging the profile-specific record types.
 */
 
-use crate::measured_boot::dto::keys::{
-    MeasurementBundleId, MeasurementSystemProfileId, MockMachineId,
-};
+use crate::db::machine::DbMachineId;
+use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
 };
 use crate::measured_boot::dto::traits::{DbPrimaryUuid, DbTable};
 use crate::measured_boot::interface::common;
+use crate::model::machine::machine_id::MachineId;
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
@@ -282,6 +282,10 @@ pub async fn get_measurement_profile_id_by_attrs(
     let join_id = MeasurementSystemProfileId::db_primary_uuid_name();
     let attrs_len = attrs.len() as i32;
 
+    if attrs_len == 0 {
+        return Err(eyre::eyre!("cannot get by attrs when no attrs provided"));
+    }
+
     let mut query: QueryBuilder<'_, Postgres> = QueryBuilder::new(format!(
         "
     SELECT {t1}.{join_id}
@@ -396,7 +400,7 @@ pub async fn get_bundles_for_profile_name(
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// get_machines_for_profile_id returns a unique list of all MockMachineId
+/// get_machines_for_profile_id returns a unique list of all MachineId
 /// that leverage the given profile.
 ///
 /// This is specifically used by the `profile list machines by-id` CLI call.
@@ -405,17 +409,20 @@ pub async fn get_bundles_for_profile_name(
 pub async fn get_machines_for_profile_id(
     db_conn: &Pool<Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Vec<MockMachineId>> {
+) -> eyre::Result<Vec<MachineId>> {
     let mut txn = db_conn.begin().await?;
     let query = "select distinct machine_id from measurement_journal where profile_id = $1 order by machine_id";
-    Ok(sqlx::query_as::<_, MockMachineId>(query)
+    Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(profile_id)
         .fetch_all(&mut *txn)
-        .await?)
+        .await?
+        .into_iter()
+        .map(|d| d.into_inner())
+        .collect())
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// get_machines_for_profile_name returns a unique list of all MockMachineId
+/// get_machines_for_profile_name returns a unique list of all CandidateMachineId
 /// that leverage the given profile.
 ///
 /// This is specifically used by the `profile list machines by-name` CLI call.
@@ -424,14 +431,17 @@ pub async fn get_machines_for_profile_id(
 pub async fn get_machines_for_profile_name(
     db_conn: &Pool<Postgres>,
     profile_name: String,
-) -> eyre::Result<Vec<MockMachineId>> {
+) -> eyre::Result<Vec<MachineId>> {
     let mut txn = db_conn.begin().await?;
     let query =
         "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
-    Ok(sqlx::query_as::<_, MockMachineId>(query)
+    Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(profile_name)
         .fetch_all(&mut *txn)
-        .await?)
+        .await?
+        .into_iter()
+        .map(|d| d.into_inner())
+        .collect())
 }
 
 ///////////////////////////////////////////////////////////////////////////////

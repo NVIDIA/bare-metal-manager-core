@@ -22,10 +22,12 @@ use crate::measured_boot::interface::report::{
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use crate::measured_boot::{
-    dto::keys::MockMachineId,
     interface::common::{parse_pcr_index_input, PcrRegisterValue, PcrSet},
     model::report::MeasurementReport,
 };
+use crate::model::machine::machine_id::MachineId;
+use crate::model::RpcDataConversionError;
+use crate::CarbideError;
 use rpc::protos::measured_boot::list_measurement_report_request;
 use rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,
@@ -38,6 +40,7 @@ use rpc::protos::measured_boot::{
     ShowMeasurementReportsRequest, ShowMeasurementReportsResponse,
 };
 use sqlx::{Pool, Postgres};
+use std::str::FromStr;
 
 ///////////////////////////////////////////////////////////////////////////////
 /// handle_create_measurement_report handles the CreateMeasurementReport
@@ -50,7 +53,11 @@ pub async fn handle_create_measurement_report(
 ) -> Result<CreateMeasurementReportResponse, Status> {
     let report = MeasurementReport::new(
         db_conn,
-        MockMachineId(req.machine_id.clone()),
+        MachineId::from_str(&req.machine_id).map_err(|_| {
+            CarbideError::from(RpcDataConversionError::InvalidMachineId(
+                req.machine_id.clone(),
+            ))
+        })?,
         &PcrRegisterValue::from_pb_vec(&req.pcr_values),
     )
     .await
@@ -200,7 +207,11 @@ pub async fn handle_show_measurement_reports_for_machine(
     Ok(ShowMeasurementReportsForMachineResponse {
         reports: MeasurementReport::get_all_for_machine_id(
             &mut txn,
-            MockMachineId(req.machine_id.clone()),
+            MachineId::from_str(&req.machine_id).map_err(|_| {
+                CarbideError::from(RpcDataConversionError::InvalidMachineId(
+                    req.machine_id.clone(),
+                ))
+            })?,
         )
         .await
         .map_err(|e| Status::internal(format!("{}", e)))?
@@ -245,7 +256,9 @@ pub async fn handle_list_measurement_report(
         Some(list_measurement_report_request::Selector::MachineId(machine_id)) => {
             get_measurement_report_records_for_machine_id(
                 &mut txn,
-                MockMachineId(machine_id.clone()),
+                MachineId::from_str(machine_id).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
+                })?,
             )
             .await
             .map_err(|e| Status::internal(format!("failed loading report records: {}", e)))?

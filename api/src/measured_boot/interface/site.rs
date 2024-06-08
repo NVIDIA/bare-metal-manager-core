@@ -17,18 +17,18 @@
 
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
-    MockMachineId,
 };
 use crate::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
 use crate::measured_boot::dto::traits::DbTable;
 use crate::measured_boot::interface::common;
+use crate::model::machine::machine_id::MachineId;
 use sqlx::{Pool, Postgres, Transaction};
 
 pub async fn insert_into_approved_machines(
     db_conn: &Pool<Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
     approval_type: MeasurementApprovedType,
     pcr_registers: Option<String>,
     comments: Option<String>,
@@ -59,7 +59,7 @@ pub async fn remove_from_approved_machines_by_approval_id(
 
 pub async fn remove_from_approved_machines_by_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
 ) -> eyre::Result<MeasurementApprovedMachineRecord> {
     let query = "delete from measurement_approved_machines where machine_id = $1 returning *";
     Ok(sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
@@ -77,7 +77,7 @@ pub async fn get_approved_machines(
 
 pub async fn get_approval_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
 ) -> eyre::Result<Option<MeasurementApprovedMachineRecord>> {
     common::get_object_for_id(txn, machine_id).await
 }

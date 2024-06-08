@@ -19,18 +19,19 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::measured_boot::dto::keys::{
-        MeasurementReportId, MeasurementSystemProfileId, MockMachineId,
-    };
+    use crate::measured_boot::dto::keys::{MeasurementReportId, MeasurementSystemProfileId};
     use crate::measured_boot::dto::records::MeasurementMachineState;
     use crate::measured_boot::model::journal::MeasurementJournal;
+    use crate::model::machine::machine_id::MachineId;
+    use std::str::FromStr;
 
     // test_journal_crudl makes sure database constraints
     // are honored for inserting new journal entries.
     #[sqlx::test]
     pub async fn test_journal_crudl(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
-        let machine_id = MockMachineId("princess-network".to_string());
+        let machine_id =
+            MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")?;
         let report_id = MeasurementReportId(uuid::Uuid::new_v4());
         let profile_id = MeasurementSystemProfileId(uuid::Uuid::new_v4());
         let journal = MeasurementJournal::new_with_txn(

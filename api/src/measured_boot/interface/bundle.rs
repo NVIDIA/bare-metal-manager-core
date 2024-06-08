@@ -15,15 +15,15 @@
  *  tables in the database, leveraging the bundle-specific record types.
 */
 
-use crate::measured_boot::dto::keys::{
-    MeasurementBundleId, MeasurementSystemProfileId, MockMachineId,
-};
+use crate::db::machine::DbMachineId;
+use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleStateRecord,
     MeasurementBundleValueRecord, MeasurementReportRecord,
 };
 use crate::measured_boot::dto::traits::{DbPrimaryUuid, DbTable};
 use crate::measured_boot::interface::common;
+use crate::model::machine::machine_id::MachineId;
 use sqlx::{Pool, Postgres, Transaction};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -374,23 +374,26 @@ pub async fn get_measurement_journals_for_bundle_id(
 
 ///////////////////////////////////////////////////////////////////////////////
 /// get_machines_for_bundle_id returns a unique list of
-/// all MockMachineId that leverage the given bundle.
+/// all MachineId that leverage the given bundle.
 ///////////////////////////////////////////////////////////////////////////////
 
 pub async fn get_machines_for_bundle_id(
     db_conn: &Pool<Postgres>,
     bundle_id: MeasurementBundleId,
-) -> eyre::Result<Vec<MockMachineId>> {
+) -> eyre::Result<Vec<MachineId>> {
     let mut txn = db_conn.begin().await?;
     let query = "select distinct machine_id from measurement_journal where bundle_id = $1 order by machine_id";
-    Ok(sqlx::query_as::<_, MockMachineId>(query)
+    Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(bundle_id)
         .fetch_all(&mut *txn)
-        .await?)
+        .await?
+        .into_iter()
+        .map(|d| d.into_inner())
+        .collect())
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// get_machines_for_bundle_name returns a unique list of all MockMachineId
+/// get_machines_for_bundle_name returns a unique list of all CandidateMachineId
 /// that leverage the given profile.
 ///
 /// This is specifically used by the `bundle list machines by-name` CLI call.
@@ -399,14 +402,17 @@ pub async fn get_machines_for_bundle_id(
 pub async fn get_machines_for_bundle_name(
     db_conn: &Pool<Postgres>,
     bundle_name: String,
-) -> eyre::Result<Vec<MockMachineId>> {
+) -> eyre::Result<Vec<MachineId>> {
     let mut txn = db_conn.begin().await?;
     let query =
         "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
-    Ok(sqlx::query_as::<_, MockMachineId>(query)
+    Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(bundle_name)
         .fetch_all(&mut *txn)
-        .await?)
+        .await?
+        .into_iter()
+        .map(|d| d.into_inner())
+        .collect())
 }
 
 ///////////////////////////////////////////////////////////////////////////////

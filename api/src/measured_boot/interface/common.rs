@@ -33,7 +33,7 @@ use std::fmt;
 // those values will be pulled and put into a HashMap
 // with the following keys leveraging the below
 // filter_machine_discovery_attrs function.
-pub const DISCOVERY_PROFILE_ATTRS: [&str; 4] = ["vendor", "product", "uefi", "tpm"];
+pub const DISCOVERY_PROFILE_ATTRS: [&str; 3] = ["sys_vendor", "product_name", "bios_version"];
 
 /// filter_machine_discovery_attrs is used for taking
 /// an input DiscoveryInfo and filtering the data out

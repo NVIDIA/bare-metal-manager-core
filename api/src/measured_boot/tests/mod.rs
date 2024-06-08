@@ -14,6 +14,7 @@
 //! Measured boot unit testing module.
 //!
 
+pub mod common;
 mod integration;
 mod journal;
 mod profile;

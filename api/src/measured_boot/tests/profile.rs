@@ -50,8 +50,8 @@ mod tests {
         let mut txn = pool.begin().await?;
 
         let vals = HashMap::from([
-            (String::from("vendor"), String::from("dell")),
-            (String::from("product"), String::from("poweredge_r750")),
+            (String::from("sys_vendor"), String::from("dell")),
+            (String::from("product_name"), String::from("poweredge_r750")),
             (String::from("bios_version"), String::from("v1")),
         ]);
 
@@ -105,8 +105,8 @@ mod tests {
         }
 
         let vals2 = HashMap::from([
-            (String::from("vendor"), String::from("dell")),
-            (String::from("product"), String::from("poweredge_r750")),
+            (String::from("sys_vendor"), String::from("dell")),
+            (String::from("product_name"), String::from("poweredge_r750")),
             (String::from("bios_version"), String::from("v1")),
             (String::from("uefi_version"), String::from("2.10")),
         ]);
@@ -171,13 +171,13 @@ mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let vals = HashMap::from([
-            (String::from("vendor"), String::from("dell")),
-            (String::from("product"), String::from("poweredge_r750")),
+            (String::from("sys_vendor"), String::from("dell")),
+            (String::from("product_name"), String::from("poweredge_r750")),
         ]);
 
         let vals2 = HashMap::from([
-            (String::from("vendor"), String::from("dell")),
-            (String::from("product"), String::from("poweredge_r750")),
+            (String::from("sys_vendor"), String::from("dell")),
+            (String::from("product_name"), String::from("poweredge_r750")),
             (String::from("bios_version"), String::from("v1")),
         ]);
 
@@ -209,40 +209,40 @@ mod tests {
         let mut txn = pool.begin().await?;
 
         let vals1 = HashMap::from([
-            (String::from("vendor"), String::from("dell")),
-            (String::from("product"), String::from("poweredge_r750")),
+            (String::from("sys_vendor"), String::from("dell")),
+            (String::from("product_name"), String::from("poweredge_r750")),
         ]);
 
         let vals2 = HashMap::from([
-            (String::from("vendor"), String::from("dell")),
-            (String::from("product"), String::from("poweredge_r750")),
+            (String::from("sys_vendor"), String::from("dell")),
+            (String::from("product_name"), String::from("poweredge_r750")),
             (String::from("bios_version"), String::from("v1")),
         ]);
 
         let vals3 = HashMap::from([
-            (String::from("vendor"), String::from("dell")),
-            (String::from("product"), String::from("poweredge_r750")),
+            (String::from("sys_vendor"), String::from("dell")),
+            (String::from("product_name"), String::from("poweredge_r750")),
             (String::from("bios_version"), String::from("v1")),
             (String::from("uefi_version"), String::from("2.10")),
         ]);
 
         let vals4 = HashMap::from([
-            (String::from("vendor"), String::from("dell")),
-            (String::from("product"), String::from("poweredge_r750")),
+            (String::from("sys_vendor"), String::from("dell")),
+            (String::from("product_name"), String::from("poweredge_r750")),
             (String::from("bios_version"), String::from("v1")),
             (String::from("uefi_version"), String::from("2.20")),
         ]);
 
         let vals5 = HashMap::from([
-            (String::from("vendor"), String::from("nvidia")),
-            (String::from("product"), String::from("dgx_h100")),
+            (String::from("sys_vendor"), String::from("nvidia")),
+            (String::from("product_name"), String::from("dgx_h100")),
         ]);
 
         match MeasurementSystemProfile::new(&pool, None, &vals1).await {
             Ok(profile1) => {
                 let match1_vals = HashMap::from([
-                    (String::from("vendor"), String::from("dell")),
-                    (String::from("product"), String::from("poweredge_r750")),
+                    (String::from("sys_vendor"), String::from("dell")),
+                    (String::from("product_name"), String::from("poweredge_r750")),
                 ]);
                 let match1_result =
                     MeasurementSystemProfile::match_from_attrs(&mut txn, &match1_vals).await;
@@ -256,8 +256,8 @@ mod tests {
         match MeasurementSystemProfile::new(&pool, None, &vals2).await {
             Ok(profile2) => {
                 let match2_vals = HashMap::from([
-                    (String::from("vendor"), String::from("dell")),
-                    (String::from("product"), String::from("poweredge_r750")),
+                    (String::from("sys_vendor"), String::from("dell")),
+                    (String::from("product_name"), String::from("poweredge_r750")),
                     (String::from("bios_version"), String::from("v1")),
                     (String::from("random_firmware_ver"), String::from("meowwww")),
                 ]);
@@ -273,8 +273,8 @@ mod tests {
         match MeasurementSystemProfile::new(&pool, None, &vals3).await {
             Ok(profile3) => {
                 let match3_vals = HashMap::from([
-                    (String::from("vendor"), String::from("dell")),
-                    (String::from("product"), String::from("poweredge_r750")),
+                    (String::from("sys_vendor"), String::from("dell")),
+                    (String::from("product_name"), String::from("poweredge_r750")),
                     (String::from("bios_version"), String::from("v1")),
                     (String::from("uefi_version"), String::from("2.10")),
                     (String::from("more_random_attr"), String::from("1.2.3.4")),
@@ -292,8 +292,8 @@ mod tests {
         match MeasurementSystemProfile::new(&pool, None, &vals4).await {
             Ok(profile4) => {
                 let match4_vals = HashMap::from([
-                    (String::from("vendor"), String::from("dell")),
-                    (String::from("product"), String::from("poweredge_r750")),
+                    (String::from("sys_vendor"), String::from("dell")),
+                    (String::from("product_name"), String::from("poweredge_r750")),
                     (String::from("bios_version"), String::from("v1")),
                     (String::from("uefi_version"), String::from("2.20")), // this is the significant value
                     (String::from("more_random_attr"), String::from("1.2.3.4")),
@@ -311,8 +311,8 @@ mod tests {
         match MeasurementSystemProfile::new(&pool, None, &vals5).await {
             Ok(profile5) => {
                 let match5_vals = HashMap::from([
-                    (String::from("vendor"), String::from("nvidia")),
-                    (String::from("product"), String::from("dgx_h100")),
+                    (String::from("sys_vendor"), String::from("nvidia")),
+                    (String::from("product_name"), String::from("dgx_h100")),
                     (String::from("uefi_version"), String::from("2.20")),
                     (String::from("more_random_attr"), String::from("1.2.3.4")),
                     (String::from("another_thing"), String::from("v1-0.24")),

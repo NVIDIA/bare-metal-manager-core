@@ -247,12 +247,10 @@ service Forge {
   rpc ListMeasurementJournal(measured_boot.ListMeasurementJournalRequest) returns (measured_boot.ListMeasurementJournalResponse);
 
   // Measured Boot: Machines
-  rpc CreateMockMachine(measured_boot.CreateMockMachineRequest) returns (measured_boot.CreateMockMachineResponse);
-  rpc DeleteMockMachine(measured_boot.DeleteMockMachineRequest) returns (measured_boot.DeleteMockMachineResponse);
-  rpc AttestMockMachine(measured_boot.AttestMockMachineRequest) returns (measured_boot.AttestMockMachineResponse);
-  rpc ShowMockMachine(measured_boot.ShowMockMachineRequest) returns (measured_boot.ShowMockMachineResponse);
-  rpc ShowMockMachines(measured_boot.ShowMockMachinesRequest) returns (measured_boot.ShowMockMachinesResponse);
-  rpc ListMockMachine(measured_boot.ListMockMachineRequest) returns (measured_boot.ListMockMachineResponse);
+  rpc AttestCandidateMachine(measured_boot.AttestCandidateMachineRequest) returns (measured_boot.AttestCandidateMachineResponse);
+  rpc ShowCandidateMachine(measured_boot.ShowCandidateMachineRequest) returns (measured_boot.ShowCandidateMachineResponse);
+  rpc ShowCandidateMachines(measured_boot.ShowCandidateMachinesRequest) returns (measured_boot.ShowCandidateMachinesResponse);
+  rpc ListCandidateMachines(measured_boot.ListCandidateMachinesRequest) returns (measured_boot.ListCandidateMachinesResponse);
 
   // Measured Boot: Profiles
   rpc CreateMeasurementSystemProfile(measured_boot.CreateMeasurementSystemProfileRequest) returns (measured_boot.CreateMeasurementSystemProfileResponse);

@@ -12,8 +12,9 @@
 
 use std::{fmt::Write, ops::Deref, str::FromStr};
 
+use crate::measured_boot::dto::traits::DbPrimaryUuid;
+use crate::measured_boot::interface::common::ToTable;
 use crate::model::{hardware_info::HardwareInfo, RpcDataConversionError};
-
 use data_encoding::BASE32_DNSSEC;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -89,6 +90,23 @@ impl MachineId {
         hasher.update(self.to_string().as_bytes());
         let hash: [u8; 32] = hasher.finalize().into();
         BASE32_DNSSEC.encode(&hash)
+    }
+}
+
+impl DbPrimaryUuid for MachineId {
+    fn db_primary_uuid_name() -> &'static str {
+        "machine_id"
+    }
+}
+
+impl ToTable for Vec<MachineId> {
+    fn to_table(&self) -> eyre::Result<String> {
+        let mut table = prettytable::Table::new();
+        table.add_row(prettytable::row!["machine_id"]);
+        for machine_id in self.iter() {
+            table.add_row(prettytable::row![machine_id]);
+        }
+        Ok(table.to_string())
     }
 }
 

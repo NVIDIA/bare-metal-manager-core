@@ -99,7 +99,7 @@ pub enum Cmd {
         about = "Work with mock-machine entries",
         visible_alias = "m"
     )]
-    Scout(machine::args::CmdMockMachine),
+    Machine(machine::args::CmdMachine),
 
     #[clap(
         subcommand,
