@@ -40,11 +40,8 @@ use carbide::measured_boot::model::profile::MeasurementSystemProfile;
 use carbide::model::machine::machine_id::MachineId;
 use std::str::FromStr;
 
-///////////////////////////////////////////////////////////////////////////////
 /// dispatch matches + dispatches the correct command for
 /// the `profile` subcommand (e.g. create, delete, etc).
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn dispatch(
     cmd: &CmdProfile,
     cli: &mut global::cmds::CliData<'_, '_>,
@@ -113,11 +110,8 @@ pub async fn dispatch(
     Ok(())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// create is `profile create` and used for creating
 /// a new profile.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn create(
     grpc_conn: &mut ForgeClientT,
     create: &Create,
@@ -149,11 +143,8 @@ pub async fn create(
     MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete is `delete <profile-id|profile-name>` and is used
 /// for deleting an existing profile by ID or name.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete(
     grpc_conn: &mut ForgeClientT,
     delete: &Delete,
@@ -198,10 +189,7 @@ pub async fn delete(
     MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// rename renames a measurement bundle with the provided name or ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn rename(
     grpc_conn: &mut ForgeClientT,
     rename: &Rename,
@@ -247,12 +235,9 @@ pub async fn rename(
     MeasurementSystemProfile::from_grpc(response.get_ref().profile.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_all is `show`, and is used for showing all
 /// profiles with details (when no <profile_id> is
 /// specified on the command line).
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementSystemProfile>> {
     // Request.
     let request = ShowMeasurementSystemProfilesRequest {};
@@ -272,11 +257,8 @@ pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<Measurem
         .collect::<eyre::Result<Vec<MeasurementSystemProfile>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_by_id_or_name is `show <profile-id|profile-name>` and is used for
 /// showing a profile (and its details) by ID or name.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_by_id_or_name(
     grpc_conn: &mut ForgeClientT,
     show: &Show,
@@ -318,12 +300,9 @@ pub async fn show_by_id_or_name(
     MeasurementSystemProfile::from_grpc(response.get_ref().system_profile.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list_all is `list all` and is used for listing all
 /// high level profile info (just IDs). For actual
 /// details, use `show`.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list_all(
     grpc_conn: &mut ForgeClientT,
 ) -> eyre::Result<Vec<MeasurementSystemProfileRecord>> {
@@ -345,11 +324,8 @@ pub async fn list_all(
         .collect::<eyre::Result<Vec<MeasurementSystemProfileRecord>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list_bundles_by_id_or_name is `list bundles <profile-id|profile-name>` and
 /// is used to list all configured bundles for a given profile ID or name.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list_bundles_for_id_or_name(
     grpc_conn: &mut ForgeClientT,
     list_bundles: &ListBundles,
@@ -404,12 +380,9 @@ pub async fn list_bundles_for_id_or_name(
         .collect::<eyre::Result<Vec<MeasurementBundleId>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list_machines_for_id_or_name is `list machines <profile-id|profile-name>`
 /// and is used to list all configured machines associated with a given profile
 /// ID or name.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list_machines_for_id_or_name(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,

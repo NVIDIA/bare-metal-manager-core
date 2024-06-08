@@ -42,11 +42,8 @@ use rpc::protos::measured_boot::{
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_create_system_measurement_profile handles the
 /// CreateMeasurementSystemProfile API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_create_system_measurement_profile(
     db_conn: &Pool<Postgres>,
     req: &CreateMeasurementSystemProfileRequest,
@@ -72,11 +69,8 @@ pub async fn handle_create_system_measurement_profile(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_rename_measurement_system_profile handles the
 /// RenameMeasurementSystemProfile API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_rename_measurement_system_profile(
     db_conn: &Pool<Postgres>,
     req: &RenameMeasurementSystemProfileRequest,
@@ -118,11 +112,8 @@ pub async fn handle_rename_measurement_system_profile(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_delete_measurement_system_profile handles the
 /// DeleteMeasurementSystemProfile API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_delete_measurement_system_profile(
     db_conn: &Pool<Postgres>,
     req: &DeleteMeasurementSystemProfileRequest,
@@ -151,11 +142,8 @@ pub async fn handle_delete_measurement_system_profile(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_show_measurement_system_profile handles the
 /// ShowMeasurementSystemProfile API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_show_measurement_system_profile(
     db_conn: &Pool<Postgres>,
     req: &ShowMeasurementSystemProfileRequest,
@@ -185,11 +173,8 @@ pub async fn handle_show_measurement_system_profile(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_show_measurement_system_profiles handles the
 /// ShowMeasurementSystemProfiles API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_show_measurement_system_profiles(
     db_conn: &Pool<Postgres>,
     _req: &ShowMeasurementSystemProfilesRequest,
@@ -204,11 +189,8 @@ pub async fn handle_show_measurement_system_profiles(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_measurement_system_profiles handles the
 /// ListMeasurementSystemProfiles API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_measurement_system_profiles(
     db_conn: &Pool<Postgres>,
     _req: &ListMeasurementSystemProfilesRequest,
@@ -224,11 +206,8 @@ pub async fn handle_list_measurement_system_profiles(
     Ok(ListMeasurementSystemProfilesResponse { system_profiles })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_measurement_system_profile_bundles handles the
 /// ListMeasurementSystemProfileBundles API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_measurement_system_profile_bundles(
     db_conn: &Pool<Postgres>,
     req: &ListMeasurementSystemProfileBundlesRequest,
@@ -264,11 +243,8 @@ pub async fn handle_list_measurement_system_profile_bundles(
     Ok(ListMeasurementSystemProfileBundlesResponse { bundle_ids })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_measurement_system_profile_machines handles the
 /// ListMeasurementSystemProfileMachines API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_measurement_system_profile_machines(
     db_conn: &Pool<Postgres>,
     req: &ListMeasurementSystemProfileMachinesRequest,
@@ -302,11 +278,8 @@ pub async fn handle_list_measurement_system_profile_machines(
     Ok(ListMeasurementSystemProfileMachinesResponse { machine_ids })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_for_uuid specifically handles deleting
 /// a system profile by ID.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn delete_for_uuid(
     db_conn: &Pool<Postgres>,
     profile_uuid: Uuid,
@@ -325,11 +298,8 @@ async fn delete_for_uuid(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_for_name specifically handles deleting
 /// a system profile by name.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn delete_for_name(
     db_conn: &Pool<Postgres>,
     profile_name: String,

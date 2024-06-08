@@ -43,7 +43,6 @@ pub const DISCOVERY_PROFILE_ATTRS: [&str; 3] = ["sys_vendor", "product_name", "b
 /// you'll notice it's mocked to take a HashMap as
 /// input, and not a DiscoveryInfo, because I'm just
 /// pulling values from the mock attributes table.
-
 pub fn filter_machine_discovery_attrs(
     attrs: &HashMap<String, String>,
 ) -> eyre::Result<HashMap<String, String>> {
@@ -65,11 +64,8 @@ pub enum ConnType<'p, 'm, 't> {
     Txn(&'m Transaction<'t, Postgres>),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// ToTable is a trait which is used alongside the cli_output command
 /// and being able to prettytable print results.
-///////////////////////////////////////////////////////////////////////////////
-
 pub trait ToTable {
     fn to_table(&self) -> eyre::Result<String> {
         Ok("not implemented".to_string())
@@ -80,12 +76,9 @@ pub fn convert_to_table<T: ToTable>(input: &T) -> eyre::Result<String> {
     input.to_table()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // PcrRange is a small struct used when parsing
 // --pcr-register values from the CLI as part of
 // the parse_pcr_index_input function.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Clone, Debug)]
 pub struct PcrRange {
     pub start: usize,
@@ -98,15 +91,12 @@ impl fmt::Display for PcrRange {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// PcrSet is a list of PCR register indexes that are expected
 /// to be targeted. For example: 0,1,2,5,6. With this PCR set,
 /// an incoming list of PcrRegisterValues will have any values
 /// whose indexes match the register numbers from the PcrSet.
 ///
 /// This includes implementations for iterating.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Clone, Debug)]
 pub struct PcrSet(pub Vec<i16>);
 
@@ -284,7 +274,6 @@ pub fn pcr_register_values_to_map(
     Ok(value_map)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_object_for_id provides a generic for getting a fully populated
 /// struct (which derives sqlx::FromRow) for a given "ID", where an ID is a
 /// struct which derives from a sqlx::types::Uuid (type = UUID).
@@ -295,8 +284,6 @@ pub fn pcr_register_values_to_map(
 /// And to reduce string literal use even further, both of those implement
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_object_for_id<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     id: T,
@@ -308,7 +295,6 @@ where
     get_object_for_unique_column(txn, T::db_primary_uuid_name(), id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_object_for_unique_column provides a generic for getting a fully
 /// populated struct (which derives sqlx::FromRow) for a given uniquely
 /// constrained column, where the value derives from an sqlx::types::*.
@@ -316,8 +302,6 @@ where
 /// And to reduce string literal use even further, both of those implement
 /// the DbPrimaryUuid and DbTable traits (which are traits defined in this
 /// crate) to build the query.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_object_for_unique_column<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     col_name: &str,
@@ -339,7 +323,6 @@ where
     Ok(result)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_objects_where_id returns a vector of records who share a similar
 /// `id` in common. The idea here is there is a child table with a foreign key
 /// containing a UUID, and we want to get all records mapping back to that
@@ -347,8 +330,6 @@ where
 ///
 /// Similar to get_object_for_id above, this leverages a mixture of sqlx-based
 /// derive + traits to reduce the use of copy-pasta code + string literals.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_objects_where_id<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     id: T,
@@ -369,15 +350,12 @@ where
     Ok(result)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_all_objects provides a generic way to return populated structs
 /// for all records of the given type. Similar to the comments in the two
 /// above generics, this leverages structs deriving sqlx::FromRow and
 /// implementing the crate-specific DbName trait to make this possible,
 /// with the idea of reducing very boilerplate copy-pasta code and string
 /// literals.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_all_objects<R>(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Vec<R>>
 where
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
@@ -387,7 +365,6 @@ where
     Ok(result)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_ids_for_bundle_values is a common mechanism for matching a
 /// set of input values to either a measurement bundle or journal
 ///
@@ -397,8 +374,6 @@ where
 ///    R::db_primary_uuid_name(),
 ///   table_name,
 ///    R::db_primary_uuid_name());
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_ids_for_bundle_values<R>(
     txn: &mut Transaction<'_, Postgres>,
     table_name: &str,
@@ -438,7 +413,6 @@ where
     Ok(ids)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_objects_where_id provides a generic way to delete one or more
 /// records of a given type, based on a key, and will return the record(s) of
 /// what was deleted.
@@ -447,8 +421,6 @@ where
 /// deriving sqlx::FromRow and implementing the crate-specific DbName trait to
 /// make this possible, with the idea of reducing very boilerplate copy-pasta
 /// code and string literals.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_objects_where_id<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     id: T,
@@ -481,11 +453,8 @@ where
     Ok(result)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_object_where_id is used for cases where only a single record
 /// is expected to be deleted.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_object_where_id<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     id: T,

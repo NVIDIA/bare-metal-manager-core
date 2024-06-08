@@ -32,12 +32,9 @@ use carbide::measured_boot::interface::common::{parse_pcr_index_input, PcrRegist
 use carbide::model::machine::machine_id::MachineId;
 use clap::Parser;
 
-///////////////////////////////////////////////////////////////////////////////
 // CmdReport provides a container for the `report`
 // subcommand, which itself contains other subcommands
 // for working with reports.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum CmdReport {
     #[clap(
@@ -82,11 +79,8 @@ pub enum CmdReport {
     Match(Match),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Create is used for creating reports, which really
 /// should be happening during machine attestation.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Create {
     #[clap(help = "The machine ID of the machine to associate this report with.")]
@@ -102,22 +96,16 @@ pub struct Create {
     pub values: Vec<PcrRegisterValue>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Delete a profile by ID.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Delete {
     #[clap(help = "The report ID.")]
     pub report_id: MeasurementReportId,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Promote is used to promote a report to a measurement bundle,
 /// with the ability to select which PCR registers to select from the
 /// report to use for creating the new bundle.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Promote {
     #[clap(help = "The report ID to promote.")]
@@ -131,12 +119,9 @@ pub struct Promote {
     pub pcr_registers: Option<PcrSet>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Revoke is used to mark a report as a revoked measurement bundle,
 /// with the ability to select which PCR registers to select from the
 /// report to use for creating the new (and revoked) bundle.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Revoke {
     #[clap(help = "The report ID to revoke.")]
@@ -150,10 +135,7 @@ pub struct Revoke {
     pub pcr_registers: Option<PcrSet>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Show a report for an ID, reports for a machine, or all reports.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum ShowFor {
     #[clap(about = "Show a report ID.")]
@@ -166,30 +148,21 @@ pub enum ShowFor {
     All,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Show a report for the given ID.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ShowForId {
     #[clap(help = "The report ID.")]
     pub report_id: MeasurementReportId,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Show all reports for a machine.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ShowForMachine {
     #[clap(help = "The profile name.")]
     pub machine_id: String,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// List provides a few ways to list things.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum List {
     #[clap(about = "List all reports", visible_alias = "a")]
@@ -202,27 +175,18 @@ pub enum List {
     Machines(ListMachines),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// ListAll will list all profiles.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListAll {}
 
-///////////////////////////////////////////////////////////////////////////////
 /// ListMachines will list all machines matching this report.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListMachines {
     #[clap(help = "The machine ID.")]
     pub machine_id: MachineId,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Match is used for finding reports matching the provided PCR pairs.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Match {
     #[clap(

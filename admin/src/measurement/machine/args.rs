@@ -26,12 +26,9 @@ use carbide::measured_boot::interface::common::PcrRegisterValue;
 use carbide::model::machine::machine_id::MachineId;
 use clap::Parser;
 
-///////////////////////////////////////////////////////////////////////////////
 /// CmdMachine provides a container for the `mock-machine`
 /// subcommand, which itself contains other subcommands
 /// for working with mock machines.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum CmdMachine {
     #[clap(about = "Send measurements for a machine.", visible_alias = "a")]
@@ -44,12 +41,9 @@ pub enum CmdMachine {
     List(List),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Attest sends a measurement report for the given machine ID,
 /// where the measurement report then goes through attestation in an
 /// attempt to match a bundle.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Attest {
     #[clap(help = "The machine ID of the machine to associate this report with.")]
@@ -65,18 +59,12 @@ pub struct Attest {
     pub values: Vec<PcrRegisterValue>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// List lists all candidate machines.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct List {}
 
-///////////////////////////////////////////////////////////////////////////////
 /// Show will get a candidate machine for the given ID, or all machines
 /// if no machine ID is provided.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Show {
     #[clap(help = "The machine ID to show.")]

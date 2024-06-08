@@ -38,11 +38,8 @@ use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::model::machine::machine_id::MachineId;
 use std::str::FromStr;
 
-///////////////////////////////////////////////////////////////////////////////
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn dispatch(
     cmd: &CmdBundle,
     cli: &mut global::cmds::CliData<'_, '_>,
@@ -111,11 +108,8 @@ pub async fn dispatch(
     Ok(())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// create_for_id creates a new measurement bundle associated with the
 /// profile w/ the provided profile ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn create_for_id(
     grpc_conn: &mut ForgeClientT,
     create: &Create,
@@ -143,10 +137,7 @@ pub async fn create_for_id(
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete deletes a measurement bundle with the provided ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete(
     grpc_conn: &mut ForgeClientT,
     delete: &Delete,
@@ -167,10 +158,7 @@ pub async fn delete(
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// rename renames a measurement bundle with the provided name or ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn rename(
     grpc_conn: &mut ForgeClientT,
     rename: &Rename,
@@ -211,10 +199,7 @@ pub async fn rename(
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// set_state updates the state of the bundle (e.g. active, obsolete, retired).
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn set_state(
     grpc_conn: &mut ForgeClientT,
     set_state: &SetState,
@@ -259,10 +244,7 @@ pub async fn set_state(
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_by_id dumps all info about a bundle for the given ID or name.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_by_id_or_name(
     grpc_conn: &mut ForgeClientT,
     show: &Show,
@@ -305,10 +287,7 @@ pub async fn show_by_id_or_name(
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_all dumps all info about all bundles.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _get_by_id: &Show,
@@ -330,10 +309,7 @@ pub async fn show_all(
         .collect::<eyre::Result<Vec<MeasurementBundle>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list lists all bundle ids.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementBundleRecord>> {
     // Request.
     let request = ListMeasurementBundlesRequest {};
@@ -353,11 +329,8 @@ pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementB
         .collect::<eyre::Result<Vec<MeasurementBundleRecord>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list_machines lists all machines associated with the provided
 /// bundle ID or bundle name.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,

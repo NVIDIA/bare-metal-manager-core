@@ -53,11 +53,8 @@ use std::str::FromStr;
 use tonic::Status;
 use utils::admin_cli::{just_print_summary, serde_just_print_summary};
 
-///////////////////////////////////////////////////////////////////////////////
 /// ProtoParseError is an error used for reporting back failures
 /// to parse a protobuf message back into its record or model.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug)]
 pub struct ProtoParseError {
     // from is the input type
@@ -80,13 +77,10 @@ impl fmt::Display for ProtoParseError {
 
 impl Error for ProtoParseError {}
 
-///////////////////////////////////////////////////////////////////////////////
 /// StringToEnumError is used for taking an input string and converting
 /// it to an enum of a given type. It is leveraged by MeasurementBundleState,
 /// MeasurementApprovedType, and anything else that might need
 /// to leverage it further.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug)]
 pub struct StringToEnumError;
 
@@ -98,14 +92,11 @@ impl fmt::Display for StringToEnumError {
 
 impl Error for StringToEnumError {}
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementSystemProfileRecord defines a single row from the
 /// measurement_system_profiles table in the database.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MeasurementSystemProfileRecord {
@@ -189,13 +180,10 @@ impl TryFrom<MeasurementSystemProfileRecordPb> for MeasurementSystemProfileRecor
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementSystemProfileAttrRecord defines a single row from
 /// the measurement_system_profiles_attrs table in the database.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MeasurementSystemProfileAttrRecord {
@@ -282,13 +270,10 @@ impl TryFrom<MeasurementSystemProfileAttrRecordPb> for MeasurementSystemProfileA
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementBundleState is an enum in the database, and
 /// is used for tracking the state of a measurement bundle.
 ///
 /// Impls FromStr trait.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Copy, Debug, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize)]
 #[sqlx(type_name = "measurement_bundle_state", rename_all = "lowercase")]
 pub enum MeasurementBundleState {
@@ -372,26 +357,20 @@ impl From<MeasurementBundleStatePb> for MeasurementBundleState {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementBundleStateRecord exists so we can do an sqlx::query_as and
 /// *just* select the state (and bind it to a struct). It doesn't really need
 /// to be much other than this for now.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MeasurementBundleStateRecord {
     // Read the comment above, but state is the actual state.
     pub state: MeasurementBundleState,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementBundleRecord defines a single row from
 /// the measurement_bundles table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MeasurementBundleRecord {
@@ -498,13 +477,10 @@ impl TryFrom<MeasurementBundleRecordPb> for MeasurementBundleRecord {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementBundleValueRecord defines a single row
 /// from the measurement_bundles_values table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MeasurementBundleValueRecord {
@@ -594,14 +570,11 @@ impl TryFrom<MeasurementBundleValueRecordPb> for MeasurementBundleValueRecord {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementReportRecord defines a single row from
 /// the measurement_reports table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct MeasurementReportRecord {
@@ -682,14 +655,11 @@ impl ToTable for Vec<MeasurementReportRecord> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementReportValueRecord defines a single row from
 /// the measurement_reports_values table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as a self-implementation for converting into a PcrRegisterValue.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct MeasurementReportValueRecord {
@@ -767,14 +737,11 @@ impl TryFrom<MeasurementReportValueRecordPb> for MeasurementReportValueRecord {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementJournalRecord defines a single row from
 /// the measurement_journal table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct MeasurementJournalRecord {
@@ -939,13 +906,10 @@ impl ToTable for Vec<MeasurementJournalRecord> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementMachineState is an enum in the database, and
 /// is used for tracking the state of a machine.
 ///
 /// Impls FromStr trait.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Copy, Debug, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize)]
 #[sqlx(type_name = "measurement_machine_state", rename_all = "lowercase")]
 pub enum MeasurementMachineState {
@@ -997,7 +961,6 @@ impl From<MeasurementMachineStatePb> for MeasurementMachineState {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// CandidateMachineRecord defines a single row from
 /// the machine_topologies table. Sort of. Where other records
 /// implement the whole record, this is just a partial match
@@ -1006,8 +969,6 @@ impl From<MeasurementMachineStatePb> for MeasurementMachineState {
 /// the whole row, but we don't really
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Serialize)]
 pub struct CandidateMachineRecord {
     // machine_id is the ID of the machine, e.g. fm100hxxxxx.
@@ -1111,14 +1072,11 @@ impl ToTable for Vec<CandidateMachineSummary> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementApprovedType is an enum in the database, and
 /// is used for tracking the state of a site-approved machine that
 /// measurements will be auto-approved as a bundle.
 ///
 /// Impls FromStr trait.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Copy, Debug, PartialEq, Clone, sqlx::Type, clap::ValueEnum, Serialize, Deserialize)]
 #[sqlx(type_name = "measurement_approved_type", rename_all = "lowercase")]
 pub enum MeasurementApprovedType {
@@ -1162,14 +1120,11 @@ impl From<MeasurementApprovedTypePb> for MeasurementApprovedType {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementApprovedMachineRecord defines a single row from
 /// the measurement_approved_machines table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeasurementApprovedMachineRecord {
@@ -1329,14 +1284,11 @@ impl ToTable for Vec<MeasurementApprovedMachineRecord> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementApprovedProfileRecord defines a single row from
 /// the measurement_approved_profiles table.
 ///
 /// Impls DbTable trait for generic selects defined in db/interface/common.rs,
 /// as well as ToTable for printing out details via prettytable.
-///////////////////////////////////////////////////////////////////////////////
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct MeasurementApprovedProfileRecord {

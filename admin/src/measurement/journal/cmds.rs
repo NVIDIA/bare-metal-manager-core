@@ -27,11 +27,8 @@ use ::rpc::protos::measured_boot::{
 use carbide::measured_boot::dto::records::MeasurementJournalRecord;
 use carbide::measured_boot::model::journal::MeasurementJournal;
 
-///////////////////////////////////////////////////////////////////////////////
 /// dispatch matches + dispatches the correct command for
 /// the `journal` subcommand.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn dispatch(
     cmd: &CmdJournal,
     cli: &mut global::cmds::CliData<'_, '_>,
@@ -70,12 +67,9 @@ pub async fn dispatch(
     Ok(())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete deletes an existing journal entry.
 ///
 /// `journal delete <journal-id>`
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete(
     grpc_conn: &mut ForgeClientT,
     delete: &Delete,
@@ -94,12 +88,9 @@ pub async fn delete(
     MeasurementJournal::from_grpc(response.get_ref().journal.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_by_id shows all info about a journal entry for the provided ID.
 ///
 /// `journal show <journal-id>`
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_by_id(
     grpc_conn: &mut ForgeClientT,
     show: &Show,
@@ -126,12 +117,9 @@ pub async fn show_by_id(
     MeasurementJournal::from_grpc(response.get_ref().journal.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_all shows all info about all journal entries.
 ///
 /// `journal show`
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _show: &Show,
@@ -151,12 +139,9 @@ pub async fn show_all(
         .collect::<eyre::Result<Vec<MeasurementJournal>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list just lists all journal IDs.
 ///
 /// `journal list`
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list(
     grpc_conn: &mut ForgeClientT,
     list: &List,

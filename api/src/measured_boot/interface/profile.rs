@@ -27,15 +27,12 @@ use sqlx::query_builder::QueryBuilder;
 use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_profile_record is a very basic insert of a
 /// new row into the measurement_system_profiles table, where only a name
 /// needs to be provided.
 ///
 /// Is it expected that this is wrapped by
 /// a more formal call (where a transaction is initialized).
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn insert_measurement_profile_record(
     txn: &mut Transaction<'_, Postgres>,
     name: String,
@@ -77,13 +74,10 @@ pub async fn insert_measurement_profile_record(
     Ok(profile)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_profile_attr_records takes a hashmap of
 /// k/v attributes and subsequently calls an individual insert
 /// for each pair. It is assumed this is called by a parent
 /// wrapper where a transaction is created.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn insert_measurement_profile_attr_records(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -96,11 +90,8 @@ pub async fn insert_measurement_profile_attr_records(
     Ok(attributes)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_profile_attr_record inserts a single
 /// profile attribute (k/v) pair.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn insert_measurement_profile_attr_record(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -122,10 +113,7 @@ async fn insert_measurement_profile_attr_record(
     )
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// rename_profile_for_profile_id renames a profile based on its profile ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn rename_profile_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -144,10 +132,8 @@ pub async fn rename_profile_for_profile_id(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
-/// rename_profile_for_profile_name renames a profile based on its profile name.
-///////////////////////////////////////////////////////////////////////////////
-
+/// rename_profile_for_profile_name renames a profile based
+/// on its profile name.
 pub async fn rename_profile_for_profile_name(
     txn: &mut Transaction<'_, Postgres>,
     old_profile_name: String,
@@ -165,33 +151,24 @@ pub async fn rename_profile_for_profile_name(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_all_measurement_profile_records gets all system profile records.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_all_measurement_profile_records(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementSystemProfileRecord>> {
     common::get_all_objects(txn).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_all_measurement_profile_attr_records gets all system profile
 /// attribute records.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_all_measurement_profile_attr_records(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {
     common::get_all_objects(txn).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_profile_record_by_id returns a populated
 /// MeasurementSystemProfileRecord for the given `profile_id`,
 /// if it exists.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_profile_record_by_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -199,12 +176,9 @@ pub async fn get_measurement_profile_record_by_id(
     common::get_object_for_id(txn, profile_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_profile_record_by_name returns a populated
 /// MeasurementSystemProfileRecord for the given `name`,
 /// if it exists.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_profile_record_by_name(
     txn: &mut Transaction<'_, Postgres>,
     val: String,
@@ -212,11 +186,8 @@ pub async fn get_measurement_profile_record_by_name(
     common::get_object_for_unique_column(txn, "name", val).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_profile_record_for_id deletes a profile record
 /// with the given profile_id.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_profile_record_for_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -224,11 +195,8 @@ pub async fn delete_profile_record_for_id(
     common::delete_object_where_id(txn, profile_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_profile_attr_records_for_id deletes all profile
 /// attribute records for a given profile ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_profile_attr_records_for_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -236,11 +204,8 @@ pub async fn delete_profile_attr_records_for_id(
     common::delete_objects_where_id(txn, profile_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_profile_record_by_attrs will attempt to get a single
 /// MeasurementSystemProfileRecord for the given attrs.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_profile_record_by_attrs(
     txn: &mut Transaction<'_, Postgres>,
     attrs: &HashMap<String, String>,
@@ -251,7 +216,6 @@ pub async fn get_measurement_profile_record_by_attrs(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_profile_id_by_attrs attempts to return a profile
 /// whose attributes match the input attributes.
 ///
@@ -271,8 +235,6 @@ pub async fn get_measurement_profile_record_by_attrs(
 /// ) AS {t2} ON {t1}.{join_id} = {t2}.{join_id}
 /// GROUP BY {t1}}.{join_id}
 /// HAVING COUNT(*) = {attrs_len}"
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_profile_id_by_attrs(
     txn: &mut Transaction<'_, Postgres>,
     attrs: &HashMap<String, String>,
@@ -347,11 +309,8 @@ fn where_attr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &HashMap<Str
     query.push(") ");
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_profile_attrs_for_profile_id returns all profile attribute
 /// records associated with the provided MeasurementSystemProfileId.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_profile_attrs_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -359,13 +318,10 @@ pub async fn get_measurement_profile_attrs_for_profile_id(
     common::get_objects_where_id(txn, profile_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_bundles_for_profile_id returns a unique list of all
 /// MeasurementBundleId that leverage the given profile.
 ///
 /// This is specifically used by the `profile list bundles for-id` CLI call.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_bundles_for_profile_id(
     db_conn: &Pool<Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -379,13 +335,10 @@ pub async fn get_bundles_for_profile_id(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_bundles_for_profile_name returns a unique list of all
 /// MeasurementBundleId that leverage the given profile.
 ///
 /// This is specifically used by the `profile list bundles for-name` CLI call.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_bundles_for_profile_name(
     db_conn: &Pool<Postgres>,
     profile_name: String,
@@ -399,13 +352,10 @@ pub async fn get_bundles_for_profile_name(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_machines_for_profile_id returns a unique list of all MachineId
 /// that leverage the given profile.
 ///
 /// This is specifically used by the `profile list machines by-id` CLI call.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_machines_for_profile_id(
     db_conn: &Pool<Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -421,13 +371,10 @@ pub async fn get_machines_for_profile_id(
         .collect())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_machines_for_profile_name returns a unique list of all CandidateMachineId
 /// that leverage the given profile.
 ///
 /// This is specifically used by the `profile list machines by-name` CLI call.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_machines_for_profile_name(
     db_conn: &Pool<Postgres>,
     profile_name: String,
@@ -444,14 +391,11 @@ pub async fn get_machines_for_profile_name(
         .collect())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_system_profiles takes a vector of MeasurementSystemProfileRecord
 /// and calls import_measurement_profile for each of them.
 ///
 /// This is used for doing full site imports, and is wrapped in a transaction
 /// such that, if any of it fails, none of it will be committed.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_system_profiles(
     txn: &mut Transaction<'_, Postgres>,
     records: &[MeasurementSystemProfileRecord],
@@ -463,7 +407,6 @@ pub async fn import_measurement_system_profiles(
     Ok(committed)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_profile inserts a single MeasurementSystemProfileRecord.
 ///
 /// This is used for doing full site imports, and the intent is that this
@@ -472,8 +415,6 @@ pub async fn import_measurement_system_profiles(
 ///
 /// After a MeasurementSystemProfileRecord gets inserted, its clear for having
 /// all of its MeasurementSystemProfileAttrRecord records inserted.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_profile(
     txn: &mut Transaction<'_, Postgres>,
     profile: &MeasurementSystemProfileRecord,
@@ -491,15 +432,12 @@ pub async fn import_measurement_profile(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_system_profiles_attrs inserts a bunch of measurement profile
 /// attributes as part of doing a site import.
 ///
 /// It is expected that the measurement profile itself (as in, the parent
 /// MeasurementSystemProfileRecord) exists before the attributes are added, since
 /// it would fail foreign key constraints otherwise.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_system_profiles_attrs(
     txn: &mut Transaction<'_, Postgres>,
     records: &[MeasurementSystemProfileAttrRecord],
@@ -511,14 +449,11 @@ pub async fn import_measurement_system_profiles_attrs(
     Ok(committed)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_system_profiles_attr imports a single measurement profile
 /// attribute.
 ///
 /// The idea is import_measurement_system_profiles_attrs has all of the attributes,
 /// and then calls this for each attribute.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_system_profiles_attr(
     txn: &mut Transaction<'_, Postgres>,
     bundle: &MeasurementSystemProfileAttrRecord,
@@ -540,13 +475,10 @@ pub async fn import_measurement_system_profiles_attr(
     )
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// export_measurement_profile_records returns all MeasurementSystemProfileRecord
 /// instances in the database.
 ///
 /// This is used by the site exporter, as well as for listing all profiles.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn export_measurement_profile_records(
     db_conn: &Pool<Postgres>,
 ) -> eyre::Result<Vec<MeasurementSystemProfileRecord>> {
@@ -554,14 +486,11 @@ pub async fn export_measurement_profile_records(
     common::get_all_objects(&mut txn).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// export_measurement_system_profiles_attrs returns all MeasurementSystemProfileAttrRecord
 /// instances in the database.
 ///
 /// This is specifically used by the site exporter, since we simply dump all
 /// attributes when doing a site export.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn export_measurement_system_profiles_attrs(
     db_conn: &Pool<Postgres>,
 ) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {

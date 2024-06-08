@@ -143,15 +143,12 @@ pub async fn get_approval_for_profile_id(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_approved_machines takes a vector of
 /// MeasurementApprovedMachineRecord and calls
 /// import_measurement_approved_machine for each of them.
 ///
 /// This is used for doing full site imports, and is wrapped in a transaction
 /// such that, if any of it fails, none of it will be committed.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_approved_machines(
     txn: &mut Transaction<'_, Postgres>,
     records: Vec<MeasurementApprovedMachineRecord>,
@@ -163,15 +160,12 @@ pub async fn import_measurement_approved_machines(
     Ok(committed)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_approved_machine inserts a single
 /// MeasurementApprovedMachineRecord.
 ///
 /// This is used for doing full site imports, and the intent is that this
 /// is called by import_measurement_approved_machines as part of inserting a
 /// bunch of machine approvals.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_approved_machine(
     txn: &mut Transaction<'_, Postgres>,
     record: &MeasurementApprovedMachineRecord,
@@ -192,15 +186,12 @@ pub async fn import_measurement_approved_machine(
     )
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_approved_profiles takes a vector of
 /// MeasurementApprovedMachineRecord and calls
 /// import_measurement_approved_profile for each of them.
 ///
 /// This is used for doing full site imports, and is wrapped in a transaction
 /// such that, if any of it fails, none of it will be committed.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_approved_profiles(
     txn: &mut Transaction<'_, Postgres>,
     records: Vec<MeasurementApprovedProfileRecord>,
@@ -212,15 +203,12 @@ pub async fn import_measurement_approved_profiles(
     Ok(committed)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_approved_profile inserts a single
 /// MeasurementApprovedProfileRecord.
 ///
 /// This is used for doing full site imports, and the intent is that this
 /// is called by import_measurement_approved_profiles as part of inserting a
 /// bunch of machine approvals.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_approved_profile(
     txn: &mut Transaction<'_, Postgres>,
     record: &MeasurementApprovedProfileRecord,

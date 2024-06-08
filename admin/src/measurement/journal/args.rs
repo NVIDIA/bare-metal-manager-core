@@ -23,11 +23,8 @@ use carbide::measured_boot::dto::keys::MeasurementJournalId;
 use carbide::model::machine::machine_id::MachineId;
 use clap::Parser;
 
-///////////////////////////////////////////////////////////////////////////////
 /// CmdJournal provides a container for the `journal` subcommand, which itself
 /// contains other subcommands for working with journals.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum CmdJournal {
     #[clap(about = "Delete a journal entry.", visible_alias = "d")]
@@ -40,31 +37,22 @@ pub enum CmdJournal {
     List(List),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Delete is used to delete an existing journal entry.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Delete {
     #[clap(help = "The journal ID to delete.")]
     pub journal_id: MeasurementJournalId,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// List is used to list all journal entry IDs.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct List {
     #[clap(help = "List journal entries for a machine ID.")]
     pub machine_id: Option<MachineId>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Show is used to show a journal entry based on ID, or all entries
 /// if no ID is provided.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Show {
     #[clap(help = "The optional journal entry ID.")]

@@ -37,7 +37,6 @@ use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
 use std::convert::{Into, TryFrom};
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementSystemProfile is a composition of a MeasurementSystemProfileRecord,
 /// whose attributes are essentially copied directly it, as well as
 /// the associated attributes (which are complete instances of
@@ -45,8 +44,6 @@ use std::convert::{Into, TryFrom};
 ///
 /// Included are ToTable implementations, which are used by the CLI for
 /// doing prettytable-formatted output.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Serialize)]
 pub struct MeasurementSystemProfile {
     pub profile_id: MeasurementSystemProfileId,
@@ -348,11 +345,8 @@ impl MeasurementSystemProfile {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // When `profile show <profile-id>` gets called, and the output format is
 // the default table view, this gets used to print a pretty table.
-///////////////////////////////////////////////////////////////////////////////
-
 impl ToTable for MeasurementSystemProfile {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -369,11 +363,8 @@ impl ToTable for MeasurementSystemProfile {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // When `profile show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.
-///////////////////////////////////////////////////////////////////////////////
-
 impl ToTable for Vec<MeasurementSystemProfile> {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -400,11 +391,8 @@ impl ToTable for Vec<MeasurementSystemProfile> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// profile_attr_records_to_map turns the vector of
 /// MeasurementSystemProfileAttrRecord into a hashmap of strings.
-///////////////////////////////////////////////////////////////////////////////
-
 pub fn profile_attr_records_to_map(
     values: &[MeasurementSystemProfileAttrRecord],
 ) -> eyre::Result<HashMap<String, String>> {
@@ -421,7 +409,6 @@ pub fn profile_attr_records_to_map(
     Ok(value_map)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// match_profile takes a map of k/v pairs and returns a singular matching
 /// profile based on the exact k/v pairs and the number of pairs, should
 /// one exist.
@@ -429,8 +416,6 @@ pub fn profile_attr_records_to_map(
 /// The code is written as such to only allow one profile with the same set
 /// of attributes, so if two matching profiles end up existing, it's because
 /// someone was messing around in the tables (or there's a bug).
-///////////////////////////////////////////////////////////////////////////////
-
 async fn match_profile(
     txn: &mut Transaction<'_, Postgres>,
     attrs: &HashMap<String, String>,
@@ -474,14 +459,11 @@ async fn match_profile(
     Ok(Some(matching[0].profile_id))
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// create_measurement_profile creates a new measurement profile
 /// and corresponding measurement profile attributes. The transaction
 /// is created here, and is used for corresponding insert statements
 /// into both the measurement_system_profiles and measurement_system_profiles_attrs
 /// tables.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn create_measurement_profile(
     txn: &mut Transaction<'_, Postgres>,
     name: String,
@@ -504,11 +486,8 @@ pub async fn create_measurement_profile(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_profile_by_id returns a MeasurementSystemProfile
 /// for the given MeasurementSystemProfileId.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_profile_by_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -527,11 +506,8 @@ pub async fn get_measurement_profile_by_id(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_profile_by_name returns a MeasurementSystemProfile
 /// for the given name.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_profile_by_name(
     txn: &mut Transaction<'_, Postgres>,
     name: String,
@@ -550,11 +526,8 @@ pub async fn get_measurement_profile_by_name(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_profile_for_id deletes a complete profile, including
 /// its attributes, by ID. It returns the deleted profile for display.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_profile_for_id(
     db_conn: &Pool<Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -575,11 +548,8 @@ pub async fn delete_profile_for_id(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_profile_for_name deletes a complete profile, including
 /// its attributes, by name. It returns the deleted profile for display.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_profile_for_name(
     db_conn: &Pool<Postgres>,
     name: String,
@@ -588,11 +558,8 @@ pub async fn delete_profile_for_name(
     delete_profile_for_id(db_conn, profile.profile_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_system_profiles returns all MeasurementSystemProfile
 /// instances in the database.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_system_profiles(
     db_conn: &Pool<Postgres>,
 ) -> eyre::Result<Vec<MeasurementSystemProfile>> {

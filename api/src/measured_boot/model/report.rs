@@ -49,13 +49,10 @@ use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementReport is a composition of a MeasurementReportRecord,
 /// whose attributes are essentially copied directly it, as well as
 /// the associated attributes (which are complete instances of
 /// MeasurementReportValueRecord, along with its UUID and timestamp).
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Serialize, Clone)]
 pub struct MeasurementReport {
     pub report_id: MeasurementReportId,
@@ -266,11 +263,8 @@ impl MeasurementReport {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // When `report show <report-id>` gets called, and the output format is
 // the default table view, this gets used to print a pretty table.
-///////////////////////////////////////////////////////////////////////////////
-
 impl ToTable for MeasurementReport {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -290,11 +284,8 @@ impl ToTable for MeasurementReport {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // When `report show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.
-///////////////////////////////////////////////////////////////////////////////
-
 impl ToTable for Vec<MeasurementReport> {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -322,11 +313,8 @@ impl ToTable for Vec<MeasurementReport> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// create_measurement_report handles the work of creating a new
 /// measurement report as well as all associated value records.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn create_measurement_report(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -377,12 +365,9 @@ pub async fn create_measurement_report(
     Ok(report)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_reports returns all MeasurementReport
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_all_measurement_reports(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementReport>> {
@@ -415,11 +400,8 @@ pub async fn get_all_measurement_reports(
     Ok(res)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_report_by_id does the work of populating a full
 /// MeasurementReport instance, with values and all.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_report_by_id_with_txn(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
@@ -438,12 +420,9 @@ pub async fn get_measurement_report_by_id_with_txn(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_reports_for_machine_id returns all fully populated
 /// report instances for a given machine ID, which is used by the
 /// `report show` CLI option.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_reports_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -464,11 +443,8 @@ pub async fn get_measurement_reports_for_machine_id(
     Ok(res)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_latest_measurement_reports_by_machine_id returns the most
 /// recent measurement reports sent by each machine.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_latest_measurement_reports_by_machine_id(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementReport>> {
@@ -487,11 +463,8 @@ pub async fn get_latest_measurement_reports_by_machine_id(
     Ok(res)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// JournalData is just a small struct used to store data collected as
 /// part of attestation work when forming a new journal entry.
-///////////////////////////////////////////////////////////////////////////////
-
 struct JournalData {
     state: MeasurementMachineState,
     bundle_id: Option<MeasurementBundleId>,
@@ -533,7 +506,6 @@ impl JournalData {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// maybe_auto_approve_machine will check to see if an auto-approve config
 /// exists for the current machine ID. If it does, it will make a new
 /// measurement bundle using the selected report registers per the auto
@@ -541,8 +513,6 @@ impl JournalData {
 ///
 /// It's worth mentioning that this in and of itself will create an additional
 /// journal entry, should a new bundle be created.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn maybe_auto_approve_machine(
     txn: &mut Transaction<'_, Postgres>,
     report: &MeasurementReport,
@@ -566,7 +536,6 @@ async fn maybe_auto_approve_machine(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// maybe_auto_approve_profile will check to see if an auto-approve config
 /// exists for the current machine's system profile. If it does, it will make
 /// a new measurement bundle using the selected report registers per the auto
@@ -574,8 +543,6 @@ async fn maybe_auto_approve_machine(
 ///
 /// It's worth mentioning that this in and of itself will create an additional
 /// journal entry, should a new bundle be created.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn maybe_auto_approve_profile(
     txn: &mut Transaction<'_, Postgres>,
     journal: &MeasurementJournal,
@@ -600,12 +567,9 @@ async fn maybe_auto_approve_profile(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// create_bundle_with_state takes a report entry and creates a new measurement
 /// bundle for it with the provided state, optionally restricting only certain
 /// PCR register values per pcr_set.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn create_bundle_with_state(
     txn: &mut Transaction<'_, Postgres>,
     report: &MeasurementReport,

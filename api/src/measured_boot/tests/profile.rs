@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-///////////////////////////////////////////////////////////////////////////////
 /// tests/profile.rs
 ///
 /// Bundles:
@@ -29,7 +28,6 @@
 /// [ ] test_site_import_export: Make sure an export/import looks good.
 /// [ ] test_site_approved_machine: Make sure approved machine mgmt works.
 /// [ ] test_site_approved_profile: Make sure approved profile mgmt works.
-///////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {

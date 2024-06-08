@@ -23,13 +23,10 @@ use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
 use sqlx::{Postgres, Transaction};
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_journal_record is a very basic insert of a
 /// new row into the measurement_journals table. Is it expected that
 /// this is wrapped by a more formal call (where a txn is initialized)
 /// to also set corresponding value records.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn insert_measurement_journal_record(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -51,10 +48,7 @@ pub async fn insert_measurement_journal_record(
     Ok(journal)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_journal_where_id deletes a journal record.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_journal_where_id(
     txn: &mut Transaction<'_, Postgres>,
     journal_id: MeasurementJournalId,
@@ -62,13 +56,10 @@ pub async fn delete_journal_where_id(
     common::delete_object_where_id(txn, journal_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_journal_record_by_id returns a populated
 /// MeasurementJournalRecord for the given `journal_id`,
 /// if it exists. This leverages the generic get_object_for_id
 /// function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_journal_record_by_id(
     txn: &mut Transaction<'_, Postgres>,
     journal_id: MeasurementJournalId,
@@ -76,24 +67,18 @@ pub async fn get_measurement_journal_record_by_id(
     common::get_object_for_id(txn, journal_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_journal_records returns all MeasurementJournalRecord
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_journal_records(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementJournalRecord>> {
     common::get_all_objects(txn).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_journal_records_for_machine_id returns all journal
 /// records for a given machine ID, which is used by the `journal list`
 /// CLI option.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_journal_records_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -101,11 +86,8 @@ pub async fn get_measurement_journal_records_for_machine_id(
     common::get_objects_where_id(txn, machine_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_journal_ids_by_values returns a journal
 /// whose values match the input values.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_journal_ids_by_values(
     txn: &mut Transaction<'_, Postgres>,
     values: &[common::PcrRegisterValue],

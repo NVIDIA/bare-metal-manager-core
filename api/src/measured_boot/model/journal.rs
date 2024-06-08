@@ -34,13 +34,10 @@ use sqlx::{Pool, Postgres, Transaction};
 use std::str::FromStr;
 use utils::admin_cli::{just_print_summary, serde_just_print_summary};
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementJournal is a composition of a MeasurementJournalRecord,
 /// whose attributes are essentially copied directly it, as well as
 /// the associated attributes (which are complete instances of
 /// MeasurementReportValueRecord, along with its UUID and timestamp).
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Serialize, Clone)]
 pub struct MeasurementJournal {
     pub journal_id: MeasurementJournalId,
@@ -199,11 +196,8 @@ impl MeasurementJournal {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // When `journal show <journal-id>` gets called, and the output format is
 // the default table view, this gets used to print a pretty table.
-///////////////////////////////////////////////////////////////////////////////
-
 impl ToTable for MeasurementJournal {
     fn to_table(&self) -> eyre::Result<String> {
         let profile_id: String = match self.profile_id {
@@ -228,11 +222,8 @@ impl ToTable for MeasurementJournal {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // When `journal show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.
-///////////////////////////////////////////////////////////////////////////////
-
 impl ToTable for Vec<MeasurementJournal> {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -261,11 +252,8 @@ impl ToTable for Vec<MeasurementJournal> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// create_measurement_journal handles the work of creating a new
 /// measurement journal record as well as all associated value records.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn create_measurement_journal(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -289,11 +277,8 @@ async fn create_measurement_journal(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_journal_by_id does the work of populating a full
 /// MeasurementJournal instance, with values and all.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn get_measurement_journal_by_id(
     db_conn: &Pool<Postgres>,
     journal_id: MeasurementJournalId,
@@ -313,12 +298,9 @@ async fn get_measurement_journal_by_id(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_journals returns all MeasurementJournal
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn get_measurement_journals(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementJournal>> {
@@ -338,12 +320,9 @@ async fn get_measurement_journals(
     Ok(res)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_journals_for_machine_id returns all fully populated
 /// journal instances for a given machine ID, which is used by the
 /// `journal show` CLI option.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn get_measurement_journals_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -363,11 +342,8 @@ async fn get_measurement_journals_for_machine_id(
         .collect())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_latest_journal_for_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
