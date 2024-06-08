@@ -27,12 +27,9 @@ use crate::cfg::measurement::{parse_colon_pairs, KvPair};
 use crate::measurement::global::cmds::IdNameIdentifier;
 use clap::Parser;
 
-///////////////////////////////////////////////////////////////////////////////
 // CmdProfile provides a container for the `profile`
 // subcommand, which itself contains other subcommands
 // for working with profiles.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum CmdProfile {
     #[clap(
@@ -58,10 +55,7 @@ pub enum CmdProfile {
     List(List),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Create is used for creating profiles.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Create {
     #[clap(required = true, help = "Every profile gets a name.")]
@@ -87,10 +81,7 @@ pub struct Create {
     pub extra_attrs: Vec<KvPair>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Delete a profile by ID or name.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Delete {
     #[clap(help = "The profile ID or name.")]
@@ -113,12 +104,9 @@ impl IdNameIdentifier for Delete {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Rename will rename a profile for the given ID or name.
 /// A parser will parse the `identifier` to determine if
 /// the API should be called w/ an ID or name selector.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Rename {
     #[clap(help = "The existing profile ID or name.")]
@@ -144,11 +132,8 @@ impl IdNameIdentifier for Rename {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Show will get + display a profile for the given ID or name, or, if not set,
 /// it will display all profiles and their information.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Show {
     #[clap(help = "The optional profile ID or name.")]
@@ -171,10 +156,7 @@ impl IdNameIdentifier for Show {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// List provides a few ways to list things.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum List {
     #[clap(about = "List all profiles", visible_alias = "a")]
@@ -193,17 +175,11 @@ pub enum List {
     Machines(ListMachines),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// ListAll will list all profiles.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListAll {}
 
-///////////////////////////////////////////////////////////////////////////////
 /// List all bundles for a given profile (by profile name or ID).
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListBundles {
     #[clap(help = "The profile ID or name.")]
@@ -226,10 +202,7 @@ impl IdNameIdentifier for ListBundles {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// List all machines for a given profile (by profile name or ID).
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListMachines {
     #[clap(help = "The profile ID or name.")]

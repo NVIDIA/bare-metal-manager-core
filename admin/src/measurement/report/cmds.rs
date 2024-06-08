@@ -33,11 +33,8 @@ use carbide::measured_boot::interface::common::PcrRegisterValue;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::measured_boot::model::report::MeasurementReport;
 
-///////////////////////////////////////////////////////////////////////////////
 /// dispatch matches + dispatches the correct command for
 /// the `bundle` subcommand (e.g. create, delete, set-state).
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn dispatch(
     cmd: &CmdReport,
     cli: &mut global::cmds::CliData<'_, '_>,
@@ -119,10 +116,7 @@ pub async fn dispatch(
     Ok(())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// create_for_id creates a new measurement report.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn create_for_id(
     grpc_conn: &mut ForgeClientT,
     create: &Create,
@@ -142,10 +136,7 @@ pub async fn create_for_id(
     MeasurementReport::from_grpc(response.get_ref().report.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete deletes a measurement report with the provided ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete(
     grpc_conn: &mut ForgeClientT,
     delete: &Delete,
@@ -164,12 +155,9 @@ pub async fn delete(
     MeasurementReport::from_grpc(response.get_ref().report.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// promote promotes a report to an active bundle.
 ///
 /// `report promote <report-id> [pcr-selector]`
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn promote(
     grpc_conn: &mut ForgeClientT,
     promote: &Promote,
@@ -192,14 +180,11 @@ pub async fn promote(
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// revoke "promotes" a journal entry into a revoked bundle,
 /// which is a way of being able to say "any journals that come in
 /// matching this should be marked as rejected.
 ///
 /// `journal revoke <journal-id> [pcr-selector]`
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn revoke(
     grpc_conn: &mut ForgeClientT,
     revoke: &Revoke,
@@ -222,10 +207,7 @@ pub async fn revoke(
     MeasurementBundle::from_grpc(response.get_ref().bundle.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_for_id dumps all info about a report for the given ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_for_id(
     grpc_conn: &mut ForgeClientT,
     show_for_id: &ShowForId,
@@ -244,10 +226,7 @@ pub async fn show_for_id(
     MeasurementReport::from_grpc(response.get_ref().report.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_for_machine dumps reports for a given machine.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_for_machine(
     grpc_conn: &mut ForgeClientT,
     show_for_machine: &ShowForMachine,
@@ -272,10 +251,7 @@ pub async fn show_for_machine(
         .collect::<eyre::Result<Vec<MeasurementReport>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_all dumps all info about all reports.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementReport>> {
     // Request.
     let request = ShowMeasurementReportsRequest {};
@@ -295,10 +271,7 @@ pub async fn show_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<Measurem
         .collect::<eyre::Result<Vec<MeasurementReport>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list lists all bundle ids.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementReportRecord>> {
     // Request.
     let request = ListMeasurementReportRequest { selector: None };
@@ -318,10 +291,7 @@ pub async fn list_all(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<Measurem
         .collect::<eyre::Result<Vec<MeasurementReportRecord>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list_machines lists all reports for the given machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
@@ -348,11 +318,9 @@ pub async fn list_machines(
         .collect::<eyre::Result<Vec<MeasurementReportRecord>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// match_values matches all reports with the provided PCR values.
 ///
 /// `report match <pcr_register:val>,...`
-///////////////////////////////////////////////////////////////////////////////`
 pub async fn match_values(
     grpc_conn: &mut ForgeClientT,
     match_args: &Match,

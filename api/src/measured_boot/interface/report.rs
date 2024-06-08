@@ -22,14 +22,11 @@ use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
 use sqlx::{Pool, Postgres, QueryBuilder, Transaction};
 
-///////////////////////////////////////////////////////////////////////////////
 /// match_report takes a list of PcrRegisterValues (i.e. register:sha256)
 /// and returns all matching report entries for it.
 ///
 /// The intent is bundle operations can call this to see what reports
 /// match the bundle.
-///////////////////////////////////////////////////////////////////////////////
-
 pub fn where_pcr_pairs(
     query: &mut QueryBuilder<'_, Postgres>,
     values: &[common::PcrRegisterValue],
@@ -94,13 +91,10 @@ pub async fn match_latest_reports_with_txn(
     Ok(prepared.fetch_all(&mut **txn).await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_report_record is a very basic insert of a
 /// new row into the measurement_reports table. Is it expected that
 /// this is wrapped by a more formal call (where a txn is initialized)
 /// to also set corresponding value records.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn insert_measurement_report_record(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -112,13 +106,10 @@ pub async fn insert_measurement_report_record(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_report_value_records takes a vec of
 /// Strings and subsequently calls an individual insert
 /// for each value. It is assumed this is called by a parent
 /// wrapper where a transaction is created.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn insert_measurement_report_value_records(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
@@ -134,10 +125,7 @@ pub async fn insert_measurement_report_value_records(
     Ok(records)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_report_value_record inserts a single report value.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn insert_measurement_report_value_record(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
@@ -152,37 +140,28 @@ async fn insert_measurement_report_value_record(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_all_measurement_report_records returns all MeasurementReportRecord
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_all_measurement_report_records(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementReportRecord>> {
     common::get_all_objects(txn).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_all_measurement_report_value_records returns all
 /// MeasurementReportValueRecord instances in the database. This leverages
 /// the generic get_all_objects function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_all_measurement_report_value_records(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementReportValueRecord>> {
     common::get_all_objects(txn).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_report_record_by_id returns a populated
 /// MeasurementReportRecord for the given `report_id`,
 /// if it exists. This leverages the generic get_object_for_id
 /// function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_report_record_by_id(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
@@ -190,12 +169,9 @@ pub async fn get_measurement_report_record_by_id(
     common::get_object_for_id(txn, report_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_report_records_for_machine_id returns all report
 /// records for a given machine ID, which is used by the `report list`
 /// CLI option.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_report_records_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -203,15 +179,12 @@ pub async fn get_measurement_report_records_for_machine_id(
     common::get_objects_where_id(txn, machine_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_report_values_for_report_id returns
 /// all of the measurement values associated with a given
 /// `report_id`. This call leverages the generic
 /// get_objects_where_id, allowing a caller to get a list
 /// of multiple objects matching a given PgUuid, where
 /// the PgUuid is probably a reference/foreign key.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_report_values_for_report_id(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
@@ -219,11 +192,8 @@ pub async fn get_measurement_report_values_for_report_id(
     common::get_objects_where_id(txn, report_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_report_ids_by_values returns a report
 /// whose values match the input values.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_report_ids_by_values(
     txn: &mut Transaction<'_, Postgres>,
     values: &[common::PcrRegisterValue],
@@ -231,11 +201,8 @@ pub async fn get_measurement_report_ids_by_values(
     common::get_ids_for_bundle_values(txn, "measurement_reports_values", values).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_latest_measurement_report_records_by_machine_id returns the most
 /// recent measurement report IDs sent by each machine.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_latest_measurement_report_records_by_machine_id(
     txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementReportRecord>> {
@@ -246,10 +213,7 @@ pub async fn get_latest_measurement_report_records_by_machine_id(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_report_for_id deletes a report record.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_report_for_id(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
@@ -260,11 +224,8 @@ pub async fn delete_report_for_id(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_report_values_for_id deletes all report
 /// value records for a report.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_report_values_for_id(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,

@@ -38,13 +38,10 @@ use sqlx::{Pool, Postgres, Transaction};
 
 use crate::measured_boot::model::journal::MeasurementJournal;
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementBundle is a composition of a MeasurementBundleRecord,
 /// whose attributes are essentially copied directly it, as well as
 /// the associated attributes (which are complete instances of
 /// MeasurementBundleValueRecord, along with its UUID and timestamp).
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Serialize)]
 pub struct MeasurementBundle {
     // bundle_id is the auto-generated UUID for a measurement bundle,
@@ -484,11 +481,8 @@ impl MeasurementBundle {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // When `bundle show <bundle-id>` gets called, and the output format is
 // the default table view, this gets used to print a pretty table.
-///////////////////////////////////////////////////////////////////////////////
-
 impl ToTable for MeasurementBundle {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -510,11 +504,8 @@ impl ToTable for MeasurementBundle {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 // When `bundle show` gets called (for all entries), and the output format
 // is the default table view, this gets used to print a pretty table.
-///////////////////////////////////////////////////////////////////////////////
-
 impl ToTable for Vec<MeasurementBundle> {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
@@ -543,7 +534,6 @@ impl ToTable for Vec<MeasurementBundle> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// match_bundle takes a map of k/v pairs and returns a singular matching
 /// bundle ID based on the exact k/v pairs and the number of pairs, should
 /// one exist.
@@ -551,8 +541,6 @@ impl ToTable for Vec<MeasurementBundle> {
 /// The code is written as such to only allow one bundle to match, so if two
 /// matching bundles end up matching, it's because someone was messing around
 /// in the tables (or there's a bug).
-///////////////////////////////////////////////////////////////////////////////
-
 async fn match_bundle(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,

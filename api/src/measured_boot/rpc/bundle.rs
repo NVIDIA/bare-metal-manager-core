@@ -43,11 +43,8 @@ use rpc::protos::measured_boot::rename_measurement_bundle_request;
 use rpc::protos::measured_boot::show_measurement_bundle_request;
 use rpc::protos::measured_boot::update_measurement_bundle_request;
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_create_measurement_bundle handles the CreateMeasurementBundle
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_create_measurement_bundle(
     db_conn: &Pool<Postgres>,
     req: &CreateMeasurementBundleRequest,
@@ -68,11 +65,8 @@ pub async fn handle_create_measurement_bundle(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_delete_measurement_bundle handles the DeleteMeasurementBundle
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_delete_measurement_bundle(
     db_conn: &Pool<Postgres>,
     req: &DeleteMeasurementBundleRequest,
@@ -107,11 +101,8 @@ pub async fn handle_delete_measurement_bundle(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_rename_measurement_bundle handles the RenameMeasurementBundle
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_rename_measurement_bundle(
     db_conn: &Pool<Postgres>,
     req: &RenameMeasurementBundleRequest,
@@ -153,11 +144,8 @@ pub async fn handle_rename_measurement_bundle(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_update_measurement_bundle handles the UpdateMeasurementBundle
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_update_measurement_bundle(
     db_conn: &Pool<Postgres>,
     req: &UpdateMeasurementBundleRequest,
@@ -194,11 +182,8 @@ pub async fn handle_update_measurement_bundle(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_show_measurement_bundle handles the ShowMeasurementBundle
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_show_measurement_bundle(
     db_conn: &Pool<Postgres>,
     req: &ShowMeasurementBundleRequest,
@@ -225,11 +210,8 @@ pub async fn handle_show_measurement_bundle(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_show_measurement_bundles handles the ShowMeasurementBundles
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_show_measurement_bundles(
     db_conn: &Pool<Postgres>,
     _req: &ShowMeasurementBundlesRequest,
@@ -245,11 +227,8 @@ pub async fn handle_show_measurement_bundles(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_measurement_bundles handles the ListMeasurementBundles
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_measurement_bundles(
     db_conn: &Pool<Postgres>,
     _req: &ListMeasurementBundlesRequest,
@@ -265,11 +244,8 @@ pub async fn handle_list_measurement_bundles(
     Ok(ListMeasurementBundlesResponse { bundles })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_measurement_bundle_machines handles the
 /// ListMeasurementBundleMachines API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_measurement_bundle_machines(
     db_conn: &Pool<Postgres>,
     req: &ListMeasurementBundleMachinesRequest,

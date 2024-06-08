@@ -1,17 +1,16 @@
 /*
-///////////////////////////////////////////////////////////////////////////////
+
 /// admin_cli.rs
 ///
 /// General utility code for working with and displaying data
 /// with the admin CLI.
-///////////////////////////////////////////////////////////////////////////////
+
 */
 
 use sqlx::{Pool, Postgres};
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-///////////////////////////////////////////////////////////////////////////////
 /// SUMMARY is a global variable that is being used by a few structs which
 /// implement serde::Serialize with skip_serialization_if.
 ///
@@ -21,8 +20,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 ///
 /// You set --extended on the CLI, which controls whether or not to summarized
 /// (default is summarized).
-///////////////////////////////////////////////////////////////////////////////
-
 static SUMMARY: AtomicBool = AtomicBool::new(false);
 
 pub fn serde_just_print_summary<T>(_: &T) -> bool {
@@ -37,11 +34,8 @@ pub fn set_summary(val: bool) {
     SUMMARY.store(val, Ordering::SeqCst);
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_db_url returns the full DB URL to use for connecting (and resetting,
 /// if requested).
-///////////////////////////////////////////////////////////////////////////////
-
 pub fn get_db_url(db_url: &str, db_name: &str) -> String {
     // Attempt to grab the DATABASE_URL first.
     // If it doesn't exist, fall back to args.db_url.
@@ -52,11 +46,8 @@ pub fn get_db_url(db_url: &str, db_name: &str) -> String {
     db_base + "/" + db_name
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// connect connects to the database for the provided db_url, which probably
 /// comes from get_db_url.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn connect(db_url: &str) -> eyre::Result<Pool<Postgres>> {
     let pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(db_url).await?;
     Ok(pool)

@@ -168,10 +168,7 @@ pub async fn export(grpc_conn: &mut ForgeClientT, _export: &Export) -> eyre::Res
     SiteModel::from_grpc(response.get_ref().model.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// approve_machine is used to approve a trusted machine by machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn approve_machine(
     grpc_conn: &mut ForgeClientT,
     approve: &ApproveMachine,
@@ -199,11 +196,8 @@ pub async fn approve_machine(
     )?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// remove_machine_by_approval_id removes a trusted machine approval
 /// by its approval ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn remove_machine_by_approval_id(
     grpc_conn: &mut ForgeClientT,
     by_approval_id: &RemoveMachineByApprovalId,
@@ -229,11 +223,8 @@ pub async fn remove_machine_by_approval_id(
     )?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// remove_machine_by_machine_id removes a trusted machine approval
 /// by its machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn remove_machine_by_machine_id(
     grpc_conn: &mut ForgeClientT,
     by_machine_id: &RemoveMachineByMachineId,
@@ -259,10 +250,7 @@ pub async fn remove_machine_by_machine_id(
     )?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list_machines lists all trusted machine approvals.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
 ) -> eyre::Result<Vec<MeasurementApprovedMachineRecord>> {
@@ -284,10 +272,7 @@ pub async fn list_machines(
         .collect::<eyre::Result<Vec<MeasurementApprovedMachineRecord>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// approve_profile is used to approve a trusted profile by profile ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn approve_profile(
     grpc_conn: &mut ForgeClientT,
     approve: &ApproveProfile,
@@ -313,11 +298,8 @@ pub async fn approve_profile(
     )?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// remove_profile_by_approval_id removes a trusted profile approval
 /// by its approval ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn remove_profile_by_approval_id(
     grpc_conn: &mut ForgeClientT,
     by_approval_id: &RemoveProfileByApprovalId,
@@ -343,11 +325,8 @@ pub async fn remove_profile_by_approval_id(
     )?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// remove_profile_by_machine_id removes a trusted machine approval
 /// by its profile ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn remove_profile_by_profile_id(
     grpc_conn: &mut ForgeClientT,
     by_profile_id: &RemoveProfileByProfileId,
@@ -373,10 +352,7 @@ pub async fn remove_profile_by_profile_id(
     )?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list_profiles lists all trusted profile approvals.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list_profiles(
     grpc_conn: &mut ForgeClientT,
 ) -> eyre::Result<Vec<MeasurementApprovedProfileRecord>> {

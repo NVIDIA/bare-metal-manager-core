@@ -35,11 +35,8 @@ use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
 
-///////////////////////////////////////////////////////////////////////////////
 /// IdParseError is an error used for reporting back failures
 /// to parse a UUIDv4 string back into a UUID.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug)]
 pub struct UuidEmptyStringError {}
 
@@ -73,7 +70,6 @@ impl fmt::Display for IdParseError {
 
 impl Error for IdParseError {}
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementSystemProfileId
 ///
 /// Primary key for a measurement_system_profiles table entry, which is the table
@@ -82,8 +78,6 @@ impl Error for IdParseError {}
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementSystemProfileId(pub uuid::Uuid);
@@ -151,15 +145,12 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileId {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementSystemProfileAttrId
 ///
 /// Primary key for a measurement_system_profiles_attrs table entry, which is
 /// the table containing the attributes used to map machines to profiles.
 ///
 /// Includes code for various implementations.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementSystemProfileAttrId(pub uuid::Uuid);
@@ -222,7 +213,6 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementBundleId
 ///
 /// Primary key for a measurement_bundles table entry, where a bundle is
@@ -231,8 +221,6 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, ToTable for printing via prettytable,
 /// as well as other various trait impls as required by serde, sqlx, etc.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementBundleId(pub uuid::Uuid);
@@ -311,15 +299,12 @@ impl ToTable for Vec<MeasurementBundleId> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementBundleValueId
 ///
 /// Primary key for a measurement_bundles_values table entry, where a value is
 /// a single measurement that is part of a measurement bundle.
 ///
 /// Includes code for various implementations.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementBundleValueId(pub uuid::Uuid);
@@ -381,7 +366,6 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleValueId {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementReportId
 ///
 /// Primary key for a measurement_reports table entry, which contains reports
@@ -390,8 +374,6 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleValueId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, Eq, Hash, FromRow, PartialEq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementReportId(pub uuid::Uuid);
@@ -459,15 +441,12 @@ impl TryFrom<Option<Uuid>> for MeasurementReportId {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementReportValueId
 ///
 /// Primary key for a measurement_reports_values table entry, which is the
 /// backing values reported for each report into measurement_reports.
 ///
 /// Includes code for various implementations.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementReportValueId(pub uuid::Uuid);
@@ -529,7 +508,6 @@ impl TryFrom<Option<Uuid>> for MeasurementReportValueId {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementJournalId
 ///
 /// Primary key for a measurement_journal table entry, which is the journal
@@ -538,8 +516,6 @@ impl TryFrom<Option<Uuid>> for MeasurementReportValueId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, Eq, Hash, FromRow, PartialEq, Type, Serialize, Deserialize)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementJournalId(pub uuid::Uuid);
@@ -607,7 +583,6 @@ impl TryFrom<Option<Uuid>> for MeasurementJournalId {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementApprovedMachineId
 ///
 /// Primary key for a measurement_approved_machines table entry, which is how
@@ -617,8 +592,6 @@ impl TryFrom<Option<Uuid>> for MeasurementJournalId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementApprovedMachineId(pub uuid::Uuid);
@@ -687,7 +660,6 @@ impl TryFrom<Option<Uuid>> for MeasurementApprovedMachineId {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// MeasurementApprovedProfileId
 ///
 /// Primary key for a measurement_approved_profiles table entry, which is how
@@ -697,8 +669,6 @@ impl TryFrom<Option<Uuid>> for MeasurementApprovedMachineId {
 /// Impls the DbPrimaryUuid trait, which is used for doing generic selects
 /// defined in db/interface/common.rs, as well as other various trait impls
 /// as required by serde, sqlx, etc.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq)]
 #[sqlx(type_name = "UUID")]
 pub struct MeasurementApprovedProfileId(pub uuid::Uuid);

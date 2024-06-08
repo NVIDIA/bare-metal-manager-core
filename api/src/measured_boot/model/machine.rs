@@ -32,11 +32,8 @@ use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
 
-///////////////////////////////////////////////////////////////////////////////
 /// CandidateMachine describes a machine that is a candidate for attestation,
 /// and is derived from machine information in the machine_toplogies table.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Debug, Serialize, Clone)]
 pub struct CandidateMachine {
     pub machine_id: MachineId,
@@ -216,11 +213,8 @@ pub async fn get_measurement_machine_state(
     )
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn internal_get_latest_journal_for_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -232,10 +226,7 @@ async fn internal_get_latest_journal_for_id(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_candidate_machines returns all populated CandidateMachine instances.
-///////////////////////////////////////////////////////////////////////////////
-
 async fn get_candidate_machines(db_conn: &Pool<Postgres>) -> eyre::Result<Vec<CandidateMachine>> {
     let mut txn = db_conn.begin().await?;
     let mut res: Vec<CandidateMachine> = Vec::new();

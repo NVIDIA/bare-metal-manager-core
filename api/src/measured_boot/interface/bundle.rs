@@ -26,13 +26,10 @@ use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
 use sqlx::{Pool, Postgres, Transaction};
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_bundle_record is a very basic insert of a
 /// new row into the measurement_bundles table, where only a profile_id
 /// needs to be provided. Is it expected that this is wrapped by
 /// a more formal call (where a transaction is initialized).
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn insert_measurement_bundle_record(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -91,12 +88,9 @@ pub async fn insert_measurement_bundle_record(
     Ok(bundle)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_values takes a vec of PcrRegisterValues and
 /// subsequently calls an individual insert for each. It is assumed this is
 /// called by a parent wrapper where a transaction was created.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn insert_measurement_bundle_value_records(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -117,11 +111,8 @@ pub async fn insert_measurement_bundle_value_records(
     Ok(records)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// insert_measurement_value inserts a single bundle value, returning the
 /// complete inserted record, which includes its new UUID and insert timestamp.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn insert_measurement_bundle_value_record(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -138,10 +129,7 @@ pub async fn insert_measurement_bundle_value_record(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// rename_bundle_for_bundle_id renames a bundle based on its bundle ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn rename_bundle_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -160,10 +148,7 @@ pub async fn rename_bundle_for_bundle_id(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// rename_bundle_for_bundle_name renames a bundle based on its bundle name.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn rename_bundle_for_bundle_name(
     txn: &mut Transaction<'_, Postgres>,
     old_bundle_name: String,
@@ -181,7 +166,6 @@ pub async fn rename_bundle_for_bundle_name(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// set_state_for_bundle_id sets a new state for a given bundle ID.
 ///
 /// This is the last line of defense to make sure a bundle cant move
@@ -191,8 +175,6 @@ pub async fn rename_bundle_for_bundle_name(
 /// NOTE(chet): There may come a time when we want to introduce a `force`
 /// boolean to force out of revoked, but lets see what mileage we can get
 /// from this first.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn set_state_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -241,10 +223,7 @@ pub async fn set_state_for_bundle_id(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_state_for_bundle_id gets the state for a given bundle ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_state_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -260,12 +239,9 @@ pub async fn get_state_for_bundle_id(
     Ok(record.state)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_bundle_by_id returns a populated MeasurementBundleRecord
 /// for the given `bundle_id`, if it exists. This leverages the generic
 /// get_object_for_id function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_bundle_by_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -273,12 +249,9 @@ pub async fn get_measurement_bundle_by_id(
     common::get_object_for_id(txn, bundle_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_bundle_for_name returns a populated MeasurementBundleRecord
 /// for the given `bundle_name`, if it exists. This leverages the generic
 /// get_object_for_id function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_bundle_for_name(
     txn: &mut Transaction<'_, Postgres>,
     bundle_name: String,
@@ -286,12 +259,9 @@ pub async fn get_measurement_bundle_for_name(
     common::get_object_for_unique_column(txn, "name", bundle_name.clone()).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_bundle_records returns all MeasurementBundleRecord
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_bundle_records(
     db_conn: &Pool<Postgres>,
 ) -> eyre::Result<Vec<MeasurementBundleRecord>> {
@@ -305,12 +275,9 @@ pub async fn get_measurement_bundle_records_with_txn(
     common::get_all_objects(txn).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_bundle_records_for_profile_id returns all
 /// MeasurementBundleRecord instances in the database with the given profile
 /// ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_bundle_records_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
@@ -318,12 +285,9 @@ pub async fn get_measurement_bundle_records_for_profile_id(
     common::get_objects_where_id(txn, profile_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_bundles_values returns all MeasurementBundleValueRecord
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_bundles_values(
     db_conn: &Pool<Postgres>,
 ) -> eyre::Result<Vec<MeasurementBundleValueRecord>> {
@@ -331,7 +295,6 @@ pub async fn get_measurement_bundles_values(
     common::get_all_objects(&mut txn).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_bundle_values_for_bundle_id returns
 /// all of the measurement values associated with a given
 /// `bundle_id`, where there should be PCR_VALUE_LENGTH
@@ -339,8 +302,6 @@ pub async fn get_measurement_bundles_values(
 /// get_objects_where_id, allowing a caller to get a list
 /// of multiple objects matching a given PgUuid, where
 /// the PgUuid is probably a reference/foreign key.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_bundle_values_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -348,11 +309,8 @@ pub async fn get_measurement_bundle_values_for_bundle_id(
     common::get_objects_where_id(txn, bundle_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_bundle_by_values returns a bundle
 /// whose values match the input values.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_bundle_ids_by_values(
     txn: &mut Transaction<'_, Postgres>,
     values: &[common::PcrRegisterValue],
@@ -360,11 +318,8 @@ pub async fn get_measurement_bundle_ids_by_values(
     common::get_ids_for_bundle_values(txn, "measurement_bundles_values", values).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_measurement_journals_for_bundle_id returns all measurement journal
 /// records that are associated with the given bundle ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_measurement_journals_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -372,11 +327,8 @@ pub async fn get_measurement_journals_for_bundle_id(
     common::get_objects_where_id(txn, bundle_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_machines_for_bundle_id returns a unique list of
 /// all MachineId that leverage the given bundle.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_machines_for_bundle_id(
     db_conn: &Pool<Postgres>,
     bundle_id: MeasurementBundleId,
@@ -392,13 +344,10 @@ pub async fn get_machines_for_bundle_id(
         .collect())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_machines_for_bundle_name returns a unique list of all CandidateMachineId
 /// that leverage the given profile.
 ///
 /// This is specifically used by the `bundle list machines by-name` CLI call.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_machines_for_bundle_name(
     db_conn: &Pool<Postgres>,
     bundle_name: String,
@@ -415,10 +364,7 @@ pub async fn get_machines_for_bundle_name(
         .collect())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_bundle_for_id deletes a bundle record.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_bundle_for_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -431,11 +377,8 @@ pub async fn delete_bundle_for_id(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// delete_bundle_values_for_id deletes all bundle
 /// value records for a bundle.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn delete_bundle_values_for_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
@@ -443,15 +386,12 @@ pub async fn delete_bundle_values_for_id(
     common::delete_objects_where_id(txn, bundle_id).await
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_bundles is intended for doing "full site" imports,
 /// taking a list of all measurement bundle records from one site, and
 /// inserting them verbatim in another.
 ///
 /// This should happen before import_measurement_bundles_values, since the
 /// parent bundles must exist first.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_bundles(
     txn: &mut Transaction<'_, Postgres>,
     bundles: &[MeasurementBundleRecord],
@@ -463,11 +403,8 @@ pub async fn import_measurement_bundles(
     Ok(committed)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_bundle takes a fully populated MeasurementBundleRecord
 /// and inserts it into the measurement bundles table.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_bundle(
     txn: &mut Transaction<'_, Postgres>,
     bundle: &MeasurementBundleRecord,
@@ -486,15 +423,12 @@ pub async fn import_measurement_bundle(
         .await?)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_bundles_values is intended for doing "full site"
 /// imports, taking a list of all measurement bundles from one site, and
 /// inserting them verbatim in another.
 ///
 /// This should happen after import_measurement_bundles, since the
 /// parent bundles must exist first.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_bundles_values(
     txn: &mut Transaction<'_, Postgres>,
     records: &[MeasurementBundleValueRecord],
@@ -506,12 +440,9 @@ pub async fn import_measurement_bundles_values(
     Ok(committed)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// import_measurement_bundles_value takes a fully populated
 /// MeasurementBundleValueRecord and inserts it into the measurement bundles
 /// values table.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn import_measurement_bundles_value(
     txn: &mut Transaction<'_, Postgres>,
     bundle: &MeasurementBundleValueRecord,

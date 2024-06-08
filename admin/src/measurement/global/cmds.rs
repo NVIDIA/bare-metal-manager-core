@@ -33,10 +33,8 @@ pub async fn get_forge_client<'a>(api_config: &ApiConfig<'a>) -> CarbideCliResul
         .map_err(|err| CarbideCliError::ApiConnectFailed(err.to_string()))
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// CliData is a simple struct containing the single database connection
 /// and parsed arguments, which is passed down to all subcommands.
-///////////////////////////////////////////////////////////////////////////////
 
 pub struct CliData<'g, 'a> {
     pub grpc_conn: &'g mut ForgeClientT,
@@ -46,7 +44,6 @@ pub struct CliData<'g, 'a> {
 /// IdentifierType is a enum that stores the identifer
 /// type when providing a name or ID-based option via the
 /// CLI.
-
 pub trait IdNameIdentifier {
     fn is_id(&self) -> bool;
     fn is_name(&self) -> bool;
@@ -77,22 +74,16 @@ where
     Ok(IdentifierType::Detect)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Destination is an enum used to determine whether CLI output is going
 /// to a file path or stdout.
-///////////////////////////////////////////////////////////////////////////////
-
 pub enum Destination {
     Path(String),
     Stdout(),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// cli_output is the generic function implementation used by the OutputResult
 /// trait, allowing callers to pass a Serialize-derived struct and have it
 /// print in either JSON or YAML.
-///////////////////////////////////////////////////////////////////////////////
-
 pub fn cli_output<T: Serialize + ToTable>(
     input: T,
     format: &OutputFormat,

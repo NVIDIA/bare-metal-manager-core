@@ -51,11 +51,8 @@ use crate::CarbideError;
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_import_site_measurements handles the ImportSiteMeasurements
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_import_site_measurements(
     db_conn: &Pool<Postgres>,
     req: &ImportSiteMeasurementsRequest,
@@ -78,11 +75,8 @@ pub async fn handle_import_site_measurements(
         })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_export_site_measurements handles the ExportSiteMeasurements
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_export_site_measurements(
     db_conn: &Pool<Postgres>,
     _req: &ExportSiteMeasurementsRequest,
@@ -99,11 +93,8 @@ pub async fn handle_export_site_measurements(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_add_measurement_trusted_machine handles the
 /// AddMeasurementTrustedMachine API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_add_measurement_trusted_machine(
     db_conn: &Pool<Postgres>,
     req: &AddMeasurementTrustedMachineRequest,
@@ -127,11 +118,8 @@ pub async fn handle_add_measurement_trusted_machine(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_remove_measurement_trusted_machine handles the
 /// RemoveMeasurementTrustedMachine API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_remove_measurement_trusted_machine(
     db_conn: &Pool<Postgres>,
     req: &RemoveMeasurementTrustedMachineRequest,
@@ -174,11 +162,8 @@ pub async fn handle_remove_measurement_trusted_machine(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_measurement_trusted_machines handles the
 /// ListMeasurementTrustedMachines API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_measurement_trusted_machines(
     db_conn: &Pool<Postgres>,
     _req: &ListMeasurementTrustedMachinesRequest,
@@ -193,11 +178,8 @@ pub async fn handle_list_measurement_trusted_machines(
     Ok(ListMeasurementTrustedMachinesResponse { approval_records })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_add_measurement_trusted_profile handles the
 /// AddMeasurementTrustedProfile API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_add_measurement_trusted_profile(
     db_conn: &Pool<Postgres>,
     req: &AddMeasurementTrustedProfileRequest,
@@ -217,11 +199,8 @@ pub async fn handle_add_measurement_trusted_profile(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_remove_measurement_trusted_profile handles the
 /// RemoveMeasurementTrustedProfile API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_remove_measurement_trusted_profile(
     db_conn: &Pool<Postgres>,
     req: &RemoveMeasurementTrustedProfileRequest,
@@ -262,11 +241,8 @@ pub async fn handle_remove_measurement_trusted_profile(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_measurement_trusted_profiles handles the
 /// ListMeasurementTrustedProfiles API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_measurement_trusted_profiles(
     db_conn: &Pool<Postgres>,
     _req: &ListMeasurementTrustedProfilesRequest,

@@ -23,12 +23,9 @@ use crate::model::machine::machine_id::MachineId;
 use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_discovery_attributes returns a hashmap of values from
 /// the DiscoveryInfo + HardwareInfo data used for matching to
 /// a machine profile.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_discovery_attributes(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -37,12 +34,9 @@ pub async fn get_discovery_attributes(
     common::filter_machine_discovery_attrs(&attrs)
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_candidate_machine_state figures out the current state of the given
 /// machine ID by checking its most recent bundle (or lack thereof), and
 /// using that result to give it a corresponding MeasurementMachineState.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_candidate_machine_state(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -55,11 +49,8 @@ pub async fn get_candidate_machine_state(
     )
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_latest_journal_for_id returns the latest journal record for the
 /// provided machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_latest_journal_for_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
@@ -100,11 +91,8 @@ pub async fn get_candidate_machine_record_by_id(
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// get_candidate_machine_records returns all MockMachineRecord rows,
 /// primarily for the purpose of `mock-machine list`.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn get_candidate_machine_records(
     db_conn: &Pool<Postgres>,
 ) -> eyre::Result<Vec<CandidateMachineRecord>> {

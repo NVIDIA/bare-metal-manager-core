@@ -33,11 +33,8 @@ use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 use tonic::Status;
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_delete_measurement_journal handles the DeleteMeasurementJournal
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_delete_measurement_journal(
     db_conn: &Pool<Postgres>,
     req: &DeleteMeasurementJournalRequest,
@@ -55,11 +52,8 @@ pub async fn handle_delete_measurement_journal(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_show_measurement_journal handles the ShowMeasurementJournal
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_show_measurement_journal(
     db_conn: &Pool<Postgres>,
     req: &ShowMeasurementJournalRequest,
@@ -81,11 +75,8 @@ pub async fn handle_show_measurement_journal(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_show_measurement_journals handles the ShowMeasurementJournals
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_show_measurement_journals(
     db_conn: &Pool<Postgres>,
     _req: &ShowMeasurementJournalsRequest,
@@ -102,11 +93,8 @@ pub async fn handle_show_measurement_journals(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_measurement_journal handles the ListMeasurementJournal
 /// API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_measurement_journal(
     db_conn: &Pool<Postgres>,
     req: &ListMeasurementJournalRequest,

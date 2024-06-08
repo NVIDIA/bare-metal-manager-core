@@ -30,11 +30,8 @@ use carbide::measured_boot::dto::records::MeasurementBundleState;
 use carbide::measured_boot::interface::common::PcrRegisterValue;
 use clap::Parser;
 
-///////////////////////////////////////////////////////////////////////////////
 /// CmdBundle provides a container for the `bundle` subcommand, which itself
 /// contains other subcommands for working with profiles.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum CmdBundle {
     #[clap(
@@ -63,12 +60,9 @@ pub enum CmdBundle {
     List(List),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Create is used to create a new bundle, associated with a given profile ID
 /// or profile name, with provided PCR values and an optional
 /// MeasurementBundleState (the default is 'active').
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Create {
     #[clap(help = "A human-readable name to give this bundle.")]
@@ -96,10 +90,7 @@ pub struct Create {
     pub state: Option<MeasurementBundleState>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Delete will delete a bundle for the given ID.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Delete {
     #[clap(help = "The bundle ID.")]
@@ -109,12 +100,9 @@ pub struct Delete {
     pub purge_journals: bool,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Rename will rename a bundle for the given ID or name.
 /// A parser will parse the `identifier` to determine if
 /// the API should be called w/ an ID or name selector.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Rename {
     #[clap(help = "The existing bundle ID or name.")]
@@ -140,11 +128,8 @@ impl IdNameIdentifier for Rename {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Show will get + display a bundle for the given ID, or, if not ID is set,
 /// it will display all bundles and their information.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Show {
     #[clap(help = "The optional bundle ID or name.")]
@@ -167,11 +152,8 @@ impl IdNameIdentifier for Show {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// SetState is used to set the state of the bundle (e.g. active, obsolete,
 /// retired, revoked).
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct SetState {
     #[clap(help = "The bundle ID or name to update.")]
@@ -201,10 +183,7 @@ impl IdNameIdentifier for SetState {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// List provides a few ways to list things.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum List {
     #[clap(about = "List all bundles", visible_alias = "a")]
@@ -217,17 +196,11 @@ pub enum List {
     Machines(ListMachines),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// ListAll will list all bundles.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListAll {}
 
-///////////////////////////////////////////////////////////////////////////////
 /// ListMachines lists all machines for a given bundle (by bundle name or ID).
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListMachines {
     #[clap(help = "The existing bundle ID or name.")]

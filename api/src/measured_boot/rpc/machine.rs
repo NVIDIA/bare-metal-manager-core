@@ -32,10 +32,7 @@ use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 use tonic::Status;
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_attest_candidate_machine handles the AttestCandidateMachine API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_attest_candidate_machine(
     db_conn: &Pool<Postgres>,
     req: &AttestCandidateMachineRequest,
@@ -57,10 +54,7 @@ pub async fn handle_attest_candidate_machine(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_show_candidate_machine handles the ShowCandidateMachine API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_show_candidate_machine(
     db_conn: &Pool<Postgres>,
     req: &ShowCandidateMachineRequest,
@@ -88,10 +82,7 @@ pub async fn handle_show_candidate_machine(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_show_candidate_machines handles the ShowCandidateMachines API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_show_candidate_machines(
     db_conn: &Pool<Postgres>,
     _req: &ShowCandidateMachinesRequest,
@@ -106,10 +97,7 @@ pub async fn handle_show_candidate_machines(
     })
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// handle_list_candidate_machines handles the ListCandidateMachine API endpoint.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn handle_list_candidate_machines(
     db_conn: &Pool<Postgres>,
     _req: &ListCandidateMachinesRequest,

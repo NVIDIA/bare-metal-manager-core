@@ -34,11 +34,9 @@ use carbide::measured_boot::dto::{
 };
 use carbide::model::machine::machine_id::MachineId;
 
-///////////////////////////////////////////////////////////////////////////////
 /// CmdSite provides a container for the `site` subcommand, which itself
 /// contains other subcommands for working with the site (i.e. export
 /// and import).
-///////////////////////////////////////////////////////////////////////////////
 #[derive(Parser, Debug)]
 pub enum CmdSite {
     #[clap(about = "Import a site from an export file.", visible_alias = "i")]
@@ -54,30 +52,21 @@ pub enum CmdSite {
     TrustedProfile(TrustedProfile),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Import imports a site from a file.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Import {
     #[clap(help = "The path of the input JSON file.")]
     pub path: String,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// Export exports a site to stdout, a file, etc.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct Export {
     #[clap(long, help = "An optional path to write the file to.")]
     pub path: Option<String>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// TrustedMachine configures trusted machine settings.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum TrustedMachine {
     #[clap(
@@ -97,10 +86,7 @@ pub enum TrustedMachine {
     List(ListMachines),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// TrustedProfile configures trusted profile settings.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub enum TrustedProfile {
     #[clap(
@@ -120,11 +106,8 @@ pub enum TrustedProfile {
     List(ListProfiles),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// ApproveMachine approves a machine for auto-promoting its measurement
 /// journal entries into a golden measurement bundle.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ApproveMachine {
     #[clap(help = "The machine-id to approve.")]
@@ -140,11 +123,9 @@ pub struct ApproveMachine {
     pub comments: Option<String>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// RemoveMachine removes a machine from auto-approval, by approval ID
 /// or machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
+//
 // The compiler yells it starts by "By", not really
 // understanding that its a part of the CLI UX.
 #[allow(clippy::enum_variant_names)]
@@ -157,39 +138,28 @@ pub enum RemoveMachine {
     ByMachineId(RemoveMachineByMachineId),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// RemoveMachineByApprovalId removes a trusted machine approval
 /// for the given approval ID.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct RemoveMachineByApprovalId {
     #[clap(help = "The approval-id to remove.")]
     pub approval_id: MeasurementApprovedMachineId,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// RemoveMachineByMachineId removes a trusted machine approval
 /// for the given machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct RemoveMachineByMachineId {
     #[clap(help = "The machine-id to remove.")]
     pub machine_id: MachineId,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// ListMachines is used to list all active machine approvals.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListMachines {}
 
-///////////////////////////////////////////////////////////////////////////////
 /// ApproveProfile approves a profile for auto-promoting its
 /// measurement journal entries into a golden measurement bundle.
-///////////////////////////////////////////////////////////////////////////////
 #[derive(Parser, Debug)]
 pub struct ApproveProfile {
     #[clap(help = "The profile-id to approve.")]
@@ -205,11 +175,9 @@ pub struct ApproveProfile {
     pub comments: Option<String>,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// RemoveProfile removes a machine from auto-approval, by approval ID
 /// or profile ID.
-///////////////////////////////////////////////////////////////////////////////
-
+//
 // The compiler yells it starts by "By", not really
 // understanding that its a part of the CLI UX.
 #[allow(clippy::enum_variant_names)]
@@ -222,31 +190,22 @@ pub enum RemoveProfile {
     ByProfileId(RemoveProfileByProfileId),
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// RemoveProfileByApprovalId removes a trusted profile approval
 /// for the given approval ID.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct RemoveProfileByApprovalId {
     #[clap(help = "The approval-id to remove.")]
     pub approval_id: MeasurementApprovedProfileId,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// RemoveProfileByProfileId removes a trusted profile approval
 /// for the given profile ID.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct RemoveProfileByProfileId {
     #[clap(help = "The profile-id to remove.")]
     pub profile_id: MeasurementSystemProfileId,
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// ListProfiles is used to list all active profile approvals.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Parser, Debug)]
 pub struct ListProfiles {}

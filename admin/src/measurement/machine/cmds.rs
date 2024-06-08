@@ -29,11 +29,8 @@ use carbide::measured_boot::{
 };
 use serde::Serialize;
 
-///////////////////////////////////////////////////////////////////////////////
 /// ExecResult exists just to print CLI results out
 /// leveraging the same mechanism as everything else.
-///////////////////////////////////////////////////////////////////////////////
-
 #[derive(Serialize)]
 pub struct ExecResult {
     status: String,
@@ -49,11 +46,8 @@ impl ToTable for ExecResult {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// dispatch matches + dispatches the correct command
 /// for the `mock-machine` subcommand.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn dispatch(
     cmd: &CmdMachine,
     cli: &mut global::cmds::CliData<'_, '_>,
@@ -92,11 +86,8 @@ pub async fn dispatch(
     Ok(())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// attest sends attestation data for the given machine ID, as in, PCR
 /// register + value pairings, which results in a journal entry being made.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn attest(
     grpc_conn: &mut ForgeClientT,
     attest: &Attest,
@@ -116,10 +107,7 @@ pub async fn attest(
     MeasurementReport::from_grpc(response.get_ref().report.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_by_id shows all info about a given machine ID.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_by_id(
     grpc_conn: &mut ForgeClientT,
     show: &Show,
@@ -145,10 +133,7 @@ pub async fn show_by_id(
     CandidateMachine::from_grpc(response.get_ref().machine.as_ref())
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// show_all shows all info about all machines.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn show_all(
     grpc_conn: &mut ForgeClientT,
     _show: &Show,
@@ -171,10 +156,7 @@ pub async fn show_all(
         .collect::<eyre::Result<Vec<CandidateMachine>>>()
 }
 
-///////////////////////////////////////////////////////////////////////////////
 /// list lists all machine IDs.
-///////////////////////////////////////////////////////////////////////////////
-
 pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<CandidateMachineSummary>> {
     // Request.
     let request = ListCandidateMachinesRequest {};
