@@ -27,8 +27,9 @@
 */
 
 use crate::cfg::measurement::parse_pcr_register_values;
-use carbide::measured_boot::dto::keys::{MeasurementReportId, MockMachineId};
+use carbide::measured_boot::dto::keys::MeasurementReportId;
 use carbide::measured_boot::interface::common::{parse_pcr_index_input, PcrRegisterValue, PcrSet};
+use carbide::model::machine::machine_id::MachineId;
 use clap::Parser;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -89,7 +90,7 @@ pub enum CmdReport {
 #[derive(Parser, Debug)]
 pub struct Create {
     #[clap(help = "The machine ID of the machine to associate this report with.")]
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
 
     #[clap(
         required = true,
@@ -215,7 +216,7 @@ pub struct ListAll {}
 #[derive(Parser, Debug)]
 pub struct ListMachines {
     #[clap(help = "The machine ID.")]
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
 }
 
 ///////////////////////////////////////////////////////////////////////////////

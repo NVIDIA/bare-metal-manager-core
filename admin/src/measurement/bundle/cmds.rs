@@ -14,8 +14,6 @@
 //! `measurement bundle` subcommand dispatcher + backing functions.
 //!
 
-use std::str::FromStr;
-
 use crate::measurement::bundle::args::{
     CmdBundle, Create, Delete, List, ListMachines, Rename, SetState, Show,
 };
@@ -34,11 +32,11 @@ use ::rpc::protos::measured_boot::{
     RenameMeasurementBundleRequest, ShowMeasurementBundleRequest, ShowMeasurementBundlesRequest,
     UpdateMeasurementBundleRequest,
 };
-use carbide::measured_boot::dto::{
-    keys::MeasurementBundleId, keys::MockMachineId, records::MeasurementBundleRecord,
-};
+use carbide::measured_boot::dto::{keys::MeasurementBundleId, records::MeasurementBundleRecord};
 use carbide::measured_boot::interface::common::PcrRegisterValue;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
+use carbide::model::machine::machine_id::MachineId;
+use std::str::FromStr;
 
 ///////////////////////////////////////////////////////////////////////////////
 /// dispatch matches + dispatches the correct command for
@@ -363,7 +361,7 @@ pub async fn list(grpc_conn: &mut ForgeClientT) -> eyre::Result<Vec<MeasurementB
 pub async fn list_machines(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
-) -> eyre::Result<Vec<MockMachineId>> {
+) -> eyre::Result<Vec<MachineId>> {
     // Prepare.
     let selector = match get_identifier(list_machines)? {
         IdentifierType::ForId => {
@@ -400,6 +398,6 @@ pub async fn list_machines(
         .get_ref()
         .machine_ids
         .iter()
-        .map(|rec| MockMachineId(rec.clone()))
-        .collect::<Vec<MockMachineId>>())
+        .map(|rec| MachineId::from_str(rec))
+        .collect::<Result<Vec<MachineId>, _>>()?)
 }

@@ -19,7 +19,8 @@
  *  - `journal list`: List all journal entries.
 */
 
-use carbide::measured_boot::dto::keys::{MeasurementJournalId, MockMachineId};
+use carbide::measured_boot::dto::keys::MeasurementJournalId;
+use carbide::model::machine::machine_id::MachineId;
 use clap::Parser;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -56,7 +57,7 @@ pub struct Delete {
 #[derive(Parser, Debug)]
 pub struct List {
     #[clap(help = "List journal entries for a machine ID.")]
-    pub machine_id: Option<MockMachineId>,
+    pub machine_id: Option<MachineId>,
 }
 
 ///////////////////////////////////////////////////////////////////////////////

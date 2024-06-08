@@ -33,10 +33,11 @@ use ::rpc::protos::measured_boot::{
     ShowMeasurementSystemProfileRequest, ShowMeasurementSystemProfilesRequest,
 };
 use carbide::measured_boot::dto::{
-    keys::MeasurementBundleId, keys::MeasurementSystemProfileId, keys::MockMachineId,
+    keys::MeasurementBundleId, keys::MeasurementSystemProfileId,
     records::MeasurementSystemProfileRecord,
 };
 use carbide::measured_boot::model::profile::MeasurementSystemProfile;
+use carbide::model::machine::machine_id::MachineId;
 use std::str::FromStr;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -412,7 +413,7 @@ pub async fn list_bundles_for_id_or_name(
 pub async fn list_machines_for_id_or_name(
     grpc_conn: &mut ForgeClientT,
     list_machines: &ListMachines,
-) -> eyre::Result<Vec<MockMachineId>> {
+) -> eyre::Result<Vec<MachineId>> {
     // Prepare.
     let selector = match get_identifier(list_machines)? {
         IdentifierType::ForId => {
@@ -456,6 +457,6 @@ pub async fn list_machines_for_id_or_name(
         .get_ref()
         .machine_ids
         .iter()
-        .map(|rec| MockMachineId(rec.clone()))
-        .collect::<Vec<MockMachineId>>())
+        .map(|rec| MachineId::from_str(rec))
+        .collect::<Result<Vec<MachineId>, _>>()?)
 }

@@ -29,7 +29,7 @@ use crate::measured_boot::interface::bundle::{
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::report::match_latest_reports_with_txn;
-use crate::measured_boot::model::machine::{bundle_state_to_machine_state, MockMachine};
+use crate::measured_boot::model::machine::{bundle_state_to_machine_state, CandidateMachine};
 use crate::measured_boot::model::profile::MeasurementSystemProfile;
 use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
 use serde::Serialize;
@@ -442,7 +442,8 @@ impl MeasurementBundle {
         let reports = match_latest_reports_with_txn(txn, &self.pcr_values()).await?;
         let mut updates: Vec<MeasurementJournal> = Vec::new();
         for report in reports.iter() {
-            let machine = MockMachine::from_id_with_txn(txn, report.machine_id.clone()).await?;
+            let machine =
+                CandidateMachine::from_id_with_txn(txn, report.machine_id.clone()).await?;
             let profile = MeasurementSystemProfile::match_from_attrs_or_new_with_txn(
                 txn,
                 &machine.discovery_attributes()?,

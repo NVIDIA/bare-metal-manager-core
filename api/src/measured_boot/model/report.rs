@@ -16,8 +16,7 @@
 */
 
 use crate::measured_boot::dto::keys::{
-    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, MockMachineId,
-    UuidEmptyStringError,
+    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, UuidEmptyStringError,
 };
 use crate::measured_boot::dto::records::{
     MeasurementApprovedType, MeasurementBundleState, MeasurementMachineState,
@@ -39,14 +38,16 @@ use crate::measured_boot::interface::{
 };
 use crate::measured_boot::model::machine::bundle_state_to_machine_state;
 use crate::measured_boot::model::{
-    bundle::MeasurementBundle, journal::MeasurementJournal, machine::MockMachine,
+    bundle::MeasurementBundle, journal::MeasurementJournal, machine::CandidateMachine,
     profile::MeasurementSystemProfile,
 };
+use crate::model::machine::machine_id::MachineId;
 use rpc::protos::measured_boot::MeasurementReportPb;
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
 use std::collections::HashMap;
+use std::str::FromStr;
 
 ///////////////////////////////////////////////////////////////////////////////
 /// MeasurementReport is a composition of a MeasurementReportRecord,
@@ -58,7 +59,7 @@ use std::collections::HashMap;
 #[derive(Debug, Serialize, Clone)]
 pub struct MeasurementReport {
     pub report_id: MeasurementReportId,
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
     pub ts: chrono::DateTime<Utc>,
     pub values: Vec<MeasurementReportValueRecord>,
 }
@@ -98,7 +99,7 @@ impl TryFrom<MeasurementReportPb> for MeasurementReport {
 
         Ok(Self {
             report_id: MeasurementReportId::try_from(msg.report_id)?,
-            machine_id: MockMachineId(msg.machine_id),
+            machine_id: MachineId::from_str(&msg.machine_id)?,
             values: values?,
             ts: chrono::DateTime::<chrono::Utc>::try_from(msg.ts.unwrap())?,
         })
@@ -112,7 +113,7 @@ impl MeasurementReport {
 
     pub async fn new(
         db_conn: &Pool<Postgres>,
-        machine_id: MockMachineId,
+        machine_id: MachineId,
         values: &[common::PcrRegisterValue],
     ) -> eyre::Result<Self> {
         let mut txn = db_conn.begin().await?;
@@ -123,7 +124,7 @@ impl MeasurementReport {
 
     pub async fn new_with_txn(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: MockMachineId,
+        machine_id: MachineId,
         values: &[common::PcrRegisterValue],
     ) -> eyre::Result<Self> {
         create_measurement_report(txn, machine_id, values).await
@@ -191,7 +192,7 @@ impl MeasurementReport {
 
     pub async fn get_all_for_machine_id(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: MockMachineId,
+        machine_id: MachineId,
     ) -> eyre::Result<Vec<Self>> {
         get_measurement_reports_for_machine_id(txn, machine_id).await
     }
@@ -328,7 +329,7 @@ impl ToTable for Vec<MeasurementReport> {
 
 pub async fn create_measurement_report(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
     values: &[common::PcrRegisterValue],
 ) -> eyre::Result<MeasurementReport> {
     let info = insert_measurement_report_record(txn, machine_id).await?;
@@ -342,7 +343,6 @@ pub async fn create_measurement_report(
 
     let journal_data =
         JournalData::new_from_values(txn, report.machine_id.clone(), &report.pcr_values()).await?;
-
     // Now that the bundle_id and profile_id bits have been sorted, its
     // time to make a new journal entry that captures the [possible]
     // bundle_id, the profile_id, and the values to log to the journal.
@@ -446,7 +446,7 @@ pub async fn get_measurement_report_by_id_with_txn(
 
 pub async fn get_measurement_reports_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
 ) -> eyre::Result<Vec<MeasurementReport>> {
     let report_records: Vec<MeasurementReportRecord> =
         common::get_objects_where_id(txn, machine_id).await?;
@@ -501,13 +501,13 @@ struct JournalData {
 impl JournalData {
     pub async fn new_from_values(
         txn: &mut Transaction<'_, Postgres>,
-        machine_id: MockMachineId,
+        machine_id: MachineId,
         values: &[PcrRegisterValue],
     ) -> eyre::Result<Self> {
         let state: MeasurementMachineState;
         let bundle_id: Option<MeasurementBundleId>;
 
-        let machine = MockMachine::from_id_with_txn(txn, machine_id).await?;
+        let machine = CandidateMachine::from_id_with_txn(txn, machine_id).await?;
         let profile = MeasurementSystemProfile::match_from_attrs_or_new_with_txn(
             txn,
             &machine.discovery_attributes()?,
@@ -614,7 +614,7 @@ pub async fn create_bundle_with_state(
 ) -> eyre::Result<MeasurementBundle> {
     // Get machine + profile information for the journal entry
     // that needs to be associated with the bundle change.
-    let machine = MockMachine::from_id_with_txn(txn, report.machine_id.clone()).await?;
+    let machine = CandidateMachine::from_id_with_txn(txn, report.machine_id.clone()).await?;
     let profile = MeasurementSystemProfile::match_from_attrs_or_new_with_txn(
         txn,
         &machine.discovery_attributes()?,

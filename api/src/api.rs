@@ -5746,12 +5746,12 @@ where
         ))
     }
 
-    async fn create_mock_machine(
+    async fn attest_candidate_machine(
         &self,
-        request: Request<measured_boot_pb::CreateMockMachineRequest>,
-    ) -> Result<Response<measured_boot_pb::CreateMockMachineResponse>, Status> {
+        request: Request<measured_boot_pb::AttestCandidateMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::AttestCandidateMachineResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::machine::handle_create_mock_machine(
+            measured_boot::rpc::machine::handle_attest_candidate_machine(
                 &self.database_connection,
                 request.get_ref(),
             )
@@ -5759,12 +5759,12 @@ where
         ))
     }
 
-    async fn delete_mock_machine(
+    async fn show_candidate_machine(
         &self,
-        request: Request<measured_boot_pb::DeleteMockMachineRequest>,
-    ) -> Result<Response<measured_boot_pb::DeleteMockMachineResponse>, Status> {
+        request: Request<measured_boot_pb::ShowCandidateMachineRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowCandidateMachineResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::machine::handle_delete_mock_machine(
+            measured_boot::rpc::machine::handle_show_candidate_machine(
                 &self.database_connection,
                 request.get_ref(),
             )
@@ -5772,12 +5772,12 @@ where
         ))
     }
 
-    async fn attest_mock_machine(
+    async fn show_candidate_machines(
         &self,
-        request: Request<measured_boot_pb::AttestMockMachineRequest>,
-    ) -> Result<Response<measured_boot_pb::AttestMockMachineResponse>, Status> {
+        request: Request<measured_boot_pb::ShowCandidateMachinesRequest>,
+    ) -> Result<Response<measured_boot_pb::ShowCandidateMachinesResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::machine::handle_attest_mock_machine(
+            measured_boot::rpc::machine::handle_show_candidate_machines(
                 &self.database_connection,
                 request.get_ref(),
             )
@@ -5785,38 +5785,12 @@ where
         ))
     }
 
-    async fn show_mock_machine(
+    async fn list_candidate_machines(
         &self,
-        request: Request<measured_boot_pb::ShowMockMachineRequest>,
-    ) -> Result<Response<measured_boot_pb::ShowMockMachineResponse>, Status> {
+        request: Request<measured_boot_pb::ListCandidateMachinesRequest>,
+    ) -> Result<Response<measured_boot_pb::ListCandidateMachinesResponse>, Status> {
         Ok(Response::new(
-            measured_boot::rpc::machine::handle_show_mock_machine(
-                &self.database_connection,
-                request.get_ref(),
-            )
-            .await?,
-        ))
-    }
-
-    async fn show_mock_machines(
-        &self,
-        request: Request<measured_boot_pb::ShowMockMachinesRequest>,
-    ) -> Result<Response<measured_boot_pb::ShowMockMachinesResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::machine::handle_show_mock_machines(
-                &self.database_connection,
-                request.get_ref(),
-            )
-            .await?,
-        ))
-    }
-
-    async fn list_mock_machine(
-        &self,
-        request: Request<measured_boot_pb::ListMockMachineRequest>,
-    ) -> Result<Response<measured_boot_pb::ListMockMachineResponse>, Status> {
-        Ok(Response::new(
-            measured_boot::rpc::machine::handle_list_mock_machine(
+            measured_boot::rpc::machine::handle_list_candidate_machines(
                 &self.database_connection,
                 request.get_ref(),
             )

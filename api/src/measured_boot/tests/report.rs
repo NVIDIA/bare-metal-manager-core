@@ -22,7 +22,6 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::measured_boot::dto::keys::MockMachineId;
     use crate::measured_boot::dto::records::{MeasurementBundleState, MeasurementMachineState};
     use crate::measured_boot::interface::common::parse_pcr_index_input;
     use crate::measured_boot::interface::{
@@ -31,9 +30,9 @@ mod tests {
     };
     use crate::measured_boot::model::bundle::MeasurementBundle;
     use crate::measured_boot::model::journal::MeasurementJournal;
-    use crate::measured_boot::model::machine::MockMachine;
     use crate::measured_boot::model::profile::MeasurementSystemProfile;
     use crate::measured_boot::model::report::MeasurementReport;
+    use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use std::collections::HashMap;
 
     // test_profile_crudl creates a new profile with 3 attributes,
@@ -45,16 +44,12 @@ mod tests {
     #[sqlx::test]
     pub async fn test_report_crudl(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
-        let machine_id = MockMachineId("princess-network".to_string());
-        let attrs: HashMap<String, String> = vec![
-            ("vendor".to_string(), "dell".to_string()),
-            ("product".to_string(), "r750".to_string()),
-        ]
-        .into_iter()
-        .collect();
-
-        let machine = MockMachine::new_with_txn(&mut txn, machine_id.clone(), &attrs).await?;
-        assert_eq!(machine_id, machine.machine_id);
+        let machine = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &load_topology_json("dell_r750.json"),
+        )
+        .await?;
 
         let values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
@@ -100,7 +95,7 @@ mod tests {
         let same_report = MeasurementReport::from_id_with_txn(&mut txn, report.report_id).await?;
         assert_eq!(report.report_id, same_report.report_id);
         assert_eq!(report.ts, same_report.ts);
-        assert_eq!(same_report.machine_id, machine_id);
+        assert_eq!(same_report.machine_id, machine.machine_id);
         assert_eq!(same_report.pcr_values().len(), 7);
         let same_report_value_map = pcr_register_values_to_map(&same_report.pcr_values())?;
 
@@ -177,7 +172,7 @@ mod tests {
         let same_report3 = MeasurementReport::from_id_with_txn(&mut txn, report3.report_id).await?;
         assert_eq!(report3.report_id, same_report3.report_id);
         assert_eq!(report3.ts, same_report3.ts);
-        assert_eq!(same_report3.machine_id, machine_id);
+        assert_eq!(same_report3.machine_id, machine.machine_id);
         assert_eq!(same_report3.pcr_values().len(), 7);
         let same_report3_value_map = pcr_register_values_to_map(&same_report3.pcr_values())?;
 
@@ -210,19 +205,23 @@ mod tests {
     #[sqlx::test]
     pub async fn test_report_journal(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
-        let machine_id = MockMachineId("princess-network".to_string());
+        let machine = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &load_topology_json("dell_r750.json"),
+        )
+        .await?;
+
+        // There should be no profiles yet, so just check
+        // to make sure.
         let attrs: HashMap<String, String> = vec![
-            ("vendor".to_string(), "dell".to_string()),
-            ("product".to_string(), "r750".to_string()),
+            ("sys_vendor".to_string(), "Dell, Inc.".to_string()),
+            ("product_name".to_string(), "PowerEdge R750".to_string()),
+            ("bios_version".to_string(), "1.8.2".to_string()),
         ]
         .into_iter()
         .collect();
 
-        let machine = MockMachine::new_with_txn(&mut txn, machine_id.clone(), &attrs).await?;
-        assert_eq!(machine_id, machine.machine_id);
-
-        // There should be no profiles yet, so just check
-        // to make sure.
         let optional_profile = MeasurementSystemProfile::load_from_attrs(&mut txn, &attrs).await?;
         assert!(optional_profile.is_none());
 
@@ -263,6 +262,9 @@ mod tests {
         let report =
             MeasurementReport::new_with_txn(&mut txn, machine.machine_id.clone(), &values).await?;
 
+        txn.commit().await?;
+        let mut txn = pool.begin().await?;
+
         // And NOW there should be a profile.
         let optional_profile = MeasurementSystemProfile::load_from_attrs(&mut txn, &attrs).await?;
         assert!(optional_profile.is_some());
@@ -288,18 +290,13 @@ mod tests {
     pub async fn test_report_to_active_bundle(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // A machine needs to be created for a report.
         let mut txn = pool.begin().await?;
-        let machine_id = MockMachineId("princess-network".to_string());
-        let attrs: HashMap<String, String> = vec![
-            ("vendor".to_string(), "dell".to_string()),
-            ("product".to_string(), "r750".to_string()),
-        ]
-        .into_iter()
-        .collect();
-
-        let machine = MockMachine::new_with_txn(&mut txn, machine_id.clone(), &attrs).await?;
-        assert_eq!(machine_id, machine.machine_id);
+        let machine = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &load_topology_json("dell_r750.json"),
+        )
+        .await?;
 
         let values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
@@ -361,9 +358,6 @@ mod tests {
         assert_eq!(bundles.len(), 1);
         let journals =
             MeasurementJournal::get_all_for_machine_id(&mut txn, report.machine_id.clone()).await?;
-        for journal in journals.iter() {
-            println!("{:?}", journal);
-        }
         assert_eq!(journals.len(), 2);
         let first_bundle =
             MeasurementBundle::from_id_with_txn(&mut txn, bundle_full.bundle_id).await?;
@@ -373,7 +367,6 @@ mod tests {
                 .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
-        println!("latest: {:?}", latest_journal);
         assert_eq!(latest_journal.bundle_id, Some(first_bundle.bundle_id));
         assert_eq!(latest_journal.state, MeasurementMachineState::Measured);
 
@@ -473,18 +466,13 @@ mod tests {
     pub async fn test_report_to_revoked_bundle(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // A machine needs to be created for a report.
         let mut txn = pool.begin().await?;
-        let machine_id = MockMachineId("princess-network".to_string());
-        let attrs: HashMap<String, String> = vec![
-            ("vendor".to_string(), "dell".to_string()),
-            ("product".to_string(), "r750".to_string()),
-        ]
-        .into_iter()
-        .collect();
-
-        let machine = MockMachine::new_with_txn(&mut txn, machine_id.clone(), &attrs).await?;
-        assert_eq!(machine_id, machine.machine_id);
+        let machine = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &load_topology_json("dell_r750.json"),
+        )
+        .await?;
 
         let values: Vec<PcrRegisterValue> = vec![
             PcrRegisterValue {
@@ -547,9 +535,6 @@ mod tests {
         assert_eq!(bundles.len(), 1);
         let journals =
             MeasurementJournal::get_all_for_machine_id(&mut txn, report.machine_id.clone()).await?;
-        for journal in journals.iter() {
-            println!("{:?}", journal);
-        }
         assert_eq!(journals.len(), 2);
         let first_bundle =
             MeasurementBundle::from_id_with_txn(&mut txn, bundle_partial.bundle_id).await?;
@@ -559,7 +544,6 @@ mod tests {
                 .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
-        println!("latest: {:?}", latest_journal);
         assert_eq!(latest_journal.bundle_id, Some(first_bundle.bundle_id));
         assert_eq!(
             latest_journal.state,

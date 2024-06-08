@@ -29,10 +29,10 @@ use clap::Parser;
 use carbide::measured_boot::dto::{
     keys::{
         MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
-        MockMachineId,
     },
     records::MeasurementApprovedType,
 };
+use carbide::model::machine::machine_id::MachineId;
 
 ///////////////////////////////////////////////////////////////////////////////
 /// CmdSite provides a container for the `site` subcommand, which itself
@@ -128,7 +128,7 @@ pub enum TrustedProfile {
 #[derive(Parser, Debug)]
 pub struct ApproveMachine {
     #[clap(help = "The machine-id to approve.")]
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
 
     #[clap(required = true, help = "Whether to set `oneshot` or `persist`.")]
     pub approval_type: MeasurementApprovedType,
@@ -176,7 +176,7 @@ pub struct RemoveMachineByApprovalId {
 #[derive(Parser, Debug)]
 pub struct RemoveMachineByMachineId {
     #[clap(help = "The machine-id to remove.")]
-    pub machine_id: MockMachineId,
+    pub machine_id: MachineId,
 }
 
 ///////////////////////////////////////////////////////////////////////////////

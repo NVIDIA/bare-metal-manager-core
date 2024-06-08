@@ -17,10 +17,10 @@
 
 use crate::measured_boot::dto::keys::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
-    MockMachineId,
 };
 use crate::measured_boot::dto::records::{MeasurementJournalRecord, MeasurementMachineState};
 use crate::measured_boot::interface::common;
+use crate::model::machine::machine_id::MachineId;
 use sqlx::{Postgres, Transaction};
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -32,7 +32,7 @@ use sqlx::{Postgres, Transaction};
 
 pub async fn insert_measurement_journal_record(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
     report_id: MeasurementReportId,
     profile_id: Option<MeasurementSystemProfileId>,
     bundle_id: Option<MeasurementBundleId>,
@@ -96,7 +96,7 @@ pub async fn get_measurement_journal_records(
 
 pub async fn get_measurement_journal_records_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MockMachineId,
+    machine_id: MachineId,
 ) -> eyre::Result<Vec<MeasurementJournalRecord>> {
     common::get_objects_where_id(txn, machine_id).await
 }

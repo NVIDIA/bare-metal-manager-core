@@ -18,7 +18,6 @@ use tonic::Status;
 
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
-    MockMachineId,
 };
 use crate::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
@@ -46,7 +45,11 @@ use rpc::protos::measured_boot::{
     RemoveMeasurementTrustedProfileResponse,
 };
 
+use crate::model::machine::machine_id::MachineId;
+use crate::model::RpcDataConversionError;
+use crate::CarbideError;
 use sqlx::{Pool, Postgres};
+use std::str::FromStr;
 
 ///////////////////////////////////////////////////////////////////////////////
 /// handle_import_site_measurements handles the ImportSiteMeasurements
@@ -107,7 +110,11 @@ pub async fn handle_add_measurement_trusted_machine(
 ) -> Result<AddMeasurementTrustedMachineResponse, Status> {
     let approval_record = insert_into_approved_machines(
         db_conn,
-        MockMachineId(req.machine_id.clone()),
+        MachineId::from_str(&req.machine_id).map_err(|_| {
+            CarbideError::from(RpcDataConversionError::InvalidMachineId(
+                req.machine_id.clone(),
+            ))
+        })?,
         MeasurementApprovedType::from(req.approval_type()),
         Some(req.pcr_registers.clone()),
         Some(req.comments.clone()),
@@ -143,9 +150,14 @@ pub async fn handle_remove_measurement_trusted_machine(
         }
         // Remove by machine ID.
         Some(remove_measurement_trusted_machine_request::Selector::MachineId(machine_id)) => {
-            remove_from_approved_machines_by_machine_id(&mut txn, MockMachineId(machine_id.clone()))
-                .await
-                .map_err(|e| Status::internal(format!("removal failed: {}", e)))?
+            remove_from_approved_machines_by_machine_id(
+                &mut txn,
+                MachineId::from_str(machine_id).map_err(|_| {
+                    CarbideError::from(RpcDataConversionError::InvalidMachineId(machine_id.clone()))
+                })?,
+            )
+            .await
+            .map_err(|e| Status::internal(format!("removal failed: {}", e)))?
         }
         // Oops, forgot to set a selector.
         None => {
