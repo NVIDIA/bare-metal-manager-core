@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -299,7 +300,14 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
 
     system.serial_number = system.serial_number.map(|s| s.trim().to_string());
 
-    let bios_attributes = client.bios().await?;
+    let bios_attributes = match client.bios().await {
+        Ok(attributes) => attributes,
+        Err(error) => {
+            tracing::warn!("Could not retreive BIOS attributes: {error}");
+            HashMap::default()
+        }
+    };
+
     let nic_mode: Option<NicMode> = if is_dpu {
         bios_attributes
             .get("NicMode")
