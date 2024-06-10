@@ -633,6 +633,7 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
                 .into_iter()
                 .map(rpc::machine_discovery::MemoryDevice::from)
                 .collect(),
+            tpm_description: None,
         })
     }
 }

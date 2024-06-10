@@ -28,6 +28,7 @@ thiserror = "1"
 tokio = { workspace = true }
 tonic = { workspace = true }
 tryhard = "0.5.1"
+tss-esapi = "7.5.0"
 uname = "0.1"
 uuid = "1.0"
 

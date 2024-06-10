@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::attestation::get_tpm_description;
 use forge_host_support::{
     hardware_enumeration::enumerate_hardware,
     registration::{register_machine, DiscoveryRetry},
@@ -24,9 +25,12 @@ pub async fn run(
     machine_interface_id: uuid::Uuid,
     discovery_retry_secs: u64,
     discovery_retries_max: u32,
+    tpm_path: &str,
 ) -> Result<String, CarbideClientError> {
-    let hardware_info = enumerate_hardware()?;
+    let mut hardware_info = enumerate_hardware()?;
     info!("Successfully enumerated hardware");
+
+    hardware_info.tpm_description = get_tpm_description(tpm_path);
 
     let retry = DiscoveryRetry {
         secs: discovery_retry_secs,

@@ -67,6 +67,15 @@ pub(crate) struct Options {
 
     #[clap(subcommand)]
     pub subcmd: Option<Command>,
+
+    #[clap(
+        long,
+        help = "Full path of tpm char device",
+        // tpmrm0 is a tpm with an in-kernel resource manager (hence the "rm" suffix)
+        // tpm0 would be a tpm without a resource manager - https://github.com/tpm2-software/tpm2-tools/issues/1338#issuecomment-469735226
+        default_value_t = ("device:/dev/tpmrm0").to_string(),
+    )]
+    pub tpm_path: String,
 }
 
 #[derive(Parser)]

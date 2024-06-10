@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 pub mod address_selection_strategy;
+pub mod attestation;
 pub mod bmc_metadata;
 pub mod dhcp_entry;
 pub mod dhcp_record;

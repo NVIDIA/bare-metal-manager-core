@@ -53,6 +53,9 @@ pub enum CarbideClientError {
 
     #[error("NVME parsing failed: {0}")]
     NvmeParsingError(#[from] ParseIntError),
+
+    #[error("TPM Error: {0}")]
+    TpmError(String),
 }
 
 pub type CarbideClientResult<T> = Result<T, CarbideClientError>;
