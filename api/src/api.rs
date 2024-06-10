@@ -1783,24 +1783,6 @@ where
         let interface =
             MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
-            if **self.runtime_config.site_explorer.create_machines.load() {
-                Machine::find_one(
-                    &mut txn,
-                    &stable_machine_id,
-                    MachineSearchConfig {
-                        include_dpus: true,
-                        ..MachineSearchConfig::default()
-                    },
-                )
-                .await
-                .map_err(CarbideError::from)?
-                .ok_or_else(|| {
-                    Status::invalid_argument(format!(
-                        "Machine id {stable_machine_id} was not discovered by site-explorer."
-                    ))
-                })?;
-            }
-
             let (db_machine, is_new) = if machine_discovery_info.create_machine {
                 Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?
             } else {
@@ -2740,19 +2722,6 @@ where
             Some(interface_id) => Uuid::try_from(interface_id)
                 .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {}", e)))?,
         };
-
-        // Disable booting from discovery image when no machine record exists
-        if **self.runtime_config.site_explorer.create_machines.load() {
-            let machine_id = MachineInterface::find_one(&mut txn, interface_id)
-                .await?
-                .machine_id;
-            if machine_id.is_none() {
-                return Err(Status::not_found(format!(
-                    "Machine for interface {} was not discovered by site-explorer",
-                    interface_id
-                )));
-            }
-        }
 
         let arch = rpc::MachineArchitecture::try_from(request.arch)
             .map_err(|_| Status::invalid_argument("Unknown arch received."))?;
