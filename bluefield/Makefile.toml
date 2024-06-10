@@ -134,6 +134,7 @@ script = '''
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
     mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
     mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
+    mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib/fd_configs"
     cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
     cp ${REPO_ROOT}/target/debug/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
     cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
@@ -141,6 +142,7 @@ script = '''
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/prometheus_fd_discovery "forge-dpu_${vers}/usr/bin"
     cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
@@ -163,6 +165,7 @@ script = '''
     mkdir -p "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/logs"
     mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib"
     mkdir -p "forge-dpu_${vers}/var/lib/otelcol-contrib/cursors"
+    mkdir -p "forge-dpu_${vers}/etc/otelcol-contrib/fd_configs"
     cp ${REPO_ROOT}/target/debug/forge-dpu-agent "forge-dpu_${vers}/usr/bin/"
     cp ${REPO_ROOT}/target/debug/forge-dhcp-server "forge-dpu_${vers}/var/lib/hbn/var/support/forge-dhcp/bin/"
     cp misc/forge-dpu-agent.service "forge-dpu_${vers}/lib/systemd/system/"
@@ -170,6 +173,7 @@ script = '''
     cp misc/local_bmc_dev "forge-dpu_${vers}/usr/bin/"
     cp misc/local_bmc_dev.service "forge-dpu_${vers}/lib/systemd/system/"
     cp misc/otelcol-contrib.service "forge-dpu_${vers}/lib/systemd/system/"
+    cp misc/prometheus_fd_discovery "forge-dpu_${vers}/usr/bin"
     cp otel/otel_config.yaml "forge-dpu_${vers}/etc/otelcol-contrib/config.yaml"
     cp -r misc/DEBIAN "forge-dpu_${vers}/"
 	sed -i "s/SED__DPU_AGENT_PKG_VERSION/${vers}/" forge-dpu_${vers}/DEBIAN/control
