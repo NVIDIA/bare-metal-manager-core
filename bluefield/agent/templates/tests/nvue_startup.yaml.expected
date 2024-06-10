@@ -87,6 +87,13 @@
                 action: deny
                 match:
                   any: {}
+          dpu_from_instance:
+            rule:
+              '10':
+                action: permit
+                match:
+                  0.0.0.0/0:
+                    min-prefix-len: 32
         route-map:
           FORGE_TO_UNDERLAY:
             rule:
@@ -103,6 +110,11 @@
               '1000':
                 action:
                   permit: {}
+          dpu_to_instance:
+            rule:
+              '10':
+                action:
+                  deny: {}
     service:
       dhcp-relay:
         default:
@@ -163,6 +175,14 @@
               p1_sf:
                 peer-group: underlay
                 type: unnumbered
+              10.217.5.170:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
+              10.217.5.162:
+                passive-mode: on
+                peer-group: tenant
+                type: numbered
             path-selection:
               multipath:
                 aspath-ignore: on
@@ -179,6 +199,21 @@
                 multihop-ttl: 255
                 remote-as: external
                 update-source: lo
+              tenant:
+                address-family:
+                  ipv4-unicast:
+                    policy:
+                      inbound:
+                        prefix-list: dpu_from_instance
+                      outbound:
+                        route-map: dpu_to_instance
+                nexthop-connected-check: off
+                remote-as: external
+                timers:
+                  connection-retry: 10
+                  hold: 9
+                  keepalive: 3
+                  route-advertisement: none
               underlay:
                 remote-as: external
                 address-family:
