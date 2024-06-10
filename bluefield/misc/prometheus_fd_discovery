@@ -2,7 +2,7 @@
 
 ADDRESS=$(ip -json addr show oob_net0  | jq -r '.[].addr_info[] | select(.family == "inet").local')
 
-DATA= cat<< EOF
+DATA= cat<< EOF > /etc/otelcol-contrib/fd_configs/fd_discovery.yaml
 - targets: [ "127.0.0.1:8888" ]
   labels:
     ipaddress: $ADDRESS
@@ -12,5 +12,3 @@ DATA= cat<< EOF
     ipaddress: $ADDRESS
     component: "dts"
 EOF
-
-echo $DATA > /etc/otelcol-contrib/fd_configs/fd_discovery.yaml
