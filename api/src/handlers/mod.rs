@@ -10,6 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod boot_override;
 pub mod domain;
 pub mod ib_partition;
+pub mod network_segment;
+pub mod resource_pool;
+pub mod tenant;
+pub mod tenant_keyset;
 pub mod vpc;

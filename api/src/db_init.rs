@@ -89,7 +89,7 @@ pub async fn create_initial_networks<
             continue;
         }
         let ns = NewNetworkSegment::build_from(name, domain_id, def)?;
-        api.save_network_segment(&mut txn, ns, true).await?;
+        crate::handlers::network_segment::save(api, &mut txn, ns, true).await?;
         tracing::info!("Created network segment {name}");
     }
     txn.commit()
