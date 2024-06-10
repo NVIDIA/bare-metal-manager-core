@@ -1,3 +1,4 @@
+use ::rpc::Timestamp;
 use mac_address::MacAddress;
 use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
 
@@ -36,29 +37,20 @@ pub async fn get_fac_action(
     rpc::forge::forge_agent_control_response::Action::try_from(response.action).unwrap()
 }
 
-pub async fn reboot_requested(
-    app_context: &MachineATronContext,
-    machine_id: &rpc::forge::MachineId,
+pub fn reboot_requested_for_machine(
+    machine: &rpc::forge::Machine,
+    m_a_t_last_known_reboot_request: Option<&Timestamp>,
 ) -> bool {
-    let Ok(machine) = api_client::get_machine(app_context, machine_id.clone()).await else {
-        tracing::warn!("get_machine failed");
-        return false;
-    };
-
-    machine.map(reboot_requested_for_machine).unwrap_or(false)
-}
-
-pub fn reboot_requested_for_machine(machine: rpc::forge::Machine) -> bool {
     let mut rr = false;
-    if let Some(last_reboot_requested_time) = machine.last_reboot_requested_time {
-        if let Some(last_reboot_time) = machine.last_reboot_time {
-            let last_reboot_requested_time =
-                chrono::DateTime::try_from(last_reboot_requested_time).unwrap();
-            let last_reboot_time = chrono::DateTime::try_from(last_reboot_time).unwrap();
 
-            rr = last_reboot_requested_time > last_reboot_time;
-        }
+    if let Some(last_reboot_requested_time) = machine.last_reboot_requested_time.as_ref() {
+        // if the machine's last known reboot request in m_a_t is None but the request received from API is not, it indicates
+        // the machine's first reboot.
+        rr = m_a_t_last_known_reboot_request
+            .map(|lrr| *last_reboot_requested_time > *lrr)
+            .unwrap_or(true);
     }
+
     if rr {
         tracing::info!(
             "reboot requested for {}",
@@ -71,6 +63,7 @@ pub fn reboot_requested_for_machine(machine: rpc::forge::Machine) -> bool {
 pub async fn get_api_state(
     app_context: &MachineATronContext,
     machine_id: &rpc::forge::MachineId,
+    m_a_t_last_known_reboot_request: &mut Option<Timestamp>,
 ) -> (String, bool) {
     api_client::get_machine(app_context, machine_id.clone())
         .await
@@ -80,9 +73,12 @@ pub async fn get_api_state(
                 ("<ERROR>".to_owned(), false)
             },
             |machine| {
-                if let Some(m) = machine {
+                if let Some(ref m) = machine {
                     let state = m.state.clone();
-                    let rr = reboot_requested_for_machine(m);
+                    let rr =
+                        reboot_requested_for_machine(m, m_a_t_last_known_reboot_request.as_ref());
+                    *m_a_t_last_known_reboot_request = m.last_reboot_requested_time.clone();
+
                     (state, rr)
                 } else {
                     ("<No Machine>".to_owned(), false)

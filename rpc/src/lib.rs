@@ -15,6 +15,7 @@
 //! interact with the API Service
 //!
 
+use std::cmp::Ordering;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -63,10 +64,25 @@ pub fn get_encoded_reflection_service_fd() -> Vec<u8> {
     expected
 }
 
+impl Ord for Timestamp {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0
+            .seconds
+            .cmp(&other.0.seconds)
+            .then_with(|| self.0.nanos.cmp(&other.0.nanos))
+    }
+}
+
 /// A wrapper around the prost timestamp which allows for serde serialization
 /// and has helper methods to convert from and into std::time::SystemTime and DateTime
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct Timestamp(prost_types::Timestamp);
+
+impl PartialOrd for Timestamp {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl std::fmt::Display for Timestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
