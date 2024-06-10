@@ -24,7 +24,7 @@
 	{% for i in instances %}
 		<tr>
 			<td><a href="/admin/instance/{{ i.id }}">{{ i.id }}</a></td>
-			<td>{{ i.machine_id|machine_id_link|safe}}</td>
+			<td>{{ i.machine_id|managed_host_id_link|safe}}</td>
 			<td>{{ i.tenant_org }}</td>
 			<td>{{ i.tenant_state }}</td>
 			<td>{{ i.configs_synced }}</td>

@@ -23,7 +23,7 @@
 	<tbody>
 	{% for host in maintenance %}
 		<tr>
-			<td>{{ host.machine_id|machine_id_link|safe }}</td>
+			<td>{{ host.machine_id|managed_host_id_link|safe }}</td>
 			<td>{{ host.dpu_properties(DpuProperty::MachineId)|safe}}</td>
 			<td>{% if host.is_link_ref %}<a href="{{ host.maintenance_reference }}">{{ host.maintenance_reference }}</a>{% else %}{{ host.maintenance_reference }}{% endif %}</td>
 			<td>{{ host.maintenance_start_time }}</td>
@@ -69,7 +69,7 @@
 	<tbody>
 	{% for host in active %}
 		<tr>
-			<td>{{ host.machine_id|machine_id_link|safe }}</td>
+			<td>{{ host.machine_id|managed_host_id_link|safe }}</td>
 			<td>{{ host.dpu_properties(DpuProperty::MachineId)|safe }}</td>
 			<td title="{{ host.state_reason }}">{{ host.state }}</td>
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>

@@ -19,25 +19,34 @@ use askama_escape::Escaper;
 
 /// Generates HTML links for Machine IDs
 pub fn machine_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> {
-    let full_id = id.to_string();
-    let short_id = if full_id.len() < 25
-        || !full_id.starts_with("fm100")
-        || full_id.chars().any(|c| !c.is_ascii_alphanumeric())
+    machine_link(id.to_string(), "machine")
+}
+
+/// Generates HTML links to the Managed Host page for Machine IDs
+pub fn managed_host_id_link<T: std::fmt::Display>(id: T) -> ::askama::Result<String> {
+    machine_link(id.to_string(), "managed-host")
+}
+
+/// Generates a formatted link for Machine IDs to a predefined path
+fn machine_link(id: String, path: &str) -> ::askama::Result<String> {
+    let short_id = if id.len() < 25
+        || !id.starts_with("fm100")
+        || id.chars().any(|c| !c.is_ascii_alphanumeric())
     {
         // Not a Machine ID. Escape HTML to make it safe for post processing with safe filter
         let mut output = String::new();
-        askama_escape::Html.write_escaped(&mut output, &full_id)?;
+        askama_escape::Html.write_escaped(&mut output, &id)?;
         return Ok(output);
     } else {
         // "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0" -> "acguc0"
-        &full_id[full_id.len() - 6..]
+        &id[id.len() - 6..]
     };
 
     let formatted = format!(
         r#"
-    <a href="/admin/machine/{full_id}">
+    <a href="/admin/{path}/{id}">
         <div class="machine_id">
-            <div>{full_id}</div><div>{short_id}</div>
+            <div>{id}</div><div>{short_id}</div>
         </div>
     </a>"#
     );
