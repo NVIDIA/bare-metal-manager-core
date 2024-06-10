@@ -6,9 +6,16 @@
 <h1>{{ machine_type }} {{ id }}</h1>
 
 <table>
-	{% if !is_host %}
-		<tr><th>Host ID</th><td><a href="/admin/managed-host/{{ host_id }}">{{ host_id }}</a></td></tr>
-	{% endif %}
+	<tr>
+		<th>Managed Host</th>
+		<td>
+		{% if !is_host %}
+			{{ host_id|managed_host_id_link|safe }}
+		{% else %}
+			{{ id|managed_host_id_link|safe }}
+		{% endif %}
+		</td>
+	</tr>
 	<tr><th>State</th><td>{{ state }}</td></tr>
 	<tr><th>State Version</th><td>{{ state_version }}</td></tr>
 	<tr><th>Time in state</th><td>{{ time_in_state }}</td></tr>
