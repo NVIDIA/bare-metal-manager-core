@@ -41,6 +41,7 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
+use crate::attestation as attest;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -82,6 +83,7 @@ use crate::{
     auth,
     credentials::UpdateCredentials,
     db::{
+        attestation::SecretAkPub,
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         domain::Domain,
         instance::{DeleteInstance, FindInstanceTypeFilter, Instance},
@@ -106,6 +108,8 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use crate::{resource_pool, site_explorer};
+use tss_esapi::structures::{Attest, Public as TssPublic, Signature};
+use tss_esapi::traits::UnMarshall;
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -5406,6 +5410,159 @@ where
 
         Ok(tonic::Response::new(rpc::NetworkTopologyData {
             network_devices: network_devices.into_iter().map_into().collect(),
+        }))
+    }
+
+    async fn bind_attest_key(
+        &self,
+        request: tonic::Request<rpc::BindRequest>,
+    ) -> std::result::Result<tonic::Response<rpc::BindResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        if let Some(machine_id) = &request.get_ref().machine_id {
+            if let Ok(id) = try_parse_machine_id(machine_id) {
+                log_machine_id(&id)
+            }
+        }
+
+        // TODO: fetch ek cert from the db - something like CREATE TABLE public.machines (
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin insert secret -> AK Pub",
+                e,
+            ))
+        })?;
+
+        // generate a secret/credential
+        let secret_bytes: [u8; 32] = rand::random();
+
+        tracing::debug!("Generated session key {:?}", secret_bytes);
+
+        let (cli_cred_blob, cli_secret) = attest::cli_make_cred(
+            &request.get_ref().ek_pub,
+            &request.get_ref().ak_name,
+            &secret_bytes,
+        )?;
+
+        SecretAkPub::insert(
+            &mut txn,
+            &Vec::from(secret_bytes),
+            &request.get_ref().ak_pub,
+        )
+        .await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit insert secret -> AK Pub",
+                e,
+            ))
+        })?;
+
+        Ok(tonic::Response::new(rpc::BindResponse {
+            cred_blob: cli_cred_blob,
+            encrypted_secret: cli_secret,
+        }))
+    }
+
+    async fn verify_quote(
+        &self,
+        request: tonic::Request<rpc::VerifyQuoteRequest>,
+    ) -> std::result::Result<tonic::Response<rpc::VerifyQuoteResponse>, tonic::Status> {
+        log_request_data(&request);
+
+        if let Some(machine_id) = &request.get_ref().machine_id {
+            if let Ok(id) = try_parse_machine_id(machine_id) {
+                log_machine_id(&id)
+            }
+        }
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find secret -> AK Pub",
+                e,
+            ))
+        })?;
+
+        let ak_pub_bytes =
+            match SecretAkPub::get_by_secret(&mut txn, &request.get_ref().credential).await? {
+                Some(entry) => entry.ak_pub,
+                None => {
+                    return Err(Status::from(CarbideError::AttestationVerifyQuoteError(
+                        "Could not form SQL query to fetch AK Pub".into(),
+                    )));
+                }
+            };
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit find secret -> AK Pub",
+                e,
+            ))
+        })?;
+
+        let ak_pub = TssPublic::unmarshall(ak_pub_bytes.as_slice()).map_err(|e| {
+            CarbideError::AttestationVerifyQuoteError(format!("Could not unmarshal AK Pub: {0}", e))
+        })?;
+
+        let attest = Attest::unmarshall(&(request.get_ref()).attestation).map_err(|e| {
+            CarbideError::AttestationVerifyQuoteError(format!(
+                "Could not unmarshall Attest struct: {0}",
+                e
+            ))
+        })?;
+        let signature = Signature::unmarshall(&(request.get_ref()).signature).map_err(|e| {
+            CarbideError::AttestationVerifyQuoteError(format!(
+                "Could not unmarshall Signature struct: {0}",
+                e
+            ))
+        })?;
+
+        let signature_valid =
+            attest::verify_signature(&ak_pub, &request.get_ref().attestation, &signature)?;
+
+        let pcr_hash_matches = attest::verify_pcr_hash(&attest, &request.get_ref().pcr_values)?;
+
+        // TODO: change to debug? once the full implementation is in place?
+        tracing::info!(
+            "Signature valid: {0}, pcr hash matches: {1}",
+            signature_valid,
+            pcr_hash_matches
+        );
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin delete secret -> AK Pub",
+                e,
+            ))
+        })?;
+        SecretAkPub::delete(&mut txn, &request.get_ref().credential).await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit delete secret -> AK Pub",
+                e,
+            ))
+        })?;
+
+        let _eventlog_opt = &request.get_ref().event_log;
+
+        // TODO: Chet -> this is where verification logic goes
+
+        Ok(tonic::Response::new(rpc::VerifyQuoteResponse {
+            success: false,
         }))
     }
 

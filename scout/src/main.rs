@@ -19,6 +19,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tryhard::RetryFutureConfig;
 
+mod attestation;
 mod cfg;
 mod client;
 mod deprovision;
@@ -90,6 +91,7 @@ async fn main() -> Result<(), eyre::Report> {
         machine_interface_id,
         config.discovery_retry_secs,
         config.discovery_retries_max,
+        &config.tpm_path,
     )
     .await
     {
@@ -146,9 +148,7 @@ async fn handle_action(
             panic!("Retrieved Retry action, which should be handled internally by query_api_with_retries");
         }
         Action::Measure => {
-            // TODO(kbakanov,chet): Implement this. Dropping as as placeholder
-            // for now in the name of small, readable MRs.
-            unimplemented!("received MEASURE action, but measure not implemented in this version");
+            attestation::run(config, machine_id).await?;
         }
     }
     Ok(())

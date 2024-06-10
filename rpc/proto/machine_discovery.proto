@@ -43,6 +43,15 @@ message DiscoveryInfo {
 
   // Enumerates Memory devices on the host
   repeated MemoryDevice memory_devices = 12;
+
+  // output of dmidecode -t 43 (TPM description)
+  optional TpmDescription tpm_description = 13;
+}
+
+message TpmDescription {
+  string vendor = 1;
+  string firmware_version = 2;
+  string tpm_spec = 3;
 }
 
 message NetworkInterface {

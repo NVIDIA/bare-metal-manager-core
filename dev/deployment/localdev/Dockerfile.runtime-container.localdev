@@ -34,4 +34,5 @@ RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -
   ipmitool \
   iproute2 \
   iputils-ping \
-  libudev1
+  libudev1 \
+  tpm2-tools

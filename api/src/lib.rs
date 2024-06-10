@@ -37,6 +37,7 @@ use crate::logging::{
 };
 
 pub mod api;
+pub mod attestation;
 pub mod auth;
 pub mod cfg;
 pub mod credentials;
@@ -227,6 +228,12 @@ pub enum CarbideError {
 
     #[error("Unsupported firmware version: {0}")]
     UnsupportedFirmwareVersion(String),
+
+    #[error("Attestation Verify Quote Error: {0}")]
+    AttestationVerifyQuoteError(String),
+
+    #[error("Attestation Bind Key Error: {0}")]
+    AttestationBindKeyError(String),
 }
 
 impl From<CarbideError> for tonic::Status {
