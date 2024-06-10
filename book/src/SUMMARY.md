@@ -62,6 +62,7 @@
 
 # Playbooks
 
+- [Update CI/CD SSA secret for nSpect Scans](playbooks/update-ssa-key.md)
 - [Azure OIDC for a Forge Site](playbooks/azure_oidc.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
