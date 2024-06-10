@@ -375,6 +375,57 @@ WHERE s.network_config->>'loopback_ip'=$1";
         Ok(query_result.0)
     }
 
+    /// Updates the Operating System
+    ///
+    /// This method does not check if the instance still exists.
+    /// A previous `Instance::find` call should fulfill this purpose.
+    pub async fn update_os(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+        expected_version: ConfigVersion,
+        os: OperatingSystem,
+    ) -> Result<(), CarbideError> {
+        let expected_version_str = expected_version.version_string();
+        let next_version = expected_version.increment();
+        let next_version_str = next_version.version_string();
+
+        let os_ipxe_script;
+        let os_user_data;
+        let os_always_boot_with_ipxe;
+        match &os.variant {
+            OperatingSystemVariant::Ipxe(ipxe) => {
+                os_ipxe_script = &ipxe.ipxe_script;
+                os_user_data = &ipxe.user_data;
+                os_always_boot_with_ipxe = ipxe.always_boot_with_ipxe;
+            }
+        }
+
+        let query = "UPDATE instances SET config_version=$1,
+            os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5
+            WHERE id=$6 AND config_version=$7
+            RETURNING id";
+        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+            .bind(&next_version_str)
+            .bind(os_ipxe_script)
+            .bind(os_user_data)
+            .bind(os_always_boot_with_ipxe)
+            .bind(os.phone_home_enabled)
+            .bind(instance_id)
+            .bind(&expected_version_str)
+            .fetch_one(&mut **txn)
+            .await;
+
+        match query_result {
+            Ok((_instance_id,)) => Ok(()),
+            Err(e) => Err(match e {
+                sqlx::Error::RowNotFound => {
+                    CarbideError::ConcurrentModificationError("instance", expected_version)
+                }
+                e => DatabaseError::new(file!(), line!(), query, e).into(),
+            }),
+        }
+    }
+
     /// Updates the desired infiniband configuration for an instance
     pub async fn update_ib_config(
         txn: &mut Transaction<'_, Postgres>,

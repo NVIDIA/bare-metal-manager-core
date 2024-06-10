@@ -5109,9 +5109,82 @@ where
 
     async fn update_instance_operating_system(
         &self,
-        _request: tonic::Request<rpc::InstanceOperatingSystemUpdateRequest>,
+        request: tonic::Request<rpc::InstanceOperatingSystemUpdateRequest>,
     ) -> Result<tonic::Response<rpc::Instance>, Status> {
-        Err(Status::internal("not implemented"))
+        let request = request.into_inner();
+        let instance_id = match request.instance_id {
+            Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(CarbideError::MissingArgument("instance_id").into());
+            }
+        };
+        let os = match request.os {
+            None => return Err(CarbideError::MissingArgument("os").into()),
+            Some(os) => os.try_into().map_err(CarbideError::from)?,
+        };
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin update_instance_operating_system",
+                e,
+            ))
+        })?;
+
+        let instance = Instance::find(
+            &mut txn,
+            FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(instance_id)),
+        )
+        .await
+        .map_err(CarbideError::from)?
+        .pop()
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
+
+        log_machine_id(&instance.machine_id);
+
+        let expected_version = match request.if_version_match {
+            Some(version) => version.parse().map_err(CarbideError::from)?,
+            None => instance.config_version,
+        };
+
+        Instance::update_os(&mut txn, *instance.id(), expected_version, os)
+            .await
+            .map_err(CarbideError::from)?;
+
+        let mh_snapshot = DbSnapshotLoader {}
+            .load_machine_snapshot(&mut txn, &instance.machine_id)
+            .await
+            .map_err(CarbideError::from)?;
+        let mut snapshot =
+            rpc::Instance::try_from(mh_snapshot.instance.ok_or(Status::invalid_argument(
+                format!("Snapshot not found for machine {}", instance.machine_id),
+            ))?)
+            .map_err(CarbideError::from)?;
+        // TODO: multidpu: Fix it for multiple dpus.
+        for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+            if let Some(reprovision_requested) = &dpu_snapshot.reprovision_requested {
+                if let Some(mut status) = snapshot.status {
+                    status.update = Some(reprovision_requested.clone().into());
+                    snapshot.status = Some(status);
+                    break;
+                }
+            }
+        }
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit update_instance_operating_system",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(snapshot))
     }
 
     async fn delete_expected_machine(
