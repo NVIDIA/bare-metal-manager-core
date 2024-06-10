@@ -1,5 +1,6 @@
 use std::{fmt::Display, path::PathBuf, time::Duration};
 
+use ::rpc::Timestamp;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigResponse;
 use tokio::time::Instant;
@@ -36,6 +37,7 @@ pub struct DpuMachine {
     pub bmc_port: u16,
     bmc: Option<Bmc>,
     last_reboot: Instant,
+    m_a_t_last_known_reboot_request: Option<Timestamp>,
 }
 
 impl DpuMachine {
@@ -66,6 +68,7 @@ impl DpuMachine {
             bmc_port,
             bmc: None,
             last_reboot: Instant::now(),
+            m_a_t_last_known_reboot_request: None,
         }
     }
 
@@ -117,13 +120,18 @@ impl DpuMachine {
         let template_dir = self.config.template_dir.as_str();
 
         if let Some(machine_id) = self.get_machine_id_opt() {
-            let (api_state, reboot_requested) = get_api_state(&self.app_context, &machine_id).await;
+            let (api_state, reboot_requested) = get_api_state(
+                &self.app_context,
+                &machine_id,
+                &mut self.m_a_t_last_known_reboot_request,
+            )
+            .await;
             self.api_state = api_state;
             if reboot_requested && self.last_reboot.elapsed() > Duration::from_secs(60) {
                 self.last_reboot = Instant::now();
                 self.mat_state = MachineState::Init;
                 logs.push(format!(
-                    "D: Reboot requested: new state: {} api state: {}",
+                    "DPU: Reboot requested: new state: {} api state: {}",
                     self.mat_state, self.api_state
                 ));
                 return Ok(false);
