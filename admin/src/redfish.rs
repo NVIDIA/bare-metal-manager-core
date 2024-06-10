@@ -11,7 +11,6 @@
  */
 
 use color_eyre::eyre::eyre;
-use forge_secrets::credentials::Credentials;
 use libredfish::{
     model::{
         software_inventory::SoftwareInventory,
@@ -258,10 +257,6 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         GetSystemEthernetInterfaces => {
             handle_ethernet_interface_show(redfish, true).await?;
-        }
-        GenerateHostUefiPassword => {
-            let password = Credentials::generate_password_no_special_char();
-            println!("Generated Bios Admin Password: {}", password);
         }
         GetManager => {
             let manager = redfish.get_manager().await?;

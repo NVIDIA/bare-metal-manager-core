@@ -225,10 +225,14 @@ pub struct DpuVersionOptions {
     pub updates_only: bool,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Parser, Debug)]
 pub enum HostAction {
     #[clap(about = "Set Host UEFI password")]
     SetUefiPassword(MachineQuery),
+    #[clap(about = "Generates a string that can be a site-default host UEFI password in Vault")]
+    /// - the generated string will meet the uefi password requirements of all vendors
+    GenerateHostUefiPassword,
 }
 
 #[derive(Parser, Debug)]
@@ -494,9 +498,6 @@ pub enum RedfishCommand {
     ChangeUefiPassword(UefiPassword),
     #[clap(about = "DPU specific operations", subcommand)]
     Dpu(DpuOperations),
-    /// Generates a string that can be a site-default host UEFI password in Vault
-    /// - the generated string will meet the uefi password requirements of all vendors
-    GenerateHostUefiPassword,
     GetManager,
     /// Update host firmware
     UpdateFirmwareMultipart(Multipart),

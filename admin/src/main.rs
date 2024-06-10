@@ -488,6 +488,10 @@ async fn main() -> color_eyre::Result<()> {
             HostAction::SetUefiPassword(query) => {
                 rpc::set_host_uefi_password(query, api_config).await?;
             }
+            HostAction::GenerateHostUefiPassword => {
+                let password = Credentials::generate_password_no_special_char();
+                println!("Generated Bios Admin Password: {}", password);
+            }
         },
         CarbideCommand::Redfish(_) => {
             // Handled earlier
