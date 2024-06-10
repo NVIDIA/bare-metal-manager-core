@@ -1812,7 +1812,7 @@ async fn trigger_reboot_if_needed(
     } else {
         let h = (current_time - entered_state_at).num_hours();
         Err(StateHandlerError::ManualInterventionRequired(format!(
-            "Manual intervention required. Machine has not responded after {h} hours."
+            "Machine has not responded after {h} hours."
         )))
     }
 }
