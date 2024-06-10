@@ -16,19 +16,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::redfish::{host_power_control, poll_redfish_job, set_host_uefi_password};
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
-    CreateTenantKeysetRequest, CreateTenantKeysetResponse, CreateTenantRequest,
-    CreateTenantResponse, DeleteTenantKeysetRequest, DeleteTenantKeysetResponse, EchoRequest,
-    EchoResponse, FindTenantKeysetRequest, FindTenantRequest, FindTenantResponse, InstanceList,
-    InstancePhoneHomeLastContactRequest, InstancePhoneHomeLastContactResponse,
-    MachineCredentialsUpdateRequest, MachineCredentialsUpdateResponse, TenantKeySetList,
-    UpdateTenantKeysetRequest, UpdateTenantKeysetResponse, UpdateTenantRequest,
-    UpdateTenantResponse, ValidateTenantPublicKeyRequest, ValidateTenantPublicKeyResponse,
+    EchoRequest, EchoResponse, InstanceList, InstancePhoneHomeLastContactRequest,
+    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse,
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
-use config_version::ConfigVersion;
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
 use itertools::Itertools;
@@ -50,7 +44,6 @@ use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
-use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::dynamic_settings;
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
@@ -67,14 +60,10 @@ use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, InstanceState, ManagedHostState, ReprovisionState,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
-use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::os::OperatingSystemVariant;
-use crate::model::tenant::{
-    Tenant, TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest,
-    UpdateTenantKeyset,
-};
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
+use crate::redfish::{host_power_control, poll_redfish_job, set_host_uefi_password};
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
@@ -88,7 +77,6 @@ use crate::{
         machine::Machine,
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
-        network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment},
         resource_record::DnsQuestion,
         route_servers::RouteServer,
         vpc::Vpc,
@@ -249,215 +237,28 @@ where
         &self,
         request: Request<rpc::NetworkSegmentQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin find_network_segments",
-                e,
-            ))
-        })?;
-
-        let rpc::NetworkSegmentQuery {
-            id, search_config, ..
-        } = request.into_inner();
-
-        let uuid_filter = match id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
-                Err(err) => {
-                    return Err(Status::invalid_argument(format!(
-                        "Supplied invalid UUID: {}",
-                        err
-                    )));
-                }
-            },
-            None => UuidKeyedObjectFilter::All,
-        };
-
-        let search_config = search_config
-            .map(NetworkSegmentSearchConfig::from)
-            .unwrap_or(NetworkSegmentSearchConfig::default());
-        let results = NetworkSegment::find(&mut txn, uuid_filter, search_config)
-            .await
-            .map_err(CarbideError::from)?;
-        let mut network_segments = Vec::with_capacity(results.len());
-
-        for result in results {
-            network_segments.push(result.try_into()?);
-        }
-        Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
+        crate::handlers::network_segment::find(self, request).await
     }
 
     async fn create_network_segment(
         &self,
         request: Request<rpc::NetworkSegmentCreationRequest>,
     ) -> Result<Response<rpc::NetworkSegment>, Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-
-        let new_network_segment = NewNetworkSegment::try_from(request)?;
-
-        if new_network_segment.segment_type == NetworkSegmentType::Tenant {
-            if let Some(site_fabric_prefixes) = self.eth_data.site_fabric_prefixes.as_ref() {
-                let segment_prefixes: Vec<_> = new_network_segment
-                    .prefixes
-                    .iter()
-                    .map(|np| np.prefix)
-                    .collect();
-
-                let uncontained_prefixes: Vec<_> = segment_prefixes
-                    .into_iter()
-                    .filter(|segment_prefix| !site_fabric_prefixes.contains(*segment_prefix))
-                    .collect();
-
-                // Anything in uncontained_prefixes did not match any of our
-                // site fabric prefixes, and if we allowed it to be used then VPC
-                // isolation would not function properly for traffic addressed to
-                // that prefix.
-                if !uncontained_prefixes.is_empty() {
-                    let uncontained_prefixes = itertools::join(uncontained_prefixes, ", ");
-                    let msg = format!(
-                        "One or more requested network segment prefixes were not contained \
-                        within the configured site fabric prefixes: {uncontained_prefixes}"
-                    );
-                    return Err(CarbideError::InvalidArgument(msg).into());
-                }
-            }
-        }
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin create_network_segment",
-                e,
-            ))
-        })?;
-        let network_segment = self
-            .save_network_segment(&mut txn, new_network_segment, false)
-            .await?;
-
-        let response = Ok(Response::new(network_segment.try_into()?));
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit create_network_segment",
-                e,
-            ))
-        })?;
-        response
+        crate::handlers::network_segment::create(self, request).await
     }
 
     async fn delete_network_segment(
         &self,
         request: Request<rpc::NetworkSegmentDeletionRequest>,
     ) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin delete_network_segment",
-                e,
-            ))
-        })?;
-
-        let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
-
-        let uuid = match id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(_err) => {
-                    return Err(CarbideError::InvalidArgument("id".to_string()).into());
-                }
-            },
-            None => {
-                return Err(CarbideError::MissingArgument("id").into());
-            }
-        };
-
-        let mut segments = NetworkSegment::find(
-            &mut txn,
-            UuidKeyedObjectFilter::One(uuid),
-            NetworkSegmentSearchConfig::default(),
-        )
-        .await
-        .map_err(CarbideError::from)?;
-
-        let segment = match segments.len() {
-            1 => segments.remove(0),
-            _ => {
-                return Err(CarbideError::NotFoundError {
-                    kind: "network segment",
-                    id: uuid.to_string(),
-                }
-                .into());
-            }
-        };
-
-        let response = Ok(segment
-            .mark_as_deleted(&mut txn)
-            .await
-            .map(|_| rpc::NetworkSegmentDeletionResult {})
-            .map(Response::new)?);
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit delete_network_segment",
-                e,
-            ))
-        })?;
-
-        response
+        crate::handlers::network_segment::delete(self, request).await
     }
 
     async fn network_segments_for_vpc(
         &self,
         request: Request<rpc::VpcSearchQuery>,
     ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin network_segments_for_vpc",
-                e,
-            ))
-        })?;
-
-        let rpc::VpcSearchQuery { id, .. } = request.into_inner();
-
-        let uuid = match id {
-            Some(id) => match Uuid::try_from(id) {
-                Ok(uuid) => uuid,
-                Err(_) => {
-                    return Err(CarbideError::MissingArgument("id").into());
-                }
-            },
-            None => {
-                return Err(CarbideError::InvalidArgument("id".to_string()).into());
-            }
-        };
-
-        let results = NetworkSegment::for_vpc(&mut txn, uuid)
-            .await
-            .map_err(CarbideError::from)?;
-
-        let mut network_segments = Vec::with_capacity(results.len());
-
-        for result in results {
-            network_segments.push(result.try_into()?);
-        }
-
-        Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
+        crate::handlers::network_segment::for_vpc(self, request).await
     }
 
     async fn allocate_instance(
@@ -1370,316 +1171,58 @@ where
     /// Tenant-related actions
     async fn create_tenant(
         &self,
-        request: Request<CreateTenantRequest>,
-    ) -> Result<Response<CreateTenantResponse>, Status> {
-        log_request_data(&request);
-
-        let rpc::CreateTenantRequest { organization_id } = request.into_inner();
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin create_tenant",
-                e,
-            ))
-        })?;
-
-        let response = Tenant::create_and_persist(organization_id, &mut txn)
-            .await
-            .map(|x| x.into())
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit create_tenant",
-                e,
-            ))
-        })?;
-
-        Ok(response)
+        request: Request<rpc::CreateTenantRequest>,
+    ) -> Result<Response<rpc::CreateTenantResponse>, Status> {
+        crate::handlers::tenant::create(self, request).await
     }
 
     async fn find_tenant(
         &self,
-        request: Request<FindTenantRequest>,
-    ) -> Result<Response<FindTenantResponse>, Status> {
-        log_request_data(&request);
-
-        let rpc::FindTenantRequest {
-            tenant_organization_id,
-        } = request.into_inner();
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_tenant", e))
-        })?;
-
-        let response = Tenant::find(tenant_organization_id, &mut txn)
-            .await
-            .map(|x| {
-                x.map(|a| a.into())
-                    .unwrap_or(rpc::FindTenantResponse { tenant: None })
-            })
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit find_tenant",
-                e,
-            ))
-        })?;
-
-        Ok(response)
+        request: Request<rpc::FindTenantRequest>,
+    ) -> Result<Response<rpc::FindTenantResponse>, Status> {
+        crate::handlers::tenant::find(self, request).await
     }
 
     async fn update_tenant(
         &self,
-        request: Request<UpdateTenantRequest>,
-    ) -> Result<Response<UpdateTenantResponse>, Status> {
-        log_request_data(&request);
-
-        // This doesn't update anything yet :|
-        let rpc::UpdateTenantRequest {
-            organization_id,
-            if_version_match,
-            ..
-        } = request.into_inner();
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin update_tenant",
-                e,
-            ))
-        })?;
-
-        let if_version_match: Option<ConfigVersion> =
-            if let Some(config_version_str) = if_version_match {
-                Some(config_version_str.parse().map_err(CarbideError::from)?)
-            } else {
-                None
-            };
-
-        let response = Tenant::update(organization_id, if_version_match, &mut txn)
-            .await
-            .map(|x| x.into())
-            .map(Response::new)
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit update_tenant",
-                e,
-            ))
-        })?;
-
-        Ok(response)
+        request: Request<rpc::UpdateTenantRequest>,
+    ) -> Result<Response<rpc::UpdateTenantResponse>, Status> {
+        crate::handlers::tenant::update(self, request).await
     }
 
     async fn create_tenant_keyset(
         &self,
-        request: Request<CreateTenantKeysetRequest>,
-    ) -> Result<Response<CreateTenantKeysetResponse>, Status> {
-        log_request_data(&request);
-
-        let keyset_request: TenantKeyset = request
-            .into_inner()
-            .try_into()
-            .map_err(CarbideError::from)?;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin create_tenant_keyset",
-                e,
-            ))
-        })?;
-
-        let keyset = keyset_request
-            .create(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit create_tenant_keyset",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(rpc::CreateTenantKeysetResponse {
-            keyset: Some(keyset.into()),
-        }))
+        request: Request<rpc::CreateTenantKeysetRequest>,
+    ) -> Result<Response<rpc::CreateTenantKeysetResponse>, Status> {
+        crate::handlers::tenant_keyset::create(self, request).await
     }
 
     async fn find_tenant_keyset(
         &self,
-        request: Request<FindTenantKeysetRequest>,
-    ) -> Result<Response<TenantKeySetList>, Status> {
-        log_request_data(&request);
-
-        let rpc::FindTenantKeysetRequest {
-            organization_id,
-            keyset_id,
-            include_key_data,
-        } = request.into_inner();
-
-        if organization_id.is_none() && keyset_id.is_some() {
-            return Err(CarbideError::InvalidArgument(
-                "Keyset id is given but Organization id is missing.".to_string(),
-            )
-            .into());
-        }
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin find_tenant_keyset",
-                e,
-            ))
-        })?;
-
-        let keyset_ids = if let Some(keyset_id) = keyset_id {
-            ObjectFilter::One(keyset_id)
-        } else {
-            ObjectFilter::All
-        };
-
-        let keyset = TenantKeyset::find(organization_id, keyset_ids, include_key_data, &mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit find_tenant_keyset",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(rpc::TenantKeySetList {
-            keyset: keyset.into_iter().map(|x| x.into()).collect(),
-        }))
+        request: Request<rpc::FindTenantKeysetRequest>,
+    ) -> Result<Response<rpc::TenantKeySetList>, Status> {
+        crate::handlers::tenant_keyset::find(self, request).await
     }
 
     async fn update_tenant_keyset(
         &self,
-        request: Request<UpdateTenantKeysetRequest>,
-    ) -> Result<Response<UpdateTenantKeysetResponse>, Status> {
-        log_request_data(&request);
-
-        let update_request: UpdateTenantKeyset = request
-            .into_inner()
-            .try_into()
-            .map_err(CarbideError::from)?;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin update_tenant_keyset",
-                e,
-            ))
-        })?;
-
-        update_request
-            .update(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit update_tenant_keyset",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
+        request: Request<rpc::UpdateTenantKeysetRequest>,
+    ) -> Result<Response<rpc::UpdateTenantKeysetResponse>, Status> {
+        crate::handlers::tenant_keyset::update(self, request).await
     }
 
     async fn delete_tenant_keyset(
         &self,
-        request: Request<DeleteTenantKeysetRequest>,
-    ) -> Result<Response<DeleteTenantKeysetResponse>, Status> {
-        log_request_data(&request);
-
-        let rpc::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin delete_tenant_keyset",
-                e,
-            ))
-        })?;
-
-        let Some(keyset_identifier) = keyset_identifier else {
-            return Err(CarbideError::MissingArgument("keyset_identifier").into());
-        };
-
-        let keyset_identifier: TenantKeysetIdentifier =
-            keyset_identifier.try_into().map_err(CarbideError::from)?;
-
-        TenantKeyset::delete(keyset_identifier, &mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit delete_tenant_keyset",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
+        request: Request<rpc::DeleteTenantKeysetRequest>,
+    ) -> Result<Response<rpc::DeleteTenantKeysetResponse>, Status> {
+        crate::handlers::tenant_keyset::delete(self, request).await
     }
 
     async fn validate_tenant_public_key(
         &self,
-        request: Request<ValidateTenantPublicKeyRequest>,
-    ) -> Result<Response<ValidateTenantPublicKeyResponse>, Status> {
-        let request = TenantPublicKeyValidationRequest::try_from(request.into_inner())
-            .map_err(CarbideError::from)?;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin validate_tenant_public_key",
-                e,
-            ))
-        })?;
-
-        request.validate(&mut txn).await?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit validate_tenant_public_key",
-                e,
-            ))
-        })?;
-        Ok(Response::new(ValidateTenantPublicKeyResponse {}))
+        request: Request<rpc::ValidateTenantPublicKeyRequest>,
+    ) -> Result<Response<rpc::ValidateTenantPublicKeyResponse>, Status> {
+        crate::handlers::tenant_keyset::validate_public_key(self, request).await
     }
 
     async fn renew_machine_certificate(
@@ -3509,80 +3052,14 @@ where
         &self,
         request: Request<rpc::GrowResourcePoolRequest>,
     ) -> Result<Response<rpc::GrowResourcePoolResponse>, Status> {
-        log_request_data(&request);
-
-        let toml_text = request.into_inner().text;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin admin_grow_resource_pool",
-                e,
-            ))
-        })?;
-
-        let mut pools = HashMap::new();
-        let table: toml::Table = toml_text
-            .parse()
-            .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
-        for (name, def) in table {
-            let d: resource_pool::ResourcePoolDef = def
-                .try_into()
-                .map_err(|e: toml::de::Error| tonic::Status::invalid_argument(e.to_string()))?;
-            pools.insert(name, d);
-        }
-        use resource_pool::DefineResourcePoolError as DE;
-        match resource_pool::define_all_from(&mut txn, &pools).await {
-            Ok(()) => {
-                txn.commit().await.map_err(|e| {
-                    CarbideError::from(DatabaseError::new(
-                        file!(),
-                        line!(),
-                        "end admin_grow_resource_pool",
-                        e,
-                    ))
-                })?;
-                Ok(Response::new(rpc::GrowResourcePoolResponse {}))
-            }
-            Err(DE::InvalidArgument(msg)) => Err(tonic::Status::invalid_argument(msg)),
-            Err(DE::InvalidToml(err)) => Err(tonic::Status::invalid_argument(err.to_string())),
-            Err(DE::ResourcePoolError(msg)) => Err(tonic::Status::internal(msg.to_string())),
-            Err(err @ DE::TooBig(_, _)) => Err(tonic::Status::out_of_range(err.to_string())),
-        }
+        crate::handlers::resource_pool::grow(self, request).await
     }
 
     async fn admin_list_resource_pools(
         &self,
         request: Request<rpc::ListResourcePoolsRequest>,
     ) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin admin_list_resource_pools ",
-                e,
-            ))
-        })?;
-
-        let snapshot = resource_pool::all(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "end admin_list_resource_pools",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(rpc::ResourcePools {
-            pools: snapshot.into_iter().map(|s| s.into()).collect(),
-        }))
+        crate::handlers::resource_pool::list(self, request).await
     }
 
     /// Assign all VPCs a VNI
@@ -4001,132 +3478,21 @@ where
         &self,
         request: tonic::Request<rpc::Uuid>,
     ) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
-        log_request_data(&request);
-
-        let machine_interface_id_str = &request.into_inner().value;
-
-        let machine_interface_id = uuid::Uuid::parse_str(machine_interface_id_str)
-            .map_err(CarbideError::UuidConversionError)?;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_machine_boot_override ",
-                e,
-            ))
-        })?;
-
-        let machine_id = match MachineInterface::find_one(&mut txn, machine_interface_id).await {
-            Ok(interface) => interface.machine_id,
-            Err(_) => None,
-        };
-
-        if let Some(machine_id) = machine_id {
-            log_machine_id(&machine_id);
-        }
-
-        let mbo = match MachineBootOverride::find_optional(&mut txn, machine_interface_id).await? {
-            Some(mbo) => mbo,
-            None => MachineBootOverride {
-                machine_interface_id,
-                custom_pxe: None,
-                custom_user_data: None,
-            },
-        };
-
-        Ok(tonic::Response::new(mbo.into()))
+        crate::handlers::boot_override::get(self, request).await
     }
 
     async fn set_machine_boot_override(
         &self,
         request: tonic::Request<rpc::MachineBootOverride>,
     ) -> Result<tonic::Response<()>, Status> {
-        log_request_data(&request);
-
-        let mbo: MachineBootOverride = request.into_inner().try_into()?;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin set_machine_boot_override ",
-                e,
-            ))
-        })?;
-
-        let machine_id = match MachineInterface::find_one(&mut txn, mbo.machine_interface_id).await
-        {
-            Ok(interface) => interface.machine_id,
-            Err(_) => None,
-        };
-        match machine_id {
-            Some(machine_id) => {
-                log_machine_id(&machine_id);
-                tracing::warn!(
-                    machine_interface_id = mbo.machine_interface_id.to_string(),
-                    machine_id = machine_id.to_string(),
-                    "Boot override for machine_interface_id is active. Bypassing regular boot"
-                );
-            }
-
-            None => tracing::warn!(
-                machine_interface_id = mbo.machine_interface_id.to_string(),
-                "Boot override for machine_interface_id is active. Bypassing regular boot"
-            ),
-        }
-
-        mbo.update_or_insert(&mut txn).await?;
-
-        txn.commit().await.unwrap();
-
-        Ok(tonic::Response::new(()))
+        crate::handlers::boot_override::set(self, request).await
     }
 
     async fn clear_machine_boot_override(
         &self,
         request: tonic::Request<rpc::Uuid>,
     ) -> Result<tonic::Response<()>, Status> {
-        log_request_data(&request);
-
-        let machine_interface_id_str = &request.into_inner().value;
-
-        let machine_interface_id = uuid::Uuid::parse_str(machine_interface_id_str)
-            .map_err(CarbideError::UuidConversionError)?;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin clear_machine_boot_override ",
-                e,
-            ))
-        })?;
-
-        let machine_id = match MachineInterface::find_one(&mut txn, machine_interface_id).await {
-            Ok(interface) => interface.machine_id,
-            Err(_) => None,
-        };
-        match machine_id {
-            Some(machine_id) => {
-                log_machine_id(&machine_id);
-                tracing::info!(
-                    machine_interface_id = machine_interface_id_str,
-                    machine_id = machine_id.to_string(),
-                    "Boot override for machine_interface_id disabled."
-                );
-            }
-
-            None => tracing::info!(
-                machine_interface_id = machine_interface_id_str,
-                "Boot override for machine_interface_id disabled"
-            ),
-        }
-        MachineBootOverride::clear(&mut txn, machine_interface_id).await?;
-
-        txn.commit().await.unwrap();
-
-        Ok(tonic::Response::new(()))
+        crate::handlers::boot_override::clear(self, request).await
     }
 
     async fn get_network_topology(
@@ -5956,7 +5322,7 @@ pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
 }
 
 /// Logs the Machine ID in the current tracing span
-fn log_machine_id(machine_id: &MachineId) {
+pub(crate) fn log_machine_id(machine_id: &MachineId) {
     tracing::Span::current().record("forge.machine_id", machine_id.to_string());
 }
 
@@ -6066,64 +5432,6 @@ where
         }
     }
 
-    /// Allocate a value from the vni resource pool.
-    ///
-    /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_vni(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        owner_id: &str,
-    ) -> Result<i32, CarbideError> {
-        match self
-            .common_pools
-            .ethernet
-            .pool_vni
-            .allocate(txn, resource_pool::OwnerType::NetworkSegment, owner_id)
-            .await
-        {
-            Ok(val) => Ok(val),
-            Err(resource_pool::ResourcePoolError::Empty) => {
-                tracing::error!(owner_id, pool = "vni", "Pool exhausted, cannot allocate");
-                Err(CarbideError::ResourceExhausted("pool vni".to_string()))
-            }
-            Err(err) => {
-                tracing::error!(owner_id, error = %err, pool = "vni", "Error allocating from resource pool");
-                Err(err.into())
-            }
-        }
-    }
-
-    /// Allocate a value from the vlan id resource pool.
-    ///
-    /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_vlan_id(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        owner_id: &str,
-    ) -> Result<i16, CarbideError> {
-        match self
-            .common_pools
-            .ethernet
-            .pool_vlan_id
-            .allocate(txn, resource_pool::OwnerType::NetworkSegment, owner_id)
-            .await
-        {
-            Ok(val) => Ok(val),
-            Err(resource_pool::ResourcePoolError::Empty) => {
-                tracing::error!(
-                    owner_id,
-                    pool = "vlan_id",
-                    "Pool exhausted, cannot allocate"
-                );
-                Err(CarbideError::ResourceExhausted("pool vlan_id".to_string()))
-            }
-            Err(err) => {
-                tracing::error!(owner_id, error = %err, pool = "vlan_id", "Error allocating from resource pool");
-                Err(err.into())
-            }
-        }
-    }
-
     /// Allocate a value from the vpc vni resource pool.
     ///
     /// If the pool exists but is empty or has en error, return that.
@@ -6182,36 +5490,6 @@ where
                 Err(err.into())
             }
         }
-    }
-
-    pub(crate) async fn save_network_segment(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        mut ns: NewNetworkSegment,
-        set_to_ready: bool,
-    ) -> Result<NetworkSegment, CarbideError> {
-        if ns.segment_type != NetworkSegmentType::Underlay {
-            ns.vlan_id = Some(self.allocate_vlan_id(txn, &ns.name).await?);
-            ns.vni = Some(self.allocate_vni(txn, &ns.name).await?);
-        }
-        let initial_state = if set_to_ready {
-            NetworkSegmentControllerState::Ready
-        } else {
-            NetworkSegmentControllerState::Provisioning
-        };
-        let network_segment = match ns.persist(txn, initial_state).await {
-            Ok(segment) => segment,
-            Err(DatabaseError {
-                source: sqlx::Error::Database(e),
-                ..
-            }) if e.constraint() == Some("network_prefixes_prefix_excl") => {
-                return Err(CarbideError::NetworkSegmentPrefixOverlap);
-            }
-            Err(err) => {
-                return Err(err.into());
-            }
-        };
-        Ok(network_segment)
     }
 
     pub fn log_filter_string(&self) -> String {

@@ -1,0 +1,367 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use ::rpc::forge as rpc;
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::CredentialProvider;
+use sqlx::{Postgres, Transaction};
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
+use crate::api::Api;
+use crate::db::network_segment::NetworkSegment;
+use crate::db::network_segment::NetworkSegmentSearchConfig;
+use crate::db::network_segment::NetworkSegmentType;
+use crate::db::network_segment::NewNetworkSegment;
+use crate::db::DatabaseError;
+use crate::db::UuidKeyedObjectFilter;
+use crate::model::network_segment::NetworkSegmentControllerState;
+use crate::CarbideError;
+
+pub(crate) async fn find<C1, C2>(
+    api: &Api<C1, C2>,
+    request: Request<rpc::NetworkSegmentQuery>,
+) -> Result<Response<rpc::NetworkSegmentList>, Status>
+where
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
+{
+    crate::api::log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin find_network_segments",
+            e,
+        ))
+    })?;
+
+    let rpc::NetworkSegmentQuery {
+        id, search_config, ..
+    } = request.into_inner();
+
+    let uuid_filter = match id {
+        Some(id) => match Uuid::try_from(id) {
+            Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+            Err(err) => {
+                return Err(Status::invalid_argument(format!(
+                    "Supplied invalid UUID: {}",
+                    err
+                )));
+            }
+        },
+        None => UuidKeyedObjectFilter::All,
+    };
+
+    let search_config = search_config
+        .map(NetworkSegmentSearchConfig::from)
+        .unwrap_or(NetworkSegmentSearchConfig::default());
+    let results = NetworkSegment::find(&mut txn, uuid_filter, search_config)
+        .await
+        .map_err(CarbideError::from)?;
+    let mut network_segments = Vec::with_capacity(results.len());
+
+    for result in results {
+        network_segments.push(result.try_into()?);
+    }
+    Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
+}
+
+pub(crate) async fn create<C1, C2>(
+    api: &Api<C1, C2>,
+    request: Request<rpc::NetworkSegmentCreationRequest>,
+) -> Result<Response<rpc::NetworkSegment>, Status>
+where
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
+{
+    crate::api::log_request_data(&request);
+
+    let request = request.into_inner();
+
+    let new_network_segment = NewNetworkSegment::try_from(request)?;
+
+    if new_network_segment.segment_type == NetworkSegmentType::Tenant {
+        if let Some(site_fabric_prefixes) = api.eth_data.site_fabric_prefixes.as_ref() {
+            let segment_prefixes: Vec<_> = new_network_segment
+                .prefixes
+                .iter()
+                .map(|np| np.prefix)
+                .collect();
+
+            let uncontained_prefixes: Vec<_> = segment_prefixes
+                .into_iter()
+                .filter(|segment_prefix| !site_fabric_prefixes.contains(*segment_prefix))
+                .collect();
+
+            // Anything in uncontained_prefixes did not match any of our
+            // site fabric prefixes, and if we allowed it to be used then VPC
+            // isolation would not function properly for traffic addressed to
+            // that prefix.
+            if !uncontained_prefixes.is_empty() {
+                let uncontained_prefixes = itertools::join(uncontained_prefixes, ", ");
+                let msg = format!(
+                    "One or more requested network segment prefixes were not contained \
+                        within the configured site fabric prefixes: {uncontained_prefixes}"
+                );
+                return Err(CarbideError::InvalidArgument(msg).into());
+            }
+        }
+    }
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin create_network_segment",
+            e,
+        ))
+    })?;
+    let network_segment = save(api, &mut txn, new_network_segment, false).await?;
+
+    let response = Ok(Response::new(network_segment.try_into()?));
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit create_network_segment",
+            e,
+        ))
+    })?;
+    response
+}
+
+pub(crate) async fn delete<C1, C2>(
+    api: &Api<C1, C2>,
+    request: Request<rpc::NetworkSegmentDeletionRequest>,
+) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status>
+where
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
+{
+    crate::api::log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin delete_network_segment",
+            e,
+        ))
+    })?;
+
+    let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
+
+    let uuid = match id {
+        Some(id) => match Uuid::try_from(id) {
+            Ok(uuid) => uuid,
+            Err(_err) => {
+                return Err(CarbideError::InvalidArgument("id".to_string()).into());
+            }
+        },
+        None => {
+            return Err(CarbideError::MissingArgument("id").into());
+        }
+    };
+
+    let mut segments = NetworkSegment::find(
+        &mut txn,
+        UuidKeyedObjectFilter::One(uuid),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let segment = match segments.len() {
+        1 => segments.remove(0),
+        _ => {
+            return Err(CarbideError::NotFoundError {
+                kind: "network segment",
+                id: uuid.to_string(),
+            }
+            .into());
+        }
+    };
+
+    let response = Ok(segment
+        .mark_as_deleted(&mut txn)
+        .await
+        .map(|_| rpc::NetworkSegmentDeletionResult {})
+        .map(Response::new)?);
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit delete_network_segment",
+            e,
+        ))
+    })?;
+
+    response
+}
+
+pub(crate) async fn for_vpc<C1, C2>(
+    api: &Api<C1, C2>,
+    request: Request<rpc::VpcSearchQuery>,
+) -> Result<Response<rpc::NetworkSegmentList>, Status>
+where
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
+{
+    crate::api::log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin network_segments_for_vpc",
+            e,
+        ))
+    })?;
+
+    let rpc::VpcSearchQuery { id, .. } = request.into_inner();
+
+    let uuid = match id {
+        Some(id) => match Uuid::try_from(id) {
+            Ok(uuid) => uuid,
+            Err(_) => {
+                return Err(CarbideError::MissingArgument("id").into());
+            }
+        },
+        None => {
+            return Err(CarbideError::InvalidArgument("id".to_string()).into());
+        }
+    };
+
+    let results = NetworkSegment::for_vpc(&mut txn, uuid)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let mut network_segments = Vec::with_capacity(results.len());
+
+    for result in results {
+        network_segments.push(result.try_into()?);
+    }
+
+    Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
+}
+
+// Called by db_init::create_initial_networks
+pub(crate) async fn save<C1, C2>(
+    api: &Api<C1, C2>,
+    txn: &mut Transaction<'_, Postgres>,
+    mut ns: NewNetworkSegment,
+    set_to_ready: bool,
+) -> Result<NetworkSegment, CarbideError>
+where
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
+{
+    if ns.segment_type != NetworkSegmentType::Underlay {
+        ns.vlan_id = Some(allocate_vlan_id(api, txn, &ns.name).await?);
+        ns.vni = Some(allocate_vni(api, txn, &ns.name).await?);
+    }
+    let initial_state = if set_to_ready {
+        NetworkSegmentControllerState::Ready
+    } else {
+        NetworkSegmentControllerState::Provisioning
+    };
+    let network_segment = match ns.persist(txn, initial_state).await {
+        Ok(segment) => segment,
+        Err(DatabaseError {
+            source: sqlx::Error::Database(e),
+            ..
+        }) if e.constraint() == Some("network_prefixes_prefix_excl") => {
+            return Err(CarbideError::NetworkSegmentPrefixOverlap);
+        }
+        Err(err) => {
+            return Err(err.into());
+        }
+    };
+    Ok(network_segment)
+}
+
+/// Allocate a value from the vni resource pool.
+///
+/// If the pool exists but is empty or has en error, return that.
+async fn allocate_vni<C1, C2>(
+    api: &Api<C1, C2>,
+    txn: &mut Transaction<'_, Postgres>,
+    owner_id: &str,
+) -> Result<i32, CarbideError>
+where
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
+{
+    match api
+        .common_pools
+        .ethernet
+        .pool_vni
+        .allocate(
+            txn,
+            crate::resource_pool::OwnerType::NetworkSegment,
+            owner_id,
+        )
+        .await
+    {
+        Ok(val) => Ok(val),
+        Err(crate::resource_pool::ResourcePoolError::Empty) => {
+            tracing::error!(owner_id, pool = "vni", "Pool exhausted, cannot allocate");
+            Err(CarbideError::ResourceExhausted("pool vni".to_string()))
+        }
+        Err(err) => {
+            tracing::error!(owner_id, error = %err, pool = "vni", "Error allocating from resource pool");
+            Err(err.into())
+        }
+    }
+}
+
+/// Allocate a value from the vlan id resource pool.
+///
+/// If the pool exists but is empty or has en error, return that.
+async fn allocate_vlan_id<C1, C2>(
+    api: &Api<C1, C2>,
+    txn: &mut Transaction<'_, Postgres>,
+    owner_id: &str,
+) -> Result<i16, CarbideError>
+where
+    C1: CredentialProvider + 'static,
+    C2: CertificateProvider + 'static,
+{
+    match api
+        .common_pools
+        .ethernet
+        .pool_vlan_id
+        .allocate(
+            txn,
+            crate::resource_pool::OwnerType::NetworkSegment,
+            owner_id,
+        )
+        .await
+    {
+        Ok(val) => Ok(val),
+        Err(crate::resource_pool::ResourcePoolError::Empty) => {
+            tracing::error!(
+                owner_id,
+                pool = "vlan_id",
+                "Pool exhausted, cannot allocate"
+            );
+            Err(CarbideError::ResourceExhausted("pool vlan_id".to_string()))
+        }
+        Err(err) => {
+            tracing::error!(owner_id, error = %err, pool = "vlan_id", "Error allocating from resource pool");
+            Err(err.into())
+        }
+    }
+}
