@@ -19,3 +19,4 @@ mod integration;
 mod journal;
 mod profile;
 mod report;
+mod rpc;
