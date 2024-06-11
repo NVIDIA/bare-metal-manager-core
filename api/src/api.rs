@@ -3022,58 +3022,6 @@ impl Forge for Api {
         crate::handlers::resource_pool::list(self, request).await
     }
 
-    /// Assign all VPCs a VNI
-    async fn migrate_vpc_vni(
-        &self,
-        request: tonic::Request<()>,
-    ) -> Result<tonic::Response<rpc::MigrateVpcVniResponse>, tonic::Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin migrate_vpc_vni ",
-                e,
-            ))
-        })?;
-
-        let mut updated_count = 0;
-        let all_vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All)
-            .await
-            .map_err(CarbideError::from)?;
-        let total_vpc_count = all_vpcs.len() as u32;
-        for mut vpc in all_vpcs {
-            if vpc.vni.is_some() {
-                continue;
-            }
-            vpc.vni = Some(self.allocate_vpc_vni(&mut txn, &vpc.id.to_string()).await?);
-            Vpc::set_vni(&mut txn, vpc.id, vpc.vni.unwrap())
-                .await
-                .map_err(CarbideError::from)?;
-            updated_count += 1;
-        }
-        tracing::info!(
-            updated_count,
-            total_vpc_count,
-            "migrate_vpc_vni: Assigned a VNI to {updated_count} of {total_vpc_count} VPCs"
-        );
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "end migrate_vpc_vni",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(rpc::MigrateVpcVniResponse {
-            updated_count,
-            total_vpc_count,
-        }))
-    }
-
     /// Maintenance mode: Put a machine into maintenance mode or take it out.
     /// Switching a host into maintenance mode prevents an instance being assigned to it.
     async fn set_maintenance(

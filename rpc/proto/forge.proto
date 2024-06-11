@@ -155,9 +155,6 @@ service Forge {
   // Add capacity to a resource pool
   rpc AdminGrowResourcePool(GrowResourcePoolRequest) returns (GrowResourcePoolResponse);
 
-  // Assign all VPCs a VNI
-  rpc MigrateVpcVni(google.protobuf.Empty) returns (MigrateVpcVniResponse);
-
   // Maintenance mode operations: enable, disable
   rpc SetMaintenance(MaintenanceRequest) returns (google.protobuf.Empty);
 
@@ -299,7 +296,7 @@ message BindRequest{
   // Attestation Public Key
   bytes AKPub = 3;
   // Attestation Key Name
-  bytes AKName = 4; 
+  bytes AKName = 4;
 }
 
 message BindResponse{
