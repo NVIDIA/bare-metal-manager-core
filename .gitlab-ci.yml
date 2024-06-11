@@ -42,7 +42,7 @@ variables:
   CONTAINER_REGISTRY_AARCH64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8"
   CONTAINER_REGISTRY_X86_64: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64"
 
-  
+
   # Canonical versions - will be overridden if you touch one of the dockerfiles that builds them
   #
   # How to update a build or runtime container.
@@ -357,7 +357,7 @@ tag-build-and-runtime-containers:
       crane copy "${CONTAINER_BUILD_AARCH64}" "${CONTAINER_REGISTRY_AARCH64}/build-container:latest"
     fi
 
-    if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT:-}" ]; then 
+    if [ ! -z "${CONTAINER_BUILD_ARTIFACTS_X86_64_WAS_BUILT:-}" ]; then
       crane copy "${CONTAINER_BUILD_ARTIFACTS_X86_64}" "${CONTAINER_REGISTRY_X86_64}/build-artifacts-container:latest"
     fi
 
@@ -444,7 +444,7 @@ build-container-forge-cli-x86_64:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-forge-cli
   dependencies:
     - prepare-ci
-    - export-docker-json-config  
+    - export-docker-json-config
   tags:
     - x86_64
   image:
@@ -456,6 +456,7 @@ build-container-forge-cli-x86_64:
     - >-
       /kaniko/executor --context "${CI_PROJECT_DIR}" --dockerfile "${DOCKER_FILE}" --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA" --build-arg "CONTAINER_BUILD=$CONTAINER_BUILD_ARTIFACTS_X86_64" --destination "${FORGE_ADMIN_CLI_IMAGE}-${VERSION}:amd64"
   rules:
+    - when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
@@ -482,7 +483,7 @@ build-container-forge-cli-aarch64:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-forge-cli
   dependencies:
     - prepare-ci
-    - export-docker-json-config  
+    - export-docker-json-config
   tags:
     - aarch64
   image:
@@ -494,6 +495,7 @@ build-container-forge-cli-aarch64:
     - >-
       /kaniko/executor --context "${CI_PROJECT_DIR}" --dockerfile "${DOCKER_FILE}" --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA" --build-arg "CONTAINER_BUILD=$CONTAINER_BUILD_ARTIFACTS_AARCH64" --destination "${FORGE_ADMIN_CLI_IMAGE}-${VERSION}:arm64"
   rules:
+    - when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/

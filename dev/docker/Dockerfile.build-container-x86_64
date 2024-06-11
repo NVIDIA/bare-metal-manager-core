@@ -56,6 +56,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 	libgrpc++-dev \
 	libaio-dev \
 	libtss2-dev \
+	libtss2-sys1 \
 	pkg-config \
 	protobuf-compiler-grpc \
 	postgresql-15 \
