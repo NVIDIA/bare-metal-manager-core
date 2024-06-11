@@ -456,7 +456,6 @@ build-container-forge-cli-x86_64:
     - >-
       /kaniko/executor --context "${CI_PROJECT_DIR}" --dockerfile "${DOCKER_FILE}" --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA" --build-arg "CONTAINER_BUILD=$CONTAINER_BUILD_ARTIFACTS_X86_64" --destination "${FORGE_ADMIN_CLI_IMAGE}-${VERSION}:amd64"
   rules:
-    - when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
@@ -495,7 +494,6 @@ build-container-forge-cli-aarch64:
     - >-
       /kaniko/executor --context "${CI_PROJECT_DIR}" --dockerfile "${DOCKER_FILE}" --build-arg "CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA" --build-arg "CONTAINER_BUILD=$CONTAINER_BUILD_ARTIFACTS_AARCH64" --destination "${FORGE_ADMIN_CLI_IMAGE}-${VERSION}:arm64"
   rules:
-    - when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/
