@@ -126,14 +126,11 @@ impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
 }
 
 impl BmcMetaDataGetRequest {
-    pub async fn get_bmc_meta_data<C>(
+    pub async fn get_bmc_meta_data(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        credential_provider: &C,
-    ) -> CarbideResult<rpc::BmcMetaDataGetResponse>
-    where
-        C: CredentialProvider + ?Sized,
-    {
+        credential_provider: &dyn CredentialProvider,
+    ) -> CarbideResult<rpc::BmcMetaDataGetResponse> {
         let bmc_info = self.get_bmc_information(txn).await?;
         let credentials = credential_provider
             .get_credentials(CredentialKey::Bmc {
@@ -204,7 +201,7 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
 impl BmcMetaDataUpdateRequest {
     async fn insert_into_credentials_store(
         &self,
-        credential_provider: &impl CredentialProvider,
+        credential_provider: &dyn CredentialProvider,
     ) -> CarbideResult<()> {
         for data in self.data.iter() {
             credential_provider
@@ -253,7 +250,7 @@ impl BmcMetaDataUpdateRequest {
     pub async fn update_bmc_meta_data(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        credential_provider: &impl CredentialProvider,
+        credential_provider: &dyn CredentialProvider,
     ) -> CarbideResult<rpc::BmcMetaDataUpdateResponse> {
         self.update_bmc_network_into_topologies(txn).await?;
         self.insert_into_credentials_store(credential_provider)

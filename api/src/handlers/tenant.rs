@@ -11,8 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
@@ -20,14 +18,10 @@ use crate::db::DatabaseError;
 use crate::model::tenant::Tenant;
 use crate::CarbideError;
 
-pub(crate) async fn create<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn create(
+    api: &Api,
     request: Request<rpc::CreateTenantRequest>,
-) -> Result<Response<rpc::CreateTenantResponse>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::CreateTenantResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let rpc::CreateTenantRequest { organization_id } = request.into_inner();
@@ -59,14 +53,10 @@ where
     Ok(response)
 }
 
-pub(crate) async fn find<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn find(
+    api: &Api,
     request: Request<rpc::FindTenantRequest>,
-) -> Result<Response<rpc::FindTenantResponse>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::FindTenantResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let rpc::FindTenantRequest {
@@ -98,14 +88,10 @@ where
     Ok(response)
 }
 
-pub(crate) async fn update<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn update(
+    api: &Api,
     request: Request<rpc::UpdateTenantRequest>,
-) -> Result<Response<rpc::UpdateTenantResponse>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::UpdateTenantResponse>, Status> {
     crate::api::log_request_data(&request);
 
     // This doesn't update anything yet :|

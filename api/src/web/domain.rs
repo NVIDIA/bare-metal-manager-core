@@ -17,8 +17,6 @@ use askama::Template;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -56,9 +54,7 @@ impl From<forgerpc::Domain> for DomainRowDisplay {
 }
 
 /// List domains
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let domains = match fetch_domains(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -76,9 +72,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let domains = match fetch_domains(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -89,9 +83,7 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(domains)).into_response()
 }
 
-async fn fetch_domains<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    api: Arc<Api<C1, C2>>,
-) -> Result<forgerpc::DomainList, tonic::Status> {
+async fn fetch_domains(api: Arc<Api>) -> Result<forgerpc::DomainList, tonic::Status> {
     let request = tonic::Request::new(forgerpc::DomainSearchQuery {
         id: None,
         name: None,

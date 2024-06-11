@@ -13,7 +13,6 @@
 use std::{fmt, net::IpAddr};
 
 use ::rpc::protos::forge as rpc;
-use forge_secrets::{certificates::CertificateProvider, credentials::CredentialProvider};
 
 use crate::{
     api::Api,
@@ -47,14 +46,7 @@ impl fmt::Display for Finder {
     }
 }
 
-pub async fn find<C1, C2>(
-    api: &Api<C1, C2>,
-    ip: &str,
-) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideError>)
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+pub async fn find(api: &Api, ip: &str) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideError>) {
     use Finder::*;
     let futures = vec![
         search(StaticData, api, ip),
@@ -82,15 +74,11 @@ where
 }
 
 // A giant match statement mostly to get around every async function having a different type.
-async fn search<C1, C2>(
+async fn search(
     finder: Finder,
-    api: &Api<C1, C2>,
+    api: &Api,
     ip: &str,
-) -> Result<Option<rpc::IpAddressMatch>, CarbideError>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Option<rpc::IpAddressMatch>, CarbideError> {
     let addr: IpAddr = ip.parse()?;
     if addr.is_ipv6() {
         return Err(CarbideError::InvalidArgument(

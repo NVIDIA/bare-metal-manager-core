@@ -11,8 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -21,14 +19,10 @@ use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig, NewIBPartiti
 use crate::db::{DatabaseError, UuidKeyedObjectFilter};
 use crate::CarbideError;
 
-pub(crate) async fn create<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn create(
+    api: &Api,
     request: Request<rpc::IbPartitionCreationRequest>,
-) -> Result<Response<rpc::IbPartition>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::IbPartition>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -67,14 +61,10 @@ where
     Ok(resp)
 }
 
-pub(crate) async fn find<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn find(
+    api: &Api,
     request: Request<rpc::IbPartitionQuery>,
-) -> Result<Response<rpc::IbPartitionList>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::IbPartitionList>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -117,14 +107,10 @@ where
     Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
 }
 
-pub(crate) async fn delete<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn delete(
+    api: &Api,
     request: Request<rpc::IbPartitionDeletionRequest>,
-) -> Result<Response<rpc::IbPartitionDeletionResult>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -187,14 +173,10 @@ where
     Ok(resp)
 }
 
-pub(crate) async fn for_tenant<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn for_tenant(
+    api: &Api,
     request: Request<rpc::TenantSearchQuery>,
-) -> Result<Response<rpc::IbPartitionList>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::IbPartitionList>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {

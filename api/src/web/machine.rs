@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent};
@@ -101,21 +99,11 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
     }
 }
 
-pub async fn show_hosts_html<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    state: AxumState<Arc<Api<C1, C2>>>,
-) -> impl IntoResponse {
+pub async fn show_hosts_html(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     show(state, true, false).await
 }
 
-pub async fn show_hosts_json<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, false).await {
         Ok(m) => m,
         Err(err) => {
@@ -126,15 +114,11 @@ pub async fn show_hosts_json<
     (StatusCode::OK, Json(machines)).into_response()
 }
 
-pub async fn show_dpus_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    state: AxumState<Arc<Api<C1, C2>>>,
-) -> impl IntoResponse {
+pub async fn show_dpus_html(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     show(state, false, true).await
 }
 
-pub async fn show_dpus_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut machines = match fetch_machines(state, true).await {
         Ok(m) => m,
         Err(err) => {
@@ -149,15 +133,11 @@ pub async fn show_dpus_json<C1: CredentialProvider + 'static, C2: CertificatePro
 }
 
 /// List machines
-pub async fn show_all_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    state: AxumState<Arc<Api<C1, C2>>>,
-) -> impl IntoResponse {
+pub async fn show_all_html(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     show(state, true, true).await
 }
 
-pub async fn show_all_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, true).await {
         Ok(m) => m,
         Err(err) => {
@@ -168,8 +148,8 @@ pub async fn show_all_json<C1: CredentialProvider + 'static, C2: CertificateProv
     (StatusCode::OK, Json(machines)).into_response()
 }
 
-async fn show<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+async fn show(
+    AxumState(state): AxumState<Arc<Api>>,
     include_hosts: bool,
     include_dpus: bool,
 ) -> impl IntoResponse {
@@ -213,8 +193,8 @@ async fn show<C1: CredentialProvider + 'static, C2: CertificateProvider + 'stati
     (StatusCode::OK, Html(tmpl.render().unwrap()))
 }
 
-pub async fn fetch_machines<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    api: Arc<Api<C1, C2>>,
+pub async fn fetch_machines(
+    api: Arc<Api>,
     include_dpus: bool,
 ) -> Result<forgerpc::MachineList, tonic::Status> {
     let request = tonic::Request::new(forgerpc::MachineSearchQuery {
@@ -393,8 +373,8 @@ impl From<forgerpc::Machine> for MachineDetail {
 }
 
 /// View machine
-pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
     let rpc_machine_id = forgerpc::MachineId {

@@ -14,9 +14,8 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use eyre::Report;
-use tokio::sync::Mutex;
-
 use forge_secrets::certificates::{Certificate, CertificateProvider};
+use tokio::sync::Mutex;
 
 #[derive(Debug, Default)]
 pub struct TestCertificateProvider {
@@ -33,13 +32,10 @@ impl TestCertificateProvider {
 
 #[async_trait]
 impl CertificateProvider for TestCertificateProvider {
-    async fn get_certificate<S>(&self, unique_identifier: S) -> Result<Certificate, Report>
-    where
-        S: AsRef<str> + Send,
-    {
+    async fn get_certificate(&self, unique_identifier: &str) -> Result<Certificate, Report> {
         let mut certificates = self.certificates.lock().await;
         let certificate = certificates
-            .entry(unique_identifier.as_ref().to_string())
+            .entry(unique_identifier.to_string())
             .or_insert(Certificate::default());
 
         Ok(certificate.clone())

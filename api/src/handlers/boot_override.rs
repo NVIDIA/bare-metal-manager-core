@@ -11,8 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 
 use crate::api::Api;
 use crate::db::machine_boot_override::MachineBootOverride;
@@ -20,14 +18,10 @@ use crate::db::machine_interface::MachineInterface;
 use crate::db::DatabaseError;
 use crate::CarbideError;
 
-pub(crate) async fn get<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn get(
+    api: &Api,
     request: tonic::Request<rpc::Uuid>,
-) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let machine_interface_id_str = &request.into_inner().value;
@@ -65,14 +59,10 @@ where
     Ok(tonic::Response::new(mbo.into()))
 }
 
-pub(crate) async fn set<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn set(
+    api: &Api,
     request: tonic::Request<rpc::MachineBootOverride>,
-) -> Result<tonic::Response<()>, tonic::Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<tonic::Response<()>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let mbo: MachineBootOverride = request.into_inner().try_into()?;
@@ -113,14 +103,10 @@ where
     Ok(tonic::Response::new(()))
 }
 
-pub(crate) async fn clear<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn clear(
+    api: &Api,
     request: tonic::Request<rpc::Uuid>,
-) -> Result<tonic::Response<()>, tonic::Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<tonic::Response<()>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let machine_interface_id_str = &request.into_inner().value;

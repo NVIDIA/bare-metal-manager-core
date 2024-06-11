@@ -10,11 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::{net::SocketAddr, sync::Arc, time::Instant};
+
 use ::rpc::forge as rpc;
-use forge_secrets::{certificates::CertificateProvider, credentials::CredentialProvider};
 use hyper::server::conn::Http;
 use opentelemetry::{metrics::Meter, KeyValue};
-use std::{net::SocketAddr, sync::Arc, time::Instant};
 use tokio::net::TcpListener;
 use tokio_rustls::{
     rustls::{
@@ -143,17 +143,13 @@ impl ConnectionAttributes {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn listen_and_serve<C1, C2>(
-    api_service: Arc<Api<C1, C2>>,
+pub async fn listen_and_serve(
+    api_service: Arc<Api>,
     tls_config: ApiTlsConfig,
     listen_port: SocketAddr,
     authorizer: auth::Authorizer,
     meter: Meter,
-) -> eyre::Result<()>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> eyre::Result<()> {
     let api_reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
         .build()?;

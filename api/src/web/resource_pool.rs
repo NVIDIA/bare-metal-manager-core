@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -55,9 +53,7 @@ impl From<forgerpc::ResourcePool> for ResourcePoolDisplay {
 }
 
 /// List resource pools
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_resource_pools(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -77,9 +73,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_resource_pools(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -94,12 +88,7 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(out)).into_response()
 }
 
-async fn fetch_resource_pools<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    api: Arc<Api<C1, C2>>,
-) -> Result<Vec<forgerpc::ResourcePool>, tonic::Status> {
+async fn fetch_resource_pools(api: Arc<Api>) -> Result<Vec<forgerpc::ResourcePool>, tonic::Status> {
     let request = tonic::Request::new(forgerpc::ListResourcePoolsRequest {});
     let mut out = api
         .admin_list_resource_pools(request)

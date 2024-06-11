@@ -11,8 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
@@ -22,14 +20,10 @@ use crate::model::tenant::{
 };
 use crate::CarbideError;
 
-pub(crate) async fn create<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn create(
+    api: &Api,
     request: Request<rpc::CreateTenantKeysetRequest>,
-) -> Result<Response<rpc::CreateTenantKeysetResponse>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::CreateTenantKeysetResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let keyset_request: TenantKeyset = request
@@ -65,14 +59,10 @@ where
     }))
 }
 
-pub(crate) async fn find<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn find(
+    api: &Api,
     request: Request<rpc::FindTenantKeysetRequest>,
-) -> Result<Response<rpc::TenantKeySetList>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::TenantKeySetList>, Status> {
     crate::api::log_request_data(&request);
 
     let rpc::FindTenantKeysetRequest {
@@ -121,14 +111,10 @@ where
     }))
 }
 
-pub(crate) async fn update<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn update(
+    api: &Api,
     request: Request<rpc::UpdateTenantKeysetRequest>,
-) -> Result<Response<rpc::UpdateTenantKeysetResponse>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::UpdateTenantKeysetResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let update_request: UpdateTenantKeyset = request
@@ -162,14 +148,10 @@ where
     Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
 }
 
-pub(crate) async fn delete<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn delete(
+    api: &Api,
     request: Request<rpc::DeleteTenantKeysetRequest>,
-) -> Result<Response<rpc::DeleteTenantKeysetResponse>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::DeleteTenantKeysetResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let rpc::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
@@ -206,14 +188,10 @@ where
     Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
 }
 
-pub(crate) async fn validate_public_key<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn validate_public_key(
+    api: &Api,
     request: Request<rpc::ValidateTenantPublicKeyRequest>,
-) -> Result<Response<rpc::ValidateTenantPublicKeyResponse>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::ValidateTenantPublicKeyResponse>, Status> {
     let request = TenantPublicKeyValidationRequest::try_from(request.into_inner())
         .map_err(CarbideError::from)?;
 

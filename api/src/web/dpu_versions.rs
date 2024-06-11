@@ -15,8 +15,6 @@ use std::sync::Arc;
 use askama::Template;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 
@@ -87,9 +85,7 @@ impl From<forgerpc::Machine> for Row {
     }
 }
 
-pub async fn list_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> impl IntoResponse {
+pub async fn list_html(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
     let mut machines = match machine::fetch_machines(state, true).await {
         Ok(m) => m,
         Err(err) => {

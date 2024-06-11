@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -115,9 +113,7 @@ impl From<forgerpc::Instance> for InstanceDisplay {
 }
 
 /// List instances
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_instances(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -134,9 +130,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_instances(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -147,9 +141,7 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(out)).into_response()
 }
 
-async fn fetch_instances<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    api: Arc<Api<C1, C2>>,
-) -> Result<forgerpc::InstanceList, tonic::Status> {
+async fn fetch_instances(api: Arc<Api>) -> Result<forgerpc::InstanceList, tonic::Status> {
     let request = tonic::Request::new(forgerpc::InstanceSearchQuery {
         id: None,
         label: None,
@@ -358,8 +350,8 @@ impl From<forgerpc::Instance> for InstanceDetail {
 }
 
 /// View instance
-pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
     AxumPath(instance_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::InstanceSearchQuery {
