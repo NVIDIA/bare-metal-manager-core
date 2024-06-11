@@ -430,20 +430,13 @@ where
             ))
         })?;
 
-        let instance = Instance::find(
-            &mut txn,
-            FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(delete_instance.instance_id)),
-        )
-        .await
-        .map_err(CarbideError::from)?;
-
-        let Some(instance) = instance.last() else {
-            return Err(CarbideError::NotFoundError {
+        let instance = Instance::find_by_id(&mut txn, delete_instance.instance_id)
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| CarbideError::NotFoundError {
                 kind: "instance",
                 id: delete_instance.instance_id.to_string(),
-            }
-            .into());
-        };
+            })?;
 
         log_machine_id(&instance.machine_id);
 
@@ -539,17 +532,13 @@ where
             ))
         })?;
 
-        let instance = Instance::find(
-            &mut txn,
-            FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(instance_id)),
-        )
-        .await
-        .map_err(CarbideError::from)?
-        .pop()
-        .ok_or(CarbideError::NotFoundError {
-            kind: "instance",
-            id: instance_id.to_string(),
-        })?;
+        let instance = Instance::find_by_id(&mut txn, instance_id)
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
 
         log_machine_id(&instance.machine_id);
 
@@ -2401,22 +2390,18 @@ where
             }
 
             Some(instance_address) => {
-                let instance = Instance::find(
-                    &mut txn,
-                    FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(
-                        instance_address.instance_id,
-                    )),
-                )
-                .await
-                .map_err(CarbideError::from)?
-                .first()
-                .ok_or_else(|| {
-                    CarbideError::GenericError(format!(
-                        "Could not find an instance for {}",
-                        instance_address.instance_id
-                    ))
-                })?
-                .to_owned();
+                let instance = Instance::find_by_id(&mut txn, instance_address.instance_id)
+                    .await
+                    .map_err(CarbideError::from)?
+                    .ok_or_else(|| {
+                        // Note that this isn't a NotFound error since it indicates an
+                        // inconsistent data model
+                        CarbideError::GenericError(format!(
+                            "Could not find an instance for {}",
+                            instance_address.instance_id
+                        ))
+                    })?
+                    .to_owned();
 
                 let user_data = match instance.os.variant {
                     OperatingSystemVariant::Ipxe(ipxe) => ipxe.user_data,
@@ -2821,20 +2806,16 @@ where
         })?;
 
         if let Some(instance_id) = instance_id {
-            let instance = Instance::find(
-                &mut txn,
-                FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(instance_id)),
-            )
-            .await
-            .map_err(CarbideError::from)?
-            .first()
-            .ok_or_else(|| {
-                CarbideError::GenericError(format!(
-                    "Could not find an instance for {}",
-                    instance_id
-                ))
-            })?
-            .to_owned();
+            let instance = Instance::find_by_id(&mut txn, instance_id)
+                .await
+                .map_err(CarbideError::from)?
+                .ok_or_else(|| {
+                    CarbideError::GenericError(format!(
+                        "Could not find an instance for {}",
+                        instance_id
+                    ))
+                })?
+                .to_owned();
 
             let ib_fabric = self
                 .ib_fabric_manager
@@ -4471,17 +4452,13 @@ where
             ))
         })?;
 
-        let instance = Instance::find(
-            &mut txn,
-            FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::One(instance_id)),
-        )
-        .await
-        .map_err(CarbideError::from)?
-        .pop()
-        .ok_or(CarbideError::NotFoundError {
-            kind: "instance",
-            id: instance_id.to_string(),
-        })?;
+        let instance = Instance::find_by_id(&mut txn, instance_id)
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
 
         log_machine_id(&instance.machine_id);
 

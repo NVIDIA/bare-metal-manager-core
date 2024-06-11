@@ -271,18 +271,12 @@ impl TenantPublicKeyValidationRequest {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), CarbideError> {
-        let instance = Instance::find(
-            txn,
-            crate::db::instance::FindInstanceTypeFilter::Id(&super::UuidKeyedObjectFilter::One(
-                self.instance_id,
-            )),
-        )
-        .await?;
-
-        let instance = instance.first().ok_or(CarbideError::NotFoundError {
-            kind: "instance",
-            id: self.instance_id.to_string(),
-        })?;
+        let instance = Instance::find_by_id(txn, self.instance_id)
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "instance",
+                id: self.instance_id.to_string(),
+            })?;
 
         let keysets = TenantKeyset::find(
             Some(instance.tenant_config.tenant_organization_id.to_string()),
