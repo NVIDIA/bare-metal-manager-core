@@ -52,6 +52,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update &&  \
 		libssh-dev \
 		libssl-dev \
 		libtss2-dev \
+		libtss2-sys1 \
 		libudev-dev \
 		libgrpc++-dev \
 		libaio-dev \
