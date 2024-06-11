@@ -49,12 +49,12 @@ pub async fn handle_create_system_measurement_profile(
     req: &CreateMeasurementSystemProfileRequest,
 ) -> Result<CreateMeasurementSystemProfileResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-    // Vendor and product are the two baseline attrs, so
+    // sys_vendor and product_name are the two baseline attrs, so
     // just treat them as requirements, and then smash the
     // remaining ones on as "extra-attrs".
     let mut vals = HashMap::from([
-        (String::from("vendor"), req.vendor.clone()),
-        (String::from("product"), req.product.clone()),
+        (String::from("sys_vendor"), req.vendor.clone()),
+        (String::from("product_name"), req.product.clone()),
     ]);
     for kv_pair in req.extra_attrs.iter() {
         vals.insert(kv_pair.key.clone(), kv_pair.value.clone());
