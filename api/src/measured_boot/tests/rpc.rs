@@ -18,6 +18,9 @@
 mod tests {
     use crate::measured_boot::interface::common::PcrRegisterValue;
     use crate::measured_boot::model::report::MeasurementReport;
+    use crate::measured_boot::rpc::bundle;
+    use crate::measured_boot::rpc::journal;
+    use crate::measured_boot::rpc::machine;
     use crate::measured_boot::rpc::profile;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use rpc::protos::measured_boot;
@@ -162,6 +165,7 @@ mod tests {
         // of that here.
         let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
 
+        // princess-network
         let mut txn = pool.begin().await?;
         let princess_network = create_test_machine(
             &mut txn,
@@ -225,6 +229,108 @@ mod tests {
         };
         let resp = profile::handle_delete_measurement_system_profile(&pool, &req).await;
         assert!(resp.is_err());
+        Ok(())
+    }
+
+    // test_machines is used to test all of the different API
+    // handler functions that work with measured boot machines (show,
+    // list, attest, etc).
+    #[sqlx::test]
+    pub async fn test_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        // First, lets make a machine behind the scenes.
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let mut txn = pool.begin().await?;
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        txn.commit().await?;
+
+        // Now lets make sure the show(id) call works.
+        let req = measured_boot::ShowCandidateMachineRequest {
+            selector: Some(
+                measured_boot::show_candidate_machine_request::Selector::MachineId(
+                    princess_network.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = machine::handle_show_candidate_machine(&pool, &req).await?;
+        assert!(resp.machine.is_some());
+        let machine = resp.machine.unwrap();
+        assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
+
+        // And show all works.
+        let req = measured_boot::ShowCandidateMachinesRequest {};
+        let resp = machine::handle_show_candidate_machines(&pool, &req).await?;
+        assert_eq!(1, resp.machines.len());
+        let machine = &resp.machines[0];
+        assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
+
+        // And list all works.
+        let req = measured_boot::ListCandidateMachinesRequest {};
+        let resp = machine::handle_list_candidate_machines(&pool, &req).await?;
+        assert_eq!(1, resp.machines.len());
+        let machine = &resp.machines[0];
+        assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
+
+        // And that attest works.
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "aa".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "bb".to_string(),
+            },
+        ];
+        let req = measured_boot::AttestCandidateMachineRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+        };
+
+        // And that attestation resulted in..
+
+        // - A report.
+        let resp = machine::handle_attest_candidate_machine(&pool, &req).await?;
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+        assert_eq!(report.machine_id, princess_network.machine_id.to_string());
+        assert_eq!(2, report.values.len());
+
+        // - A profile (and that the profile is wired to the machine)
+        let req = measured_boot::ShowMeasurementSystemProfilesRequest {};
+        let resp = profile::handle_show_measurement_system_profiles(&pool, &req).await?;
+        assert_eq!(1, resp.system_profiles.len());
+        let profile = &resp.system_profiles[0];
+        let req = measured_boot::ListMeasurementSystemProfileMachinesRequest{
+            selector: Some(
+                measured_boot::list_measurement_system_profile_machines_request::Selector::ProfileId(
+                    profile.profile_id.as_ref().unwrap().clone(),
+                ),
+            ),
+        };
+        let resp = profile::handle_list_measurement_system_profile_machines(&pool, &req).await?;
+        assert_eq!(1, resp.machine_ids.len());
+        assert_eq!(princess_network.machine_id.to_string(), resp.machine_ids[0]);
+
+        // - A journal entry (with the correct mappings).
+        let req = measured_boot::ShowMeasurementJournalsRequest {};
+        let resp = journal::handle_show_measurement_journals(&pool, &req).await?;
+        assert_eq!(1, resp.journals.len());
+        let journal = &resp.journals[0];
+        assert_eq!(journal.machine_id, princess_network.machine_id.to_string());
+        assert_eq!(journal.report_id, report.report_id);
+        assert_eq!(journal.profile_id, profile.profile_id);
+        assert_eq!(journal.bundle_id, None);
+
+        // - No bundle (since we didn't promote one).
+        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let resp = bundle::handle_show_measurement_bundles(&pool, &req).await?;
+        assert_eq!(0, resp.bundles.len());
+
         Ok(())
     }
 }
