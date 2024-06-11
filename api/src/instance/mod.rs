@@ -200,11 +200,18 @@ pub async fn allocate_instance(
         )));
     }
 
-    for dpu in dpus {
+    let mut reprovision_request = machine.reprovisioning_requested().clone();
+    for dpu in dpus.iter() {
         if let Ok(false) = dpu.has_healthy_network() {
             tracing::error!(%machine_id, "DPU {} with unhealthy network. Instance will have issues.", dpu.id());
             // TODO(gk) Return this error once this is done: https://jirasw.nvidia.com/browse/FORGE-2243
             //return Err(CarbideError::UnhealthyNetwork);
+        }
+
+        // TODO: If multiple DPUs have reprovisioning requested, we might not get
+        // the expected response
+        if let Some(reprovision_requested) = dpu.reprovisioning_requested() {
+            reprovision_request = Some(reprovision_requested);
         }
     }
 
@@ -255,7 +262,12 @@ pub async fn allocate_instance(
 
     // Machine will be rebooted once managed resource creation is successful.
     let snapshot = DbSnapshotLoader {}
-        .load_instance_snapshot(&mut txn, instance.id, machine.current_state())
+        .load_instance_snapshot(
+            &mut txn,
+            instance.id,
+            machine.current_state(),
+            reprovision_request,
+        )
         .await?;
 
     txn.commit()

@@ -25,7 +25,7 @@ use crate::{
         },
         machine::{
             machine_id::MachineId, CurrentMachineState, MachineInterfaceSnapshot, MachineSnapshot,
-            ManagedHostState, ManagedHostStateSnapshot,
+            ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest,
         },
     },
 };
@@ -50,6 +50,7 @@ pub trait InstanceSnapshotLoader: Send + Sync + std::fmt::Debug {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         instance_id: uuid::Uuid,
         machine_state: ManagedHostState,
+        reprovision_request: Option<ReprovisionRequest>,
     ) -> Result<InstanceSnapshot, SnapshotLoaderError>;
 }
 
@@ -193,11 +194,27 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
         for dpu in &dpus {
             dpu_snapshots.push(get_machine_snapshot(txn, dpu).await?);
         }
+
+        // Determine whether there is any outstanding reprovision request which needs
+        // to be relayed to the instance.
+        // TODO: If there's multiple, it might not be deterinistic which one shows up
+        let mut reprovision_request = host_snapshot.reprovision_requested.clone();
+        for dpu_snapshot in &dpu_snapshots {
+            if let Some(reprovision_requested) = &dpu_snapshot.reprovision_requested {
+                reprovision_request = Some(reprovision_requested.clone());
+            }
+        }
+
         let instance_id = Instance::find_id_by_machine_id(txn, host_machine.id()).await?;
         let instance_snapshot = match instance_id {
             Some(instance_id) => Some(
-                self.load_instance_snapshot(txn, instance_id, host_snapshot.current.state.clone())
-                    .await?,
+                self.load_instance_snapshot(
+                    txn,
+                    instance_id,
+                    host_snapshot.current.state.clone(),
+                    reprovision_request,
+                )
+                .await?,
             ),
             None => None,
         };
@@ -221,29 +238,18 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         instance_id: uuid::Uuid,
         machine_state: ManagedHostState,
+        reprovision_request: Option<ReprovisionRequest>,
     ) -> Result<InstanceSnapshot, SnapshotLoaderError> {
-        let mut instances = Instance::find(
-            txn,
-            crate::db::instance::FindInstanceTypeFilter::Id(
-                &crate::db::UuidKeyedObjectFilter::One(instance_id),
-            ),
-        )
-        .await
-        .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
-        if instances.is_empty() {
-            return Err(SnapshotLoaderError::InstanceNotFound(instance_id));
-        } else if instances.len() != 1 {
-            return Err(SnapshotLoaderError::MultipleInstances(
-                instance_id,
-                instances.len(),
-            ));
-        }
-        let instance = instances.pop().unwrap();
+        let instance = Instance::find_by_id(txn, instance_id)
+            .await
+            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
+            .ok_or_else(|| SnapshotLoaderError::InstanceNotFound(instance_id))?;
 
         let snapshot = InstanceSnapshot {
             instance_id,
             machine_id: instance.machine_id,
             machine_state,
+            metadata: instance.metadata,
             config: InstanceConfig {
                 tenant: Some(instance.tenant_config),
                 network: instance.network_config.value,
@@ -259,9 +265,7 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
                 phone_home_last_contact: instance.phone_home_last_contact,
             },
             delete_requested: instance.deleted.is_some(),
-            name: instance.metadata.name,
-            description: instance.metadata.description,
-            labels: instance.metadata.labels,
+            reprovision_request,
         };
 
         Ok(snapshot)

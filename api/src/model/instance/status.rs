@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     instance::config::{infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig},
-    machine::{InstanceState, ManagedHostState},
+    machine::{InstanceState, ManagedHostState, ReprovisionRequest},
     RpcDataConversionError,
 };
 
@@ -43,6 +43,11 @@ pub struct InstanceStatus {
     /// At this time it equals `InstanceNetworkStatus::configs_synced`,
     /// but might in the future also include readiness for other subsystems.
     pub configs_synced: SyncState,
+
+    /// Whether there is one reprovision request on the underlying Machine
+    /// TODO: This might be multiple. and potentially it it should be
+    /// `InstanceUpdateStatus` instead of `ReprovisionRequest`
+    pub reprovision_request: Option<ReprovisionRequest>,
 }
 
 impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
@@ -54,7 +59,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
             network: Some(status.network.try_into()?),
             infiniband: Some(status.infiniband.try_into()?),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
-            update: None,
+            update: status.reprovision_request.map(|request| request.into()),
         })
     }
 }
@@ -122,6 +127,7 @@ impl InstanceStatus {
         machine_state: ManagedHostState,
         delete_requested: bool,
         phone_home_enabled: bool,
+        reprovision_request: Option<ReprovisionRequest>,
     ) -> Result<Self, RpcDataConversionError> {
         let network = network::InstanceNetworkStatus::from_config_and_observation(
             network_config,
@@ -165,6 +171,7 @@ impl InstanceStatus {
             network,
             infiniband,
             configs_synced,
+            reprovision_request,
         })
     }
 }

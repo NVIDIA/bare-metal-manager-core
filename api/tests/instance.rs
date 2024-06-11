@@ -840,7 +840,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .unwrap()
         .unwrap();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
         .await
         .unwrap();
 
@@ -871,7 +871,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .unwrap();
 
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
         .await
         .unwrap();
 
@@ -904,7 +904,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .unwrap()
         .unwrap();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
         .await
         .unwrap();
 
@@ -940,7 +940,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .unwrap()
         .unwrap();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
         .await
         .unwrap();
 
@@ -984,7 +984,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .unwrap()
         .unwrap();
     let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state())
+        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
         .await
         .unwrap();
 
