@@ -170,8 +170,8 @@ impl CandidateMachine {
         })
     }
 
-    pub async fn get_all(db_conn: &Pool<Postgres>) -> eyre::Result<Vec<Self>> {
-        get_candidate_machines(db_conn).await
+    pub async fn get_all(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Vec<Self>> {
+        get_candidate_machines(txn).await
     }
 
     ////////////////////////////////////////////////////////////////
@@ -227,10 +227,11 @@ async fn internal_get_latest_journal_for_id(
 }
 
 /// get_candidate_machines returns all populated CandidateMachine instances.
-async fn get_candidate_machines(db_conn: &Pool<Postgres>) -> eyre::Result<Vec<CandidateMachine>> {
-    let mut txn = db_conn.begin().await?;
+async fn get_candidate_machines(
+    txn: &mut Transaction<'_, Postgres>,
+) -> eyre::Result<Vec<CandidateMachine>> {
     let mut res: Vec<CandidateMachine> = Vec::new();
-    let mut records = get_candidate_machine_records(db_conn).await?;
+    let mut records = get_candidate_machine_records(txn).await?;
     for record in records.drain(..) {
         let attrs = match &record.topology.discovery_data.info.dmi_data {
             Some(dmi_data) => Ok(HashMap::from([
@@ -241,7 +242,7 @@ async fn get_candidate_machines(db_conn: &Pool<Postgres>) -> eyre::Result<Vec<Ca
             None => Err(eyre::eyre!("machine missing dmi data")),
         }?;
 
-        let latest_state = get_candidate_machine_state(&mut txn, record.machine_id.clone()).await?;
+        let latest_state = get_candidate_machine_state(txn, record.machine_id.clone()).await?;
         res.push(CandidateMachine {
             machine_id: record.machine_id.clone(),
             created_ts: record.created,

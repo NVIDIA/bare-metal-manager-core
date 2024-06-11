@@ -24,25 +24,23 @@ use crate::measured_boot::dto::records::{
 use crate::measured_boot::dto::traits::DbTable;
 use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 
 pub async fn insert_into_approved_machines(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
     approval_type: MeasurementApprovedType,
     pcr_registers: Option<String>,
     comments: Option<String>,
 ) -> eyre::Result<MeasurementApprovedMachineRecord> {
-    let mut txn = db_conn.begin().await?;
     let query = "insert into measurement_approved_machines(machine_id, approval_type, pcr_registers, comments) values($1, $2, $3, $4) returning *";
     let record = sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
         .bind(machine_id)
         .bind(approval_type)
         .bind(pcr_registers)
         .bind(comments)
-        .fetch_one(&mut *txn)
+        .fetch_one(&mut **txn)
         .await?;
-    txn.commit().await?;
     Ok(record)
 }
 
@@ -69,10 +67,9 @@ pub async fn remove_from_approved_machines_by_machine_id(
 }
 
 pub async fn get_approved_machines(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementApprovedMachineRecord>> {
-    let mut txn = db_conn.begin().await?;
-    common::get_all_objects(&mut txn).await
+    common::get_all_objects(txn).await
 }
 
 pub async fn get_approval_for_machine_id(
@@ -83,22 +80,20 @@ pub async fn get_approval_for_machine_id(
 }
 
 pub async fn insert_into_approved_profiles(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
     approval_type: MeasurementApprovedType,
     pcr_registers: Option<String>,
     comments: Option<String>,
 ) -> eyre::Result<MeasurementApprovedProfileRecord> {
-    let mut txn = db_conn.begin().await?;
     let query = "insert into measurement_approved_profiles(profile_id, approval_type, pcr_registers, comments) values($1, $2, $3, $4) returning *";
     let record = sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
         .bind(profile_id)
         .bind(approval_type)
         .bind(pcr_registers)
         .bind(comments)
-        .fetch_one(&mut *txn)
+        .fetch_one(&mut **txn)
         .await?;
-    txn.commit().await?;
     Ok(record)
 }
 
@@ -125,10 +120,9 @@ pub async fn remove_from_approved_profiles_by_profile_id(
 }
 
 pub async fn get_approved_profiles(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementApprovedProfileRecord>> {
-    let mut txn = db_conn.begin().await?;
-    common::get_all_objects(&mut txn).await
+    common::get_all_objects(txn).await
 }
 
 pub async fn get_approval_for_profile_id(

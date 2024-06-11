@@ -231,9 +231,11 @@ impl MeasurementSystemProfile {
     /// load_from_name loads an existing measurement profile (and its
     /// attributes), returning a MeasurementSystemProfile instance.
     ////////////////////////////////////////////////////////////////
-    pub async fn load_from_name(db_conn: &Pool<Postgres>, name: String) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
-        get_measurement_profile_by_name(&mut txn, name).await
+    pub async fn load_from_name(
+        txn: &mut Transaction<'_, Postgres>,
+        name: String,
+    ) -> eyre::Result<Self> {
+        get_measurement_profile_by_name(txn, name).await
     }
 
     ////////////////////////////////////////////////////////////////
@@ -298,17 +300,17 @@ impl MeasurementSystemProfile {
     }
 
     pub async fn delete_for_id(
-        db_conn: &Pool<Postgres>,
+        txn: &mut Transaction<'_, Postgres>,
         profile_id: MeasurementSystemProfileId,
     ) -> eyre::Result<Option<MeasurementSystemProfile>> {
-        delete_profile_for_id(db_conn, profile_id).await
+        delete_profile_for_id(txn, profile_id).await
     }
 
     pub async fn delete_for_name(
-        db_conn: &Pool<Postgres>,
+        txn: &mut Transaction<'_, Postgres>,
         name: String,
     ) -> eyre::Result<Option<MeasurementSystemProfile>> {
-        delete_profile_for_name(db_conn, name).await
+        delete_profile_for_name(txn, name).await
     }
 
     /// rename_for_id renames a MeasurementSystemProfile based on its ID.
@@ -340,8 +342,10 @@ impl MeasurementSystemProfile {
         MeasurementSystemProfile::from_info_and_attrs(info, attrs)
     }
 
-    pub async fn get_all(db_conn: &Pool<Postgres>) -> eyre::Result<Vec<MeasurementSystemProfile>> {
-        get_measurement_system_profiles(db_conn).await
+    pub async fn get_all(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> eyre::Result<Vec<MeasurementSystemProfile>> {
+        get_measurement_system_profiles_with_txn(txn).await
     }
 }
 
@@ -529,21 +533,17 @@ pub async fn get_measurement_profile_by_name(
 /// delete_profile_for_id deletes a complete profile, including
 /// its attributes, by ID. It returns the deleted profile for display.
 pub async fn delete_profile_for_id(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
 ) -> eyre::Result<Option<MeasurementSystemProfile>> {
-    let mut txn = db_conn.begin().await?;
-    let attrs = delete_profile_attr_records_for_id(&mut txn, profile_id).await?;
-    match delete_profile_record_for_id(&mut txn, profile_id).await? {
-        Some(info) => {
-            txn.commit().await?;
-            Ok(Some(MeasurementSystemProfile {
-                name: info.name,
-                profile_id: info.profile_id,
-                ts: info.ts,
-                attrs,
-            }))
-        }
+    let attrs = delete_profile_attr_records_for_id(txn, profile_id).await?;
+    match delete_profile_record_for_id(txn, profile_id).await? {
+        Some(info) => Ok(Some(MeasurementSystemProfile {
+            name: info.name,
+            profile_id: info.profile_id,
+            ts: info.ts,
+            attrs,
+        })),
         None => Ok(None),
     }
 }
@@ -551,11 +551,11 @@ pub async fn delete_profile_for_id(
 /// delete_profile_for_name deletes a complete profile, including
 /// its attributes, by name. It returns the deleted profile for display.
 pub async fn delete_profile_for_name(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     name: String,
 ) -> eyre::Result<Option<MeasurementSystemProfile>> {
-    let profile = MeasurementSystemProfile::load_from_name(db_conn, name).await?;
-    delete_profile_for_id(db_conn, profile.profile_id).await
+    let profile = MeasurementSystemProfile::load_from_name(txn, name).await?;
+    delete_profile_for_id(txn, profile.profile_id).await
 }
 
 /// get_measurement_system_profiles returns all MeasurementSystemProfile

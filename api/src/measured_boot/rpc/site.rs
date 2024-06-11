@@ -57,6 +57,8 @@ pub async fn handle_import_site_measurements(
     db_conn: &Pool<Postgres>,
     req: &ImportSiteMeasurementsRequest,
 ) -> Result<ImportSiteMeasurementsResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
+
     // Convert the site model from the SiteModelPb (and
     // make sure its good).
     let site_model = match &req.model {
@@ -67,12 +69,15 @@ pub async fn handle_import_site_measurements(
     };
 
     // And now import it!
-    SiteModel::import(db_conn, &site_model)
+    let result = SiteModel::import(&mut txn, &site_model)
         .await
         .map_err(|e| Status::internal(format!("site import failed: {}", e)))
         .map(|_| ImportSiteMeasurementsResponse {
             result: ImportSiteResult::Success.into(),
-        })
+        });
+
+    commit_txn(txn).await?;
+    result
 }
 
 /// handle_export_site_measurements handles the ExportSiteMeasurements
@@ -81,7 +86,8 @@ pub async fn handle_export_site_measurements(
     db_conn: &Pool<Postgres>,
     _req: &ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
-    let site_model = SiteModel::export(db_conn)
+    let mut txn = begin_txn(db_conn).await?;
+    let site_model = SiteModel::export(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("export failed: {}", e)))?;
 
@@ -99,8 +105,9 @@ pub async fn handle_add_measurement_trusted_machine(
     db_conn: &Pool<Postgres>,
     req: &AddMeasurementTrustedMachineRequest,
 ) -> Result<AddMeasurementTrustedMachineResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let approval_record = insert_into_approved_machines(
-        db_conn,
+        &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(
                 req.machine_id.clone(),
@@ -113,6 +120,7 @@ pub async fn handle_add_measurement_trusted_machine(
     .await
     .map_err(|e| Status::internal(format!("failed to insert trusted machine approval: {}", e)))?;
 
+    commit_txn(txn).await?;
     Ok(AddMeasurementTrustedMachineResponse {
         approval_record: Some(approval_record.into()),
     })
@@ -156,7 +164,6 @@ pub async fn handle_remove_measurement_trusted_machine(
     };
 
     commit_txn(txn).await?;
-
     Ok(RemoveMeasurementTrustedMachineResponse {
         approval_record: Some(approval_record.into()),
     })
@@ -168,7 +175,8 @@ pub async fn handle_list_measurement_trusted_machines(
     db_conn: &Pool<Postgres>,
     _req: &ListMeasurementTrustedMachinesRequest,
 ) -> Result<ListMeasurementTrustedMachinesResponse, Status> {
-    let approval_records: Vec<MeasurementApprovedMachineRecordPb> = get_approved_machines(db_conn)
+    let mut txn = begin_txn(db_conn).await?;
+    let approval_records: Vec<MeasurementApprovedMachineRecordPb> = get_approved_machines(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("failed to fetch machine approvals: {}", e)))?
         .into_iter()
@@ -184,8 +192,9 @@ pub async fn handle_add_measurement_trusted_profile(
     db_conn: &Pool<Postgres>,
     req: &AddMeasurementTrustedProfileRequest,
 ) -> Result<AddMeasurementTrustedProfileResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let approval_record = insert_into_approved_profiles(
-        db_conn,
+        &mut txn,
         MeasurementSystemProfileId::from_grpc(req.profile_id.clone())?,
         MeasurementApprovedType::from(req.approval_type()),
         req.pcr_registers.as_ref().cloned(),
@@ -194,6 +203,7 @@ pub async fn handle_add_measurement_trusted_profile(
     .await
     .map_err(|e| Status::internal(format!("failed to insert trusted profile approval: {}", e)))?;
 
+    commit_txn(txn).await?;
     Ok(AddMeasurementTrustedProfileResponse {
         approval_record: Some(approval_record.into()),
     })
@@ -206,7 +216,6 @@ pub async fn handle_remove_measurement_trusted_profile(
     req: &RemoveMeasurementTrustedProfileRequest,
 ) -> Result<RemoveMeasurementTrustedProfileResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-
     let approval_record: MeasurementApprovedProfileRecord = match &req.selector {
         // Remove by approval ID.
         Some(remove_measurement_trusted_profile_request::Selector::ApprovalId(approval_uuid)) => {
@@ -235,7 +244,6 @@ pub async fn handle_remove_measurement_trusted_profile(
     };
 
     commit_txn(txn).await?;
-
     Ok(RemoveMeasurementTrustedProfileResponse {
         approval_record: Some(approval_record.into()),
     })
@@ -247,7 +255,8 @@ pub async fn handle_list_measurement_trusted_profiles(
     db_conn: &Pool<Postgres>,
     _req: &ListMeasurementTrustedProfilesRequest,
 ) -> Result<ListMeasurementTrustedProfilesResponse, Status> {
-    let approval_records: Vec<MeasurementApprovedProfileRecordPb> = get_approved_profiles(db_conn)
+    let mut txn = begin_txn(db_conn).await?;
+    let approval_records: Vec<MeasurementApprovedProfileRecordPb> = get_approved_profiles(&mut txn)
         .await
         .map_err(|e| Status::internal(format!("failed to fetch profile approvals: {}", e)))?
         .into_iter()

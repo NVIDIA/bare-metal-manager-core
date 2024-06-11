@@ -18,7 +18,8 @@ use tonic::Status;
 
 use crate::measured_boot::dto::keys::MeasurementReportId;
 use crate::measured_boot::interface::report::{
-    get_all_measurement_report_records, get_measurement_report_records_for_machine_id, match_report,
+    get_all_measurement_report_records, get_measurement_report_records_for_machine_id,
+    match_latest_reports,
 };
 use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use crate::measured_boot::{
@@ -48,8 +49,9 @@ pub async fn handle_create_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &CreateMeasurementReportRequest,
 ) -> Result<CreateMeasurementReportResponse, Status> {
-    let report = MeasurementReport::new(
-        db_conn,
+    let mut txn = begin_txn(db_conn).await?;
+    let report = MeasurementReport::new_with_txn(
+        &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(
                 req.machine_id.clone(),
@@ -60,6 +62,7 @@ pub async fn handle_create_measurement_report(
     .await
     .map_err(|e| Status::internal(format!("report creation failed: {}", e)))?;
 
+    commit_txn(txn).await?;
     Ok(CreateMeasurementReportResponse {
         report: Some(report.into()),
     })
@@ -71,13 +74,15 @@ pub async fn handle_delete_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &DeleteMeasurementReportRequest,
 ) -> Result<DeleteMeasurementReportResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let report = MeasurementReport::delete_for_id(
-        db_conn,
+        &mut txn,
         MeasurementReportId::from_grpc(req.report_id.clone())?,
     )
     .await
     .map_err(|e| Status::internal(format!("delete failed: {}", e)))?;
 
+    commit_txn(txn).await?;
     Ok(DeleteMeasurementReportResponse {
         report: Some(report.into()),
     })
@@ -89,6 +94,7 @@ pub async fn handle_promote_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &PromoteMeasurementReportRequest,
 ) -> Result<PromoteMeasurementReportResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let pcr_set: Option<PcrSet> = match !req.pcr_registers.is_empty() {
         true => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
             Status::invalid_argument(format!("pcr_register parsing failed: {}", e))
@@ -96,7 +102,6 @@ pub async fn handle_promote_measurement_report(
         false => None,
     };
 
-    let mut txn = begin_txn(db_conn).await?;
     let report = MeasurementReport::from_id_with_txn(
         &mut txn,
         MeasurementReportId::from_grpc(req.report_id.clone())?,
@@ -115,7 +120,6 @@ pub async fn handle_promote_measurement_report(
         })?;
 
     commit_txn(txn).await?;
-
     Ok(PromoteMeasurementReportResponse {
         bundle: Some(bundle.into()),
     })
@@ -127,6 +131,7 @@ pub async fn handle_revoke_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &RevokeMeasurementReportRequest,
 ) -> Result<RevokeMeasurementReportResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let pcr_set: Option<PcrSet> = match &req.pcr_registers.len() {
         n if n < &1 => None,
         _ => Some(parse_pcr_index_input(&req.pcr_registers).map_err(|e| {
@@ -134,7 +139,6 @@ pub async fn handle_revoke_measurement_report(
         })?),
     };
 
-    let mut txn = begin_txn(db_conn).await?;
     let report = MeasurementReport::from_id_with_txn(
         &mut txn,
         MeasurementReportId::from_grpc(req.report_id.clone())?,
@@ -153,7 +157,6 @@ pub async fn handle_revoke_measurement_report(
         })?;
 
     commit_txn(txn).await?;
-
     Ok(RevokeMeasurementReportResponse {
         bundle: Some(bundle.into()),
     })
@@ -165,10 +168,11 @@ pub async fn handle_show_measurement_report_for_id(
     db_conn: &Pool<Postgres>,
     req: &ShowMeasurementReportForIdRequest,
 ) -> Result<ShowMeasurementReportForIdResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     Ok(ShowMeasurementReportForIdResponse {
         report: Some(
-            MeasurementReport::from_id(
-                db_conn,
+            MeasurementReport::from_id_with_txn(
+                &mut txn,
                 MeasurementReportId::from_grpc(req.report_id.clone())?,
             )
             .await
@@ -185,7 +189,6 @@ pub async fn handle_show_measurement_reports_for_machine(
     req: &ShowMeasurementReportsForMachineRequest,
 ) -> Result<ShowMeasurementReportsForMachineResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-
     Ok(ShowMeasurementReportsForMachineResponse {
         reports: MeasurementReport::get_all_for_machine_id(
             &mut txn,
@@ -210,7 +213,6 @@ pub async fn handle_show_measurement_reports(
     _req: &ShowMeasurementReportsRequest,
 ) -> Result<ShowMeasurementReportsResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-
     Ok(ShowMeasurementReportsResponse {
         reports: MeasurementReport::get_all(&mut txn)
             .await
@@ -258,9 +260,11 @@ pub async fn handle_match_measurement_report(
     db_conn: &Pool<Postgres>,
     req: &MatchMeasurementReportRequest,
 ) -> Result<MatchMeasurementReportResponse, Status> {
-    let mut reports = match_report(db_conn, &PcrRegisterValue::from_pb_vec(&req.pcr_values))
-        .await
-        .map_err(|e| Status::internal(format!("failure during report matching: {}", e)))?;
+    let mut txn = begin_txn(db_conn).await?;
+    let mut reports =
+        match_latest_reports(&mut txn, &PcrRegisterValue::from_pb_vec(&req.pcr_values))
+            .await
+            .map_err(|e| Status::internal(format!("failure during report matching: {}", e)))?;
 
     reports.sort_by(|a, b| a.ts.cmp(&b.ts));
 

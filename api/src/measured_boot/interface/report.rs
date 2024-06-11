@@ -20,10 +20,10 @@ use crate::measured_boot::dto::records::{MeasurementReportRecord, MeasurementRep
 
 use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
-use sqlx::{Pool, Postgres, QueryBuilder, Transaction};
+use sqlx::{Postgres, QueryBuilder, Transaction};
 
-/// match_report takes a list of PcrRegisterValues (i.e. register:sha256)
-/// and returns all matching report entries for it.
+/// match_latest_reports takes a list of PcrRegisterValues (i.e. register:sha256)
+/// and returns all latest matching report entries for it.
 ///
 /// The intent is bundle operations can call this to see what reports
 /// match the bundle.
@@ -45,18 +45,7 @@ pub fn where_pcr_pairs(
     query.push(") ");
 }
 
-pub async fn match_report(
-    db_conn: &Pool<Postgres>,
-    values: &[common::PcrRegisterValue],
-) -> eyre::Result<Vec<MeasurementReportRecord>> {
-    if values.is_empty() {
-        return Err(eyre::eyre!("must have at least one PCR register value"));
-    }
-    let mut txn = db_conn.begin().await?;
-    match_latest_reports_with_txn(&mut txn, values).await
-}
-
-pub async fn match_latest_reports_with_txn(
+pub async fn match_latest_reports(
     txn: &mut Transaction<'_, Postgres>,
     values: &[common::PcrRegisterValue],
 ) -> eyre::Result<Vec<MeasurementReportRecord>> {

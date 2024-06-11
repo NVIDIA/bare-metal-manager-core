@@ -20,7 +20,7 @@ use crate::measured_boot::dto::records::{
 };
 use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;
 
 /// get_discovery_attributes returns a hashmap of values from
@@ -94,8 +94,7 @@ pub async fn get_candidate_machine_record_by_id(
 /// get_candidate_machine_records returns all MockMachineRecord rows,
 /// primarily for the purpose of `mock-machine list`.
 pub async fn get_candidate_machine_records(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<CandidateMachineRecord>> {
-    let mut txn = db_conn.begin().await?;
-    common::get_all_objects(&mut txn).await
+    common::get_all_objects(txn).await
 }

@@ -28,7 +28,7 @@ use crate::measured_boot::interface::bundle::{
 };
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::ToTable;
-use crate::measured_boot::interface::report::match_latest_reports_with_txn;
+use crate::measured_boot::interface::report::match_latest_reports;
 use crate::measured_boot::model::machine::{bundle_state_to_machine_state, CandidateMachine};
 use crate::measured_boot::model::profile::MeasurementSystemProfile;
 use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
@@ -407,21 +407,19 @@ impl MeasurementBundle {
     /// MeasurementBundleValues, returning a fully populated instance of
     /// MeasurementBundle of the data that was deleted for `bundle_id`.
     pub async fn delete_for_name(
-        db_conn: &Pool<Postgres>,
+        txn: &mut Transaction<'_, Postgres>,
         bundle_name: String,
         purge_journals: bool,
     ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
         // Note that due to relational constraints, values must be
         // deleted before the parent record.
         if purge_journals {
             return Err(eyre::eyre!("journal purge not supported -- TODO"));
         }
-        let bundle = Self::from_name_with_txn(&mut txn, bundle_name.clone())
+        let bundle = Self::from_name_with_txn(txn, bundle_name.clone())
             .await?
-            .delete(&mut txn, purge_journals)
+            .delete(txn, purge_journals)
             .await?;
-        txn.commit().await?;
         Ok(bundle)
     }
 
@@ -436,7 +434,7 @@ impl MeasurementBundle {
     ) -> eyre::Result<Vec<MeasurementJournal>> {
         let machine_state = bundle_state_to_machine_state(&self.state);
 
-        let reports = match_latest_reports_with_txn(txn, &self.pcr_values()).await?;
+        let reports = match_latest_reports(txn, &self.pcr_values()).await?;
         let mut updates: Vec<MeasurementJournal> = Vec::new();
         for report in reports.iter() {
             let machine =
