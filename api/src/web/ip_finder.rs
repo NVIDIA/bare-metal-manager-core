@@ -17,8 +17,6 @@ use askama::Template;
 //use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -38,8 +36,8 @@ struct IpMatch {
     message: String,
 }
 
-pub async fn find<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn find(
+    AxumState(state): AxumState<Arc<Api>>,
     Query(mut params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let ip_to_find = params.remove("ip");

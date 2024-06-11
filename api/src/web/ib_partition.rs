@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -68,9 +66,7 @@ impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
 }
 
 /// List partitions
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let partitions = match fetch_ib_partitions(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
@@ -89,9 +85,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let partitions = match fetch_ib_partitions(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -106,12 +100,7 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(partitions)).into_response()
 }
 
-async fn fetch_ib_partitions<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    api: Arc<Api<C1, C2>>,
-) -> Result<Vec<forgerpc::IbPartition>, tonic::Status> {
+async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>, tonic::Status> {
     let request = tonic::Request::new(forgerpc::IbPartitionQuery {
         id: None,
         search_config: Some(forgerpc::IbPartitionSearchConfig {
@@ -223,8 +212,8 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
 }
 
 /// View partition details
-pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
     AxumPath(partition_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::IbPartitionQuery {

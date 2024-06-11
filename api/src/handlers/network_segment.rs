@@ -11,8 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -27,14 +25,10 @@ use crate::db::UuidKeyedObjectFilter;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::CarbideError;
 
-pub(crate) async fn find<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn find(
+    api: &Api,
     request: Request<rpc::NetworkSegmentQuery>,
-) -> Result<Response<rpc::NetworkSegmentList>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -77,14 +71,10 @@ where
     Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
 }
 
-pub(crate) async fn create<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn create(
+    api: &Api,
     request: Request<rpc::NetworkSegmentCreationRequest>,
-) -> Result<Response<rpc::NetworkSegment>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::NetworkSegment>, Status> {
     crate::api::log_request_data(&request);
 
     let request = request.into_inner();
@@ -141,14 +131,10 @@ where
     response
 }
 
-pub(crate) async fn delete<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn delete(
+    api: &Api,
     request: Request<rpc::NetworkSegmentDeletionRequest>,
-) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -211,14 +197,10 @@ where
     response
 }
 
-pub(crate) async fn for_vpc<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn for_vpc(
+    api: &Api,
     request: Request<rpc::VpcSearchQuery>,
-) -> Result<Response<rpc::NetworkSegmentList>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::NetworkSegmentList>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -258,16 +240,12 @@ where
 }
 
 // Called by db_init::create_initial_networks
-pub(crate) async fn save<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn save(
+    api: &Api,
     txn: &mut Transaction<'_, Postgres>,
     mut ns: NewNetworkSegment,
     set_to_ready: bool,
-) -> Result<NetworkSegment, CarbideError>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<NetworkSegment, CarbideError> {
     if ns.segment_type != NetworkSegmentType::Underlay {
         ns.vlan_id = Some(allocate_vlan_id(api, txn, &ns.name).await?);
         ns.vni = Some(allocate_vni(api, txn, &ns.name).await?);
@@ -295,15 +273,11 @@ where
 /// Allocate a value from the vni resource pool.
 ///
 /// If the pool exists but is empty or has en error, return that.
-async fn allocate_vni<C1, C2>(
-    api: &Api<C1, C2>,
+async fn allocate_vni(
+    api: &Api,
     txn: &mut Transaction<'_, Postgres>,
     owner_id: &str,
-) -> Result<i32, CarbideError>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<i32, CarbideError> {
     match api
         .common_pools
         .ethernet
@@ -330,15 +304,11 @@ where
 /// Allocate a value from the vlan id resource pool.
 ///
 /// If the pool exists but is empty or has en error, return that.
-async fn allocate_vlan_id<C1, C2>(
-    api: &Api<C1, C2>,
+async fn allocate_vlan_id(
+    api: &Api,
     txn: &mut Transaction<'_, Postgres>,
     owner_id: &str,
-) -> Result<i16, CarbideError>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<i16, CarbideError> {
     match api
         .common_pools
         .ethernet

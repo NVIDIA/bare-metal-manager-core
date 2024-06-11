@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -76,9 +74,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
 }
 
 /// List network segments
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let networks = match fetch_network_segments(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
@@ -122,9 +118,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let networks = match fetch_network_segments(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -139,11 +133,8 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(networks)).into_response()
 }
 
-async fn fetch_network_segments<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    api: Arc<Api<C1, C2>>,
+async fn fetch_network_segments(
+    api: Arc<Api>,
 ) -> Result<Vec<forgerpc::NetworkSegment>, tonic::Status> {
     let request = tonic::Request::new(forgerpc::NetworkSegmentQuery {
         id: None,
@@ -162,10 +153,7 @@ async fn fetch_network_segments<
     Ok(networks.network_segments)
 }
 
-async fn get_domain_name<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    state: Arc<Api<C1, C2>>,
-    domain_id: &forgerpc::Uuid,
-) -> eyre::Result<String> {
+async fn get_domain_name(state: Arc<Api>, domain_id: &forgerpc::Uuid) -> eyre::Result<String> {
     let request = tonic::Request::new(forgerpc::DomainSearchQuery {
         id: Some(domain_id.clone()),
         name: None,
@@ -277,8 +265,8 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
 }
 
 /// View networks segment details
-pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::NetworkSegmentQuery {

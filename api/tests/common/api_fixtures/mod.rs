@@ -82,9 +82,6 @@ pub mod instance;
 pub mod managed_host;
 pub mod network_segment;
 
-/// Carbide API for integration tests
-pub type TestApi = Api<TestCredentialProvider, TestCertificateProvider>;
-
 /// The datacenter-level DHCP relay that is assumed for all DPU discovery
 ///
 /// For integration testing this must match a prefix defined in fixtures/create_network_segment.sql
@@ -103,7 +100,7 @@ pub const FIXTURE_X86_MACHINE_ID: &str =
 pub const TEST_SITE_PREFIXES: &[&str] = &["192.0.2.0/24"];
 
 pub struct TestEnv {
-    pub api: Arc<TestApi>,
+    pub api: Arc<Api>,
     pub config: Arc<CarbideConfig>,
     pub credential_provider: Arc<TestCredentialProvider>,
     pub certificate_provider: Arc<TestCertificateProvider>,

@@ -499,17 +499,14 @@ impl CredentialProvider for ForgeVaultClient {
     }
 }
 
-pub struct GetCertificateHelper<S: AsRef<str> + Sync + Send> {
-    unique_identifier: S,
+pub struct GetCertificateHelper {
+    unique_identifier: String,
     pki_mount_location: String,
     pki_role_name: String,
 }
 
 #[async_trait]
-impl<S> VaultTask<Certificate> for GetCertificateHelper<S>
-where
-    S: AsRef<str> + Sync + Send,
-{
+impl VaultTask<Certificate> for GetCertificateHelper {
     async fn execute(
         &self,
         vault_client: &VaultClient,
@@ -525,9 +522,7 @@ where
         // spiffe://<trust_domain>/<namespace>/machine/<stable_machine_id>
         let spiffe_id = format!(
             "spiffe://{}/{}/machine/{}",
-            trust_domain,
-            namespace,
-            self.unique_identifier.as_ref()
+            trust_domain, namespace, self.unique_identifier,
         );
 
         let ttl = {
@@ -579,12 +574,9 @@ where
 
 #[async_trait]
 impl CertificateProvider for ForgeVaultClient {
-    async fn get_certificate<S>(&self, unique_identifier: S) -> Result<Certificate, eyre::Report>
-    where
-        S: AsRef<str> + Send + Sync,
-    {
+    async fn get_certificate(&self, unique_identifier: &str) -> Result<Certificate, eyre::Report> {
         let get_certificate_helper = GetCertificateHelper {
-            unique_identifier,
+            unique_identifier: unique_identifier.to_string(),
             pki_mount_location: self.vault_client_config.pki_mount_location.clone(),
             pki_role_name: self.vault_client_config.pki_role_name.clone(),
         };

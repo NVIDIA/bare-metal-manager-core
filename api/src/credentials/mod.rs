@@ -38,13 +38,10 @@ impl TryFrom<MachineCredentialsUpdateRequest> for UpdateCredentials {
 }
 
 impl UpdateCredentials {
-    pub async fn update<C>(
+    pub async fn update(
         &self,
-        credential_provider: &C,
-    ) -> CarbideResult<MachineCredentialsUpdateResponse>
-    where
-        C: CredentialProvider,
-    {
+        credential_provider: &dyn CredentialProvider,
+    ) -> CarbideResult<MachineCredentialsUpdateResponse> {
         for credential in self.credentials.iter() {
             let credential_purpose = CredentialPurpose::try_from(credential.credential_purpose)
                 .map_err(|error| {

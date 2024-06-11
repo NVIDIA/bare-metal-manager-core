@@ -12,6 +12,7 @@
 
 use carbide::{
     api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
+    api::Api,
     cfg::IBFabricConfig,
     db::ib_partition::{IBPartitionConfig, IBPartitionStatus, NewIBPartition},
     ib::{
@@ -22,7 +23,7 @@ use carbide::{
 };
 
 pub mod common;
-use common::api_fixtures::{create_test_env, TestApi};
+use common::api_fixtures::create_test_env;
 use rpc::forge::{forge_server::Forge, TenantState};
 use tonic::Request;
 
@@ -30,7 +31,7 @@ const FIXTURE_CREATED_IB_PARTITION_NAME: &str = "ib_partition_1";
 const FIXTURE_TENANT_ORG_ID: &str = "tenant";
 
 async fn create_ib_partition_with_api(
-    api: &TestApi,
+    api: &Api,
     name: String,
 ) -> Result<tonic::Response<rpc::IbPartition>, tonic::Status> {
     let request = rpc::forge::IbPartitionCreationRequest {
@@ -44,7 +45,7 @@ async fn create_ib_partition_with_api(
     api.create_ib_partition(Request::new(request)).await
 }
 
-async fn get_partition_state(api: &TestApi, ib_partition_id: uuid::Uuid) -> TenantState {
+async fn get_partition_state(api: &Api, ib_partition_id: uuid::Uuid) -> TenantState {
     let segment = api
         .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
             id: Some(ib_partition_id.into()),

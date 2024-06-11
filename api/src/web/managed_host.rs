@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
@@ -147,9 +145,7 @@ impl From<ManagedHostAttachedDpu> for AttachedDpuRowDisplay {
 }
 
 /// List managed hosts
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    state: AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let managed_hosts = match fetch_managed_hosts(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -180,9 +176,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    state: AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let mut managed_hosts = match fetch_managed_hosts(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -198,11 +192,8 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(managed_hosts)).into_response()
 }
 
-async fn fetch_managed_hosts<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+async fn fetch_managed_hosts(
+    AxumState(state): AxumState<Arc<Api>>,
 ) -> eyre::Result<Vec<utils::ManagedHostOutput>> {
     let request = tonic::Request::new(forgerpc::MachineSearchQuery {
         id: None,
@@ -358,8 +349,8 @@ impl From<DpuSwitchConnection> for DpuSwitchConnectionDetail {
 }
 
 /// View managed host details
-pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::MachineSearchQuery {
@@ -425,8 +416,8 @@ pub struct MaintenanceAction {
 }
 
 /// Enter / Exit maintenance mode
-pub async fn maintenance<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn maintenance(
+    AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     Form(form): Form<MaintenanceAction>,
 ) -> impl IntoResponse {

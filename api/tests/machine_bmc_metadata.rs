@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::sync::Arc;
+
 use carbide::db::bmc_metadata::{
     BmcMetaDataGetRequest, BmcMetaDataUpdateRequest, BmcMetadataItem, UserRoles,
 };
@@ -42,7 +44,7 @@ async fn machine_bmc_credential_update(pool: PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    let credentials_provider = TestCredentialProvider::new();
+    let credentials_provider = Arc::new(TestCredentialProvider::new());
     BmcMetaDataUpdateRequest {
         machine_id: dpu_machine_id.clone(),
         data: DATA
@@ -62,7 +64,7 @@ async fn machine_bmc_credential_update(pool: PgPool) {
             firmware_version: Some("2".to_string()),
         },
     }
-    .update_bmc_meta_data(&mut txn, &credentials_provider)
+    .update_bmc_meta_data(&mut txn, credentials_provider.as_ref())
     .await
     .unwrap();
 
@@ -77,7 +79,7 @@ async fn machine_bmc_credential_update(pool: PgPool) {
         };
 
         let response = ipmi_req
-            .get_bmc_meta_data(&mut txn, &credentials_provider)
+            .get_bmc_meta_data(&mut txn, credentials_provider.as_ref())
             .await
             .unwrap();
         assert_eq!(response.ip, "127.0.0.2".to_string());
@@ -99,7 +101,7 @@ async fn machine_bmc_credential_update_with_port(pool: PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    let credentials_provider = TestCredentialProvider::new();
+    let credentials_provider = Arc::new(TestCredentialProvider::new());
     BmcMetaDataUpdateRequest {
         machine_id: dpu_machine_id.clone(),
         data: DATA
@@ -119,7 +121,7 @@ async fn machine_bmc_credential_update_with_port(pool: PgPool) {
             firmware_version: Some("2".to_string()),
         },
     }
-    .update_bmc_meta_data(&mut txn, &credentials_provider)
+    .update_bmc_meta_data(&mut txn, credentials_provider.as_ref())
     .await
     .unwrap();
 
@@ -134,7 +136,7 @@ async fn machine_bmc_credential_update_with_port(pool: PgPool) {
         };
 
         let response = ipmi_req
-            .get_bmc_meta_data(&mut txn, &credentials_provider)
+            .get_bmc_meta_data(&mut txn, credentials_provider.as_ref())
             .await
             .unwrap();
         assert_eq!(response.ip, "127.0.0.3".to_string());

@@ -18,8 +18,6 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
 use chrono::{DateTime, Utc};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -62,9 +60,7 @@ impl From<forgerpc::MachineInterface> for InterfaceRowDisplay {
 }
 
 /// List machine interfaces
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machine_interfaces = match fetch_machine_interfaces(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
@@ -112,9 +108,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machine_interfaces = match fetch_machine_interfaces(state).await {
         Ok(n) => n,
         Err(err) => {
@@ -129,11 +123,8 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(machine_interfaces)).into_response()
 }
 
-async fn fetch_machine_interfaces<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    api: Arc<Api<C1, C2>>,
+async fn fetch_machine_interfaces(
+    api: Arc<Api>,
 ) -> Result<Vec<forgerpc::MachineInterface>, tonic::Status> {
     let request = tonic::Request::new(forgerpc::InterfaceSearchQuery { id: None, ip: None });
     let mut out = api
@@ -209,8 +200,8 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
 }
 
 /// View machine interface details
-pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
     AxumPath(interface_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::InterfaceSearchQuery {

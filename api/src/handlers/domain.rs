@@ -11,8 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -23,14 +21,10 @@ use crate::db::DatabaseError;
 use crate::db::UuidKeyedObjectFilter;
 use crate::CarbideError;
 
-pub(crate) async fn create<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn create(
+    api: &Api,
     request: Request<rpc::Domain>,
-) -> Result<Response<rpc::Domain>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::Domain>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -59,14 +53,10 @@ where
     response
 }
 
-pub(crate) async fn update<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn update(
+    api: &Api,
     request: Request<rpc::Domain>,
-) -> Result<Response<rpc::Domain>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::Domain>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -133,14 +123,10 @@ where
     response
 }
 
-pub(crate) async fn delete<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn delete(
+    api: &Api,
     request: Request<rpc::DomainDeletion>,
-) -> Result<Response<rpc::DomainDeletionResult>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::DomainDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -209,14 +195,10 @@ where
     response
 }
 
-pub(crate) async fn find<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn find(
+    api: &Api,
     request: Request<rpc::DomainSearchQuery>,
-) -> Result<Response<rpc::DomainList>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::DomainList>, Status> {
     crate::api::log_request_data(&request);
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_domain", e))

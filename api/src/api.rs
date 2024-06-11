@@ -32,6 +32,8 @@ use sqlx::{Postgres, Transaction};
 use tokio::net::lookup_host;
 use tokio::time::{sleep, Instant};
 use tonic::{Request, Response, Status};
+use tss_esapi::structures::{Attest, Public as TssPublic, Signature};
+use tss_esapi::traits::UnMarshall;
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
@@ -96,8 +98,6 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use crate::{resource_pool, site_explorer};
-use tss_esapi::structures::{Attest, Public as TssPublic, Signature};
-use tss_esapi::traits::UnMarshall;
 
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
@@ -109,10 +109,10 @@ const FORGE_SITE_WIDE_BMC_USERNAME: &str = "root";
 // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 
-pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
+pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
-    credential_provider: Arc<C1>,
-    certificate_provider: Arc<C2>,
+    credential_provider: Arc<dyn CredentialProvider>,
+    certificate_provider: Arc<dyn CertificateProvider>,
     redfish_pool: Arc<dyn RedfishClientPool>,
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,
@@ -124,11 +124,7 @@ pub struct Api<C1: CredentialProvider, C2: CertificateProvider> {
 }
 
 #[tonic::async_trait]
-impl<C1, C2> Forge for Api<C1, C2>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+impl Forge for Api {
     async fn version(
         &self,
         request: tonic::Request<rpc::VersionRequest>,
@@ -5471,16 +5467,12 @@ fn truncate(mut s: String, len: usize) -> String {
     s
 }
 
-impl<C1, C2> Api<C1, C2>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+impl Api {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<CarbideConfig>,
-        credential_provider: Arc<C1>,
-        certificate_provider: Arc<C2>,
+        credential_provider: Arc<dyn CredentialProvider>,
+        certificate_provider: Arc<dyn CertificateProvider>,
         database_connection: sqlx::PgPool,
         redfish_pool: Arc<dyn RedfishClientPool>,
         eth_data: ethernet_virtualization::EthVirtData,

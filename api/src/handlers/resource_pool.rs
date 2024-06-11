@@ -13,22 +13,16 @@
 use std::collections::HashMap;
 
 use ::rpc::forge as rpc;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::db::DatabaseError;
 use crate::CarbideError;
 
-pub(crate) async fn grow<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn grow(
+    api: &Api,
     request: Request<rpc::GrowResourcePoolRequest>,
-) -> Result<Response<rpc::GrowResourcePoolResponse>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::GrowResourcePoolResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let toml_text = request.into_inner().text;
@@ -72,14 +66,10 @@ where
     }
 }
 
-pub(crate) async fn list<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn list(
+    api: &Api,
     request: Request<rpc::ListResourcePoolsRequest>,
-) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {

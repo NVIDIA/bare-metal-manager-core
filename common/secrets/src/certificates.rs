@@ -1,6 +1,5 @@
-use async_trait::async_trait;
-
 use ::rpc::protos::forge::MachineCertificate;
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, Default)]
 pub struct Certificate {
@@ -21,7 +20,5 @@ impl From<Certificate> for MachineCertificate {
 
 #[async_trait]
 pub trait CertificateProvider: Send + Sync {
-    async fn get_certificate<S>(&self, unique_identifier: S) -> Result<Certificate, eyre::Report>
-    where
-        S: AsRef<str> + Send + Sync;
+    async fn get_certificate(&self, unique_identifier: &str) -> Result<Certificate, eyre::Report>;
 }

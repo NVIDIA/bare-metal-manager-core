@@ -12,7 +12,6 @@
 
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
-use forge_secrets::{certificates::CertificateProvider, credentials::CredentialProvider};
 use sqlx::{Pool, Postgres};
 
 use crate::{
@@ -60,11 +59,8 @@ pub async fn create_initial_domain(
 }
 
 // pub so we can test it from integration test
-pub async fn create_initial_networks<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    api: &Api<C1, C2>,
+pub async fn create_initial_networks(
+    api: &Api,
     db_pool: &Pool<Postgres>,
     networks: &HashMap<String, NetworkDefinition>,
 ) -> Result<(), CarbideError> {

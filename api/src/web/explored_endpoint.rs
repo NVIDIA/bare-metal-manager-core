@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -163,9 +161,7 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
 }
 
 /// List explored endpoints
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let report = match fetch_explored_endpoints(state).await {
         Ok(report) => report,
         Err(err) => {
@@ -182,9 +178,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let report = match fetch_explored_endpoints(state).await {
         Ok(report) => report,
         Err(err) => {
@@ -199,12 +193,7 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(report)).into_response()
 }
 
-async fn fetch_explored_endpoints<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    api: Arc<Api<C1, C2>>,
-) -> Result<SiteExplorationReport, tonic::Status> {
+async fn fetch_explored_endpoints(api: Arc<Api>) -> Result<SiteExplorationReport, tonic::Status> {
     let request = tonic::Request::new(forgerpc::GetSiteExplorationRequest {});
     api.get_site_exploration_report(request)
         .await
@@ -232,8 +221,8 @@ impl From<ExploredEndpoint> for ExploredEndpointDetail {
 }
 
 /// View details of an explored endpoint
-pub async fn detail<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
+pub async fn detail(
+    AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {
     let report = match fetch_explored_endpoints(state).await {

@@ -11,8 +11,6 @@
  */
 
 use ::rpc::forge as rpc;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -21,14 +19,10 @@ use crate::db::vpc::{NewVpc, UpdateVpc, Vpc};
 use crate::db::{DatabaseError, UuidKeyedObjectFilter};
 use crate::CarbideError;
 
-pub(crate) async fn create<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn create(
+    api: &Api,
     request: Request<rpc::VpcCreationRequest>,
-) -> Result<Response<rpc::Vpc>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::Vpc>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -53,14 +47,10 @@ where
     Ok(Response::new(rpc_out))
 }
 
-pub(crate) async fn update<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn update(
+    api: &Api,
     request: Request<rpc::VpcUpdateRequest>,
-) -> Result<Response<rpc::VpcUpdateResult>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::VpcUpdateResult>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -78,14 +68,10 @@ where
     Ok(Response::new(rpc::VpcUpdateResult {}))
 }
 
-pub(crate) async fn delete<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn delete(
+    api: &Api,
     request: Request<rpc::VpcDeletionRequest>,
-) -> Result<Response<rpc::VpcDeletionResult>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::VpcDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
@@ -133,14 +119,10 @@ where
     Ok(Response::new(rpc::VpcDeletionResult {}))
 }
 
-pub(crate) async fn find<C1, C2>(
-    api: &Api<C1, C2>,
+pub(crate) async fn find(
+    api: &Api,
     request: Request<rpc::VpcSearchQuery>,
-) -> Result<Response<rpc::VpcList>, Status>
-where
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
-{
+) -> Result<Response<rpc::VpcList>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {

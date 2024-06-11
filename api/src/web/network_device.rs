@@ -16,8 +16,6 @@ use askama::Template;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
@@ -75,9 +73,7 @@ struct ConnectedDPU {
 }
 
 /// List network devices
-pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let network_devices = match fetch_network_devices(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -97,9 +93,7 @@ pub async fn show_html<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    AxumState(state): AxumState<Arc<Api<C1, C2>>>,
-) -> Response {
+pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let network_devices = match fetch_network_devices(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -114,11 +108,8 @@ pub async fn show_json<C1: CredentialProvider + 'static, C2: CertificateProvider
     (StatusCode::OK, Json(network_devices)).into_response()
 }
 
-async fn fetch_network_devices<
-    C1: CredentialProvider + 'static,
-    C2: CertificateProvider + 'static,
->(
-    api: Arc<Api<C1, C2>>,
+async fn fetch_network_devices(
+    api: Arc<Api>,
 ) -> Result<Vec<forgerpc::NetworkDevice>, tonic::Status> {
     let request = tonic::Request::new(forgerpc::NetworkTopologyRequest { id: None });
     let mut topology = api

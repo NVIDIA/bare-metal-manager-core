@@ -18,8 +18,6 @@ use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, Router};
 use base64::prelude::*;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialProvider;
 use http::{Request, StatusCode};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
@@ -47,9 +45,7 @@ mod vpc;
 const WEB_AUTH: &str = "admin:Welcome123";
 
 /// All the URLs in the admin interface. Nested under /admin in api.rs.
-pub fn routes<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    api: Arc<Api<C1, C2>>,
-) -> NormalizePath<Router> {
+pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
     NormalizePath::trim_trailing_slash(
         Router::new()
             .route("/", get(root))
@@ -153,9 +149,7 @@ struct Index {
     carbide_config: CarbideConfig,
 }
 
-pub async fn root<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
-    state: AxumState<Arc<Api<C1, C2>>>,
-) -> impl IntoResponse {
+pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     let request = tonic::Request::new(forgerpc::DpuAgentUpgradePolicyRequest { new_policy: None });
     use forgerpc::AgentUpgradePolicy::*;
     let agent_upgrade_policy = match state

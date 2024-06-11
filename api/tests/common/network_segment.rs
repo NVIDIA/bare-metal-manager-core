@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use carbide::api::Api;
 use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -17,8 +18,6 @@ use rpc::forge::{
 };
 use rpc::Uuid;
 use tonic::Request;
-
-use super::api_fixtures::TestApi;
 
 pub const FIXTURE_CREATED_VPC_UUID: uuid::Uuid =
     uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
@@ -61,7 +60,7 @@ impl NetworkSegmentHelper {
         self.inner.subdomain_id = Some(FIXTURE_CREATED_DOMAIN_UUID.into());
     }
 
-    pub async fn create_with_api(self, api: &TestApi) -> Result<NetworkSegment, tonic::Status> {
+    pub async fn create_with_api(self, api: &Api) -> Result<NetworkSegment, tonic::Status> {
         let request = self.inner;
         api.create_network_segment(Request::new(request))
             .await
@@ -70,7 +69,7 @@ impl NetworkSegmentHelper {
 }
 
 pub async fn create_network_segment_with_api(
-    api: &TestApi,
+    api: &Api,
     use_subdomain: bool,
     use_vpc: bool,
     id: Option<Uuid>,
@@ -102,7 +101,7 @@ pub async fn create_network_segment_with_api(
         .into_inner()
 }
 
-pub async fn get_segment_state(api: &TestApi, segment_id: uuid::Uuid) -> rpc::forge::TenantState {
+pub async fn get_segment_state(api: &Api, segment_id: uuid::Uuid) -> rpc::forge::TenantState {
     let segment = api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
             id: Some(segment_id.into()),
@@ -120,7 +119,7 @@ pub async fn get_segment_state(api: &TestApi, segment_id: uuid::Uuid) -> rpc::fo
 }
 
 pub async fn get_segments(
-    api: &TestApi,
+    api: &Api,
     segment_id: uuid::Uuid,
     search_config: Option<NetworkSegmentSearchConfig>,
 ) -> rpc::forge::NetworkSegmentList {
