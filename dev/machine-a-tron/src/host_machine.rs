@@ -435,10 +435,6 @@ impl HostMachine {
                         tracing::warn!("missing dhcp_response_info");
                         return Ok(false);
                     };
-                    let bmc_host_and_port = format!(
-                        "{}:{}",
-                        dhcp_info.ip_address, self.app_context.app_config.bmc_starting_port
-                    );
 
                     // let bmc_host_and_port =
                     //     format!("{}:{}", self.app_context.app_config.bmc_ip, self.bmc_port);
@@ -448,7 +444,8 @@ impl HostMachine {
                         &template_dir,
                         rpc::forge::MachineType::Host,
                         machine_id,
-                        Some(bmc_host_and_port),
+                        Some(dhcp_info.ip_address),
+                        Some(self.app_context.app_config.bmc_starting_port),
                     )
                     .await
                     {

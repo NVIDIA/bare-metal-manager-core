@@ -131,7 +131,7 @@ async fn get_not_found_response(response_path: &str) -> (StatusCode, Json<Value>
                 Ok(data_size) => {
                     let data = String::from_utf8_lossy(&buf[..data_size]).trim().to_owned();
                     match serde_json::from_str::<Value>(&data) {
-                        Ok(value) => (StatusCode::OK, Json(value)),
+                        Ok(value) => (StatusCode::NOT_FOUND, Json(value)),
                         Err(e) => {
                             let err_str = format!("Could not parse response data {data}: {e}");
                             (

@@ -350,17 +350,14 @@ impl DpuMachine {
                     tracing::warn!("D: missing dhcp_response_info");
                     return Ok(false);
                 };
-                let bmc_host_and_port = format!(
-                    "{}:{}",
-                    dhcp_info.ip_address, self.app_context.app_config.bmc_starting_port
-                );
 
                 if let Err(e) = api_client::update_bmc_metadata(
                     &self.app_context,
                     template_dir,
                     rpc::forge::MachineType::Dpu,
                     machine_id,
-                    Some(bmc_host_and_port),
+                    Some(dhcp_info.ip_address),
+                    Some(self.app_context.app_config.bmc_starting_port),
                 )
                 .await
                 {
