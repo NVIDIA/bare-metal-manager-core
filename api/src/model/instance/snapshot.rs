@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,15 +11,14 @@
  */
 
 use config_version::{ConfigVersion, Versioned};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::model::{
     instance::{
         config::InstanceConfig,
         status::{InstanceStatus, InstanceStatusObservations},
     },
-    machine::{machine_id::MachineId, ManagedHostState},
+    machine::{machine_id::MachineId, ManagedHostState, ReprovisionRequest},
+    metadata::Metadata,
     RpcDataConversionError,
 };
 
@@ -27,7 +26,7 @@ use crate::model::{
 ///
 /// This snapshot will be transmitted to SiteControllers users as part of
 /// `InstanceInfo`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct InstanceSnapshot {
     /// Instance ID
     pub instance_id: uuid::Uuid,
@@ -36,6 +35,11 @@ pub struct InstanceSnapshot {
 
     /// Machine State
     pub machine_state: ManagedHostState,
+    /// Whether reprovsioning is request on the Machine or one of the DPUs
+    pub reprovision_request: Option<ReprovisionRequest>,
+
+    /// Instance Metadata
+    pub metadata: Metadata,
 
     /// Instance configuration. This represents the desired status of the Instance
     /// The Instance might not yet be in that state, but work would be underway
@@ -57,12 +61,6 @@ pub struct InstanceSnapshot {
 
     /// Is delete requested
     pub delete_requested: bool,
-
-    pub name: String,
-    /// optional user-defined resource description
-    pub description: String,
-    /// optional user-defined key/ value pairs
-    pub labels: HashMap<String, String>,
 }
 
 impl TryFrom<InstanceSnapshot> for rpc::Instance {
@@ -79,24 +77,7 @@ impl TryFrom<InstanceSnapshot> for rpc::Instance {
             config_version: snapshot.config_version.version_string(),
             network_config_version: snapshot.network_config_version.version_string(),
             ib_config_version: snapshot.ib_config_version.version_string(),
-            metadata: {
-                Some(rpc::Metadata {
-                    name: snapshot.name,
-                    description: snapshot.description,
-                    labels: snapshot
-                        .labels
-                        .iter()
-                        .map(|(key, value)| rpc::forge::Label {
-                            key: key.clone(),
-                            value: if value.clone().is_empty() {
-                                None
-                            } else {
-                                Some(value.clone())
-                            },
-                        })
-                        .collect(),
-                })
-            },
+            metadata: Some(snapshot.metadata.try_into()?),
         })
     }
 }
@@ -112,6 +93,7 @@ impl InstanceSnapshot {
             self.machine_state.clone(),
             self.delete_requested,
             self.config.os.phone_home_enabled,
+            self.reprovision_request.clone(),
         )
     }
 }

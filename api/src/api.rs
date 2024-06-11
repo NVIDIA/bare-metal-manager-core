@@ -337,21 +337,11 @@ where
                 .await
                 .map_err(CarbideError::from)?;
 
-            let mut snapshot =
+            let snapshot =
                 rpc::Instance::try_from(mh_snapshot.instance.ok_or(Status::invalid_argument(
                     format!("Snapshot not found for Instance {}", instance.id()),
                 ))?)
                 .map_err(CarbideError::from)?;
-
-            // TODO: multidpu: Fix it for multiple dpus.
-            for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-                if let Some(reprovision_requested) = &dpu_snapshot.reprovision_requested {
-                    if let Some(mut status) = snapshot.status {
-                        status.update = Some(reprovision_requested.clone().into());
-                        snapshot.status = Some(status);
-                    }
-                }
-            }
 
             instances.push(snapshot);
         }
@@ -382,21 +372,10 @@ where
             .await
             .map_err(CarbideError::from)?;
 
-        let mut snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
+        let snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
             Status::invalid_argument(format!("Snapshot not found for machine {}", machine_id)),
         )?)
         .map_err(CarbideError::from)?;
-
-        // TODO: multidpu: Fix it for multiple dpus.
-        for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-            if let Some(reprovision_requested) = &dpu_snapshot.reprovision_requested {
-                if let Some(mut status) = snapshot.status {
-                    status.update = Some(reprovision_requested.clone().into());
-                    snapshot.status = Some(status);
-                    break;
-                }
-            }
-        }
 
         let response = Response::new(rpc::InstanceList {
             instances: vec![snapshot],
@@ -4475,21 +4454,11 @@ where
             .load_machine_snapshot(&mut txn, &instance.machine_id)
             .await
             .map_err(CarbideError::from)?;
-        let mut snapshot =
+        let snapshot =
             rpc::Instance::try_from(mh_snapshot.instance.ok_or(Status::invalid_argument(
                 format!("Snapshot not found for machine {}", instance.machine_id),
             ))?)
             .map_err(CarbideError::from)?;
-        // TODO: multidpu: Fix it for multiple dpus.
-        for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-            if let Some(reprovision_requested) = &dpu_snapshot.reprovision_requested {
-                if let Some(mut status) = snapshot.status {
-                    status.update = Some(reprovision_requested.clone().into());
-                    snapshot.status = Some(status);
-                    break;
-                }
-            }
-        }
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
