@@ -1029,7 +1029,7 @@ scheduled-test:run-cloud-api-tests:
     - job: scheduled-test:verify-site-controller-version
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-  timeout: 3h
+  timeout: 2h
   retry:
     when:
       - runner_system_failure
@@ -1067,7 +1067,8 @@ scheduled-test:run-cloud-api-tests:
     - echo "site = \"demo01\"" >> machine.config
     - export ENV="$(python -c 'import toml; print(toml.load("machine.config"))')"
   script:
-    - /usr/bin/dumb-init -- /root/entrypoint.sh
+    # Terminate the test suite after 1.5h in case of test hangs. This way the logs are still exported by after_script.
+    - /usr/bin/dumb-init -- timeout --signal=SIGTERM 1.5h /root/entrypoint.sh
   after_script:
     # Clean up the execution log by stripping out the ANSI escape codes
     - sed -i -r "s/\x1B\[[0-9;]*[JKmsu]//g" /root/.tesla_linux_auto/task_run/TR1/execution.log
