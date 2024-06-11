@@ -108,8 +108,6 @@ pub enum CarbideCommand {
     ResourcePool(ResourcePool),
     #[clap(about = "Redfish BMC actions", visible_alias = "rf")]
     Redfish(RedfishAction),
-    #[clap(about = "Migrate data, see sub-command", subcommand)]
-    Migrate(MigrateAction),
     #[clap(about = "Network Devices handling", subcommand)]
     NetworkDevice(NetworkDeviceAction),
     #[clap(about = "IP address handling", subcommand)]
@@ -647,12 +645,6 @@ pub struct ShowPort {
         help = "The port to query (e.g. eth0, eth1), leave empty for all (default)"
     )]
     pub port: String,
-}
-
-#[derive(Parser, Debug)]
-pub enum MigrateAction {
-    #[clap(about = "Assign a VNI to every VPC. Prepare for Forge Native Networking.")]
-    VpcVni,
 }
 
 #[derive(Parser, Debug)]

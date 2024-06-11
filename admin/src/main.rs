@@ -45,7 +45,7 @@ use cfg::carbide_options::Shell;
 use cfg::carbide_options::SiteExplorer;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
-    MigrateAction, NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
+    NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
 };
 use clap::CommandFactory; // for CarbideOptions::command()
 use forge_secrets::credentials::Credentials;
@@ -398,9 +398,6 @@ async fn main() -> color_eyre::Result<()> {
             cfg::carbide_options::NetworkDeviceAction::Show(args) => {
                 network_devices::show(config.format, args, api_config).await?;
             }
-        },
-        CarbideCommand::Migrate(migration) => match migration {
-            MigrateAction::VpcVni => migrate_vpc_vni(api_config).await?,
         },
         CarbideCommand::Dpu(dpu_action) => match dpu_action {
             Reprovision(reprov) => match reprov {
@@ -795,15 +792,6 @@ async fn main() -> color_eyre::Result<()> {
         },
     }
 
-    Ok(())
-}
-
-pub async fn migrate_vpc_vni(api_config: &ApiConfig<'_>) -> color_eyre::eyre::Result<()> {
-    let result = crate::rpc::migrate_vpc_vni(api_config).await?;
-    println!(
-        "Added a VNI to {} of {} VPCs",
-        result.updated_count, result.total_vpc_count
-    );
     Ok(())
 }
 

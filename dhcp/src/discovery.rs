@@ -553,8 +553,8 @@ mod tests {
         let builder_ffi = discovery_builder_allocate();
         unsafe {
             marshal_discovery_ffi(builder_ffi, |builder| {
-                builder.relay_address([172, 20, 0, 11].into());
-                builder.mac_address(MacAddress::new([2, 66, 172, 20, 0, last_mac]));
+                builder.relay_address([172, 20, 0, 13].into());
+                builder.mac_address(MacAddress::new([2, 66, 172, 20, 13, last_mac]));
                 builder.circuit_id("eth0");
                 DiscoveryBuilderResult::Success
             });
@@ -586,8 +586,8 @@ mod tests {
         let builder_ffi = discovery_builder_allocate();
         unsafe {
             marshal_discovery_ffi(builder_ffi, |builder| {
-                builder.relay_address([172, 20, 0, 11].into());
-                builder.mac_address(MacAddress::new([2, 66, 172, 20, 0, 42]));
+                builder.relay_address([172, 20, 0, 12].into());
+                builder.mac_address(MacAddress::new([2, 66, 172, 20, 0, 12]));
                 builder.circuit_id("eth0");
                 DiscoveryBuilderResult::Success
             });
@@ -644,8 +644,8 @@ mod tests {
         let builder_ffi = discovery_builder_allocate();
         unsafe {
             marshal_discovery_ffi(builder_ffi, |builder| {
-                builder.relay_address([172, 20, 0, 11].into());
-                builder.mac_address(MacAddress::new([2, 66, 172, 20, 0, 42]));
+                builder.relay_address([172, 20, 0, 14].into());
+                builder.mac_address(MacAddress::new([2, 66, 172, 20, 14, 42]));
                 builder.circuit_id("eth0");
                 DiscoveryBuilderResult::Success
             });

@@ -515,21 +515,6 @@ pub async fn find_ip_address(
     .await
 }
 
-pub async fn migrate_vpc_vni(
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<rpc::MigrateVpcVniResponse> {
-    with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(());
-        let out = client
-            .migrate_vpc_vni(request)
-            .await
-            .map(|response| response.into_inner())
-            .map_err(CarbideCliError::ApiInvocationError)?;
-        Ok(out)
-    })
-    .await
-}
-
 pub async fn trigger_dpu_reprovisioning(
     id: String,
     mode: ::rpc::forge::dpu_reprovisioning_request::Mode,
