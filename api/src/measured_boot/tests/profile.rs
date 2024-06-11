@@ -71,7 +71,7 @@ mod tests {
         );
 
         let profile_from_name =
-            MeasurementSystemProfile::load_from_name(&pool, profile1.name.clone()).await?;
+            MeasurementSystemProfile::load_from_name(&mut txn, profile1.name.clone()).await?;
         assert_eq!(profile1.profile_id, profile_from_name.profile_id);
         assert_eq!(profile1.name, profile_from_name.name);
         assert_eq!(
@@ -126,7 +126,7 @@ mod tests {
         );
 
         let profile2_from_name =
-            MeasurementSystemProfile::load_from_name(&pool, profile2.name.clone()).await?;
+            MeasurementSystemProfile::load_from_name(&mut txn, profile2.name.clone()).await?;
         assert_eq!(profile2.profile_id, profile2_from_name.profile_id);
         assert_eq!(profile2.name, profile2_from_name.name);
         assert_eq!(

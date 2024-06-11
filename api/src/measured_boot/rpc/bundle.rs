@@ -49,17 +49,18 @@ pub async fn handle_create_measurement_bundle(
     db_conn: &Pool<Postgres>,
     req: &CreateMeasurementBundleRequest,
 ) -> Result<CreateMeasurementBundleResponse, Status> {
-    let state = MeasurementBundleState::from(req.state());
-    let bundle = MeasurementBundle::new(
-        db_conn,
+    let mut txn = begin_txn(db_conn).await?;
+    let bundle = MeasurementBundle::new_with_txn(
+        &mut txn,
         MeasurementSystemProfileId::from_grpc(req.profile_id.clone())?,
         req.name.as_ref().cloned(),
         &PcrRegisterValue::from_pb_vec(&req.pcr_values),
-        Some(state),
+        Some(MeasurementBundleState::from(req.state())),
     )
     .await
     .map_err(|e| Status::internal(format!("failed to create new bundle: {}", e)))?;
 
+    commit_txn(txn).await?;
     Ok(CreateMeasurementBundleResponse {
         bundle: Some(bundle.into()),
     })
@@ -71,11 +72,12 @@ pub async fn handle_delete_measurement_bundle(
     db_conn: &Pool<Postgres>,
     req: &DeleteMeasurementBundleRequest,
 ) -> Result<DeleteMeasurementBundleResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let bundle = match &req.selector {
         // Delete for the given bundle ID.
         Some(delete_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
-            MeasurementBundle::delete_for_id(
-                db_conn,
+            MeasurementBundle::delete_for_id_with_txn(
+                &mut txn,
                 MeasurementBundleId::from_grpc(Some(bundle_uuid.clone()))?,
                 false,
             )
@@ -85,7 +87,7 @@ pub async fn handle_delete_measurement_bundle(
 
         // Delete for the given bundle name.
         Some(delete_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
-            MeasurementBundle::delete_for_name(db_conn, bundle_name.clone(), false)
+            MeasurementBundle::delete_for_name(&mut txn, bundle_name.clone(), false)
                 .await
                 .map_err(|e| Status::internal(format!("deletion failed: {}", e)))?
         }
@@ -96,6 +98,7 @@ pub async fn handle_delete_measurement_bundle(
         }
     };
 
+    commit_txn(txn).await?;
     Ok(DeleteMeasurementBundleResponse {
         bundle: Some(bundle.into()),
     })
@@ -138,7 +141,6 @@ pub async fn handle_rename_measurement_bundle(
     };
 
     commit_txn(txn).await?;
-
     Ok(RenameMeasurementBundleResponse {
         bundle: Some(bundle.into()),
     })
@@ -151,7 +153,6 @@ pub async fn handle_update_measurement_bundle(
     req: &UpdateMeasurementBundleRequest,
 ) -> Result<UpdateMeasurementBundleResponse, Status> {
     let mut txn = begin_txn(db_conn).await?;
-
     let bundle_id = match &req.selector {
         // Update for the given bundle ID.
         Some(update_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
@@ -176,7 +177,6 @@ pub async fn handle_update_measurement_bundle(
         .map_err(|e| Status::internal(format!("failed to update bundle: {}", e)))?;
 
     commit_txn(txn).await?;
-
     Ok(UpdateMeasurementBundleResponse {
         bundle: Some(bundle.into()),
     })
@@ -188,17 +188,18 @@ pub async fn handle_show_measurement_bundle(
     db_conn: &Pool<Postgres>,
     req: &ShowMeasurementBundleRequest,
 ) -> Result<ShowMeasurementBundleResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let bundle = match &req.selector {
         Some(show_measurement_bundle_request::Selector::BundleId(bundle_uuid)) => {
-            MeasurementBundle::from_id(
-                db_conn,
+            MeasurementBundle::from_id_with_txn(
+                &mut txn,
                 MeasurementBundleId::from_grpc(Some(bundle_uuid.clone()))?,
             )
             .await
             .map_err(|e| Status::internal(format!("{}", e)))?
         }
         Some(show_measurement_bundle_request::Selector::BundleName(bundle_name)) => {
-            MeasurementBundle::from_name(db_conn, bundle_name.clone())
+            MeasurementBundle::from_name_with_txn(&mut txn, bundle_name.clone())
                 .await
                 .map_err(|e| Status::internal(format!("{}", e)))?
         }
@@ -250,11 +251,12 @@ pub async fn handle_list_measurement_bundle_machines(
     db_conn: &Pool<Postgres>,
     req: &ListMeasurementBundleMachinesRequest,
 ) -> Result<ListMeasurementBundleMachinesResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let machine_ids: Vec<String> = match &req.selector {
         // Select by bundle ID.
         Some(list_measurement_bundle_machines_request::Selector::BundleId(bundle_uuid)) => {
             get_machines_for_bundle_id(
-                db_conn,
+                &mut txn,
                 MeasurementBundleId::from_grpc(Some(bundle_uuid.clone()))?,
             )
             .await
@@ -265,7 +267,7 @@ pub async fn handle_list_measurement_bundle_machines(
         }
         // ...or by profile name.
         Some(list_measurement_bundle_machines_request::Selector::BundleName(bundle_name)) => {
-            get_machines_for_bundle_name(db_conn, bundle_name.clone())
+            get_machines_for_bundle_name(&mut txn, bundle_name.clone())
                 .await
                 .map_err(|e| Status::internal(format!("{}", e)))?
                 .drain(..)

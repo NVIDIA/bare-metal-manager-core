@@ -17,7 +17,7 @@
 use crate::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
-use crate::measured_boot::rpc::common::begin_txn;
+use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use crate::measured_boot::{dto::keys::MeasurementJournalId, model::journal::MeasurementJournal};
 use crate::model::machine::machine_id::MachineId;
 use rpc::protos::measured_boot::{
@@ -39,14 +39,16 @@ pub async fn handle_delete_measurement_journal(
     db_conn: &Pool<Postgres>,
     req: &DeleteMeasurementJournalRequest,
 ) -> Result<DeleteMeasurementJournalResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let journal = MeasurementJournal::delete_where_id(
-        db_conn,
+        &mut txn,
         MeasurementJournalId::from_grpc(req.journal_id.clone())?,
     )
     .await
     .map_err(|e| Status::internal(format!("failed to delete journal: {}", e)))?
     .ok_or(Status::not_found("no journal found with that ID"))?;
 
+    commit_txn(txn).await?;
     Ok(DeleteMeasurementJournalResponse {
         journal: Some(journal.into()),
     })
@@ -58,10 +60,11 @@ pub async fn handle_show_measurement_journal(
     db_conn: &Pool<Postgres>,
     req: &ShowMeasurementJournalRequest,
 ) -> Result<ShowMeasurementJournalResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let journal = match &req.selector {
         Some(show_measurement_journal_request::Selector::JournalId(journal_uuid)) => {
             MeasurementJournal::from_id(
-                db_conn,
+                &mut txn,
                 MeasurementJournalId::from_grpc(Some(journal_uuid.clone()))?,
             )
             .await

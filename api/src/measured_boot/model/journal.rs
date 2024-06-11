@@ -148,19 +148,17 @@ impl MeasurementJournal {
     ////////////////////////////////////////////////////////////
 
     pub async fn from_id(
-        db_conn: &Pool<Postgres>,
+        txn: &mut Transaction<'_, Postgres>,
         journal_id: MeasurementJournalId,
     ) -> eyre::Result<Self> {
-        get_measurement_journal_by_id(db_conn, journal_id).await
+        get_measurement_journal_by_id(txn, journal_id).await
     }
 
     pub async fn delete_where_id(
-        db_conn: &Pool<Postgres>,
+        txn: &mut Transaction<'_, Postgres>,
         journal_id: MeasurementJournalId,
     ) -> eyre::Result<Option<MeasurementJournal>> {
-        let mut txn = db_conn.begin().await?;
-        let info = delete_journal_where_id(&mut txn, journal_id).await?;
-        txn.commit().await?;
+        let info = delete_journal_where_id(txn, journal_id).await?;
         match info {
             None => Ok(None),
             Some(info) => Ok(Some(MeasurementJournal {
@@ -280,11 +278,10 @@ async fn create_measurement_journal(
 /// get_measurement_journal_by_id does the work of populating a full
 /// MeasurementJournal instance, with values and all.
 async fn get_measurement_journal_by_id(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     journal_id: MeasurementJournalId,
 ) -> eyre::Result<MeasurementJournal> {
-    let mut txn = db_conn.begin().await?;
-    match get_measurement_journal_record_by_id(&mut txn, journal_id).await? {
+    match get_measurement_journal_record_by_id(txn, journal_id).await? {
         Some(info) => Ok(MeasurementJournal {
             journal_id: info.journal_id,
             machine_id: info.machine_id,

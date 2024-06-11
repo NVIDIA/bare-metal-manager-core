@@ -167,13 +167,11 @@ impl MeasurementReport {
     /// MeasurementReportValues, returning a fully populated instance of
     /// MeasurementReport of the data that was deleted for `report_id`.
     pub async fn delete_for_id(
-        db_conn: &Pool<Postgres>,
+        txn: &mut Transaction<'_, Postgres>,
         report_id: MeasurementReportId,
     ) -> eyre::Result<Self> {
-        let mut txn = db_conn.begin().await?;
-        let values = delete_report_values_for_id(&mut txn, report_id).await?;
-        let info = delete_report_for_id(&mut txn, report_id).await?;
-        txn.commit().await?;
+        let values = delete_report_values_for_id(txn, report_id).await?;
+        let info = delete_report_for_id(txn, report_id).await?;
         Ok(Self {
             report_id: info.report_id,
             machine_id: info.machine_id,

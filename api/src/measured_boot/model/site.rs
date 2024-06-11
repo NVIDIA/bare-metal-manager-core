@@ -36,7 +36,7 @@ use crate::measured_boot::interface::profile::{
 };
 use rpc::protos::measured_boot::{ImportSiteMeasurementsResponse, SiteModelPb};
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres};
+use sqlx::{Postgres, Transaction};
 
 #[derive(Serialize)]
 pub struct ImportResult {
@@ -79,27 +79,25 @@ impl SiteModel {
     /// import takes a populated SiteModel and imports it by
     /// populating the corresponding profile and bundle records
     /// in the database.
-    pub async fn import(db_conn: &Pool<Postgres>, model: &SiteModel) -> eyre::Result<()> {
-        let mut txn = db_conn.begin().await?;
-        import_measurement_system_profiles(&mut txn, &model.measurement_system_profiles).await?;
-        import_measurement_system_profiles_attrs(
-            &mut txn,
-            &model.measurement_system_profiles_attrs,
-        )
-        .await?;
-        import_measurement_bundles(&mut txn, &model.measurement_bundles).await?;
-        import_measurement_bundles_values(&mut txn, &model.measurement_bundles_values).await?;
-        txn.commit().await?;
+    pub async fn import(
+        txn: &mut Transaction<'_, Postgres>,
+        model: &SiteModel,
+    ) -> eyre::Result<()> {
+        import_measurement_system_profiles(txn, &model.measurement_system_profiles).await?;
+        import_measurement_system_profiles_attrs(txn, &model.measurement_system_profiles_attrs)
+            .await?;
+        import_measurement_bundles(txn, &model.measurement_bundles).await?;
+        import_measurement_bundles_values(txn, &model.measurement_bundles_values).await?;
         Ok(())
     }
 
     /// export builds a SiteModel from the records in the database.
-    pub async fn export(db_conn: &Pool<Postgres>) -> eyre::Result<Self> {
-        let measurement_system_profiles = export_measurement_profile_records(db_conn).await?;
+    pub async fn export(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Self> {
+        let measurement_system_profiles = export_measurement_profile_records(txn).await?;
         let measurement_system_profiles_attrs =
-            export_measurement_system_profiles_attrs(db_conn).await?;
-        let measurement_bundles = get_measurement_bundle_records(db_conn).await?;
-        let measurement_bundles_values = get_measurement_bundles_values(db_conn).await?;
+            export_measurement_system_profiles_attrs(txn).await?;
+        let measurement_bundles = get_measurement_bundle_records(txn).await?;
+        let measurement_bundles_values = get_measurement_bundles_values(txn).await?;
 
         Ok(Self {
             measurement_system_profiles,

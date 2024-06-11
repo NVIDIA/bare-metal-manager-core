@@ -15,6 +15,7 @@
  */
 
 use crate::measured_boot::interface::machine::get_candidate_machine_records;
+use crate::measured_boot::rpc::common::{begin_txn, commit_txn};
 use crate::measured_boot::{
     interface::common::PcrRegisterValue, model::machine::CandidateMachine,
     model::report::MeasurementReport,
@@ -37,8 +38,9 @@ pub async fn handle_attest_candidate_machine(
     db_conn: &Pool<Postgres>,
     req: &AttestCandidateMachineRequest,
 ) -> Result<AttestCandidateMachineResponse, Status> {
-    let report = MeasurementReport::new(
-        db_conn,
+    let mut txn = begin_txn(db_conn).await?;
+    let report = MeasurementReport::new_with_txn(
+        &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(
                 req.machine_id.clone(),
@@ -49,6 +51,7 @@ pub async fn handle_attest_candidate_machine(
     .await
     .map_err(|e| Status::internal(format!("failed saving measurements: {}", e)))?;
 
+    commit_txn(txn).await?;
     Ok(AttestCandidateMachineResponse {
         report: Some(report.into()),
     })
@@ -59,11 +62,12 @@ pub async fn handle_show_candidate_machine(
     db_conn: &Pool<Postgres>,
     req: &ShowCandidateMachineRequest,
 ) -> Result<ShowCandidateMachineResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     let machine = match &req.selector {
         // Show a machine with the given ID.
         Some(show_candidate_machine_request::Selector::MachineId(machine_uuid)) => {
-            CandidateMachine::from_id(
-                db_conn,
+            CandidateMachine::from_id_with_txn(
+                &mut txn,
                 MachineId::from_str(machine_uuid).map_err(|_| {
                     CarbideError::from(RpcDataConversionError::InvalidMachineId(
                         machine_uuid.clone(),
@@ -87,8 +91,9 @@ pub async fn handle_show_candidate_machines(
     db_conn: &Pool<Postgres>,
     _req: &ShowCandidateMachinesRequest,
 ) -> Result<ShowCandidateMachinesResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     Ok(ShowCandidateMachinesResponse {
-        machines: CandidateMachine::get_all(db_conn)
+        machines: CandidateMachine::get_all(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("{}", e)))?
             .drain(..)
@@ -102,8 +107,9 @@ pub async fn handle_list_candidate_machines(
     db_conn: &Pool<Postgres>,
     _req: &ListCandidateMachinesRequest,
 ) -> Result<ListCandidateMachinesResponse, Status> {
+    let mut txn = begin_txn(db_conn).await?;
     Ok(ListCandidateMachinesResponse {
-        machines: get_candidate_machine_records(db_conn)
+        machines: get_candidate_machine_records(&mut txn)
             .await
             .map_err(|e| Status::internal(format!("failed to read records: {}", e)))?
             .iter()

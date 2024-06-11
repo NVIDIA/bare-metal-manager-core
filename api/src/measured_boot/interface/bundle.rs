@@ -24,7 +24,7 @@ use crate::measured_boot::dto::records::{
 use crate::measured_boot::dto::traits::{DbPrimaryUuid, DbTable};
 use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 
 /// insert_measurement_bundle_record is a very basic insert of a
 /// new row into the measurement_bundles table, where only a profile_id
@@ -263,10 +263,9 @@ pub async fn get_measurement_bundle_for_name(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundle_records(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementBundleRecord>> {
-    let mut txn = db_conn.begin().await?;
-    common::get_all_objects(&mut txn).await
+    common::get_all_objects(txn).await
 }
 
 pub async fn get_measurement_bundle_records_with_txn(
@@ -289,10 +288,9 @@ pub async fn get_measurement_bundle_records_for_profile_id(
 /// instances in the database. This leverages the generic get_all_objects
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundles_values(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementBundleValueRecord>> {
-    let mut txn = db_conn.begin().await?;
-    common::get_all_objects(&mut txn).await
+    common::get_all_objects(txn).await
 }
 
 /// get_measurement_bundle_values_for_bundle_id returns
@@ -330,14 +328,13 @@ pub async fn get_measurement_journals_for_bundle_id(
 /// get_machines_for_bundle_id returns a unique list of
 /// all MachineId that leverage the given bundle.
 pub async fn get_machines_for_bundle_id(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
 ) -> eyre::Result<Vec<MachineId>> {
-    let mut txn = db_conn.begin().await?;
     let query = "select distinct machine_id from measurement_journal where bundle_id = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(bundle_id)
-        .fetch_all(&mut *txn)
+        .fetch_all(&mut **txn)
         .await?
         .into_iter()
         .map(|d| d.into_inner())
@@ -349,15 +346,14 @@ pub async fn get_machines_for_bundle_id(
 ///
 /// This is specifically used by the `bundle list machines by-name` CLI call.
 pub async fn get_machines_for_bundle_name(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     bundle_name: String,
 ) -> eyre::Result<Vec<MachineId>> {
-    let mut txn = db_conn.begin().await?;
     let query =
         "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(bundle_name)
-        .fetch_all(&mut *txn)
+        .fetch_all(&mut **txn)
         .await?
         .into_iter()
         .map(|d| d.into_inner())

@@ -24,7 +24,7 @@ use crate::measured_boot::dto::traits::{DbPrimaryUuid, DbTable};
 use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
 use sqlx::query_builder::QueryBuilder;
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;
 
 /// insert_measurement_profile_record is a very basic insert of a
@@ -323,15 +323,14 @@ pub async fn get_measurement_profile_attrs_for_profile_id(
 ///
 /// This is specifically used by the `profile list bundles for-id` CLI call.
 pub async fn get_bundles_for_profile_id(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
 ) -> eyre::Result<Vec<MeasurementBundleId>> {
-    let mut txn = db_conn.begin().await?;
     let query =
         "select distinct bundle_id from measurement_bundles where profile_id = $1 order by bundle_id";
     Ok(sqlx::query_as::<_, MeasurementBundleId>(query)
         .bind(profile_id)
-        .fetch_all(&mut *txn)
+        .fetch_all(&mut **txn)
         .await?)
 }
 
@@ -340,15 +339,14 @@ pub async fn get_bundles_for_profile_id(
 ///
 /// This is specifically used by the `profile list bundles for-name` CLI call.
 pub async fn get_bundles_for_profile_name(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     profile_name: String,
 ) -> eyre::Result<Vec<MeasurementBundleId>> {
-    let mut txn = db_conn.begin().await?;
     let query =
         "select distinct bundle_id from measurement_bundles where name = $1 order by bundle_id";
     Ok(sqlx::query_as::<_, MeasurementBundleId>(query)
         .bind(profile_name)
-        .fetch_all(&mut *txn)
+        .fetch_all(&mut **txn)
         .await?)
 }
 
@@ -357,14 +355,13 @@ pub async fn get_bundles_for_profile_name(
 ///
 /// This is specifically used by the `profile list machines by-id` CLI call.
 pub async fn get_machines_for_profile_id(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
 ) -> eyre::Result<Vec<MachineId>> {
-    let mut txn = db_conn.begin().await?;
     let query = "select distinct machine_id from measurement_journal where profile_id = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(profile_id)
-        .fetch_all(&mut *txn)
+        .fetch_all(&mut **txn)
         .await?
         .into_iter()
         .map(|d| d.into_inner())
@@ -376,15 +373,14 @@ pub async fn get_machines_for_profile_id(
 ///
 /// This is specifically used by the `profile list machines by-name` CLI call.
 pub async fn get_machines_for_profile_name(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
     profile_name: String,
 ) -> eyre::Result<Vec<MachineId>> {
-    let mut txn = db_conn.begin().await?;
     let query =
         "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(profile_name)
-        .fetch_all(&mut *txn)
+        .fetch_all(&mut **txn)
         .await?
         .into_iter()
         .map(|d| d.into_inner())
@@ -480,10 +476,9 @@ pub async fn import_measurement_system_profiles_attr(
 ///
 /// This is used by the site exporter, as well as for listing all profiles.
 pub async fn export_measurement_profile_records(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementSystemProfileRecord>> {
-    let mut txn = db_conn.begin().await?;
-    common::get_all_objects(&mut txn).await
+    common::get_all_objects(txn).await
 }
 
 /// export_measurement_system_profiles_attrs returns all MeasurementSystemProfileAttrRecord
@@ -492,8 +487,7 @@ pub async fn export_measurement_profile_records(
 /// This is specifically used by the site exporter, since we simply dump all
 /// attributes when doing a site export.
 pub async fn export_measurement_system_profiles_attrs(
-    db_conn: &Pool<Postgres>,
+    txn: &mut Transaction<'_, Postgres>,
 ) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {
-    let mut txn = db_conn.begin().await?;
-    common::get_all_objects(&mut txn).await
+    common::get_all_objects(txn).await
 }
