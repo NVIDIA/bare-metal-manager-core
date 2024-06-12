@@ -23,6 +23,7 @@ mod tests {
     use crate::measured_boot::rpc::machine;
     use crate::measured_boot::rpc::profile;
     use crate::measured_boot::rpc::report;
+    use crate::measured_boot::rpc::site;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use rpc::protos::measured_boot;
 
@@ -737,6 +738,352 @@ mod tests {
         let req = measured_boot::ListMeasurementBundlesRequest {};
         let resp = bundle::handle_list_measurement_bundles(&db_conn, &req).await?;
         assert_eq!(0, resp.bundles.len());
+
+        Ok(())
+    }
+
+    // test_measurement_site is used to test all of the API handler
+    // functions for site-specific management handlers for measured
+    // boot, including import/export, and management of trusted
+    // machine and profile approvals.
+    #[sqlx::test]
+    pub async fn test_measurement_site(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // First make a couple of profiles to export.
+        // A bundle needs a profile first, so make a profile.
+        let req = measured_boot::CreateMeasurementSystemProfileRequest {
+            name: Some(String::from("test-profile")),
+            vendor: String::from("Dell, Inc."),
+            product: String::from("PowerEdge R750"),
+            extra_attrs: vec![measured_boot::KvPair {
+                key: String::from("bios_version"),
+                value: String::from("1.8.2"),
+            }],
+        };
+        let resp = profile::handle_create_system_measurement_profile(&db_conn, &req).await?;
+        assert!(resp.system_profile.is_some());
+        let profile1 = resp.system_profile.unwrap();
+
+        // A bundle needs a profile first, so make a profile.
+        let req = measured_boot::CreateMeasurementSystemProfileRequest {
+            name: Some(String::from("test-profile-2")),
+            vendor: String::from("Lenovo"),
+            product: String::from("ThinkSystem SR670 V2"),
+            extra_attrs: vec![measured_boot::KvPair {
+                key: String::from("bios_version"),
+                value: String::from("U8E122J-1.51"),
+            }],
+        };
+        let resp = profile::handle_create_system_measurement_profile(&db_conn, &req).await?;
+        assert!(resp.system_profile.is_some());
+        let profile2 = resp.system_profile.unwrap();
+
+        // And make a couple of bundles to export.
+        // Create a bundle
+        let pcr_values1: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "aa".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "bb".to_string(),
+            },
+        ];
+
+        let pcr_values2: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "aa".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "bb".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "cc".to_string(),
+            },
+        ];
+
+        let req = measured_boot::CreateMeasurementBundleRequest {
+            name: Some(String::from("test-bundle")),
+            profile_id: profile1.profile_id,
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values1),
+            state: measured_boot::MeasurementBundleStatePb::Active.into(),
+        };
+        let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.name, String::from("test-bundle"));
+        assert_eq!(bundle.values.len(), pcr_values1.len());
+        assert_eq!(
+            bundle.state,
+            measured_boot::MeasurementBundleStatePb::Active as i32,
+        );
+
+        let req = measured_boot::CreateMeasurementBundleRequest {
+            name: Some(String::from("test-bundle-2")),
+            profile_id: profile2.profile_id,
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values2),
+            state: measured_boot::MeasurementBundleStatePb::Active.into(),
+        };
+        let resp = bundle::handle_create_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle2 = resp.bundle.unwrap();
+        assert_eq!(bundle2.name, String::from("test-bundle-2"));
+        assert_eq!(bundle2.values.len(), pcr_values2.len());
+        assert_eq!(
+            bundle2.state,
+            measured_boot::MeasurementBundleStatePb::Active as i32,
+        );
+
+        // And now do the export and make sure it looks good.
+        let req = measured_boot::ExportSiteMeasurementsRequest {};
+        let resp = site::handle_export_site_measurements(&db_conn, &req).await?;
+        assert!(resp.model.is_some());
+        let site_model = resp.model.unwrap();
+        assert_eq!(2, site_model.measurement_system_profiles.len());
+        assert_eq!(6, site_model.measurement_system_profiles_attrs.len());
+        assert_eq!(2, site_model.measurement_bundles.len());
+        assert_eq!(5, site_model.measurement_bundles_values.len());
+
+        // Okay, so before trusted machine approvals, lets make a machine.
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let mut txn = db_conn.begin().await?;
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        txn.commit().await?;
+
+        // Now create a trusted machine approval.
+        let req = measured_boot::AddMeasurementTrustedMachineRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            approval_type: measured_boot::MeasurementApprovedTypePb::Oneshot.into(),
+            pcr_registers: String::from("0-1"),
+            comments: String::from(""),
+        };
+        let resp = site::handle_add_measurement_trusted_machine(&db_conn, &req).await?;
+        assert!(resp.approval_record.is_some());
+        let machine_approval = resp.approval_record.unwrap();
+        assert_eq!(
+            princess_network.machine_id.to_string(),
+            machine_approval.machine_id
+        );
+
+        // List trusted machine approvals.
+        let req = measured_boot::ListMeasurementTrustedMachinesRequest {};
+        let resp = site::handle_list_measurement_trusted_machines(&db_conn, &req).await?;
+        assert_eq!(1, resp.approval_records.len());
+
+        // Now send measurements, and confirm they transitioned into a
+        // bundle with the expected values. Note that these values
+        // are different than the previous bundle created in this test,
+        // because otherwise the machine matches them (and no auto-approvals
+        // end up happening).
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "ww".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "xx".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "yy".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "zz".to_string(),
+            },
+        ];
+
+        let req = measured_boot::CreateMeasurementReportRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+        };
+        let result = report::handle_create_measurement_report(&db_conn, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+        assert_eq!(report.machine_id, princess_network.machine_id.to_string());
+
+        // And confirm the bundle was created (there are now three bundles, since
+        // the two made previously for the site export are still there also).
+        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
+        assert_eq!(3, resp.bundles.len());
+
+        // And now get the latest journal record for the machine, so we can pluck out
+        // the profile_id (to make a profile approval) and bundle_id (to make sure the
+        // bundle looks good).
+        let req = measured_boot::ListMeasurementJournalRequest {
+            selector: Some(
+                measured_boot::list_measurement_journal_request::Selector::MachineId(
+                    princess_network.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = journal::handle_list_measurement_journal(&db_conn, &req).await?;
+        // One journal for the initial report, another journal for when it was matched with
+        // the auto-promoted bundle.
+        assert_eq!(2, resp.journals.len());
+        let latest_journal = &resp.journals[1];
+        assert!(latest_journal.bundle_id.is_some());
+        assert!(latest_journal.profile_id.is_some());
+        let bundle_id = latest_journal.bundle_id.as_ref().unwrap().clone();
+
+        let req = measured_boot::ShowMeasurementBundleRequest {
+            selector: Some(
+                measured_boot::show_measurement_bundle_request::Selector::BundleId(bundle_id),
+            ),
+        };
+        let resp = bundle::handle_show_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let auto_bundle = resp.bundle.unwrap();
+        assert_eq!(2, auto_bundle.values.len());
+        assert_eq!("ww".to_string(), auto_bundle.values[0].sha256);
+        assert_eq!("xx".to_string(), auto_bundle.values[1].sha256);
+
+        // And that the machine is measured.
+        let req = measured_boot::ShowCandidateMachineRequest {
+            selector: Some(
+                measured_boot::show_candidate_machine_request::Selector::MachineId(
+                    princess_network.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
+        assert!(resp.machine.is_some());
+        let machine = resp.machine.unwrap();
+        assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
+        assert_eq!(
+            machine.state,
+            measured_boot::MeasurementMachineStatePb::Measured as i32
+        );
+
+        // List again, confirming the oneshot approval removed the approval.
+        let req = measured_boot::ListMeasurementTrustedMachinesRequest {};
+        let resp = site::handle_list_measurement_trusted_machines(&db_conn, &req).await?;
+        assert_eq!(0, resp.approval_records.len());
+
+        // Create a trusted profile approval.
+        let req = measured_boot::AddMeasurementTrustedProfileRequest {
+            profile_id: latest_journal.profile_id.clone(),
+            approval_type: measured_boot::MeasurementApprovedTypePb::Oneshot.into(),
+            pcr_registers: Some(String::from("2,3")),
+            comments: None,
+        };
+        let resp = site::handle_add_measurement_trusted_profile(&db_conn, &req).await?;
+        assert!(resp.approval_record.is_some());
+        let profile_approval = resp.approval_record.unwrap();
+        assert_eq!(latest_journal.profile_id, profile_approval.profile_id);
+
+        // List trusted profile approvals.
+        let req = measured_boot::ListMeasurementTrustedProfilesRequest {};
+        let resp = site::handle_list_measurement_trusted_profiles(&db_conn, &req).await?;
+        assert_eq!(1, resp.approval_records.len());
+
+        // Now send measurements, and confirm they transitioned into a
+        // bundle with the expected values. Note that these values
+        // are different than the previous bundle created in this test,
+        // because otherwise the machine matches them (and no auto-approvals
+        // end up happening).
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "ll".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "mm".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "nn".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "oo".to_string(),
+            },
+        ];
+
+        let req = measured_boot::CreateMeasurementReportRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+        };
+        let result = report::handle_create_measurement_report(&db_conn, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+        assert_eq!(report.machine_id, princess_network.machine_id.to_string());
+
+        // And confirm the bundle was created (there are now three bundles, since
+        // the two made previously for the site export are still there also).
+        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
+        assert_eq!(4, resp.bundles.len());
+
+        // And now get the latest journal record for the machine, so we can pluck out
+        // the profile_id (to make a profile approval) and bundle_id (to make sure the
+        // bundle looks good).
+        let req = measured_boot::ListMeasurementJournalRequest {
+            selector: Some(
+                measured_boot::list_measurement_journal_request::Selector::MachineId(
+                    princess_network.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = journal::handle_list_measurement_journal(&db_conn, &req).await?;
+        // One journal for the initial report, another journal for when it was matched with
+        // the auto-promoted bundle. And then two more for the same thing w/ auto-profile approvals
+        assert_eq!(4, resp.journals.len());
+        let latest_journal = &resp.journals[3]; // grab the latest
+        assert!(latest_journal.bundle_id.is_some());
+        assert!(latest_journal.profile_id.is_some());
+        let bundle_id = latest_journal.bundle_id.as_ref().unwrap().clone();
+
+        let req = measured_boot::ShowMeasurementBundleRequest {
+            selector: Some(
+                measured_boot::show_measurement_bundle_request::Selector::BundleId(bundle_id),
+            ),
+        };
+        let resp = bundle::handle_show_measurement_bundle(&db_conn, &req).await?;
+        assert!(resp.bundle.is_some());
+        let auto_bundle = resp.bundle.unwrap();
+        assert_eq!(2, auto_bundle.values.len());
+        assert_eq!("nn".to_string(), auto_bundle.values[0].sha256);
+        assert_eq!("oo".to_string(), auto_bundle.values[1].sha256);
+
+        // And that the machine is measured.
+        let req = measured_boot::ShowCandidateMachineRequest {
+            selector: Some(
+                measured_boot::show_candidate_machine_request::Selector::MachineId(
+                    princess_network.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
+        assert!(resp.machine.is_some());
+        let machine = resp.machine.unwrap();
+        assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
+        assert_eq!(
+            machine.state,
+            measured_boot::MeasurementMachineStatePb::Measured as i32
+        );
+
+        // List again, confirming the oneshot approval removed the approval.
+        let req = measured_boot::ListMeasurementTrustedProfilesRequest {};
+        let resp = site::handle_list_measurement_trusted_profiles(&db_conn, &req).await?;
+        assert_eq!(0, resp.approval_records.len());
 
         Ok(())
     }
