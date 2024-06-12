@@ -18,7 +18,7 @@ use crate::db::{DatabaseError, UuidKeyedObjectFilter};
 use crate::instance::{allocate_instance, InstanceAllocationRequest};
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
-use crate::model::os::OperatingSystemVariant;
+use crate::model::os::{OperatingSystem, OperatingSystemVariant};
 use crate::redfish::RedfishAuth;
 use crate::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader};
 use crate::CarbideError;
@@ -468,10 +468,11 @@ pub(crate) async fn update_operating_system(
             return Err(CarbideError::MissingArgument("instance_id").into());
         }
     };
-    let os = match request.os {
+    let os: OperatingSystem = match request.os {
         None => return Err(CarbideError::MissingArgument("os").into()),
         Some(os) => os.try_into().map_err(CarbideError::from)?,
     };
+    os.validate().map_err(CarbideError::from)?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

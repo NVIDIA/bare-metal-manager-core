@@ -197,6 +197,35 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
         "Message is {}",
         status.message()
     );
+
+    // Try to update to an invalid OS
+    let invalid_os = rpc::forge::OperatingSystem {
+        phone_home_enabled: true,
+        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+            rpc::forge::IpxeOperatingSystem {
+                ipxe_script: "".to_string(),
+                user_data: Some("SomeRandomData2".to_string()),
+                always_boot_with_ipxe: false,
+            },
+        )),
+    };
+
+    let err = env
+        .api
+        .update_instance_operating_system(tonic::Request::new(
+            rpc::forge::InstanceOperatingSystemUpdateRequest {
+                instance_id: Some(instance_id.into()),
+                if_version_match: None,
+                os: Some(invalid_os),
+            },
+        ))
+        .await
+        .expect_err("Invalid OS should not be accepted");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "Invalid value: IpxeOperatingSystem::ipxe_script is empty"
+    );
 }
 
 /// Instance creation using legacy method to pass OS
