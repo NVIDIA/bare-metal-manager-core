@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use crate::model::RpcDataConversionError;
 
 /// Metadata that can get associated with Forge managed resources
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Metadata {
     /// user-defined resource name
     pub name: String,
@@ -43,6 +43,22 @@ impl TryFrom<Metadata> for rpc::Metadata {
                         Some(value.clone())
                     },
                 })
+                .collect(),
+        })
+    }
+}
+
+impl TryFrom<rpc::Metadata> for Metadata {
+    type Error = RpcDataConversionError;
+
+    fn try_from(metadata: rpc::Metadata) -> Result<Self, Self::Error> {
+        Ok(Metadata {
+            name: metadata.name,
+            description: metadata.description,
+            labels: metadata
+                .labels
+                .iter()
+                .map(|label| (label.key.clone(), label.value.clone().unwrap_or_default()))
                 .collect(),
         })
     }

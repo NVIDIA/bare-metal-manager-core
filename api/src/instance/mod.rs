@@ -12,7 +12,6 @@
 
 use config_version::{ConfigVersion, Versioned};
 use sqlx::{PgPool, Postgres, Transaction};
-use std::collections::HashMap;
 
 use crate::{
     db::{
@@ -88,28 +87,9 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             None => uuid::Uuid::new_v4(),
         };
 
-        let metadata = Metadata {
-            name: request
-                .metadata
-                .clone()
-                .map(|m| m.name.clone())
-                .unwrap_or("".to_owned()),
-            description: request
-                .metadata
-                .clone()
-                .map(|m| m.description.clone())
-                .unwrap_or("".to_owned()),
-            labels: request.metadata.clone().map_or(HashMap::new(), |m| {
-                m.labels
-                    .iter()
-                    .map(|label| {
-                        (
-                            label.key.clone(),
-                            label.value.clone().unwrap_or("".to_owned()),
-                        )
-                    })
-                    .collect()
-            }),
+        let metadata = match request.metadata {
+            Some(metadata) => metadata.try_into()?,
+            None => Metadata::default(),
         };
 
         Ok(InstanceAllocationRequest {
