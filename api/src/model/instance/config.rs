@@ -34,11 +34,7 @@ use crate::model::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
     /// Tenant related configuation.
-    /// This field can be absent if the instance has not yet been allocated by
-    /// a tenant. On assignment, the config changes once. Due to the one-time
-    /// change no version field is required.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenant: Option<TenantConfig>,
+    pub tenant: TenantConfig,
 
     /// Operating system that is used by the instance
     pub os: OperatingSystem,
@@ -78,10 +74,9 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
             }
         };
 
-        let tenant = match config.tenant {
-            Some(tenant) => Some(TenantConfig::try_from(tenant)?),
-            None => None,
-        };
+        let tenant = TenantConfig::try_from(config.tenant.ok_or(
+            RpcDataConversionError::MissingArgument("InstanceConfig::tenant"),
+        )?)?;
 
         let network = InstanceNetworkConfig::try_from(config.network.ok_or(
             RpcDataConversionError::MissingArgument("InstanceConfig::network"),
@@ -106,23 +101,17 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: InstanceConfig) -> Result<rpc::InstanceConfig, Self::Error> {
-        let tenant = match config.tenant {
-            Some(tenant) => {
-                let mut tenant = rpc::TenantConfig::try_from(tenant)?;
-                // Retryfit the OS details that are now stored in `os`
-                // TODO: Deprecated this once nobody excepts OS details in TenantConfig anymore
-                match &config.os.variant {
-                    crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
-                        tenant.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
-                        tenant.custom_ipxe = ipxe.ipxe_script.clone();
-                        tenant.user_data = ipxe.user_data.clone();
-                    }
-                };
-                tenant.phone_home_enabled = config.os.phone_home_enabled;
-                Some(tenant)
+        let mut tenant = rpc::TenantConfig::try_from(config.tenant)?;
+        // Retrofit the OS details that are now stored in `os`
+        // TODO: Deprecated this once nobody excepts OS details in TenantConfig anymore
+        match &config.os.variant {
+            crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
+                tenant.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
+                tenant.custom_ipxe = ipxe.ipxe_script.clone();
+                tenant.user_data = ipxe.user_data.clone();
             }
-            None => None,
         };
+        tenant.phone_home_enabled = config.os.phone_home_enabled;
 
         let os = rpc::OperatingSystem::try_from(config.os)?;
         let network = rpc::InstanceNetworkConfig::try_from(config.network)?;
@@ -133,7 +122,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
         };
 
         Ok(rpc::InstanceConfig {
-            tenant,
+            tenant: Some(tenant),
             os: Some(os),
             network: Some(network),
             infiniband,
@@ -144,9 +133,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
 impl InstanceConfig {
     /// Validates the instances configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
-        if let Some(tenant) = self.tenant.as_ref() {
-            tenant.validate()?;
-        }
+        self.tenant.validate()?;
 
         self.os.validate()?;
 
