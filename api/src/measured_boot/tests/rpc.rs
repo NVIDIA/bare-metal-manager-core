@@ -506,4 +506,97 @@ mod tests {
 
         Ok(())
     }
+
+    // test_measurement_journals is used to test all of the API handler
+    // functions for, you guessed it, measurement journals. As with the
+    // other tests, there's generally some overlap with other areas of
+    // measured boot (reports + journals + machines, etc), but this is
+    // for focusing specifically on the journal calls.
+    #[sqlx::test]
+    pub async fn test_measurement_journals(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Make a machine and have it report measurements
+        // so we get a journal entry.
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let mut txn = pool.begin().await?;
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        txn.commit().await?;
+
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "aa".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "bb".to_string(),
+            },
+        ];
+
+        let req = measured_boot::CreateMeasurementReportRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+        };
+        let result = report::handle_create_measurement_report(&pool, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+
+        // And get the profile that was auto-created.
+        let req = measured_boot::ShowMeasurementSystemProfilesRequest {};
+        let resp = profile::handle_show_measurement_system_profiles(&pool, &req).await?;
+        assert_eq!(1, resp.system_profiles.len());
+        let profile = &resp.system_profiles[0];
+
+        // Show all journals.
+        let req = measured_boot::ShowMeasurementJournalsRequest {};
+        let resp = journal::handle_show_measurement_journals(&pool, &req).await?;
+        assert_eq!(1, resp.journals.len());
+        let journal = &resp.journals[0];
+        assert_eq!(journal.machine_id, princess_network.machine_id.to_string());
+        assert_eq!(journal.report_id, report.report_id);
+        assert_eq!(journal.profile_id, profile.profile_id);
+        assert_eq!(journal.bundle_id, None);
+
+        // Show one of the journals.
+        let req = measured_boot::ShowMeasurementJournalRequest {
+            selector: Some(
+                measured_boot::show_measurement_journal_request::Selector::JournalId(
+                    journal.journal_id.clone().unwrap(),
+                ),
+            ),
+        };
+        let resp = journal::handle_show_measurement_journal(&pool, &req).await?;
+        assert!(resp.journal.is_some());
+        let same_journal = resp.journal.unwrap();
+        assert_eq!(journal.machine_id, same_journal.machine_id);
+        assert_eq!(journal.report_id, same_journal.report_id);
+        assert_eq!(journal.profile_id, same_journal.profile_id);
+        assert_eq!(journal.bundle_id, same_journal.bundle_id);
+
+        // List all journals.
+        let req = measured_boot::ListMeasurementJournalRequest { selector: None };
+        let resp = journal::handle_list_measurement_journal(&pool, &req).await?;
+        assert_eq!(1, resp.journals.len());
+
+        // List all journals for the machine.
+        let req = measured_boot::ListMeasurementJournalRequest {
+            selector: Some(
+                measured_boot::list_measurement_journal_request::Selector::MachineId(
+                    princess_network.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = journal::handle_list_measurement_journal(&pool, &req).await?;
+        assert_eq!(1, resp.journals.len());
+
+        Ok(())
+    }
 }
