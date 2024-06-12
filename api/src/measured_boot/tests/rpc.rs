@@ -22,6 +22,7 @@ mod tests {
     use crate::measured_boot::rpc::journal;
     use crate::measured_boot::rpc::machine;
     use crate::measured_boot::rpc::profile;
+    use crate::measured_boot::rpc::report;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use rpc::protos::measured_boot;
 
@@ -330,6 +331,178 @@ mod tests {
         let req = measured_boot::ShowMeasurementBundlesRequest {};
         let resp = bundle::handle_show_measurement_bundles(&pool, &req).await?;
         assert_eq!(0, resp.bundles.len());
+
+        Ok(())
+    }
+
+    // test_measurement_reports is used to test all of the API handler
+    // functions for, you guessed it, measurement reports. As with the
+    // other tests, there's generally some overlap with other areas of
+    // measured boot (reports + journals + machines, etc), but this is
+    // for focusing specifically on the report calls.
+    #[sqlx::test]
+    pub async fn test_measurement_reports(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // A machine is needed for sending a report, so lets inject one.
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let mut txn = pool.begin().await?;
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        txn.commit().await?;
+
+        let pcr_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "aa".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "bb".to_string(),
+            },
+        ];
+
+        // Make the report.
+        let req = measured_boot::CreateMeasurementReportRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
+        };
+        let result = report::handle_create_measurement_report(&pool, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+
+        // Make sure a profile was created (and wired to the machine).
+        let req = measured_boot::ShowMeasurementSystemProfilesRequest {};
+        let resp = profile::handle_show_measurement_system_profiles(&pool, &req).await?;
+        assert_eq!(1, resp.system_profiles.len());
+        let profile = &resp.system_profiles[0];
+        let req = measured_boot::ListMeasurementSystemProfileMachinesRequest{
+            selector: Some(
+                measured_boot::list_measurement_system_profile_machines_request::Selector::ProfileId(
+                    profile.profile_id.as_ref().unwrap().clone(),
+                ),
+            ),
+        };
+        let resp = profile::handle_list_measurement_system_profile_machines(&pool, &req).await?;
+        assert_eq!(1, resp.machine_ids.len());
+        assert_eq!(princess_network.machine_id.to_string(), resp.machine_ids[0]);
+
+        // Make sure a journal entry was added.
+        let req = measured_boot::ShowMeasurementJournalsRequest {};
+        let resp = journal::handle_show_measurement_journals(&pool, &req).await?;
+        assert_eq!(1, resp.journals.len());
+        let journal = &resp.journals[0];
+        assert_eq!(journal.machine_id, princess_network.machine_id.to_string());
+        assert_eq!(journal.report_id, report.report_id);
+        assert_eq!(journal.profile_id, profile.profile_id);
+        assert_eq!(journal.bundle_id, None);
+
+        // Make sure no bundles exist.
+        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let resp = bundle::handle_show_measurement_bundles(&pool, &req).await?;
+        assert_eq!(0, resp.bundles.len());
+
+        // Now lets do a basic show for the report.
+        let req = measured_boot::ShowMeasurementReportForIdRequest {
+            report_id: report.report_id.clone(),
+        };
+        let resp = report::handle_show_measurement_report_for_id(&pool, &req).await?;
+        assert!(resp.report.is_some());
+        let read_report = resp.report.unwrap();
+        assert_eq!(report.report_id, read_report.report_id);
+        assert_eq!(report.machine_id, read_report.machine_id);
+        assert_eq!(report.values.len(), read_report.values.len());
+
+        // And now show all reports.
+        let req = measured_boot::ShowMeasurementReportsRequest {};
+        let resp = report::handle_show_measurement_reports(&pool, &req).await?;
+        assert_eq!(1, resp.reports.len());
+        let read_from_show = &resp.reports[0];
+        assert_eq!(report.report_id, read_from_show.report_id);
+        assert_eq!(report.machine_id, read_from_show.machine_id);
+        assert_eq!(report.values.len(), read_from_show.values.len());
+
+        // And now list all reports.
+        let req = measured_boot::ListMeasurementReportRequest { selector: None };
+        let resp = report::handle_list_measurement_report(&pool, &req).await?;
+        assert_eq!(1, resp.reports.len());
+        let read_from_list_all = &resp.reports[0];
+        assert_eq!(report.report_id, read_from_list_all.report_id);
+        assert_eq!(report.machine_id, read_from_list_all.machine_id);
+
+        // And now show reports for our machine (which is
+        // just the single report).
+        let req = measured_boot::ShowMeasurementReportsForMachineRequest {
+            machine_id: princess_network.machine_id.to_string(),
+        };
+        let resp = report::handle_show_measurement_reports_for_machine(&pool, &req).await?;
+        assert_eq!(1, resp.reports.len());
+        let read_for_machine = &resp.reports[0];
+        assert_eq!(report.report_id, read_for_machine.report_id);
+        assert_eq!(report.machine_id, read_for_machine.machine_id);
+        assert_eq!(report.values.len(), read_for_machine.values.len());
+
+        // And now list reports for the machine.
+        let req = measured_boot::ListMeasurementReportRequest {
+            selector: Some(
+                measured_boot::list_measurement_report_request::Selector::MachineId(
+                    princess_network.machine_id.to_string(),
+                ),
+            ),
+        };
+
+        let resp = report::handle_list_measurement_report(&pool, &req).await?;
+        assert_eq!(1, resp.reports.len());
+        let read_from_list_machine = &resp.reports[0];
+        assert_eq!(report.report_id, read_from_list_machine.report_id);
+        assert_eq!(report.machine_id, read_from_list_machine.machine_id);
+
+        // Now that the basic stuff is out of the way, lets try to
+        // promote a report into a bundle.
+        let req = measured_boot::PromoteMeasurementReportRequest {
+            report_id: report.report_id.clone(),
+            pcr_registers: String::from(""),
+        };
+        let resp = report::handle_promote_measurement_report(&pool, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.profile_id, profile.profile_id);
+        assert_eq!(2, bundle.values.len());
+        assert_eq!(
+            measured_boot::MeasurementBundleStatePb::Active as i32,
+            bundle.state
+        );
+
+        // And make sure there is now a bundle!
+        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let resp = bundle::handle_show_measurement_bundles(&pool, &req).await?;
+        assert_eq!(1, resp.bundles.len());
+
+        // Now lets make a second revoked bundle from PCR value 0.
+        let req = measured_boot::RevokeMeasurementReportRequest {
+            report_id: report.report_id.clone(),
+            pcr_registers: String::from("0"),
+        };
+        let resp = report::handle_revoke_measurement_report(&pool, &req).await?;
+        assert!(resp.bundle.is_some());
+        let bundle = resp.bundle.unwrap();
+        assert_eq!(bundle.profile_id, profile.profile_id);
+        assert_eq!(1, bundle.values.len());
+        assert_eq!(
+            measured_boot::MeasurementBundleStatePb::Revoked as i32,
+            bundle.state
+        );
+
+        // And make sure there are now 2 bundles!
+        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let resp = bundle::handle_show_measurement_bundles(&pool, &req).await?;
+        assert_eq!(2, resp.bundles.len());
 
         Ok(())
     }
