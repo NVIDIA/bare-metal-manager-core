@@ -58,6 +58,5 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt-get update && \
 		openssh-server \
 		postgresql-client-15 \
 		tpm2-tools \
-		libtss2-dev \
 		zlib1g && \
 	rm -rf /var/lib/apt/lists/*
