@@ -22,7 +22,8 @@ FROM debian:12-slim
 
 RUN apt update && \
     apt install -y \
-    jq
+    jq \
+    libtss2-dev
 
 WORKDIR /app
 COPY --from=builder /carbide/target/release/forge-admin-cli ./
