@@ -1,19 +1,21 @@
 carbide_api_url = "https://carbide-api.forge:443"
 #log_file = "/dev/null"
-log_file = "mat.log"
+log_file = "/tmp/mat.log"
 interface = "cni0"
 tui_enabled = true # requires log file
 use_dhcp_api = true
 dhcp_server_address = "192.168.252.78"
 bmc_ip = "192.168.252.1"
 bmc_starting_port = 2000
+use_default_bmc_mock = true
+
 # Set this to "sudo" or "doas" if you're not running this as root. This allows
 # the DHCP mocks to bind to interfaces in the above IP range. Must be
 # configured to run without a password.
 # sudo_command = "/usr/bin/sudo"
 
 [machines.config]
-host_count = 200
+host_count = 1
 dpu_per_host_count = 1
 boot_delay = 10
 # assumes running from REPO_ROOT

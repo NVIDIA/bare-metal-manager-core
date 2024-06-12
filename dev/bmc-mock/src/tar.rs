@@ -29,44 +29,59 @@ use axum::Router;
 use flate2::read::GzDecoder;
 
 const MAX_HISTORY_ENTRIES: usize = 1000;
+type EntryMap = Arc<Mutex<HashMap<String, String>>>;
+type HistoryMap = Arc<Mutex<HashMap<String, VecDeque<String>>>>;
 
 #[derive(Clone)]
 struct BmcState {
-    entries: Arc<Mutex<HashMap<String, String>>>,
-    history: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
+    entries: EntryMap,
+    history: HistoryMap,
 }
 
-pub fn tar_router(p: &std::path::Path) -> eyre::Result<Router> {
-    let mut entries = HashMap::new();
-
-    let f = GzDecoder::new(File::open(p)?);
-    let mut archive = tar::Archive::new(f);
-    for r in archive.entries().unwrap() {
-        let mut r = r.unwrap();
-        let name = r
-            .path()
-            .unwrap()
-            .display()
-            .to_string()
-            .replace("/index.json", "");
-        if name.ends_with('/') {
-            // ignore directories
-            continue;
+pub fn tar_router(
+    p: &std::path::Path,
+    existing_tars: &mut HashMap<std::path::PathBuf, EntryMap>,
+) -> eyre::Result<Router> {
+    let bmc_state = if let Some(entries) = existing_tars.get(p) {
+        BmcState {
+            entries: entries.clone(),
+            history: Arc::new(Mutex::new(HashMap::default())),
         }
-        let mut s = String::with_capacity(r.size() as usize);
-        let _ = r.read_to_string(&mut s)?;
-        entries.insert(name, s);
-    }
+    } else {
+        let mut entries = HashMap::new();
 
-    let state = BmcState {
-        entries: Arc::new(Mutex::new(entries)),
-        history: Arc::new(Mutex::new(HashMap::default())),
+        let f = GzDecoder::new(File::open(p)?);
+        let mut archive = tar::Archive::new(f);
+        for r in archive.entries().unwrap() {
+            let mut r = r.unwrap();
+            let name = r
+                .path()
+                .unwrap()
+                .display()
+                .to_string()
+                .replace("/index.json", "");
+            if name.ends_with('/') {
+                // ignore directories
+                continue;
+            }
+            let mut s = String::with_capacity(r.size() as usize);
+            let _ = r.read_to_string(&mut s)?;
+            entries.insert(name, s);
+        }
+        let entries = Arc::new(Mutex::new(entries));
+
+        existing_tars.insert(p.to_owned(), entries.clone());
+
+        BmcState {
+            entries,
+            history: Arc::new(Mutex::new(HashMap::default())),
+        }
     };
     Ok(Router::new()
         .route("/history", get(get_history_macs))
         .route("/history/:mac", get(get_history))
         .route("/*path", get(get_from_tar).patch(set_any).post(set_any))
-        .with_state(state))
+        .with_state(bmc_state))
 }
 
 async fn get_history_macs(AxumState(shared_state): AxumState<BmcState>) -> impl IntoResponse {

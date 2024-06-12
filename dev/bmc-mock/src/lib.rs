@@ -10,19 +10,28 @@
  * its affiliates is strictly prohibited.
  */
 
+use axum::body::Body;
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::future::Future;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
+
 use std::path::Path;
+use std::pin::Pin;
 use std::process::Command;
 
+use axum::body::HttpBody;
 use axum::extract::{Path as AxumPath, State as AxumState};
-use axum::http::StatusCode;
+use axum::http::{Request, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use axum::Json;
 use axum::Router;
+use axum::ServiceExt;
 use axum_server::tls_rustls::RustlsConfig;
+use tower::Service;
+
 use tracing::{debug, error, info};
 
 mod tar;
@@ -104,7 +113,7 @@ pub fn default_router(state: BmcState) -> Router {
 }
 
 pub async fn run(
-    router: Router,
+    routers: HashMap<String, Router>,
     cert_path: Option<String>,
     listen_addr: Option<SocketAddr>,
 ) -> Result<(), BmcMockError> {
@@ -135,19 +144,88 @@ pub async fn run(
         .unwrap();
 
     debug!("Listening on {}", addr);
+
+    let bmc_service = BmcService { routers };
+
     axum_server::bind_rustls(addr, config)
-        .serve(router.into_make_service())
+        .serve(bmc_service.into_make_service())
         .await
         .inspect_err(|e| tracing::error!("BMC mock could not listen on address {}: {}", addr, e))?;
     Ok(())
 }
 
-/*
-async fn handler(request: Request<Body>) -> &'static str {
-    debug!("general handler: {:?}", request);
-    "OK"
+#[derive(Clone)]
+struct BmcService {
+    routers: HashMap<String, Router>,
 }
-*/
+
+impl Service<axum::http::Request<Body>> for BmcService {
+    type Response = Response<Body>;
+    type Error = Infallible;
+    type Future = Pin<Box<dyn Future<Output = Result<Response<Body>, Infallible>> + Send>>;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, request: Request<Body>) -> Self::Future {
+        let mac_address = request
+            .headers()
+            .get("x-really-to-mac")
+            .map(|v| v.to_str().unwrap())
+            .unwrap_or("");
+
+        let Some(router) = self.routers.get_mut(mac_address) else {
+            let err = format!("no BMC mock configured for mac: {mac_address}");
+            tracing::info!(err);
+            return Box::pin(async {
+                Ok(Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .body(Body::from(err))
+                    .unwrap())
+            });
+        };
+
+        let call_fut = router.call(request);
+
+        let fut = async move {
+            let mut response = match call_fut.await {
+                Ok(r) => r,
+                Err(e) => {
+                    let err = format!("error calling BMC mock: {e}");
+                    tracing::error!(err);
+                    return Ok(Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::from(err))
+                        .unwrap());
+                }
+            };
+
+            let (status, body) = match response.data().await {
+                // Mirror the status we get from bmc mock
+                Some(Ok(bytes)) => (response.status(), Body::from(bytes)),
+                // If we got an error calling it, render an internal server error
+                Some(Err(e)) => {
+                    let err = format!("error calling BMC mock: {e}");
+                    tracing::info!(err);
+                    (StatusCode::INTERNAL_SERVER_ERROR, Body::from(err))
+                }
+                // Not clear when the data would be None, but map it to an empty body and relay the status code
+                None => {
+                    let err = "empty response from BMC mock";
+                    tracing::error!(err);
+                    (response.status(), Body::empty())
+                }
+            };
+            Ok(Response::builder().status(status).body(body).unwrap())
+        };
+
+        Box::pin(fut)
+    }
+}
 
 async fn get_root() -> impl IntoResponse {
     let mut out = HashMap::new();

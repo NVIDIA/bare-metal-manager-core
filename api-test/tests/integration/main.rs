@@ -85,11 +85,12 @@ async fn test_integration() -> eyre::Result<()> {
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;
     let vault = vault::start(bins.get("vault").unwrap())?;
-    tokio::spawn(bmc_mock::run(
+    let mut routers = HashMap::default();
+    routers.insert(
+        "".to_owned(),
         bmc_mock::default_router(bmc_mock::BmcState { use_qemu: false }),
-        None,
-        None,
-    ));
+    );
+    tokio::spawn(bmc_mock::run(routers, None, None));
 
     // Ask OS for a free port
     let carbide_api_addr = {
