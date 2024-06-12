@@ -61,6 +61,7 @@ pub struct MachineATronConfig {
     pub bmc_ip: String,
     pub bmc_starting_port: u16,
     pub sudo_command: Option<String>,
+    pub use_default_bmc_mock: bool,
 }
 
 #[derive(Clone, Debug)]

@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr};
 
 use axum::{
     http::{StatusCode, Uri},
@@ -60,13 +60,12 @@ impl Bmc {
 
         let cert_path = self.cert_path.clone();
         self.join_handle = Some(tokio::spawn(async move {
-            bmc_mock::run(
-                crate::bmc::bmc_router(bmc_state),
-                Some(cert_path),
-                Some(listen_addr),
-            )
-            .await
-            .inspect_err(|e| tracing::error!("{}", e))
+            let mut routers = HashMap::default();
+            routers.insert("".to_owned(), crate::bmc::bmc_router(bmc_state));
+
+            bmc_mock::run(routers, Some(cert_path), Some(listen_addr))
+                .await
+                .inspect_err(|e| tracing::error!("{}", e))
         }));
         Ok(())
     }
