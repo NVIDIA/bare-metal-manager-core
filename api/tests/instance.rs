@@ -1072,7 +1072,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(
 
     assert_eq!(
         instance_snapshot.config.tenant,
-        Some(default_tenant_config().try_into().unwrap())
+        default_tenant_config().try_into().unwrap()
     );
 
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
@@ -1090,7 +1090,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
         machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),
         config: InstanceConfig {
             os: default_os_config().try_into().unwrap(),
-            tenant: Some(default_tenant_config().try_into().unwrap()),
+            tenant: default_tenant_config().try_into().unwrap(),
             network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
             infiniband: InstanceInfinibandConfig::default(),
         },

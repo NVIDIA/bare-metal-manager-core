@@ -73,11 +73,6 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 
         let config = InstanceConfig::try_from(config)?;
 
-        // The `tenant` field in the config is optional - but we need it here
-        if config.tenant.is_none() {
-            return Err(RpcDataConversionError::MissingArgument("InstanceConfig::tenant").into());
-        }
-
         // If the Tenant provides an instance ID use this one
         // Otherwise create a random ID
         let instance_id = match request.instance_id {
@@ -103,7 +98,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 
 /// Allocates an instance for a tenant
 pub async fn allocate_instance(
-    mut request: InstanceAllocationRequest,
+    request: InstanceAllocationRequest,
     database: &PgPool,
 ) -> Result<InstanceSnapshot, CarbideError> {
     // Validate the configuration for the instance
@@ -117,12 +112,7 @@ pub async fn allocate_instance(
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
 
     let os = request.config.os;
-    let tenant_config = request
-        .config
-        .tenant
-        .take()
-        .ok_or_else(|| ConfigValidationError::invalid_value("TenantConfig is missing"))?;
-
+    let tenant_config = request.config.tenant;
     let network_config = Versioned::new(request.config.network, ConfigVersion::initial());
     let ib_config = Versioned::new(request.config.infiniband, ConfigVersion::initial());
     let config_version = ConfigVersion::initial();
