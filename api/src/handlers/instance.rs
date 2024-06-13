@@ -19,13 +19,13 @@ use crate::instance::{allocate_instance, InstanceAllocationRequest};
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::os::{OperatingSystem, OperatingSystemVariant};
+use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
 use crate::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader};
 use crate::CarbideError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::CredentialKey;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 pub(crate) async fn allocate(
     api: &Api,
@@ -42,6 +42,97 @@ pub(crate) async fn allocate(
     ))
 }
 
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::InstanceSearchConfig>,
+) -> Result<Response<rpc::InstanceIdList>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin instance::find_ids",
+            e,
+        ))
+    })?;
+
+    let search_config: rpc::InstanceSearchConfig = request.into_inner();
+
+    let instance_ids = Instance::find_ids(&mut txn, search_config).await?;
+
+    Ok(tonic::Response::new(rpc::InstanceIdList {
+        instance_ids: instance_ids
+            .into_iter()
+            .map(|id| rpc::Uuid {
+                value: id.to_string(),
+            })
+            .collect(),
+    }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::InstanceIdList>,
+) -> Result<Response<rpc::InstanceList>, Status> {
+    log_request_data(&request);
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin instance::find_by_ids",
+            e,
+        ))
+    })?;
+
+    let instance_ids: Result<Vec<uuid::Uuid>, CarbideError> = request
+        .into_inner()
+        .instance_ids
+        .iter()
+        .map(|id| {
+            uuid::Uuid::try_from(id.value.as_str()).map_err(|_| {
+                CarbideError::from(RpcDataConversionError::InvalidInstanceId(
+                    id.value.to_string(),
+                ))
+            })
+        })
+        .collect();
+    let instance_ids = instance_ids?;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if instance_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    }
+
+    let db_instances = Instance::find(
+        &mut txn,
+        FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::List(&instance_ids)),
+    )
+    .await?;
+
+    let loader = DbSnapshotLoader {};
+    let mut instances = Vec::with_capacity(db_instances.len());
+    for instance in db_instances {
+        let mh_snapshot = loader
+            .load_machine_snapshot(&mut txn, &instance.machine_id)
+            .await
+            .map_err(CarbideError::from)?;
+
+        let snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
+            Status::invalid_argument(format!("Snapshot not found for Instance {}", instance.id())),
+        )?)
+        .map_err(CarbideError::from)?;
+
+        instances.push(snapshot);
+    }
+
+    Ok(Response::new(rpc::InstanceList { instances }))
+}
+
+// DEPRECATED: use find_ids and find_by_ids instead
 pub(crate) async fn find(
     api: &Api,
     request: Request<rpc::InstanceSearchQuery>,
@@ -62,7 +153,7 @@ pub(crate) async fn find(
     // and InstanceSnapshotLoader do redundant jobs
     let raw_instances = match (id, label) {
         (Some(id), None) => {
-            let uuid = match Uuid::try_from(id) {
+            let uuid = match uuid::Uuid::try_from(id) {
                 Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                 Err(_err) => {
                     return Err(CarbideError::InvalidArgument("id".to_string()).into());
@@ -212,7 +303,7 @@ pub(crate) async fn record_observed_network_status(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let instance_id = Uuid::try_from(
+    let instance_id = uuid::Uuid::try_from(
         request
             .instance_id
             .clone()
@@ -257,7 +348,7 @@ pub(crate) async fn update_phone_home_last_contact(
 ) -> Result<Response<rpc::InstancePhoneHomeLastContactResponse>, Status> {
     let request = request.into_inner();
     let instance_id = match request.instance_id {
-        Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+        Some(id) => uuid::Uuid::try_from(id).map_err(CarbideError::from)?,
         None => {
             return Err(CarbideError::MissingArgument("instance_id").into());
         }
@@ -463,7 +554,7 @@ pub(crate) async fn update_operating_system(
 
     let request = request.into_inner();
     let instance_id = match request.instance_id {
-        Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+        Some(id) => uuid::Uuid::try_from(id).map_err(CarbideError::from)?,
         None => {
             return Err(CarbideError::MissingArgument("instance_id").into());
         }

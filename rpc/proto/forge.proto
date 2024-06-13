@@ -51,6 +51,9 @@ service Forge {
   // rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
   rpc UpdateInstanceOperatingSystem(InstanceOperatingSystemUpdateRequest) returns (Instance);
 
+  rpc FindInstanceIds(InstanceSearchConfig) returns (InstanceIdList);
+  rpc FindInstancesByIds(InstanceIdList) returns (InstanceList);
+  // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
   rpc FindInstanceByMachineID(MachineId) returns (InstanceList);
 
@@ -809,6 +812,15 @@ message Metadata {
   string name = 1;
   string description = 2;
   repeated Label labels = 3;
+}
+
+message InstanceSearchConfig {
+  // supports filtering on key, value, or key and value
+  optional Label label = 1;
+}
+
+message InstanceIdList {
+  repeated UUID instance_ids = 1;
 }
 
 message InstanceAllocationRequest {

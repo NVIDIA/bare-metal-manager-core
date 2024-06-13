@@ -185,6 +185,51 @@ impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
 }
 
 impl Instance {
+    pub async fn find_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        search_config: rpc::InstanceSearchConfig,
+    ) -> Result<Vec<uuid::Uuid>, CarbideError> {
+        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances");
+
+        #[derive(Debug, Clone, Copy, FromRow)]
+        pub struct InstanceId(uuid::Uuid);
+
+        if search_config.label.is_some() {
+            let label = search_config.label.unwrap();
+            if label.key.is_empty() && label.value.is_some() {
+                builder.push(
+                    " WHERE EXISTS (
+                        SELECT 1
+                        FROM jsonb_each_text(labels) AS kv
+                        WHERE kv.value = ",
+                );
+                builder.push_bind(label.value.unwrap());
+                builder.push(")");
+            } else if label.key.is_empty() && label.value.is_none() {
+                return Err(CarbideError::InvalidArgument(
+                    "finding instances based on label needs either key or a value.".to_string(),
+                ));
+            } else if !label.key.is_empty() && label.value.is_none() {
+                builder.push(" WHERE labels ->> ");
+                builder.push_bind(label.key);
+                builder.push(" IS NOT NULL");
+            } else if !label.key.is_empty() && label.value.is_some() {
+                builder.push(" WHERE labels ->> ");
+                builder.push_bind(label.key);
+                builder.push(" = ");
+                builder.push_bind(label.value.unwrap());
+            }
+        }
+
+        let query = builder.build_query_as();
+        let ids: Vec<InstanceId> = query
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "instance::find_ids", e))?;
+
+        Ok(ids.into_iter().map(|id| id.0).collect())
+    }
+
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
         filter: FindInstanceTypeFilter<'_>,
