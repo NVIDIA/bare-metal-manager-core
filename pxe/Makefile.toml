@@ -210,6 +210,7 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
+	"ipxe-patch-measured-boot",
 	"ipxe-install-efi-x86_64",
 ]
 
@@ -218,6 +219,7 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for x86_64 (Legacy BIOS, EFI) and move to the carbide static webroot"
 dependencies = [
 	"ipxe-config",
+	"ipxe-patch-measured-boot",
 	"ipxe-install-efi-x86_64",
 ]
 
@@ -238,6 +240,19 @@ script = '''
       patch -p1 --forward -i "${PATCH}"
     else
       echo "Reversing would be successful, assuming patch is already applied"
+    fi
+'''
+
+[tasks.ipxe-patch-measured-boot]
+category = 'iPXE Kernel'
+description = "Patch iPXE for measured boot and TPM support"
+cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
+script = '''
+    PATCH="${REPO_ROOT}/pxe/ipxe/local/0001-efi-Add-TPM-measurement-API-via-TCG-v1-and-TCG-v2-EF.patch"
+    if test -f "${REPO_ROOT}/pxe/ipxe/upstream/src/config/tpm.h"; then
+        echo "Patch already applied?"
+    else
+        patch -p1 --forward -i "${PATCH}"
     fi
 '''
 
