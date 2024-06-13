@@ -98,6 +98,7 @@ impl IbFabricMonitor {
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
             num_fabrics = 0,
+            fabric_metrics = tracing::field::Empty,
         );
 
         let res = self
