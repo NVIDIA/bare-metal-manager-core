@@ -287,6 +287,9 @@ service Forge {
   ////////////////////////////////////////////////////////////////////////////////
   // End Measured Boot API Endpoints
   ////////////////////////////////////////////////////////////////////////////////
+
+  rpc RebootCompleted(MachineRebootCompletedRequest) returns (MachineRebootCompletedResponse);
+
 }
 
 message BindRequest{
@@ -1760,8 +1763,15 @@ message ForgeAgentControlResponse {
 		REBUILD = 3;    // Future thingy
 		RETRY = 4;      // Machine needs more time to come in proper state. Retry again.
 		MEASURE = 5;    // Machine needs to send measurements for attestation.
+		LOGERROR = 6;   // Log error.
 	}
 	Action action = 1;
+
+	message ForgeAgentControlExtraInfo {
+		string extraData = 1;
+	}
+
+	optional ForgeAgentControlExtraInfo data = 2;
 }
 
 message MachineDiscoveryInfo {
@@ -2327,4 +2337,9 @@ message ExpectedMachineRequest {
 
 message ExpectedMachineList {
   repeated ExpectedMachine expected_machines = 1;
+}
+message MachineRebootCompletedResponse { }
+
+message MachineRebootCompletedRequest {
+	MachineId machine_id = 1;
 }

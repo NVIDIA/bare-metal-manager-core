@@ -552,12 +552,8 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     );
 
     // Scout does it's thing
-    env.api
-        .forge_agent_control(tonic::Request::new(rpc::forge::ForgeAgentControlRequest {
-            machine_id: Some(dpu_machine_id.to_string().into()),
-        }))
-        .await
-        .unwrap();
+
+    let _ = forge_agent_control(&env, dpu_machine_id.to_string().into()).await;
 
     let handler = MachineStateHandler::new(
         chrono::Duration::minutes(5),

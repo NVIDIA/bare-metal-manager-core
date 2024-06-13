@@ -1,0 +1,21 @@
+
+[Unit]
+Description=Scout Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+Group=root
+RestartSec=5
+WorkingDirectory=/opt/forge/
+Environment="PATH=/opt/forge/"
+ExecStart=/opt/forge/forge-scout --api=${server_uri} --machine-interface-id=${machine_id}
+EnvironmentFile=/opt/forge/forge-scout.env
+ExecStartPre=/opt/forge/forge-scout-pre.sh 
+OOMScoreAdjust=-1000
+Restart=on-failure
+RestartPreventExitStatus=255
+
+[Install]
+WantedBy=multi-user.target

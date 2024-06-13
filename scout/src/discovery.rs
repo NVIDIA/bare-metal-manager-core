@@ -44,3 +44,11 @@ pub(crate) async fn completed(
     client.discovery_completed(request).await?;
     Ok(())
 }
+pub(crate) async fn rebooted(config: &Options, machine_id: &str) -> Result<(), CarbideClientError> {
+    let mut client = create_forge_client(config).await?;
+    let request = tonic::Request::new(rpc::MachineRebootCompletedRequest {
+        machine_id: Some(machine_id.to_string().into()),
+    });
+    client.reboot_completed(request).await?;
+    Ok(())
+}

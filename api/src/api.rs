@@ -2144,12 +2144,6 @@ impl Forge for Api {
             .load_machine(&machine_id, MachineSearchConfig::default())
             .await?;
 
-        // Treat this message as signal from machine that reboot is finished. Update reboot time.
-        machine
-            .update_reboot_time(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
         let is_dpu = machine.is_dpu();
         let host_machine = if !is_dpu {
             machine.clone()
@@ -2164,11 +2158,11 @@ impl Forge for Api {
 
         // Respond based on machine current state
         let state = host_machine.current_state();
-        let action = if is_dpu {
+        let (action, action_data) = if is_dpu {
             match state {
                 ManagedHostState::DPUReprovision {
                     reprovision_state: ReprovisionState::BufferTime,
-                } => Action::Retry,
+                } => (Action::Retry, None),
                 ManagedHostState::DPUNotReady {
                     machine_state: MachineState::Init,
                 }
@@ -2180,7 +2174,7 @@ impl Forge for Api {
                         InstanceState::DPUReprovision {
                             reprovision_state: ReprovisionState::WaitingForNetworkInstall,
                         },
-                } => Action::Discovery,
+                } => (Action::Discovery, None),
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     tracing::info!(
@@ -2189,14 +2183,14 @@ impl Forge for Api {
                         %state,
                         "forge agent control",
                     );
-                    Action::Noop
+                    (Action::Noop, None)
                 }
             }
         } else {
             match state {
                 ManagedHostState::HostNotReady {
                     machine_state: MachineState::Init,
-                } => Action::Retry,
+                } => (Action::Retry, None),
                 ManagedHostState::HostNotReady {
                     machine_state: MachineState::WaitingForDiscovery,
                 }
@@ -2207,7 +2201,7 @@ impl Forge for Api {
                             ..
                         },
                     ..
-                } => Action::Discovery,
+                } => (Action::Discovery, None),
                 // If the API is configured with attestation_enabled, and
                 // the machine has been Discovered (and progressed on to the
                 // point where it is WaitingForMeasurements), then let Scout (or
@@ -2215,7 +2209,7 @@ impl Forge for Api {
                 // to be sent.
                 ManagedHostState::Measuring {
                     measuring_state: MeasuringState::WaitingForMeasurements,
-                } => Action::Measure,
+                } => (Action::Measure, None),
                 ManagedHostState::WaitingForCleanup { .. }
                 | ManagedHostState::Failed {
                     details:
@@ -2224,7 +2218,7 @@ impl Forge for Api {
                             ..
                         },
                     ..
-                } => Action::Reset,
+                } => (Action::Reset, None),
                 _ => {
                     // Later this might go to site admin dashboard for manual intervention
                     tracing::info!(
@@ -2233,7 +2227,7 @@ impl Forge for Api {
                         %state,
                         "forge agent control",
                     );
-                    Action::Noop
+                    (Action::Noop, None)
                 }
             }
         };
@@ -2252,6 +2246,7 @@ impl Forge for Api {
         })?;
         Ok(Response::new(rpc::ForgeAgentControlResponse {
             action: action as i32,
+            data: action_data,
         }))
     }
 
@@ -4919,6 +4914,44 @@ impl Forge for Api {
             )
             .await?,
         ))
+    }
+
+    // Host has rebooted
+    async fn reboot_completed(
+        &self,
+        request: Request<rpc::MachineRebootCompletedRequest>,
+    ) -> Result<Response<rpc::MachineRebootCompletedResponse>, Status> {
+        log_request_data(&request);
+
+        let req = request.into_inner();
+
+        // Extract and check UUID
+        let machine_id = match &req.machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("A machine UUID is required"));
+            }
+        };
+        log_machine_id(&machine_id);
+
+        let (machine, mut txn) = self
+            .load_machine(&machine_id, MachineSearchConfig::default())
+            .await?;
+        machine
+            .update_reboot_time(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit reboot_completed",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(rpc::MachineRebootCompletedResponse {}))
     }
 }
 
