@@ -18,7 +18,7 @@ use std::time::Duration;
 
 pub use ::rpc::forge as rpc;
 use ::rpc::protos::forge::{
-    EchoRequest, EchoResponse, InstanceList, InstancePhoneHomeLastContactRequest,
+    EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
     InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
     MachineCredentialsUpdateResponse,
 };
@@ -267,6 +267,21 @@ impl Forge for Api {
         crate::handlers::instance::allocate(self, request).await
     }
 
+    async fn find_instance_ids(
+        &self,
+        request: Request<rpc::InstanceSearchConfig>,
+    ) -> Result<Response<rpc::InstanceIdList>, Status> {
+        crate::handlers::instance::find_ids(self, request).await
+    }
+
+    async fn find_instances_by_ids(
+        &self,
+        request: Request<rpc::InstanceIdList>,
+    ) -> Result<Response<rpc::InstanceList>, Status> {
+        crate::handlers::instance::find_by_ids(self, request).await
+    }
+
+    // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
     async fn find_instances(
         &self,
         request: Request<rpc::InstanceSearchQuery>,
@@ -277,7 +292,7 @@ impl Forge for Api {
     async fn find_instance_by_machine_id(
         &self,
         request: Request<rpc::MachineId>,
-    ) -> Result<Response<InstanceList>, Status> {
+    ) -> Result<Response<rpc::InstanceList>, Status> {
         crate::handlers::instance::find_by_machine_id(self, request).await
     }
 
