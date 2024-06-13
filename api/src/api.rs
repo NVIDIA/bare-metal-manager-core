@@ -4306,11 +4306,13 @@ impl Forge for Api {
     ) -> std::result::Result<tonic::Response<rpc::VerifyQuoteResponse>, tonic::Status> {
         log_request_data(&request);
 
-        if let Some(machine_id) = &request.get_ref().machine_id {
-            if let Ok(id) = try_parse_machine_id(machine_id) {
-                log_machine_id(&id)
+        let machine_id = match &request.get_ref().machine_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(CarbideError::MissingArgument("machine_id").into());
             }
-        }
+        };
+        log_machine_id(&machine_id);
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
