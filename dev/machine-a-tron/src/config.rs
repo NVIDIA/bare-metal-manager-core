@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    net::Ipv4Addr,
-    sync::{atomic::AtomicU16, Arc},
-};
+use std::{collections::BTreeMap, net::Ipv4Addr};
 
 use clap::Parser;
 
@@ -40,8 +36,6 @@ pub struct MachineConfig {
     pub dpu_per_host_count: u32,
     pub boot_delay: u32,
     pub template_dir: String,
-    pub dpu_bmc_redfish_template_dir: String,
-    pub host_bmc_redfish_template_dir: String,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
 }
@@ -58,17 +52,27 @@ pub struct MachineATronConfig {
     pub use_dhcp_api: bool,
     pub dhcp_server_address: String,
 
-    pub bmc_ip: String,
-    pub bmc_starting_port: u16,
-    pub sudo_command: Option<String>,
-    pub use_default_bmc_mock: bool,
+    #[serde(default = "default_bmc_mock_listen_address")]
+    pub bmc_mock_listen_address: String,
+    #[serde(default = "default_bmc_mock_host_tar")]
+    pub bmc_mock_host_tar: String,
+    #[serde(default = "default_bmc_mock_dpu_tar")]
+    pub bmc_mock_dpu_tar: String,
 }
 
-#[derive(Clone, Debug)]
+fn default_bmc_mock_listen_address() -> String {
+    String::from("0.0.0.0:2000")
+}
+fn default_bmc_mock_host_tar() -> String {
+    String::from("dev/bmc-mock/lenovo_thinksystem_sr670.tar.gz")
+}
+fn default_bmc_mock_dpu_tar() -> String {
+    String::from("dev/bmc-mock/nvidia_dpu.tar.gz")
+}
+
+#[derive(Debug, Clone)]
 pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
     pub forge_client_config: ForgeClientConfig,
     pub circuit_id: Option<String>,
-    pub next_bmc_port: Arc<AtomicU16>,
-    //pub bmc_response_map: Arc<Mutex<HashMap<String, String>>>,
 }

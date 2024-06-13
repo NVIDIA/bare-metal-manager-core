@@ -38,11 +38,12 @@ struct BmcState {
     history: HistoryMap,
 }
 
+/// Create a mock of
 pub fn tar_router(
     p: &std::path::Path,
-    existing_tars: &mut HashMap<std::path::PathBuf, EntryMap>,
+    existing_tars: Option<&mut HashMap<std::path::PathBuf, EntryMap>>,
 ) -> eyre::Result<Router> {
-    let bmc_state = if let Some(entries) = existing_tars.get(p) {
+    let bmc_state = if let Some(entries) = existing_tars.as_ref().and_then(|t| t.get(p)) {
         BmcState {
             entries: entries.clone(),
             history: Arc::new(Mutex::new(HashMap::default())),
@@ -70,7 +71,9 @@ pub fn tar_router(
         }
         let entries = Arc::new(Mutex::new(entries));
 
-        existing_tars.insert(p.to_owned(), entries.clone());
+        if let Some(existing_tars) = existing_tars {
+            existing_tars.insert(p.to_owned(), entries.clone());
+        }
 
         BmcState {
             entries,

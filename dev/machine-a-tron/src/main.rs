@@ -1,5 +1,5 @@
 pub mod api_client;
-pub mod bmc;
+pub mod bmc_mock_wrapper;
 pub mod config;
 pub mod dhcp_relay;
 pub mod dpu_machine;
@@ -8,9 +8,7 @@ pub mod machine_a_tron;
 pub mod machine_utils;
 pub mod tui;
 
-use std::sync::atomic::AtomicU16;
-use std::sync::Arc;
-use std::{error::Error, path::Path};
+use std::error::Error;
 
 use clap::Parser;
 use figment::providers::{Format, Toml};
@@ -61,20 +59,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         get_carbide_api_url(app_config.carbide_api_url.clone(), file_config.as_ref());
     app_config.carbide_api_url = Some(carbide_api_url);
 
-    for (name, mconfig) in app_config.machines.iter() {
-        if !Path::new(&mconfig.template_dir).exists() {
-            panic!(
-                "template directory '{}' does not exist for machine config '{}'",
-                mconfig.template_dir, name
-            );
-        }
-        if !Path::new(&mconfig.dpu_bmc_redfish_template_dir).exists() {
-            panic!(
-                "redfish template directory '{}' does not exist for machine config '{}'",
-                mconfig.dpu_bmc_redfish_template_dir, name
-            );
-        }
-    }
     let forge_root_ca_path = get_forge_root_ca_path(args.forge_root_ca_path, file_config.as_ref());
     let forge_client_cert = get_client_cert_info(
         args.client_cert_path,
@@ -88,12 +72,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ForgeClientConfig::new(forge_root_ca_path.clone(), Some(forge_client_cert));
     forge_client_config.socks_proxy(proxy);
 
-    let bmc_starting_port = app_config.bmc_starting_port;
     let mut app_context = MachineATronContext {
         app_config,
         forge_client_config,
         circuit_id: None,
-        next_bmc_port: Arc::new(AtomicU16::new(bmc_starting_port)),
     };
 
     let (mut dhcp_client, mut dhcp_service) =
@@ -121,7 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("version: {}", info.build_version);
 
     let mut mat = MachineATron::new(app_context);
-    mat.run(&mut dhcp_client).await;
+    mat.run(&mut dhcp_client).await?;
 
     dhcp_client.stop_service().await;
     dhcp_handle.await?;

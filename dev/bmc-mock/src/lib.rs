@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -21,7 +21,6 @@ use std::path::Path;
 use std::pin::Pin;
 use std::process::Command;
 
-use axum::body::HttpBody;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::http::{Request, Response, StatusCode};
 use axum::response::IntoResponse;
@@ -30,6 +29,8 @@ use axum::Json;
 use axum::Router;
 use axum::ServiceExt;
 use axum_server::tls_rustls::RustlsConfig;
+use http_body::combinators::UnsyncBoxBody;
+use http_body::Body as HttpBody;
 use tower::Service;
 
 use tracing::{debug, error, info};
@@ -112,8 +113,13 @@ pub fn default_router(state: BmcState) -> Router {
         .with_state(state)
 }
 
-pub async fn run(
-    routers: HashMap<String, Router>,
+/// Mock multiple BMCs while listening on a single IP/port.
+///
+/// Information on what machine to mock will be passed by carbide via the `x-really-to-mac` HTTP header,
+/// which will be used to route the request to the appropriate entry in the `bmc_routers_by_mac_address`
+/// table.
+pub async fn run_combined_mock(
+    bmc_routers_by_mac_address: HashMap<String, Router>,
     cert_path: Option<String>,
     listen_addr: Option<SocketAddr>,
 ) -> Result<(), BmcMockError> {
@@ -145,7 +151,9 @@ pub async fn run(
 
     debug!("Listening on {}", addr);
 
-    let bmc_service = BmcService { routers };
+    let bmc_service = BmcService {
+        routers: bmc_routers_by_mac_address,
+    };
 
     axum_server::bind_rustls(addr, config)
         .serve(bmc_service.into_make_service())
@@ -160,9 +168,9 @@ struct BmcService {
 }
 
 impl Service<axum::http::Request<Body>> for BmcService {
-    type Response = Response<Body>;
+    type Response = Response<UnsyncBoxBody<Bytes, axum::Error>>;
     type Error = Infallible;
-    type Future = Pin<Box<dyn Future<Output = Result<Response<Body>, Infallible>> + Send>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(
         &mut self,
@@ -184,46 +192,14 @@ impl Service<axum::http::Request<Body>> for BmcService {
             return Box::pin(async {
                 Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
-                    .body(Body::from(err))
+                    .body(UnsyncBoxBody::new(
+                        err.map_err(|_| panic!("Infallible failed")),
+                    ))
                     .unwrap())
             });
         };
 
-        let call_fut = router.call(request);
-
-        let fut = async move {
-            let mut response = match call_fut.await {
-                Ok(r) => r,
-                Err(e) => {
-                    let err = format!("error calling BMC mock: {e}");
-                    tracing::error!(err);
-                    return Ok(Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Body::from(err))
-                        .unwrap());
-                }
-            };
-
-            let (status, body) = match response.data().await {
-                // Mirror the status we get from bmc mock
-                Some(Ok(bytes)) => (response.status(), Body::from(bytes)),
-                // If we got an error calling it, render an internal server error
-                Some(Err(e)) => {
-                    let err = format!("error calling BMC mock: {e}");
-                    tracing::info!(err);
-                    (StatusCode::INTERNAL_SERVER_ERROR, Body::from(err))
-                }
-                // Not clear when the data would be None, but map it to an empty body and relay the status code
-                None => {
-                    let err = "empty response from BMC mock";
-                    tracing::error!(err);
-                    (response.status(), Body::empty())
-                }
-            };
-            Ok(Response::builder().status(status).body(body).unwrap())
-        };
-
-        Box::pin(fut)
+        Box::pin(router.call(request))
     }
 }
 
