@@ -70,6 +70,11 @@ processors:
           enabled: false
         host.id:
           enabled: false
+  resource:
+    attributes:
+      - action: insert
+        key: exporter
+        value: "forge-dpu"
   # Remove all but the "MESSAGE" and "_SYSTEMD_UNIT" keys from each log record
   transform:
     error_mode: ignore
@@ -94,7 +99,12 @@ service:
   pipelines:
     logs:
       receivers: [journald]
-      processors: [memory_limiter, batch, resourcedetection, transform]
+      processors:
+        - memory_limiter
+        - batch
+        - resourcedetection
+        - resource
+        - transform
       exporters: [otlp/site]
     metrics:
       receivers: [prometheus, hostmetrics, hostmetrics/disk]
