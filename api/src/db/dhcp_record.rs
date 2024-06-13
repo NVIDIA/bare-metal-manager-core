@@ -202,7 +202,7 @@ WHERE machine_id=$1
         let function_id = crate::instance::circuit_id_to_function_id(
             &mut *txn,
             instance.id,
-            &instance.network_config,
+            &instance.config.network,
             circuit_id.clone(),
         )
         .await?;

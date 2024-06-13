@@ -509,10 +509,10 @@ impl IBPartition {
 pub async fn allocate_port_guid(
     _txn: &mut Transaction<'_, Postgres>,
     _instance_id: uuid::Uuid,
-    ib_config: &Versioned<InstanceInfinibandConfig>,
+    ib_config: &InstanceInfinibandConfig,
     machine: &Machine,
-) -> CarbideResult<Versioned<InstanceInfinibandConfig>> {
-    let mut ib_config = ib_config.clone();
+) -> CarbideResult<InstanceInfinibandConfig> {
+    let mut updated_ib_config = ib_config.clone();
 
     let ib_hw_info = &machine
         .hardware_info()
@@ -522,7 +522,7 @@ pub async fn allocate_port_guid(
     // the key of ib_hw_map is device name such as "MT28908 Family [ConnectX-6]".
     // the value of ib_hw_map is a sorted vector of InfinibandInterface by slot.
     let ib_hw_map = sort_ib_by_slot(ib_hw_info);
-    for request in &mut ib_config.value.ib_interfaces {
+    for request in &mut updated_ib_config.ib_interfaces {
         tracing::debug!(
             "reqest IB device:{}, device_instance:{}",
             request.device.clone(),
@@ -556,7 +556,7 @@ pub async fn allocate_port_guid(
         }
     }
 
-    Ok(ib_config)
+    Ok(updated_ib_config)
 }
 
 /// sort ib device by slot and add devices with the same name are added to hashmap

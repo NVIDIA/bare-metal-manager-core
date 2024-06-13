@@ -20,9 +20,7 @@ use crate::{
         DatabaseError, UuidKeyedObjectFilter,
     },
     model::{
-        instance::{
-            config::InstanceConfig, snapshot::InstanceSnapshot, status::InstanceStatusObservations,
-        },
+        instance::{snapshot::InstanceSnapshot, status::InstanceStatusObservations},
         machine::{
             machine_id::MachineId, CurrentMachineState, MachineInterfaceSnapshot, MachineSnapshot,
             ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest,
@@ -250,15 +248,10 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
             machine_id: instance.machine_id,
             machine_state,
             metadata: instance.metadata,
-            config: InstanceConfig {
-                tenant: instance.tenant_config,
-                network: instance.network_config.value,
-                os: instance.os,
-                infiniband: instance.ib_config.value,
-            },
+            config: instance.config,
             config_version: instance.config_version,
-            network_config_version: instance.network_config.version,
-            ib_config_version: instance.ib_config.version,
+            network_config_version: instance.network_config_version,
+            ib_config_version: instance.ib_config_version,
             observations: InstanceStatusObservations {
                 network: instance.network_status_observation,
                 infiniband: instance.ib_status_observation,

@@ -12,7 +12,6 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
-use config_version::Versioned;
 use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
 use uuid::Uuid;
@@ -175,8 +174,8 @@ WHERE network_prefixes.segment_id = $1::uuid";
     pub async fn allocate(
         txn: &mut Transaction<'_, Postgres>,
         instance_id: uuid::Uuid,
-        instance_network: &Versioned<InstanceNetworkConfig>,
-    ) -> CarbideResult<Versioned<InstanceNetworkConfig>> {
+        instance_network: &InstanceNetworkConfig,
+    ) -> CarbideResult<InstanceNetworkConfig> {
         let mut updated_config = instance_network.clone();
 
         // We expect only one ipv4 prefix. Also Ipv6 is not supported yet.
@@ -199,7 +198,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
         )
         .await?;
 
-        InstanceAddress::validate(&segments, &updated_config.value)?;
+        InstanceAddress::validate(&segments, &updated_config)?;
 
         let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
         sqlx::query(query)
@@ -208,7 +207,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
         // Assign all addresses in one shot.
-        for iface in &mut updated_config.value.interfaces {
+        for iface in &mut updated_config.interfaces {
             let segment = match segments
                 .iter()
                 .find(|x| x.id() == &iface.network_segment_id)

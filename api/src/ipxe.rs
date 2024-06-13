@@ -232,7 +232,7 @@ exit ||
                             .map_err(CarbideError::from)?;
                     }
 
-                    match instance.os.variant {
+                    match instance.config.os.variant {
                         crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
                             if ipxe.always_boot_with_ipxe || instance.use_custom_pxe_on_boot {
                                 ipxe.ipxe_script
