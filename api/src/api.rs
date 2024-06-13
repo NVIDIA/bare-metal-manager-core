@@ -2001,7 +2001,7 @@ impl Forge for Api {
                     })?
                     .to_owned();
 
-                let user_data = match instance.os.variant {
+                let user_data = match instance.config.os.variant {
                     OperatingSystemVariant::Ipxe(ipxe) => ipxe.user_data,
                 };
 
@@ -2422,7 +2422,7 @@ impl Forge for Api {
 
             // Collect the ib partition and ib ports information about this machine
             let mut ib_config_map: HashMap<Uuid, Vec<String>> = HashMap::new();
-            let infiniband = instance.ib_config.value.ib_interfaces;
+            let infiniband = instance.config.infiniband.ib_interfaces;
             for ib in &infiniband {
                 let ib_partition_id = ib.ib_partition_id;
                 if let Some(guid) = ib.guid.as_deref() {

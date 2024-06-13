@@ -279,8 +279,8 @@ impl TenantPublicKeyValidationRequest {
             })?;
 
         let keysets = TenantKeyset::find(
-            Some(instance.tenant_config.tenant_organization_id.to_string()),
-            ObjectFilter::List(&instance.tenant_config.tenant_keyset_ids),
+            Some(instance.config.tenant.tenant_organization_id.to_string()),
+            ObjectFilter::List(&instance.config.tenant.tenant_keyset_ids),
             true,
             txn,
         )

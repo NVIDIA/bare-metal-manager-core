@@ -15,11 +15,12 @@ use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
-use config_version::{ConfigVersion, Versioned};
+use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::{DatabaseError, UuidKeyedObjectFilter};
+use crate::model::instance::config::InstanceConfig;
 use crate::model::os::{IpxeOperatingSystem, OperatingSystemVariant};
 use crate::{
     db::{instance_address::InstanceAddress, machine::DbMachineId},
@@ -47,17 +48,16 @@ pub struct Instance {
     pub requested: DateTime<Utc>,
     pub started: DateTime<Utc>,
     pub finished: Option<DateTime<Utc>>,
-    pub os: OperatingSystem,
-    pub tenant_config: TenantConfig,
     pub use_custom_pxe_on_boot: bool,
     pub deleted: Option<DateTime<Utc>>,
-    pub network_config: Versioned<InstanceNetworkConfig>,
+    pub config: InstanceConfig,
+    pub config_version: ConfigVersion,
+    pub network_config_version: ConfigVersion,
+    pub ib_config_version: ConfigVersion,
     pub network_status_observation: Option<InstanceNetworkStatusObservation>,
-    pub ib_config: Versioned<InstanceInfinibandConfig>,
     pub ib_status_observation: Option<InstanceInfinibandStatusObservation>,
     pub phone_home_last_contact: Option<DateTime<Utc>>,
     pub metadata: Metadata,
-    pub config_version: ConfigVersion,
 }
 
 #[derive(Debug, Clone)]
@@ -68,12 +68,11 @@ pub struct InstanceList {
 pub struct NewInstance<'a> {
     pub machine_id: MachineId,
     pub instance_id: uuid::Uuid,
-    pub os: &'a OperatingSystem,
-    pub tenant_config: &'a TenantConfig,
-    pub network_config: Versioned<&'a InstanceNetworkConfig>,
-    pub ib_config: Versioned<&'a InstanceInfinibandConfig>,
+    pub config: &'a InstanceConfig,
     pub metadata: Metadata,
     pub config_version: ConfigVersion,
+    pub network_config_version: ConfigVersion,
+    pub ib_config_version: ConfigVersion,
 }
 
 pub struct DeleteInstance {
@@ -147,23 +146,29 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             labels: instance_labels.0,
         };
 
+        let config = InstanceConfig {
+            tenant: tenant_config,
+            os,
+            network: network_config.0,
+            infiniband: ib_config.0,
+        };
+
         Ok(Instance {
             id: row.try_get("id")?,
             machine_id: machine_id.into_inner(),
             requested: row.try_get("requested")?,
             started: row.try_get("started")?,
             finished: row.try_get("finished")?,
-            tenant_config,
-            os,
             use_custom_pxe_on_boot: row.try_get("use_custom_pxe_on_boot")?,
             deleted: row.try_get("deleted")?,
-            network_config: Versioned::new(network_config.0, network_config_version),
+            config,
+            config_version,
+            network_config_version,
+            ib_config_version,
             network_status_observation: network_status_observation.0 .0,
-            ib_config: Versioned::new(ib_config.0, ib_config_version),
             ib_status_observation: ib_status_observation.0 .0,
             phone_home_last_contact: row.try_get("phone_home_last_contact")?,
             metadata,
-            config_version,
         })
     }
 }
@@ -541,18 +546,19 @@ impl<'a> NewInstance<'a> {
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<Instance, DatabaseError> {
-        let network_version_string = self.network_config.version.version_string();
-        // None means we haven't observed any network status from the DPU via VPC yet
-        // The first report from the networking subsytem will set the field
+        let network_version_string = self.network_config_version.version_string();
+        // None means we haven't observed any network status from forge-dpu-agent yet
+        // The first report from the agent will set the field
         let network_status_observation = Option::<InstanceNetworkStatusObservation>::None;
 
-        let ib_config_version = self.ib_config.version.version_string();
+        let ib_config_version = self.ib_config_version.version_string();
+        // None means we haven't registered the Host at UFM yet
         let ib_status_observation = Option::<InstanceInfinibandStatusObservation>::None;
 
         let os_ipxe_script;
         let os_user_data;
         let os_always_boot_with_ipxe;
-        match &self.os.variant {
+        match &self.config.os.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
                 os_ipxe_script = &ipxe.ipxe_script;
                 os_user_data = &ipxe.user_data;
@@ -589,15 +595,15 @@ impl<'a> NewInstance<'a> {
             .bind(os_user_data)
             .bind(os_ipxe_script)
             .bind(os_always_boot_with_ipxe)
-            .bind(self.tenant_config.tenant_organization_id.as_str())
-            .bind(sqlx::types::Json(&self.network_config.value))
+            .bind(self.config.tenant.tenant_organization_id.as_str())
+            .bind(sqlx::types::Json(&self.config.network))
             .bind(&network_version_string)
             .bind(sqlx::types::Json(network_status_observation))
-            .bind(sqlx::types::Json(&self.ib_config.value))
+            .bind(sqlx::types::Json(&self.config.infiniband))
             .bind(&ib_config_version)
             .bind(sqlx::types::Json(ib_status_observation))
-            .bind(&self.tenant_config.tenant_keyset_ids)
-            .bind(self.os.phone_home_enabled)
+            .bind(&self.config.tenant.tenant_keyset_ids)
+            .bind(self.config.os.phone_home_enabled)
             .bind(&self.metadata.name)
             .bind(&self.metadata.description)
             .bind(sqlx::types::Json(&self.metadata.labels))

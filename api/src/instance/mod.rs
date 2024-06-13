@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use config_version::{ConfigVersion, Versioned};
+use config_version::ConfigVersion;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
@@ -111,26 +111,25 @@ pub async fn allocate_instance(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin allocate_instance", e))?;
 
-    let os = request.config.os;
-    let tenant_config = request.config.tenant;
-    let network_config = Versioned::new(request.config.network, ConfigVersion::initial());
-    let ib_config = Versioned::new(request.config.infiniband, ConfigVersion::initial());
+    let network_config_version = ConfigVersion::initial();
+    let ib_config_version = ConfigVersion::initial();
     let config_version = ConfigVersion::initial();
 
-    let instance_metadata = request.metadata;
-    let tenant_organization_id = tenant_config.clone().tenant_organization_id;
-
-    tenant_consistent_check(&mut txn, tenant_organization_id, &ib_config).await?;
+    tenant_consistent_check(
+        &mut txn,
+        &request.config.tenant.tenant_organization_id,
+        &request.config.infiniband,
+    )
+    .await?;
 
     let new_instance = NewInstance {
         instance_id: request.instance_id,
         machine_id: request.machine_id,
-        os: &os,
-        tenant_config: &tenant_config,
-        network_config: network_config.as_ref(),
-        ib_config: ib_config.as_ref(),
-        metadata: instance_metadata,
+        config: &request.config,
+        metadata: request.metadata,
         config_version,
+        network_config_version,
+        ib_config_version,
     };
 
     let machine_id = new_instance.machine_id.clone();
@@ -201,31 +200,36 @@ pub async fn allocate_instance(
     // tenant?
 
     // Allocate IPs. This also updates the `InstanceNetworkConfig` to store the IPs
-    let network_config =
-        InstanceAddress::allocate(&mut txn, *instance.id(), &network_config).await?;
+    let updated_network_config =
+        InstanceAddress::allocate(&mut txn, *instance.id(), &request.config.network).await?;
 
     // Persist the updated `InstanceNetworkConfig`
     // We need to retain version 1
     Instance::update_network_config(
         &mut txn,
         instance.id,
-        network_config.version,
-        &network_config.value,
+        network_config_version,
+        &updated_network_config,
         false,
     )
     .await?;
 
     // Allocate GUID for infiniband interfaces/ports.
-    let ib_config =
-        ib_partition::allocate_port_guid(&mut txn, *instance.id(), &ib_config, &machine).await?;
+    let updated_ib_config = ib_partition::allocate_port_guid(
+        &mut txn,
+        *instance.id(),
+        &request.config.infiniband,
+        &machine,
+    )
+    .await?;
 
     // Persist the GUID for Infiniband configuration.
     // We need to retain version 1.
     Instance::update_ib_config(
         &mut txn,
         instance.id,
-        ib_config.version,
-        &ib_config.value,
+        ib_config_version,
+        &updated_ib_config,
         false,
     )
     .await?;
@@ -272,10 +276,10 @@ pub async fn circuit_id_to_function_id(
 /// check whether the tenant of instance is consistent with the tenant of the ib partition
 pub async fn tenant_consistent_check(
     txn: &mut Transaction<'_, Postgres>,
-    instance_tenant: TenantOrganizationId,
-    ib_config: &Versioned<InstanceInfinibandConfig>,
+    instance_tenant: &TenantOrganizationId,
+    ib_config: &InstanceInfinibandConfig,
 ) -> CarbideResult<()> {
-    for ib_instance_config in ib_config.clone().value.ib_interfaces {
+    for ib_instance_config in ib_config.ib_interfaces.iter() {
         let ib_partitions = IBPartition::find(
             txn,
             UuidKeyedObjectFilter::One(ib_instance_config.ib_partition_id),
@@ -289,7 +293,7 @@ pub async fn tenant_consistent_check(
                 ib_instance_config.ib_partition_id
             )))?;
 
-        if ib_partition.config.tenant_organization_id != instance_tenant {
+        if ib_partition.config.tenant_organization_id != *instance_tenant {
             return Err(CarbideError::InvalidArgument(format!(
                 "The tenant {} of instance inconsistent with the tenant {} of ib partition",
                 instance_tenant, ib_partition.config.tenant_organization_id

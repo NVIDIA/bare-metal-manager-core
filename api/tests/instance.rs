@@ -171,9 +171,9 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         1
     );
 
-    let network_config = fetched_instance.network_config.clone();
-    assert_eq!(network_config.version.version_nr(), 1);
-    let mut network_config_no_addresses = network_config.value.clone();
+    let network_config = fetched_instance.config.network.clone();
+    assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
+    let mut network_config_no_addresses = network_config.clone();
     for iface in network_config_no_addresses.interfaces.iter_mut() {
         assert_eq!(iface.ip_addrs.len(), 1);
         iface.ip_addrs.clear();
@@ -217,7 +217,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     assert_eq!(record.address().to_string(), "192.0.2.3");
     assert_eq!(
         &record.address(),
-        network_config.value.interfaces[0]
+        network_config.interfaces[0]
             .ip_addrs
             .iter()
             .next()
