@@ -90,7 +90,7 @@ async fn test_integration() -> eyre::Result<()> {
         "".to_owned(),
         bmc_mock::default_router(bmc_mock::BmcState { use_qemu: false }),
     );
-    tokio::spawn(bmc_mock::run(routers, None, None));
+    tokio::spawn(bmc_mock::run_combined_mock(routers, None, None));
 
     // Ask OS for a free port
     let carbide_api_addr = {

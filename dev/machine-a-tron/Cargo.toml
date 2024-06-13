@@ -35,3 +35,6 @@ rpc = { path = "../../rpc" }
 bmc-mock = { path = "../bmc-mock" }
 forge-tls = { path = "../../common/tls" }
 utils = { path = "../../common/utils" }
+eyre = "0.6.12"
+tower = "0.4.13"
+http-body = "0.4.6"

@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mac_router.targz.to_string_lossy(),
                 mac_router.mac_address
             );
-            let r = bmc_mock::tar_router(&mac_router.targz, &mut tar_router_entries).unwrap();
+            let r = bmc_mock::tar_router(&mac_router.targz, Some(&mut tar_router_entries)).unwrap();
             routers_by_mac.insert(mac_router.mac_address, r);
         }
     }
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Using cert_path: {:?}", args.cert_path);
     let router = if let Some(tar_path) = args.targz {
         info!("Using archive {} as default", tar_path.to_string_lossy());
-        bmc_mock::tar_router(&tar_path, &mut tar_router_entries).unwrap()
+        bmc_mock::tar_router(&tar_path, Some(&mut tar_router_entries)).unwrap()
     } else {
         info!("Using default handlers");
         bmc_mock::default_router(bmc_mock::BmcState {
@@ -77,6 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     routers_by_mac.insert("".to_owned(), router);
 
-    bmc_mock::run(routers_by_mac, args.cert_path, listen_addr).await?;
+    bmc_mock::run_combined_mock(routers_by_mac, args.cert_path, listen_addr).await?;
     Ok(())
 }

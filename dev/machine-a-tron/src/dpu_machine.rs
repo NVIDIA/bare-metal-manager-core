@@ -1,4 +1,4 @@
-use std::{fmt::Display, path::PathBuf, time::Duration};
+use std::{fmt::Display, time::Duration};
 
 use ::rpc::Timestamp;
 use mac_address::MacAddress;
@@ -8,14 +8,13 @@ use uuid::Uuid;
 
 use crate::{
     api_client,
-    bmc::Bmc,
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::{DhcpRelayClient, DhcpResponseInfo},
     host_machine::{MachineState, MachineStateError},
-    machine_utils::{add_address_to_interface, get_api_state, get_fac_action, next_mac},
+    machine_utils::{get_api_state, get_fac_action, next_mac},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DpuMachine {
     pub mat_id: Uuid,
     pub config: MachineConfig,
@@ -34,18 +33,19 @@ pub struct DpuMachine {
     pub bmc_mat_id: Uuid,
     pub bmc_mac_address: MacAddress,
     pub bmc_dhcp_info: Option<DhcpResponseInfo>,
-    pub bmc_port: u16,
-    bmc: Option<Bmc>,
+
     last_reboot: Instant,
     m_a_t_last_known_reboot_request: Option<Timestamp>,
 }
 
+#[derive(Debug, Clone)]
+pub struct DpuBmcInfo {
+    pub mac_address: MacAddress,
+    pub serial: String,
+}
+
 impl DpuMachine {
     pub fn new(app_context: MachineATronContext, config: MachineConfig) -> Self {
-        let bmc_port = app_context
-            .next_bmc_port
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
         DpuMachine {
             mat_id: Uuid::new_v4(),
             config,
@@ -65,8 +65,6 @@ impl DpuMachine {
             bmc_mat_id: Uuid::new_v4(),
             bmc_mac_address: next_mac(),
             bmc_dhcp_info: None,
-            bmc_port,
-            bmc: None,
             last_reboot: Instant::now(),
             m_a_t_last_known_reboot_request: None,
         }
@@ -177,9 +175,6 @@ impl DpuMachine {
                             return Ok(false);
                         };
 
-                        let listen_ip = dhcp_response_info.ip_address.to_string();
-                        //let listen_ip = self.app_context.app_config.bmc_ip.clone();
-
                         self.update_dhcp_record(dhcp_response_info);
 
                         let log = format!(
@@ -191,32 +186,6 @@ impl DpuMachine {
                         );
                         tracing::info!(log);
                         logs.push(log);
-
-                        let cert_path = PathBuf::from(
-                            self.app_context.forge_client_config.root_ca_path.clone(),
-                        )
-                        .parent()
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap();
-
-                        add_address_to_interface(
-                            &listen_ip,
-                            &self.app_context.app_config.interface,
-                            &self.app_context.app_config.sudo_command,
-                        )
-                        .await
-                        .inspect_err(|e| tracing::warn!("{}", e))
-                        .map_err(MachineStateError::ListenAddressConfigError)?;
-
-                        let mut bmc = Bmc::new(
-                            listen_ip,
-                            self.app_context.app_config.bmc_starting_port,
-                            self.config.dpu_bmc_redfish_template_dir.clone(),
-                            cert_path,
-                        );
-                        bmc.start()?;
-                        self.bmc = Some(bmc);
-
                         Ok(true)
                     } else {
                         Ok(true)
@@ -357,7 +326,6 @@ impl DpuMachine {
                     rpc::forge::MachineType::Dpu,
                     machine_id,
                     Some(dhcp_info.ip_address),
-                    Some(self.app_context.app_config.bmc_starting_port),
                 )
                 .await
                 {
@@ -474,6 +442,13 @@ impl DpuMachine {
 
     pub fn get_state(&self) -> MachineState {
         self.mat_state.clone()
+    }
+
+    pub fn bmc_info(&self) -> DpuBmcInfo {
+        DpuBmcInfo {
+            serial: self.mac_address.to_string().replace(':', ""),
+            mac_address: self.bmc_mac_address,
+        }
     }
 }
 

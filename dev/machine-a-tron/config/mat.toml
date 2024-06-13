@@ -5,22 +5,26 @@ interface = "cni0"
 tui_enabled = true # requires log file
 use_dhcp_api = true
 dhcp_server_address = "192.168.252.78"
-bmc_ip = "192.168.252.1"
-bmc_starting_port = 2000
-use_default_bmc_mock = true
 
-# Set this to "sudo" or "doas" if you're not running this as root. This allows
-# the DHCP mocks to bind to interfaces in the above IP range. Must be
-# configured to run without a password.
-# sudo_command = "/usr/bin/sudo"
+# machine-a-tron runs one instance of bmc-mock for every mocked DPU and host.
+# This is to avoid needing to allocate lots of IPs/ports when mocking lots of
+# machines.
+#
+# NOTE! This should correspond with the override_target_{ip, port} settings in
+# carbide's site_explorer config. For example:
+#
+# [site_explorer]
+# enabled = true
+# create_machines = true
+# override_target_ip = "192.168.1.100" # this computer's IP (the one running machine-a-tron), as accessible from carbide
+# override_target_port = 2000
+bmc_mock_listen_address = "0.0.0.0:2000"
 
 [machines.config]
-host_count = 1
+host_count = 20
 dpu_per_host_count = 1
 boot_delay = 10
 # assumes running from REPO_ROOT
 template_dir = "dev/machine-a-tron/templates"
-dpu_bmc_redfish_template_dir = "dev/machine-a-tron/templates/dpu_bmc_redfish"
-host_bmc_redfish_template_dir = "dev/machine-a-tron/templates/host_bmc_redfish"
 oob_dhcp_relay_address = "192.168.64.1"
 admin_dhcp_relay_address = "192.168.0.1"

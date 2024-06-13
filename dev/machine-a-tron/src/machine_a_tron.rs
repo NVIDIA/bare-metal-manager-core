@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -14,6 +15,8 @@ use crate::{
     tui::{Tui, UiEvent},
 };
 
+use crate::bmc_mock_wrapper::BmcMockWrapper;
+use crate::host_machine::HostBmcInfo;
 use tokio::sync::mpsc::channel;
 
 #[derive(PartialEq, Eq)]
@@ -30,10 +33,11 @@ impl MachineATron {
         Self { app_context }
     }
 
-    pub async fn run(&mut self, dhcp_client: &mut DhcpRelayClient) {
+    pub async fn run(&mut self, dhcp_client: &mut DhcpRelayClient) -> eyre::Result<()> {
         let running = Arc::new(AtomicBool::new(true));
         let (app_tx, mut app_rx) = channel(5000);
-        let mut machines: Vec<String> = Vec::new();
+        let mut machine_ids: Vec<String> = Vec::new();
+        let mut bmc_infos: Vec<HostBmcInfo> = Vec::new();
 
         let (tui_handle, ui_event_tx) = if self.app_context.app_config.tui_enabled {
             let (ui_tx, ui_rx) = channel(5000);
@@ -61,8 +65,9 @@ impl MachineATron {
                 let mut dhcp_client_clone = dhcp_client.clone();
                 let mut machine =
                     HostMachine::new(app_context, config.clone(), ui_event_tx.clone());
+                machine_ids.push(machine.get_machine_id_str());
+                bmc_infos.push(machine.bmc_info());
 
-                machines.push(machine.get_machine_id_str());
                 let join_handle = tokio::spawn(async move {
                     while running.as_ref().load(Ordering::Relaxed) {
                         let work_done = machine
@@ -82,6 +87,16 @@ impl MachineATron {
         }
         tracing::info!("Machine construction complete");
 
+        let bmc_mock_listen_address: SocketAddr = self
+            .app_context
+            .app_config
+            .bmc_mock_listen_address
+            .parse()?;
+
+        let mut bmc_wrapper =
+            BmcMockWrapper::new(bmc_infos, bmc_mock_listen_address, self.app_context.clone())?;
+        bmc_wrapper.start()?;
+
         while running.as_ref().load(Ordering::Relaxed)
             && !tui_handle.as_ref().is_some_and(|t| t.is_finished())
         {
@@ -93,7 +108,7 @@ impl MachineATron {
             }
         }
 
-        for machine_id in machines {
+        for machine_id in machine_ids {
             tracing::info!(
                 "Attempting to delete machine with id: {} from db.",
                 machine_id
@@ -123,6 +138,9 @@ impl MachineATron {
                 .await
                 .inspect_err(|e| tracing::warn!("Error running TUI: {e}"));
         }
+
+        bmc_wrapper.stop();
         tracing::info!("machine-a-tron finished");
+        Ok(())
     }
 }

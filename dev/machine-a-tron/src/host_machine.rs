@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     convert::From,
     fmt::{Debug, Display},
-    path::PathBuf,
     time::{Duration, SystemTime},
 };
 
@@ -14,13 +13,13 @@ use rpc::forge_agent_control_response::Action;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::dpu_machine::DpuBmcInfo;
 use crate::{
     api_client,
-    bmc::Bmc,
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::{DhcpRelayClient, DhcpResponseInfo},
     dpu_machine::DpuMachine,
-    machine_utils::{add_address_to_interface, get_api_state, get_fac_action, next_mac},
+    machine_utils::{get_api_state, get_fac_action, next_mac},
     tui::{HostDetails, UiEvent},
 };
 
@@ -51,6 +50,8 @@ pub enum MachineStateError {
     BmcMockServiceError(BmcMockError),
     #[error("Error configuring listening address: {0}")]
     ListenAddressConfigError(AddressConfigError),
+    #[error("Could not find certificates at {0}")]
+    MissingCertificates(String),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -67,6 +68,7 @@ impl Display for MachineState {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct HostMachine {
     pub mat_id: Uuid,
     pub config: MachineConfig,
@@ -89,10 +91,15 @@ pub struct HostMachine {
 
     dpus_previously_ready: bool,
 
-    bmc: Option<Bmc>,
-
     last_reboot: Instant,
     m_a_t_last_known_reboot_request: Option<Timestamp>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HostBmcInfo {
+    pub mac_address: MacAddress,
+    pub serial: String,
+    pub dpus: Vec<DpuBmcInfo>,
 }
 
 impl Display for HostMachine {
@@ -164,9 +171,6 @@ impl HostMachine {
     ) -> Self {
         let mut dpus = Vec::default();
         let mut dpu_index = HashMap::default();
-        // let bmc_port = app_context
-        //     .next_bmc_port
-        //     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         for d_index in 0..config.dpu_per_host_count as usize {
             let dpu = DpuMachine::new(app_context.clone(), config.clone());
@@ -195,7 +199,6 @@ impl HostMachine {
 
             logs: Vec::default(),
             dpus_previously_ready: false,
-            bmc: None,
             last_reboot: Instant::now(),
             m_a_t_last_known_reboot_request: None,
         }
@@ -294,8 +297,6 @@ impl HostMachine {
                             return Ok(false);
                         };
 
-                        let listen_ip = dhcp_response_info.ip_address.to_string();
-                        //let listen_ip = self.app_context.app_config.bmc_ip.clone();
                         self.update_dhcp_info(dhcp_response_info);
                         self.log(format!(
                             "BMC DHCP Request for {} took {}ms",
@@ -303,30 +304,6 @@ impl HostMachine {
                             start.elapsed().as_millis()
                         ));
 
-                        let cert_path = PathBuf::from(
-                            self.app_context.forge_client_config.root_ca_path.clone(),
-                        )
-                        .parent()
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap();
-
-                        add_address_to_interface(
-                            &listen_ip,
-                            &self.app_context.app_config.interface,
-                            &self.app_context.app_config.sudo_command,
-                        )
-                        .await
-                        .inspect_err(|e| tracing::warn!("{}", e))
-                        .map_err(MachineStateError::ListenAddressConfigError)?;
-
-                        let mut bmc = Bmc::new(
-                            listen_ip,
-                            self.app_context.app_config.bmc_starting_port,
-                            self.config.host_bmc_redfish_template_dir.clone(),
-                            cert_path,
-                        );
-                        bmc.start()?;
-                        self.bmc = Some(bmc);
                         Ok(true)
                     } else {
                         self.mat_state = MachineState::Init;
@@ -429,15 +406,11 @@ impl HostMachine {
                 }
                 MachineState::HardwareDiscoveryComplete => {
                     let machine_id = self.get_machine_id()?;
-                    // let bmc_host_and_port =
-                    //     format!("{}:{}", self.app_context.app_config.bmc_ip, self.bmc_port);
                     let Some(dhcp_info) = self.bmc_dhcp_info.as_ref() else {
                         tracing::warn!("missing dhcp_response_info");
                         return Ok(false);
                     };
 
-                    // let bmc_host_and_port =
-                    //     format!("{}:{}", self.app_context.app_config.bmc_ip, self.bmc_port);
                     let start = Instant::now();
                     if let Err(e) = api_client::update_bmc_metadata(
                         &self.app_context,
@@ -445,7 +418,6 @@ impl HostMachine {
                         rpc::forge::MachineType::Host,
                         machine_id,
                         Some(dhcp_info.ip_address),
-                        Some(self.app_context.app_config.bmc_starting_port),
                     )
                     .await
                     {
@@ -579,6 +551,14 @@ impl HostMachine {
                 .first()
                 .map(|m| m.host_mac_address.to_string())
                 .unwrap_or(String::from("<unknown>")),
+        }
+    }
+
+    pub fn bmc_info(&self) -> HostBmcInfo {
+        HostBmcInfo {
+            mac_address: self.bmc_mac_address,
+            serial: self.bmc_mac_address.to_string().replace(':', ""),
+            dpus: self.dpu_machines.iter().map(|d| d.bmc_info()).collect(),
         }
     }
 }

@@ -175,7 +175,6 @@ pub async fn update_bmc_metadata(
     machine_type: MachineType,
     machine_id: rpc::MachineId,
     bmc_host: Option<Ipv4Addr>,
-    bmc_port: Option<u16>,
 ) -> ClientApiResult<rpc::forge::BmcMetaDataUpdateResponse> {
     let json_path = if machine_type == MachineType::Dpu {
         format!("{}/dpu_metadata_update.json", template_dir)
@@ -197,7 +196,6 @@ pub async fn update_bmc_metadata(
 
     default_data.bmc_info = Some(rpc::forge::BmcInfo {
         ip: bmc_host.map(|i| i.to_string()),
-        port: bmc_port.map(|i| i.into()),
         ..Default::default()
     });
 
