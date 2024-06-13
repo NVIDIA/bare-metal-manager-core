@@ -10,28 +10,28 @@
  * its affiliates is strictly prohibited.
  */
 
-use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::net::IpAddr;
 
-use crate::{db::DatabaseError, model::site_explorer::ExploredManagedHost};
+use crate::{
+    db::DatabaseError,
+    model::site_explorer::{ExploredDpu, ExploredManagedHost},
+};
 
 #[derive(Debug, Clone)]
 pub struct DbExploredManagedHost {
     /// The IP address of the node we explored
     host_bmc_ip: IpAddr,
-    /// The IP address of the node we explored
-    dpu_bmc_ip: IpAddr,
-    /// The MAC address that is visible to the host (provided by the DPU)
-    host_pf_mac_address: Option<MacAddress>,
+    /// Information about explored DPUs
+    dpus: Vec<ExploredDpu>,
 }
 
 impl<'r> FromRow<'r, PgRow> for DbExploredManagedHost {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let explored_dpus: sqlx::types::Json<Vec<ExploredDpu>> = row.try_get("explored_dpus")?;
         Ok(DbExploredManagedHost {
             host_bmc_ip: row.try_get("host_bmc_ip")?,
-            dpu_bmc_ip: row.try_get("dpu_bmc_ip")?,
-            host_pf_mac_address: row.try_get("host_pf_mac_address")?,
+            dpus: explored_dpus.0,
         })
     }
 }
@@ -40,8 +40,7 @@ impl From<DbExploredManagedHost> for ExploredManagedHost {
     fn from(host: DbExploredManagedHost) -> Self {
         Self {
             host_bmc_ip: host.host_bmc_ip,
-            dpu_bmc_ip: host.dpu_bmc_ip,
-            host_pf_mac_address: host.host_pf_mac_address,
+            dpus: host.dpus,
         }
     }
 }
@@ -72,12 +71,11 @@ impl DbExploredManagedHost {
         // TODO: Optimize me into a single query
         for host in explored_hosts {
             let query = "
-            INSERT INTO explored_managed_hosts (host_bmc_ip, dpu_bmc_ip, host_pf_mac_address)
-            VALUES ($1, $2, $3)";
+            INSERT INTO explored_managed_hosts (host_bmc_ip, explored_dpus)
+            VALUES ($1, $2)";
             let _result = sqlx::query(query)
                 .bind(host.host_bmc_ip)
-                .bind(host.dpu_bmc_ip)
-                .bind(host.host_pf_mac_address)
+                .bind(sqlx::types::Json(&host.dpus))
                 .execute(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

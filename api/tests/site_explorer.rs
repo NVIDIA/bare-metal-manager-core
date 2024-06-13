@@ -31,8 +31,8 @@ use carbide::{
         machine::{DpuDiscoveringState, MachineState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-            EndpointExplorationReport, EndpointType, EthernetInterface, ExploredManagedHost,
-            Inventory, Manager, NetworkAdapter, NicMode, Service,
+            EndpointExplorationReport, EndpointType, EthernetInterface, ExploredDpu,
+            ExploredManagedHost, Inventory, Manager, NetworkAdapter, NicMode, Service,
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
@@ -41,6 +41,7 @@ use carbide::{
 use mac_address::MacAddress;
 use rpc::{
     forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
+    site_explorer::ExploredDpu as RpcExploredDpu,
     site_explorer::ExploredManagedHost as RpcExploredManagedHost,
     BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
@@ -562,6 +563,10 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             host_bmc_ip: machines[1].ip.clone(),
             dpu_bmc_ip: machines[0].ip.clone(),
             host_pf_mac_address: Some("B8:3F:D2:90:97:A4".to_string()),
+            dpus: vec![RpcExploredDpu {
+                bmc_ip: machines[0].ip.clone(),
+                host_pf_mac_address: Some("B8:3F:D2:90:97:A4".to_string()),
+            }]
         }
     );
     assert_eq!(
@@ -708,13 +713,16 @@ async fn test_site_explorer_creates_managed_host(
 
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
-        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
-        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+        dpus: vec![ExploredDpu {
+            bmc_ip: IpAddr::from_str("192.168.1.2")?,
+            host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+            report: dpu_report.clone(),
+        }],
     };
 
     assert!(
         explorer
-            .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+            .create_managed_host(&exploration_report, &env.pool)
             .await?
     );
 
@@ -793,7 +801,7 @@ async fn test_site_explorer_creates_managed_host(
     // 2nd creation does nothing
     assert!(
         !explorer
-            .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+            .create_managed_host(&exploration_report, &env.pool)
             .await?
     );
 
@@ -904,6 +912,240 @@ async fn test_site_explorer_creates_managed_host(
         hardware_info.block_devices[0].model,
         "Fake block device".to_string()
     );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+async fn test_site_explorer_creates_multi_dpu_managed_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool).await;
+    let _underlay_segment = create_underlay_network_segment(&env).await;
+    let _admin_segment = create_admin_network_segment(&env).await;
+
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let dpu_config = default_dpu_models();
+    let test_meter = TestMeter::default();
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: carbide::dynamic_settings::create_machines(true),
+        override_target_ip: None,
+        override_target_port: None,
+    };
+
+    let explorer = SiteExplorer::new(
+        env.credential_provider.clone(),
+        env.pool.clone(),
+        explorer_config,
+        &dpu_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+    );
+
+    let oob_mac1 = MacAddress::from_str("a0:88:c2:08:80:95")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: oob_mac1.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(!response.address.is_empty());
+
+    let oob_mac2 = MacAddress::from_str("a0:88:c2:09:80:95")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: oob_mac2.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(!response.address.is_empty());
+
+    let mut dpu_report1 = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "Bluefield_BMC".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("eth0".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("a0:88:c2:08:80:97".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: Vec::new(),
+            manufacturer: None,
+            model: None,
+            serial_number: Some("MT2328XZ185R".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+            },
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+            serial_number: Some("MT2328XZ185R".to_string()),
+            network_adapters: vec![],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "DPU_NIC".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("32.38.1002".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_BSP".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0.12984".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("BF-23.10-3".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OFED".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OS".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-43-geb17a52".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
+    };
+    dpu_report1.generate_machine_id();
+
+    let mut dpu_report2 = dpu_report1.clone();
+    let serial_number = "MT2334XZ0B4J".to_string();
+    dpu_report2.systems[0].serial_number = Some(serial_number.clone());
+    dpu_report2.chassis[0].serial_number = Some(serial_number);
+    dpu_report2.chassis[0].part_number = Some("MBF2H536C-CECOT".to_string());
+    dpu_report2.generate_machine_id();
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        dpus: vec![
+            ExploredDpu {
+                bmc_ip: IpAddr::from_str("192.168.1.2")?,
+                host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+                report: dpu_report1.clone(),
+            },
+            ExploredDpu {
+                bmc_ip: IpAddr::from_str("192.168.1.3")?,
+                host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:09:80:72")?),
+                report: dpu_report2.clone(),
+            },
+        ],
+    };
+
+    assert!(
+        explorer
+            .create_managed_host(&exploration_report, &env.pool)
+            .await?
+    );
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_machine1 = Machine::find_one(
+        &mut txn,
+        dpu_report1.machine_id.as_ref().unwrap(),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        dpu_machine1.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::Initializing,
+        }
+    );
+
+    let dpu_machine2 = Machine::find_one(
+        &mut txn,
+        dpu_report1.machine_id.as_ref().unwrap(),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        dpu_machine2.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::Initializing,
+        }
+    );
+
+    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine1.id())
+        .await?
+        .unwrap();
+    assert_eq!(
+        host_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::Initializing,
+        }
+    );
+    assert!(host_machine.bmc_info().ip.is_some());
+
+    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine2.id())
+        .await?
+        .unwrap();
+    assert_eq!(
+        host_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::Initializing,
+        }
+    );
+    assert!(host_machine.bmc_info().ip.is_some());
 
     Ok(())
 }

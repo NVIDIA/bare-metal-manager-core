@@ -43,6 +43,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
         &mut txn,
         test_mac_address,
         test_gateway_address,
+        true,
     )
     .await?;
 
@@ -64,6 +65,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
         &mut txn,
         test_mac_address,
         test_gateway_address,
+        true,
     )
     .await?;
 
@@ -72,6 +74,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
         &mut txn,
         test_mac_address,
         test_gateway_address,
+        true,
     )
     .await?;
 
@@ -80,6 +83,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
         &mut txn,
         test_mac_address,
         "192.0.3.1".parse().unwrap(),
+        true,
     )
     .await;
     assert!(

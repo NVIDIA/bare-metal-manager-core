@@ -7,50 +7,67 @@
 
 <h1>Explored Managed Hosts</h1>
 <table>
-<thead>
-	<tr>
-		<th>Host BMC IP</th>
-		<th>DPU BMC IP</th>
-		<th>Host Vendor</th>
-		<th>DPU Machine ID</th>
-		<th>Host Serial Nrs</th>
-		<th>DPU Serial Nrs</th>
-		<th>Host PF MAC</th>
-		<th>DPU OOB MAC</th>
-	</tr>
-</thead>
-<tbody>
-{% for mh in managed_hosts %}
-	<tr>
-		<td><a href="/admin/explored_endpoint/{{ mh.host_bmc_ip }}">{{ mh.host_bmc_ip }}</a></td>
-		<td><a href="/admin/explored_endpoint/{{ mh.dpu_bmc_ip }}">{{ mh.dpu_bmc_ip }}</a></td>
-		<td>{{ mh.host_vendor|capitalize }}</td>
-		<td>{{ mh.dpu_machine_id|machine_id_link|safe }}</td>
-		<td>{{ mh.host_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
-		<td>{{ mh.dpu_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
-		<td>{{ mh.host_pf_mac }}</td>
-		<td>{{ mh.dpu_oob_mac }}</td>
-	</tr>
-{% endfor %}
-</tbody>
+	<thead>
+		<tr>
+			<th>Host BMC IP</th>
+			<th>Host Vendor</th>
+			<th>Host Serial Nrs</th>
+			<th>DPUs</th>
+		</tr>
+	</thead>
+	<tbody>
+		{% for mh in managed_hosts %}
+		<tr>
+			<td><a href="/admin/explored_endpoint/{{ mh.host_bmc_ip }}">{{ mh.host_bmc_ip }}</a></td>
+			<td>{{ mh.host_vendor|capitalize }}</td>
+			<td>{{ mh.host_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
+
+			<td style="padding: 0;">
+				{% for dpu in mh.dpus %}
+				<table style="width: 100%;">
+					<thead>
+						<tr>
+							<th>DPU BMC IP</th>
+							<th>DPU Machine ID</th>
+							<th>DPU Serial Nrs</th>
+							<th>Host PF MAC</th>
+							<th>DPU OOB MAC</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td><a href="/admin/explored_endpoint/{{ dpu.dpu_bmc_ip }}">{{ dpu.dpu_bmc_ip }}</a></td>
+							<td>{{ dpu.dpu_machine_id|machine_id_link|safe }}</td>
+							<td>{{ dpu.dpu_serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
+							<td>{{ dpu.host_pf_mac }}</td>
+							<td>{{ dpu.dpu_oob_mac }}</td>
+						</tr>
+					</tbody>
+
+				</table>
+				{% endfor %}
+			</td>
+		</tr>
+		{% endfor %}
+	</tbody>
 </table>
 
 <h1>Explored Endpoints</h1>
 
 <table>
 	<thead>
-	<tr>
-		<th>Address</th>
-		<th>Endpoint Type</th>
-		<th>BMC MAC</th>
-		<th>Vendor</th>
-		<th>Machine ID</th>
-		<th>Serial Numbers</th>
-		<th>Last Exploration Error</th>
-	</tr>
+		<tr>
+			<th>Address</th>
+			<th>Endpoint Type</th>
+			<th>BMC MAC</th>
+			<th>Vendor</th>
+			<th>Machine ID</th>
+			<th>Serial Numbers</th>
+			<th>Last Exploration Error</th>
+		</tr>
 	</thead>
 	<tbody>
-	{% for ep in endpoints %}
+		{% for ep in endpoints %}
 		<tr>
 			<td><a href="/admin/explored_endpoint/{{ ep.address }}">{{ ep.address }}</a></td>
 			<td>{{ ep.endpoint_type }}</td>
@@ -60,9 +77,8 @@
 			<td>{{ ep.serial_numbers|join("\n")|escape|linebreaksbr|safe }}</td>
 			<td>{{ ep.last_exploration_error }}</td>
 		</tr>
-	{% endfor %}
+		{% endfor %}
 	</tbody>
 </table>
 
 {% endblock %}
-

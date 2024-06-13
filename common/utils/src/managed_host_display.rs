@@ -312,11 +312,14 @@ impl ManagedHostAttachedDpu {
 pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOutput> {
     let mut result = Vec::default();
 
-    let managed_host_map: HashMap<String, String> = source
-        .site_explorer_managed_hosts
-        .iter()
-        .map(|x| (x.dpu_bmc_ip.clone(), x.host_bmc_ip.clone()))
-        .collect();
+    let mut managed_host_map: HashMap<String, String> = HashMap::new();
+
+    for explored_host in source.site_explorer_managed_hosts {
+        for dpu in &explored_host.dpus {
+            managed_host_map.insert(dpu.bmc_ip.clone(), explored_host.host_bmc_ip.clone());
+        }
+    }
+
     let mut connected_device_map = HashMap::<String, Vec<ConnectedDevice>>::new();
     for d in source.connected_devices.iter() {
         let Some(id) = d.id.as_ref().map(MachineId::to_string) else {

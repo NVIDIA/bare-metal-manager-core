@@ -19,8 +19,8 @@ use carbide::{
         machine::{BmcFirmwareUpdateSubstate, DpuDiscoveringState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-            EndpointExplorationReport, EndpointType, EthernetInterface, ExploredManagedHost,
-            Inventory, Manager, NicMode, Service,
+            EndpointExplorationReport, EndpointType, EthernetInterface, ExploredDpu,
+            ExploredManagedHost, Inventory, Manager, NicMode, Service,
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorer},
@@ -138,12 +138,15 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
 
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
-        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
-        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+        dpus: vec![ExploredDpu {
+            bmc_ip: IpAddr::from_str("192.168.1.2")?,
+            host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+            report: dpu_report.clone(),
+        }],
     };
 
     let handled_uefi_err = match explorer
-        .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+        .create_managed_host(&exploration_report, &env.pool)
         .await
     {
         Err(CarbideError::UnsupportedFirmwareVersion(_)) => true,
@@ -247,12 +250,15 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
-        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
-        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+        dpus: vec![ExploredDpu {
+            bmc_ip: IpAddr::from_str("192.168.1.2")?,
+            host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+            report: dpu_report.clone(),
+        }],
     };
 
     let handled_uefi_err = match explorer
-        .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+        .create_managed_host(&exploration_report, &env.pool)
         .await
     {
         Err(CarbideError::UnsupportedFirmwareVersion(_)) => true,
@@ -323,12 +329,15 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
-        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
-        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+        dpus: vec![ExploredDpu {
+            bmc_ip: IpAddr::from_str("192.168.1.2")?,
+            host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+            report: dpu_report,
+        }],
     };
 
     let handled_uefi_err = match explorer
-        .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+        .create_managed_host(&exploration_report, &env.pool)
         .await
     {
         Err(CarbideError::UnsupportedFirmwareVersion(_)) => false,
@@ -473,13 +482,16 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
-        dpu_bmc_ip: IpAddr::from_str("192.168.1.2")?,
-        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+        dpus: vec![ExploredDpu {
+            bmc_ip: IpAddr::from_str("192.168.1.2")?,
+            host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
+            report: dpu_report.clone(),
+        }],
     };
 
     assert!(
         explorer
-            .create_machine_pair(&dpu_report, &exploration_report, &env.pool)
+            .create_managed_host(&exploration_report, &env.pool)
             .await?
     );
 
