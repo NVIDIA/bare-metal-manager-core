@@ -26,6 +26,8 @@
 
 use crate::measured_boot::dto::traits::DbPrimaryUuid;
 use crate::measured_boot::interface::common::ToTable;
+use crate::model::RpcDataConversionError;
+use crate::CarbideError;
 use rpc::protos::measured_boot::Uuid;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
@@ -35,8 +37,6 @@ use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
 
-/// IdParseError is an error used for reporting back failures
-/// to parse a UUIDv4 string back into a UUID.
 #[derive(Debug)]
 pub struct UuidEmptyStringError {}
 
@@ -47,28 +47,6 @@ impl fmt::Display for UuidEmptyStringError {
 }
 
 impl Error for UuidEmptyStringError {}
-
-#[derive(Debug)]
-pub struct IdParseError {
-    // from is the input string.
-    from: String,
-    // to is the intended type (e.g. MeasurementSystemProfileId).
-    to: String,
-    // msg is a useful msg
-    msg: String,
-}
-
-impl fmt::Display for IdParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "failed to parse UUIDv4 input '{}' to {}: {}",
-            self.from, self.to, self.msg,
-        )
-    }
-}
-
-impl Error for IdParseError {}
 
 /// MeasurementSystemProfileId
 ///
@@ -96,15 +74,12 @@ impl From<MeasurementSystemProfileId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementSystemProfileId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementSystemProfileId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementSystemProfileId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementSystemProfileId")
+        })?))
     }
 }
 
@@ -129,8 +104,8 @@ impl From<MeasurementSystemProfileId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementSystemProfileId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -139,7 +114,7 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementSystemProfileId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
@@ -170,15 +145,12 @@ impl From<MeasurementSystemProfileAttrId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementSystemProfileAttrId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementSystemProfileAttrId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementSystemProfileAttrId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementSystemProfileAttrId")
+        })?))
     }
 }
 
@@ -197,8 +169,8 @@ impl From<MeasurementSystemProfileAttrId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementSystemProfileAttrId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -207,7 +179,7 @@ impl TryFrom<Option<Uuid>> for MeasurementSystemProfileAttrId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementSystemProfileAttrId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
@@ -239,15 +211,12 @@ impl From<MeasurementBundleId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementBundleId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementBundleId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementBundleId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementBundleId")
+        })?))
     }
 }
 
@@ -272,8 +241,8 @@ impl From<MeasurementBundleId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementBundleId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -282,7 +251,7 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementBundleId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
@@ -323,15 +292,12 @@ impl From<MeasurementBundleValueId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementBundleValueId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementBundleValueId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementBundleValueId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementBundleValueId")
+        })?))
     }
 }
 
@@ -350,8 +316,8 @@ impl From<MeasurementBundleValueId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementBundleValueId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -360,7 +326,7 @@ impl TryFrom<Option<Uuid>> for MeasurementBundleValueId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementBundleValueId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
@@ -392,15 +358,12 @@ impl From<MeasurementReportId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementReportId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementReportId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementReportId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementReportId")
+        })?))
     }
 }
 
@@ -425,8 +388,8 @@ impl From<MeasurementReportId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementReportId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -435,7 +398,7 @@ impl TryFrom<Option<Uuid>> for MeasurementReportId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementReportId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
@@ -465,15 +428,12 @@ impl From<MeasurementReportValueId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementReportValueId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementReportValueId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementReportValueId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementReportValueId")
+        })?))
     }
 }
 
@@ -492,8 +452,8 @@ impl From<MeasurementReportValueId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementReportValueId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -502,7 +462,7 @@ impl TryFrom<Option<Uuid>> for MeasurementReportValueId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementReportValueId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
@@ -534,15 +494,12 @@ impl From<MeasurementJournalId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementJournalId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementJournalId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementJournalId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementJournalId")
+        })?))
     }
 }
 
@@ -567,8 +524,8 @@ impl From<MeasurementJournalId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementJournalId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -577,7 +534,7 @@ impl TryFrom<Option<Uuid>> for MeasurementJournalId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementJournalId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
@@ -611,15 +568,12 @@ impl From<MeasurementApprovedMachineId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementApprovedMachineId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementApprovedMachineId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementApprovedMachineId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementApprovedMachineId")
+        })?))
     }
 }
 
@@ -644,8 +598,8 @@ impl From<MeasurementApprovedMachineId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementApprovedMachineId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -654,7 +608,7 @@ impl TryFrom<Option<Uuid>> for MeasurementApprovedMachineId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementApprovedMachineId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
@@ -688,15 +642,12 @@ impl From<MeasurementApprovedProfileId> for uuid::Uuid {
 }
 
 impl FromStr for MeasurementApprovedProfileId {
-    type Err = IdParseError;
+    type Err = RpcDataConversionError;
 
-    fn from_str(input: &str) -> Result<Self, IdParseError> {
-        let parsed = uuid::Uuid::parse_str(input).map_err(|e| IdParseError {
-            from: input.to_string(),
-            to: "MeasurementApprovedProfileId".to_string(),
-            msg: e.to_string(),
-        })?;
-        Ok(MeasurementApprovedProfileId(parsed))
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MeasurementApprovedProfileId")
+        })?))
     }
 }
 
@@ -721,8 +672,8 @@ impl From<MeasurementApprovedProfileId> for Uuid {
 }
 
 impl TryFrom<Uuid> for MeasurementApprovedProfileId {
-    type Error = IdParseError;
-    fn try_from(msg: Uuid) -> Result<Self, IdParseError> {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
@@ -731,7 +682,7 @@ impl TryFrom<Option<Uuid>> for MeasurementApprovedProfileId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(UuidEmptyStringError {}.into());
+            return Err(CarbideError::MissingArgument("MeasurementApprovedProfileId").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }
