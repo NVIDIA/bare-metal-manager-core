@@ -12,18 +12,18 @@
 
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
-use crate::api::Api;
+use crate::api::{log_request_data, Api};
 use crate::db::vpc::{NewVpc, UpdateVpc, Vpc};
 use crate::db::{DatabaseError, UuidKeyedObjectFilter};
+use crate::model::RpcDataConversionError;
 use crate::CarbideError;
 
 pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::VpcCreationRequest>,
 ) -> Result<Response<rpc::Vpc>, Status> {
-    crate::api::log_request_data(&request);
+    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "begin create_vpc", e))
@@ -51,7 +51,7 @@ pub(crate) async fn update(
     api: &Api,
     request: Request<rpc::VpcUpdateRequest>,
 ) -> Result<Response<rpc::VpcUpdateResult>, Status> {
-    crate::api::log_request_data(&request);
+    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "begin update_vpc", e))
@@ -72,7 +72,7 @@ pub(crate) async fn delete(
     api: &Api,
     request: Request<rpc::VpcDeletionRequest>,
 ) -> Result<Response<rpc::VpcDeletionResult>, Status> {
-    crate::api::log_request_data(&request);
+    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "begin delete_vpc", e))
@@ -119,11 +119,87 @@ pub(crate) async fn delete(
     Ok(Response::new(rpc::VpcDeletionResult {}))
 }
 
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::VpcSearchConfig>,
+) -> Result<Response<rpc::VpcIdList>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin vpc::find_ids",
+            e,
+        ))
+    })?;
+
+    let search_config: rpc::VpcSearchConfig = request.into_inner();
+
+    let vpc_ids = Vpc::find_ids(&mut txn, search_config).await?;
+
+    Ok(Response::new(rpc::VpcIdList {
+        vpc_ids: vpc_ids
+            .into_iter()
+            .map(|id| rpc::Uuid {
+                value: id.to_string(),
+            })
+            .collect(),
+    }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::VpcIdList>,
+) -> Result<Response<rpc::VpcList>, Status> {
+    log_request_data(&request);
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin vpc::find_by_ids",
+            e,
+        ))
+    })?;
+
+    let vpc_ids: Result<Vec<uuid::Uuid>, CarbideError> = request
+        .into_inner()
+        .vpc_ids
+        .iter()
+        .map(|id| {
+            uuid::Uuid::try_from(id.value.as_str()).map_err(|_| {
+                CarbideError::from(RpcDataConversionError::InvalidVpcId(id.value.to_string()))
+            })
+        })
+        .collect();
+    let vpc_ids = vpc_ids?;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if vpc_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    }
+
+    let db_vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::List(&vpc_ids)).await;
+
+    let result = db_vpcs
+        .map(|vpc| rpc::VpcList {
+            vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
+        })
+        .map(Response::new)
+        .map_err(CarbideError::from)?;
+
+    Ok(result)
+}
+
+// DEPRECATED: use find_ids and find_by_ids instead
 pub(crate) async fn find(
     api: &Api,
     request: Request<rpc::VpcSearchQuery>,
 ) -> Result<Response<rpc::VpcList>, Status> {
-    crate::api::log_request_data(&request);
+    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(file!(), line!(), "begin find_vpcs", e))
@@ -133,7 +209,7 @@ pub(crate) async fn find(
 
     let vpcs = match (id, name) {
         (Some(id), _) => {
-            let uuid = match Uuid::try_from(id) {
+            let uuid = match uuid::Uuid::try_from(id) {
                 Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(

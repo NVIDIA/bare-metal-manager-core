@@ -22,6 +22,9 @@ service Forge {
   rpc CreateVpc(VpcCreationRequest) returns (Vpc);
   rpc UpdateVpc(VpcUpdateRequest) returns (VpcUpdateResult);
   rpc DeleteVpc(VpcDeletionRequest) returns (VpcDeletionResult);
+  rpc FindVpcIds(VpcSearchConfig) returns (VpcIdList);
+  rpc FindVpcsByIds(VpcIdList) returns (VpcList);
+  // DEPRECATED: use FindVpcIds and FindVpcsByIds instead
   rpc FindVpcs(VpcSearchQuery) returns (VpcList);
 
   // Segments - i.e. Overlay Networks
@@ -509,6 +512,14 @@ message UUID {
 message VpcSearchQuery {
   optional UUID id = 1;
   optional string name = 2;
+}
+
+message VpcSearchConfig {
+  optional string name = 1;
+}
+
+message VpcIdList {
+  repeated UUID vpc_ids = 1;
 }
 
 message TenantSearchQuery {

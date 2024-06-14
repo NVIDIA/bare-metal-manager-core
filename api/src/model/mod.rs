@@ -77,6 +77,8 @@ pub enum RpcDataConversionError {
     InvalidCriticalErrorType(i32),
     #[error("Instance ID {0} is not valid")]
     InvalidInstanceId(String),
+    #[error("VPC ID {0} is not valid")]
+    InvalidVpcId(String),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
