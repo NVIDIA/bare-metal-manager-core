@@ -361,7 +361,6 @@ category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) and move to the carbide static webroot"
 workspace = false
 dependencies = [
-    { name = "check-cross-installed", path = "${REPO_ROOT}" },
 	"bfb-cleanup-tmp",
 	"bfb-create-tmp",
 	"bfb-download",
