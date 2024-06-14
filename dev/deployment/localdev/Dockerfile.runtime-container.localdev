@@ -35,4 +35,5 @@ RUN --mount=type=cache,target=/var/cache/apt apt-get update && apt-get install -
   iproute2 \
   iputils-ping \
   libudev1 \
-  tpm2-tools
+  tpm2-tools \
+  libtss2-dev
