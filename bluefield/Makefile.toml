@@ -32,15 +32,22 @@ category = "Build"
 description = "cross compile forge-dpu-agent locally"
 workspace = false
 script = '''
-cross build --bin forge-dpu-agent --target aarch64-unknown-linux-gnu --release
-# Install package `binutils-aarch64-linux-gnu` to get this one
-if command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
-	aarch64-linux-gnu-strip ${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent
-fi
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
+    --env CARGO_HOME=/cargo \
+    -v $CARGO_HOME:/cargo \
+    build-artifacts-container-cross-aarch64 \
+    "cargo" \
+    "build" \
+    "--release" \
+    "--target=aarch64-unknown-linux-gnu" \
+    "--bin" \
+    "forge-dpu-agent"
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64 "aarch64-linux-gnu-strip" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent" \
 '''
 dependencies = [
-  { name = "check-cross-installed", path = "${REPO_ROOT}" },
   { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
+  { name = "check-cargo-home-set", path = "${REPO_ROOT}" },
 ]
 
 [tasks.build-dpu-agent-ci]

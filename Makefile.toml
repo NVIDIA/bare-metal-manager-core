@@ -62,12 +62,6 @@ category = "Build"
 description = "Build forge-scout and forge-admin-cli locally using debian container. Ensures correct GCC version is used."
 workspace = false
 script = '''
-# Check if CARGO_HOME is not set or is empty
-if [ -z "$CARGO_HOME" ]; then
-  # Set CARGO_HOME to $HOME/.cargo if it is not set
-  CARGO_HOME="$HOME/.cargo"
-fi
-
 docker run \
 	--rm \
 	--user $(id -u):$(id -g) \
@@ -78,18 +72,13 @@ docker run \
 	-it urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
 	cargo build -p scout -p admin
 '''
+dependencies = ["check-cargo-home-set"]
 
 [tasks.build-health]
 category = "Build"
 description = "Build forge-hw-health locally using debian container."
 workspace = false
 script = '''
-# Check if CARGO_HOME is not set or is empty
-if [ -z "$CARGO_HOME" ]; then
-  # Set CARGO_HOME to $HOME/.cargo if it is not set
-  CARGO_HOME="$HOME/.cargo"
-fi
-
 docker run \
 	--rm \
 	--user $(id -u):$(id -g) \
@@ -100,26 +89,42 @@ docker run \
 	-it urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
 	cargo build -p health
 '''
+dependencies = ["check-cargo-home-set"]
 
-[tasks.check-cross-installed]
+[tasks.check-cargo-home-set]
+category = "Build"
+description = "validates CARGO_HOME env var is set to something"
 workspace = false
 script = '''
-#/usr/bin/env bash
-
-which cross >/dev/null && exit 0
-
-echo "!!!! ERROR: 'cross' binary not found. install with 'cargo install cross'. !!!!!"
-exit 1
+# Check if CARGO_HOME is not set or is empty
+if [ -z "$CARGO_HOME" ]; then
+  # Set CARGO_HOME to $HOME/.cargo if it is not set
+  CARGO_HOME="$HOME/.cargo"
+fi
 '''
 
 [tasks.build-cli-cross-aarch64]
 category = "Build"
-description = "Build forge-scout and forge-admin-cli for aarch64, intended only for local artifact builds."
+description = "Cross compile forge-scout and forge-admin-cli for aarch64, intended only for local artifact builds."
 workspace = false
 script = '''
-cross build --target aarch64-unknown-linux-gnu -p scout -p admin
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
+    --env CARGO_HOME=/cargo \
+    -v $CARGO_HOME:/cargo \
+    build-artifacts-container-cross-aarch64 \
+    "cargo" \
+    "build" \
+    "--release" \
+    "--target=aarch64-unknown-linux-gnu" \
+    "-p" \
+    "admin" \
+    "-p" \
+    "scout" 
+docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64 "aarch64-linux-gnu-strip" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-admin-cli" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"   
 '''
-dependencies = ["check-cross-installed", "build-cross-docker-image"]
+dependencies = ["check-cargo-home-set", "build-cross-docker-image"]
 
 [tasks.build-cross-docker-image]
 category = "Build"
