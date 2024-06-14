@@ -53,3 +53,14 @@ skaffold-dirs:
   set -euo pipefail
   test -d .skaffold/cache || mkdir -p .skaffold/cache
   test -d .skaffold/target || mkdir -p .skaffold/target
+
+test_docker_containers:
+  #!/usr/bin/env bash
+  echo "Initiating docker postgres container for testing named: pgdev"
+  docker kill pgdev 2>/dev/null
+  docker run --rm -di -e POSTGRES_PASSWORD="admin" --net=host --name pgdev postgres:14.5-alpine
+
+clean_postgres:
+  #!/usr/bin/env bash
+  echo "Cleaning forge postgres DB"
+  ./dev/bin/nuke-postgres.sh
