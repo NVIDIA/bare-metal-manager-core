@@ -4318,7 +4318,7 @@ impl Forge for Api {
             CarbideError::from(DatabaseError::new(
                 file!(),
                 line!(),
-                "begin find secret -> AK Pub",
+                "begin machine attestation verify quote",
                 e,
             ))
         })?;
@@ -4333,15 +4333,6 @@ impl Forge for Api {
                 }
             };
 
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit find secret -> AK Pub",
-                e,
-            ))
-        })?;
-
         let ak_pub = TssPublic::unmarshall(ak_pub_bytes.as_slice()).map_err(|e| {
             CarbideError::AttestationVerifyQuoteError(format!("Could not unmarshal AK Pub: {0}", e))
         })?;
@@ -4352,6 +4343,7 @@ impl Forge for Api {
                 e
             ))
         })?;
+
         let signature = Signature::unmarshall(&(request.get_ref()).signature).map_err(|e| {
             CarbideError::AttestationVerifyQuoteError(format!(
                 "Could not unmarshall Signature struct: {0}",
@@ -4359,43 +4351,86 @@ impl Forge for Api {
             ))
         })?;
 
+        // Make sure sure the signature can at least be verified
+        // as valid or invalid. If it can't be verified in any
+        // way at all, return an error.
         let signature_valid =
-            attest::verify_signature(&ak_pub, &request.get_ref().attestation, &signature)?;
+            attest::verify_signature(&ak_pub, &request.get_ref().attestation, &signature).map_err(
+                |carbide_err| {
+                    tracing::warn!(
+                        "PCR signature verification failed (event log: {})",
+                        attest::event_log_to_string(&request.get_ref().event_log)
+                    );
+                    carbide_err
+                },
+            )?;
 
-        let pcr_hash_matches = attest::verify_pcr_hash(&attest, &request.get_ref().pcr_values)?;
+        // Make sure we can verify the the PCR hash one way
+        // or another. If it can't be, return an error.
+        let pcr_hash_matches = attest::verify_pcr_hash(&attest, &request.get_ref().pcr_values)
+            .map_err(|carbide_err| {
+                tracing::warn!(
+                    "PCR hash verification failed (event log: {})",
+                    attest::event_log_to_string(&request.get_ref().event_log)
+                );
+                carbide_err
+            })?;
 
-        // TODO: change to debug? once the full implementation is in place?
-        tracing::info!(
-            "Signature valid: {0}, pcr hash matches: {1}",
+        // And now pass on through the computed signature
+        // validity and PCR hash match to see if execution can
+        // continue (the event log goes with, since it will be
+        // logged in the event of an invalid signature or PCR
+        // hash mismatch).
+        attest::verify_quote_state(
             signature_valid,
-            pcr_hash_matches
-        );
+            pcr_hash_matches,
+            &request.get_ref().event_log,
+        )?;
 
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin delete secret -> AK Pub",
-                e,
+        // If we've reached this point, we can now clean up
+        // now ephemeral secret data from the database, and send
+        // of the PCR values as a MeasurementReport.
+        SecretAkPub::delete(&mut txn, &request.get_ref().credential).await?;
+
+        let pcr_values: measured_boot::interface::common::PcrRegisterValueVec = request
+            .into_inner()
+            .pcr_values
+            .drain(..)
+            .map(|pcr_u8| {
+                String::from_utf8(pcr_u8).map_err(|e| {
+                    CarbideError::GenericError(format!("failed to parse utf8 PCR value: {}", e))
+                })
+            })
+            .collect::<Result<Vec<String>, CarbideError>>()?
+            .into();
+
+        // In this case, we're not doing anything with
+        // the resulting report (at least not yet), so just
+        // throw it away.
+        let _report = measured_boot::model::report::MeasurementReport::new_with_txn(
+            &mut txn,
+            machine_id.clone(),
+            pcr_values.into_inner().as_slice(),
+        )
+        .await
+        .map_err(|e| {
+            Status::internal(format!(
+                "Failed storing measurement report: (machine_id: {}, err: {})",
+                &machine_id, e
             ))
         })?;
-        SecretAkPub::delete(&mut txn, &request.get_ref().credential).await?;
 
         txn.commit().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
                 line!(),
-                "commit delete secret -> AK Pub",
+                "commit machine attestation verify quote",
                 e,
             ))
         })?;
 
-        let _eventlog_opt = &request.get_ref().event_log;
-
-        // TODO: Chet -> this is where verification logic goes
-
         Ok(tonic::Response::new(rpc::VerifyQuoteResponse {
-            success: false,
+            success: true,
         }))
     }
 

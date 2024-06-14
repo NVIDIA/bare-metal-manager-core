@@ -36,6 +36,70 @@ use byteorder::{BigEndian, ByteOrder};
 use crate::CarbideError;
 use crate::CarbideResult;
 
+/// VerifyQuoteState is a simple enum used to track
+/// the state of a verify_quote call, specifically as
+/// it relates to verifying the signature and PCR hash.
+/// It is used for appropriate logging and error handling.
+pub enum VerifyQuoteState {
+    Success,
+    SignatureInvalid,
+    VerifyHashNoMatch,
+    CompleteFailure,
+}
+
+impl VerifyQuoteState {
+    pub fn from_results(signature_valid: bool, pcr_hash_matches: bool) -> Self {
+        match (signature_valid, pcr_hash_matches) {
+            (true, true) => Self::Success,
+            (true, false) => Self::SignatureInvalid,
+            (false, true) => Self::VerifyHashNoMatch,
+            (false, false) => Self::CompleteFailure,
+        }
+    }
+}
+
+/// verify_quote_state takes the input signature validity,
+/// PCR hash matching result, and a reference to the event
+/// log, and will check to see if things are good (or if an
+/// error needs to be returned + the event log dumped to log).
+pub fn verify_quote_state(
+    signature_valid: bool,
+    pcr_hash_matches: bool,
+    event_log: &Option<Vec<u8>>,
+) -> Result<(), CarbideError> {
+    let quote_state = VerifyQuoteState::from_results(signature_valid, pcr_hash_matches);
+    match quote_state {
+        VerifyQuoteState::Success => Ok(()),
+        VerifyQuoteState::SignatureInvalid => {
+            tracing::warn!(
+                "PCR signature invalid (event log: {}",
+                event_log_to_string(event_log)
+            );
+            Err(CarbideError::AttestationVerifyQuoteError(
+                "PCR signature invalid (see logs for full event log)".to_string(),
+            ))
+        }
+        VerifyQuoteState::VerifyHashNoMatch => {
+            tracing::warn!(
+                "PCR hash mismatch (event log: {}",
+                event_log_to_string(event_log)
+            );
+            Err(CarbideError::AttestationVerifyQuoteError(
+                "PCR hash does not match (see logs for full event log)".to_string(),
+            ))
+        }
+        VerifyQuoteState::CompleteFailure => {
+            tracing::warn!(
+                "PCR signature invalid and PCR hash mismatch (event log: {}",
+                event_log_to_string(event_log)
+            );
+            Err(CarbideError::AttestationVerifyQuoteError(
+                "PCR signature invalid (see logs for full event log)".to_string(),
+            ))
+        }
+    }
+}
+
 pub fn cli_make_cred(
     ek_serialized: &Vec<u8>,
     ak_serialized: &Vec<u8>,
@@ -251,6 +315,22 @@ fn extract_cred_secret(creds: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let secret = Vec::from(&creds[cred_blob_end_idx + secret_offset..]);
 
     (cred_blob, secret)
+}
+
+/// event_log_to_string converts the input event log (which
+/// comes to us via the proto as an Option<Vec<u8>) into a String,
+/// for passing to tracing/logging.
+///
+/// since the event log is currently "best effort", we'll log a
+/// little "error" in <>'s if we notice there's no event log.
+pub fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
+    event_log
+        .as_ref()
+        .map(|log_utf8| {
+            String::from_utf8(log_utf8.to_vec())
+                .unwrap_or(String::from("<event log failed utf8 conversion>"))
+        })
+        .unwrap_or(String::from("<event log empty>"))
 }
 
 // test: verify_signature, verify_pcr_hash, extract_cred_secret

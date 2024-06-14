@@ -25,6 +25,7 @@ use std::collections::HashSet;
 use std::convert::{From, Into};
 use std::error::Error;
 use std::fmt;
+use std::vec::Vec;
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
 // from DiscoveryInfo for a given machine when
@@ -230,6 +231,14 @@ pub struct PcrRegisterValue {
     pub sha256: String,
 }
 
+pub struct PcrRegisterValueVec(Vec<PcrRegisterValue>);
+
+impl PcrRegisterValueVec {
+    pub fn into_inner(self) -> Vec<PcrRegisterValue> {
+        self.0
+    }
+}
+
 impl PcrRegisterValue {
     pub fn from_pb_vec(pbs: &[PcrRegisterValuePb]) -> Vec<Self> {
         pbs.iter().map(|value| value.clone().into()).collect()
@@ -255,6 +264,20 @@ impl From<PcrRegisterValuePb> for PcrRegisterValue {
             pcr_register: msg.pcr_register as i16,
             sha256: msg.sha256,
         }
+    }
+}
+
+impl From<Vec<String>> for PcrRegisterValueVec {
+    fn from(pcr_strings: Vec<String>) -> Self {
+        let pcr_register_values = pcr_strings
+            .into_iter()
+            .enumerate()
+            .map(|(pcr_index, pcr_val)| PcrRegisterValue {
+                pcr_register: pcr_index as i16,
+                sha256: pcr_val,
+            })
+            .collect();
+        PcrRegisterValueVec(pcr_register_values)
     }
 }
 
