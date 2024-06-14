@@ -37,7 +37,9 @@ use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
 use crate::instance_metadata_endpoint;
-use crate::instance_metadata_endpoint::get_instance_metadata_router;
+use crate::instance_metadata_endpoint::{
+    get_instance_metadata_router, InstanceMetadataRouterStateImpl,
+};
 use crate::instance_metadata_fetcher;
 use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
@@ -63,17 +65,37 @@ pub async fn run(
     let mut term_signal = signal(SignalKind::terminate())?;
     let mut hup_signal = signal(SignalKind::hangup())?;
 
+    let forge_api = &agent.forge_system.api_server;
+
+    let instance_metadata_fetcher =
+        Arc::new(instance_metadata_fetcher::InstanceMetadataFetcher::new(
+            instance_metadata_fetcher::InstanceMetadataFetcherConfig {
+                config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
+                machine_id: machine_id.to_string(),
+                forge_api: forge_api.to_string(),
+                forge_client_config: forge_client_config.clone(),
+            },
+        ));
+
+    let instance_metadata_state = Arc::new(
+        instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
+            instance_metadata_fetcher.reader(),
+            machine_id.to_string(),
+            forge_api.to_string(),
+            forge_client_config.clone(),
+        ),
+    );
+
     if options.enable_metadata_service {
         if let Err(e) = spawn_metadata_service(
-            machine_id,
-            forge_client_config.clone(),
-            &agent,
             agent.metadata_service.address.clone(),
             agent.telemetry.metrics_address.clone(),
+            instance_metadata_state,
         ) {
             return Err(eyre::eyre!("Failed to run metadata service: {:#}", e));
         }
     }
+
     let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
         "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to Version"
     ))?;
@@ -85,7 +107,6 @@ pub async fn run(
     let main_loop_period_active = Duration::from_secs(agent.period.main_loop_active_secs);
     let main_loop_period_idle = Duration::from_secs(agent.period.main_loop_idle_secs);
 
-    let forge_api = &agent.forge_system.api_server;
     let build_version = forge_version::v!(build_version).to_string();
     // `new` does a network call and spawns a task. It fetches an initial config from carbide-api,
     // then spawns a task fetching config every network_config_fetch_secs.
@@ -607,14 +628,10 @@ async fn start_inventory_updater(
 */
 
 fn spawn_metadata_service(
-    machine_id: &str,
-    forge_client_config: forge_tls_client::ForgeClientConfig,
-    agent: &AgentConfig,
     metadata_service_address: String,
     metrics_address: String,
+    state: Arc<InstanceMetadataRouterStateImpl>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let forge_api = &agent.forge_system.api_server;
-
     // This defines attributes that are set on the exported logs **and** metrics
     let service_telemetry_attributes = sdk::Resource::new(vec![
         semcov::resource::SERVICE_NAME.string("dpu-agent"),
@@ -645,24 +662,7 @@ fn spawn_metadata_service(
 
     let meter = opentelemetry::global::meter("forge-dpu-agent");
 
-    let instance_metadata_fetcher =
-        Arc::new(instance_metadata_fetcher::InstanceMetadataFetcher::new(
-            instance_metadata_fetcher::InstanceMetadataFetcherConfig {
-                config_fetch_interval: Duration::from_secs(agent.period.network_config_fetch_secs),
-                machine_id: machine_id.to_string(),
-                forge_api: forge_api.to_string(),
-                forge_client_config: forge_client_config.clone(),
-            },
-        ));
-
-    let instance_metadata_state = Arc::new(
-        instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
-            instance_metadata_fetcher.reader(),
-            machine_id.to_string(),
-            forge_api.to_string(),
-            forge_client_config.clone(),
-        ),
-    );
+    let instance_metadata_state = state.clone();
 
     let metrics_state = create_metrics(meter);
 
