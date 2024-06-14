@@ -1,0 +1,26 @@
+FROM nvcr.io/nvidian/nvforge-devel/forge-admin-cli:latest
+
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && \
+    apt-get install -y \
+    python3.11-full \
+    wget \
+    unzip
+
+WORKDIR /tests
+COPY ./tests/machine-lifecycle/requirements.txt machine-lifecycle/requirements.txt
+RUN python3 -m venv venv
+RUN venv/bin/pip install --no-cache-dir --upgrade -r machine-lifecycle/requirements.txt
+
+#RUN wget --no-verbose --content-disposition https://api.stg.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/3.94.4/files/ngccli_arm64.zip -O ngccli_arm64.zip \
+#    && unzip -q ngccli_arm64.zip \
+#    && find ngc-cli/ -type f -exec md5sum {} + | LC_ALL=C sort | md5sum -c ngc-cli.md5 \
+#    && chmod u+x ngc-cli/ngc
+
+RUN wget --no-verbose --content-disposition https://api.stg.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/3.94.4/files/ngccli_linux.zip -O ngccli_linux.zip \
+    && unzip -q ngccli_linux.zip \
+    && find ngc-cli/ -type f -exec md5sum {} + | LC_ALL=C sort | md5sum -c ngc-cli.md5 \
+    && chmod u+x ngc-cli/ngc
+
+ENV PATH=${PATH}:/tests/ngc-cli
