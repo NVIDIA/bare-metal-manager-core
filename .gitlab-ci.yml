@@ -63,6 +63,7 @@ variables:
   CONTAINER_ARTIFACTS_X86_64: "alpine:latest"
   CONTAINER_ARTIFACTS_AARCH64: "alpine:latest"
   CONTAINER_SITE_AUTO_DEPLOY: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/tools/site-auto-deploy-container:latest"
+  CONTAINER_MACHINE_LIFECYCLE_TEST: "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/tools/machine-lifecycle-test-container:latest"
 
 include:
   - project: "nvmetal/ci-tools/build-container-cocogitto"
@@ -890,6 +891,24 @@ build-site-auto-deploy-container:
     - docker push $BUILD_DOCKER_IMAGE
 
 #
+# Build and push the image that contains the dependencies for job 'scheduled-test:machine-lifecycle-test'
+#
+build-machine-lifecycle-test-container:
+  extends: build-container
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - changes:
+        - dev/docker/Dockerfile.machine-lifecycle-test-container
+        - dev/docker/Dockerfile.release-forge-cli  # maybe, since we depend on it?
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.machine-lifecycle-test-container
+    BUILD_DOCKER_IMAGE: $CONTAINER_MACHINE_LIFECYCLE_TEST
+  script:
+    - docker build --pull --add-host=gitlab-master.nvidia.com:10.120.180.120 --file $DOCKER_FILE --tag $BUILD_DOCKER_IMAGE .
+    - docker push $BUILD_DOCKER_IMAGE
+
+#
 # Get the latest versions of carbide and ssh-console from nvcr.io/nvidian/nvforge-devel
 #
 scheduled-test:get-latest-versions:
@@ -976,14 +995,46 @@ scheduled-test:auto-deploy-site-controller:
     - bash .gitlab/update-site-controller.sh
     - export CARBIDE_API_URL="api-${SHORT_SITE_NAME}.frg.nvidia.com"
     - echo "CARBIDE_API_URL=${CARBIDE_API_URL}" >> site.env
+  artifacts:
+    reports:
+      dotenv: site.env
+
+#
+# Get short-lived certificate for talking to carbide-api
+#
+scheduled-test:get-api-certificate:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  retry:
+    when:
+      - runner_system_failure
+    max: 2
+  image:
+    name: $CONTAINER_SITE_AUTO_DEPLOY
+    entrypoint: [ "" ]
+  variables:
+    # This variable is specified in GitLab UI > Scheduled Pipelines
+    SITE_UNDER_TEST: $SITE_UNDER_TEST
+    VAULT_NAMESPACE: ngc-forge
+  id_tokens:
+    VAULT_JWT_TOKEN:
+      aud: $VAULT_ADDR
+  before_script:
+    - set -euo pipefail
+    # Cannot overwrite predefined GitLab variables using the 'variables' section, so do it here:
+    - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
+    - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
+    - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
+    # Parse short site name from full site name
+    - export SHORT_SITE_NAME=$(echo "${SITE_UNDER_TEST}" | cut -d '-' -f 2)
+  script:
+    - export CARBIDE_API_URL="api-${SHORT_SITE_NAME}.frg.nvidia.com"
     - mkdir certs && pushd certs
-    - vault write --format json forgeca-production/issue/ci-api-access common_name="${CARBIDE_API_URL}" ttl="4h" > vault_cert_output.json
+    - vault write --format json forgeca-production/issue/ci-api-access common_name="${CARBIDE_API_URL}" ttl="6h" > vault_cert_output.json
     - cat vault_cert_output.json | jq -r .data.certificate > ci-api-user.crt
     - cat vault_cert_output.json | jq -r .data.private_key > ci-api-user
     - popd
   artifacts:
-    reports:
-      dotenv: site.env
     paths:
       - certs/
 
@@ -993,9 +1044,8 @@ scheduled-test:auto-deploy-site-controller:
 scheduled-test:verify-site-controller-version:
   needs:
     - job: scheduled-test:get-latest-versions
-      optional: false
     - job: scheduled-test:auto-deploy-site-controller
-      optional: false
+    - job: scheduled-test:get-api-certificate
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   retry:
@@ -1011,6 +1061,7 @@ scheduled-test:verify-site-controller-version:
     CLIENT_KEY_PATH: certs/ci-api-user
   script:
     - set -euo pipefail
+    - echo "Checking carbide-api is version ${LATEST_COMMON_VERSION}"
     - DEPLOYED_VERSION=$(forge-admin-cli --format json -c https://${CARBIDE_API_URL} version | jq -r '.build_version')
     - |
       if [ ${DEPLOYED_VERSION} != ${LATEST_COMMON_VERSION} ]; then
@@ -1077,3 +1128,37 @@ scheduled-test:run-cloud-api-tests:
     paths:
       - task_run/
     when: always
+
+#
+# Run the Machine Lifecycle Test
+#
+scheduled-test:machine-lifecycle-test:
+  timeout: 4h
+  needs:
+    - job: scheduled-test:auto-deploy-site-controller
+    - job: scheduled-test:verify-site-controller-version
+    - job: scheduled-test:get-api-certificate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  retry:
+    when:
+      - runner_system_failure
+    max: 2
+  image:
+    name: $CONTAINER_MACHINE_LIFECYCLE_TEST
+    entrypoint: [ "" ]
+  variables:
+    CARBIDE_API_URL: $CARBIDE_API_URL
+    CLIENT_CERT_PATH: certs/ci-api-user.crt
+    CLIENT_KEY_PATH: certs/ci-api-user
+    VAULT_NAMESPACE: ngc-forge
+  id_tokens:
+    VAULT_JWT_TOKEN:
+      aud: $VAULT_ADDR
+  before_script:
+    - set -euo pipefail
+    - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
+    - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
+  script:
+    - source /tests/venv/bin/activate
+    - python3 $CI_PROJECT_DIR/tests/machine-lifecycle/machine_lifecycle_test.py

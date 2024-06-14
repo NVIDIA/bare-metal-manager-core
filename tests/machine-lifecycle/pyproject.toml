@@ -1,0 +1,27 @@
+# Note, when updating dependencies, always run
+# `poetry export --output requirements.txt` to update the requirements file,
+# which is what is used when building the machine-lifecycle-test docker image.
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+rich = "^13.7.1"
+paramiko = "^3.4.0"
+hvac = "^2.2.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.4.2"
+isort = "^5.13.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target-version = ['py310']
+
+[tool.isort]
+profile = "black"
+skip_gitignore = true
