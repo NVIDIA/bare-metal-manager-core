@@ -197,6 +197,21 @@ impl Forge for Api {
         crate::handlers::vpc::delete(self, request).await
     }
 
+    async fn find_vpc_ids(
+        &self,
+        request: Request<rpc::VpcSearchConfig>,
+    ) -> Result<Response<rpc::VpcIdList>, Status> {
+        crate::handlers::vpc::find_ids(self, request).await
+    }
+
+    async fn find_vpcs_by_ids(
+        &self,
+        request: Request<rpc::VpcIdList>,
+    ) -> Result<Response<rpc::VpcList>, Status> {
+        crate::handlers::vpc::find_by_ids(self, request).await
+    }
+
+    // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
     async fn find_vpcs(
         &self,
         request: Request<rpc::VpcSearchQuery>,

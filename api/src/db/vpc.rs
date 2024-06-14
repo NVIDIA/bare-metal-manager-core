@@ -16,8 +16,7 @@ use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row};
-use uuid::Uuid;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
 use crate::db::UuidKeyedObjectFilter;
@@ -35,7 +34,7 @@ const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
     pub name: String,
     pub tenant_organization_id: String,
     pub version: ConfigVersion,
@@ -109,7 +108,7 @@ pub struct NewVpc {
 
 #[derive(Clone, Debug)]
 pub struct UpdateVpc {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
     pub if_version_match: Option<ConfigVersion>,
     pub name: String,
     pub tenant_organization_id: String,
@@ -166,9 +165,38 @@ impl NewVpc {
 }
 
 impl Vpc {
+    pub async fn find_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        search_config: rpc::VpcSearchConfig,
+    ) -> Result<Vec<uuid::Uuid>, CarbideError> {
+        #[derive(Debug, Clone, Copy, FromRow)]
+        pub struct VpcId(uuid::Uuid);
+
+        // build query
+        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpcs WHERE ");
+        let mut has_filter = false;
+        if search_config.name.is_some() {
+            builder.push("name = ");
+            builder.push_bind(search_config.name.unwrap());
+            has_filter = true;
+        }
+        if has_filter {
+            builder.push(" AND");
+        }
+        builder.push(" deleted IS NULL");
+
+        let query = builder.build_query_as();
+        let ids: Vec<VpcId> = query
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "vpc::find_ids", e))?;
+
+        Ok(ids.into_iter().map(|id| id.0).collect())
+    }
+
     pub async fn set_vni(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        id: Uuid,
+        id: uuid::Uuid,
         vni: i32,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE vpcs SET vni = $1 WHERE id = $2 AND vni IS NULL";
