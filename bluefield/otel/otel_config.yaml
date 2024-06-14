@@ -84,6 +84,7 @@ processors:
           - set(cache["MESSAGE"], body["MESSAGE"])
           - set(cache["_SYSTEMD_UNIT"], body["_SYSTEMD_UNIT"])
           - set(body, cache)
+          - set(attributes["systemd.unit"], body["_SYSTEMD_UNIT"])
 
 exporters:
   otlp/site:
