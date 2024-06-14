@@ -948,6 +948,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         test_meter.meter(),
         endpoint_explorer.clone(),
     );
+    let mut txn = env.pool.begin().await.unwrap();
 
     let oob_mac1 = MacAddress::from_str("a0:88:c2:08:80:95")?;
     let response = env
@@ -965,6 +966,8 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         .into_inner();
 
     assert!(!response.address.is_empty());
+    let machine_interfaces = MachineInterface::find_by_mac_address(&mut txn, oob_mac1).await?;
+    assert!(machine_interfaces[0].primary_interface());
 
     let oob_mac2 = MacAddress::from_str("a0:88:c2:09:80:95")?;
     let response = env
@@ -982,6 +985,8 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         .into_inner();
 
     assert!(!response.address.is_empty());
+    let machine_interfaces = MachineInterface::find_by_mac_address(&mut txn, oob_mac2).await?;
+    assert!(machine_interfaces[0].primary_interface());
 
     let mut dpu_report1 = EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
@@ -1088,7 +1093,6 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .await?
     );
 
-    let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine1 = Machine::find_one(
         &mut txn,
         dpu_report1.machine_id.as_ref().unwrap(),
@@ -1135,6 +1139,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         }
     );
     assert!(host_machine.bmc_info().ip.is_some());
+    let host_machine_id = host_machine.id();
 
     let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine2.id())
         .await?
@@ -1146,6 +1151,13 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         }
     );
     assert!(host_machine.bmc_info().ip.is_some());
+    assert_eq!(host_machine.id(), host_machine_id);
+
+    let mut interfaces_map =
+        MachineInterface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()]).await?;
+    let interfaces = interfaces_map.remove(host_machine_id).unwrap();
+    assert_eq!(interfaces.len(), 2);
+    assert!(interfaces[0].primary_interface() != interfaces[1].primary_interface());
 
     Ok(())
 }

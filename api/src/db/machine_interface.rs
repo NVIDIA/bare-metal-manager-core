@@ -130,6 +130,22 @@ impl From<MachineInterface> for rpc::MachineInterface {
 }
 
 impl MachineInterface {
+    /// Sets current machine interface primary attribute to provided value.
+    pub async fn set_primary_interface(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        primary: bool,
+    ) -> Result<Self, DatabaseError> {
+        let query =
+            "UPDATE machine_interfaces SET primary_interface=$1 where id=$2::uuid RETURNING *";
+        sqlx::query_as(query)
+            .bind(primary)
+            .bind(self.id)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
     pub async fn associate_interface_with_dpu_machine(
         &self,
         txn: &mut Transaction<'_, Postgres>,
@@ -694,6 +710,11 @@ impl MachineInterface {
             primary,
         )
         .await?;
+        if machine_interface.primary_interface() != primary {
+            machine_interface
+                .set_primary_interface(txn, primary)
+                .await?;
+        }
         machine_interface
             .associate_interface_with_dpu_machine(txn, dpu_id)
             .await?;
