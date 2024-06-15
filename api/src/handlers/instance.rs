@@ -16,8 +16,10 @@ use crate::db::instance::{DeleteInstance, FindInstanceTypeFilter, Instance};
 use crate::db::machine::Machine;
 use crate::db::{DatabaseError, UuidKeyedObjectFilter};
 use crate::instance::{allocate_instance, InstanceAllocationRequest};
+use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
+use crate::model::metadata::Metadata;
 use crate::model::os::{OperatingSystem, OperatingSystemVariant};
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
@@ -610,6 +612,91 @@ pub(crate) async fn update_operating_system(
             file!(),
             line!(),
             "commit update_instance_operating_system",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(snapshot))
+}
+
+pub(crate) async fn update_instance_config(
+    api: &Api,
+    request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
+) -> Result<tonic::Response<rpc::Instance>, Status> {
+    let request = request.into_inner();
+    let instance_id = match request.instance_id {
+        Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+        None => {
+            return Err(CarbideError::MissingArgument("instance_id").into());
+        }
+    };
+    let config: InstanceConfig = match request.config {
+        None => return Err(CarbideError::MissingArgument("config").into()),
+        Some(config) => config.try_into().map_err(CarbideError::from)?,
+    };
+    config.validate().map_err(CarbideError::from)?;
+
+    // TODO: Should a missing metadata field
+    // - be an error
+    // - lead to writing empty metadata (same as initial instance creation will do)
+    // - keep existing metadata
+    let metadata: Metadata = match request.metadata {
+        None => return Err(CarbideError::MissingArgument("metadata").into()),
+        Some(metadata) => metadata.try_into().map_err(CarbideError::from)?,
+    };
+    // TODO: We don't verify instance metadata? Also sees to be missing in the initial path
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin update_instance_config",
+            e,
+        ))
+    })?;
+
+    let instance = Instance::find_by_id(&mut txn, instance_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
+
+    log_machine_id(&instance.machine_id);
+
+    // Check whether the update is allowed
+    instance
+        .config
+        .verify_update_allowed_to(&config)
+        .map_err(CarbideError::from)?;
+
+    let expected_version = match request.if_version_match {
+        Some(version) => version.parse().map_err(CarbideError::from)?,
+        None => instance.config_version,
+    };
+
+    Instance::update_config(&mut txn, *instance.id(), expected_version, config, metadata)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let mh_snapshot = DbSnapshotLoader {}
+        .load_machine_snapshot(&mut txn, &instance.machine_id)
+        .await
+        .map_err(CarbideError::from)?;
+    let snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
+        Status::invalid_argument(format!(
+            "Snapshot not found for machine {}",
+            instance.machine_id
+        )),
+    )?)
+    .map_err(CarbideError::from)?;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit update_instance_config",
             e,
         ))
     })?;

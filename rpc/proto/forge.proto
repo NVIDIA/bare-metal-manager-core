@@ -52,7 +52,16 @@ service Forge {
   // to determine whether all updates have been applied.
   // Note: This is commented because we will not immediately implement the method
   // rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
+  // Updates the Operating System on a running instance
   rpc UpdateInstanceOperatingSystem(InstanceOperatingSystemUpdateRequest) returns (Instance);
+  // Updates the configuration of a running instance.
+  // Only the following configurations of an instance can be changed:
+  // - Keyset IDs
+  // - Metadata (Name, Description, Tags)
+  // - Operating System Details
+  // The update will take effect asynchronously. Users should monitor `Instance.status.synced`
+  // to determine whether all updates have been applied.
+  rpc UpdateInstanceConfig(InstanceConfigUpdateRequest) returns (Instance);
 
   rpc FindInstanceIds(InstanceSearchConfig) returns (InstanceIdList);
   rpc FindInstancesByIds(InstanceIdList) returns (InstanceList);
@@ -996,6 +1005,23 @@ message InstanceOperatingSystemUpdateRequest {
   OperatingSystem os = 3;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 4;
+}
+
+// Updates the configuration utilized by an instance
+message InstanceConfigUpdateRequest {
+  // The ID of the instance for which the config update will apply
+  UUID instance_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current instance config version on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New configuration to be utilized by the instance
+  InstanceConfig config = 3;
+  // New Metadata to be utilized by the instance
+  Metadata metadata = 4;
 }
 
 // Current status of an instance

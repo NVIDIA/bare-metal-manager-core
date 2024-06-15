@@ -4006,6 +4006,13 @@ impl Forge for Api {
         crate::handlers::instance::update_operating_system(self, request).await
     }
 
+    async fn update_instance_config(
+        &self,
+        request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
+    ) -> Result<tonic::Response<rpc::Instance>, Status> {
+        crate::handlers::instance::update_instance_config(self, request).await
+    }
+
     async fn delete_expected_machine(
         &self,
         request: tonic::Request<rpc::ExpectedMachineRequest>,

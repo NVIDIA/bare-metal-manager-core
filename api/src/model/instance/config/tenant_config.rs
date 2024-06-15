@@ -57,6 +57,16 @@ impl TenantConfig {
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         Ok(())
     }
+
+    pub fn verify_update_allowed_to(&self, new_config: &Self) -> Result<(), ConfigValidationError> {
+        if self.tenant_organization_id != new_config.tenant_organization_id {
+            return Err(ConfigValidationError::ConfigCanNotBeModified(
+                "TenantConfig::tenant_organization_id".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

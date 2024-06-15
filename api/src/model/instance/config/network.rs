@@ -153,6 +153,22 @@ impl InstanceNetworkConfig {
 
         Ok(())
     }
+
+    pub fn verify_update_allowed_to(&self, new_config: &Self) -> Result<(), ConfigValidationError> {
+        // Remove all service-generated properties before validating the config
+        let mut current = self.clone();
+        for iface in &mut current.interfaces {
+            iface.ip_addrs.clear();
+        }
+
+        if current != *new_config {
+            return Err(ConfigValidationError::ConfigCanNotBeModified(
+                "network".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {

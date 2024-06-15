@@ -144,4 +144,11 @@ impl OperatingSystem {
             OperatingSystemVariant::Ipxe(ipxe) => ipxe.validate(),
         }
     }
+
+    pub fn verify_update_allowed_to(
+        &self,
+        _new_config: &Self,
+    ) -> Result<(), ConfigValidationError> {
+        Ok(())
+    }
 }

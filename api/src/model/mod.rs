@@ -112,6 +112,9 @@ pub enum ConfigValidationError {
 
     #[error("Segment {0} is requested to be deleted.")]
     NetworkSegmentToBeDeleted(uuid::Uuid),
+
+    #[error("Configuation value can not be modified: {0}")]
+    ConfigCanNotBeModified(String),
 }
 
 impl ConfigValidationError {

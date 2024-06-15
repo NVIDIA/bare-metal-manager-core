@@ -143,4 +143,27 @@ impl InstanceConfig {
 
         Ok(())
     }
+
+    /// Validates whether the configuration of a running instance (`self`) can be updated
+    /// to a new configuration
+    ///
+    /// This check validates that certain unchangeable fields never change. These include
+    /// - Tenant ID
+    /// - Ethernet network configuration
+    /// - InfiniBand network configuration
+    pub fn verify_update_allowed_to(
+        &self,
+        new_config: &InstanceConfig,
+    ) -> Result<(), ConfigValidationError> {
+        self.tenant.verify_update_allowed_to(&new_config.tenant)?;
+
+        self.os.verify_update_allowed_to(&new_config.os)?;
+
+        self.network.verify_update_allowed_to(&new_config.network)?;
+
+        self.infiniband
+            .verify_update_allowed_to(&new_config.infiniband)?;
+
+        Ok(())
+    }
 }
