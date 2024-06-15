@@ -67,6 +67,23 @@ impl InstanceInfinibandConfig {
         }
         Ok(())
     }
+
+    pub fn verify_update_allowed_to(&self, new_config: &Self) -> Result<(), ConfigValidationError> {
+        // Remove all service-generated properties before validating the config
+        let mut current = self.clone();
+        for iface in &mut current.ib_interfaces {
+            iface.guid = None;
+            iface.pf_guid = None;
+        }
+
+        if current != *new_config {
+            return Err(ConfigValidationError::ConfigCanNotBeModified(
+                "infiniband".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {

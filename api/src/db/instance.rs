@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -392,6 +392,71 @@ WHERE s.network_config->>'loopback_ip'=$1";
         Ok(query_result.0)
     }
 
+    /// Updates updateable configurations of an instance
+    /// - OS
+    /// - Keyset IDs
+    /// - Metadata
+    ///
+    /// This method will not update
+    /// - instance network and infiniband configurations
+    /// - tenant organization IDs
+    ///
+    /// This method does not check if the instance still exists.
+    /// A previous `Instance::find` call should fulfill this purpose.
+    pub async fn update_config(
+        txn: &mut Transaction<'_, Postgres>,
+        instance_id: uuid::Uuid,
+        expected_version: ConfigVersion,
+        config: InstanceConfig,
+        metadata: Metadata,
+    ) -> Result<(), CarbideError> {
+        let expected_version_str = expected_version.version_string();
+        let next_version = expected_version.increment();
+        let next_version_str = next_version.version_string();
+
+        let os_ipxe_script;
+        let os_user_data;
+        let os_always_boot_with_ipxe;
+        match &config.os.variant {
+            OperatingSystemVariant::Ipxe(ipxe) => {
+                os_ipxe_script = &ipxe.ipxe_script;
+                os_user_data = &ipxe.user_data;
+                os_always_boot_with_ipxe = ipxe.always_boot_with_ipxe;
+            }
+        }
+
+        let query = "UPDATE instances SET config_version=$1,
+            os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5,
+            keyset_ids=$6,
+            name=$7, description=$8, labels=$9::json
+            WHERE id=$10 AND config_version=$11
+            RETURNING id";
+        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+            .bind(&next_version_str)
+            .bind(os_ipxe_script)
+            .bind(os_user_data)
+            .bind(os_always_boot_with_ipxe)
+            .bind(config.os.phone_home_enabled)
+            .bind(config.tenant.tenant_keyset_ids)
+            .bind(&metadata.name)
+            .bind(&metadata.description)
+            .bind(sqlx::types::Json(&metadata.labels))
+            .bind(instance_id)
+            .bind(&expected_version_str)
+            .fetch_one(&mut **txn)
+            .await;
+
+        match query_result {
+            Ok((_instance_id,)) => Ok(()),
+            Err(e) => Err(match e {
+                sqlx::Error::RowNotFound => {
+                    CarbideError::ConcurrentModificationError("instance", expected_version)
+                }
+                e => DatabaseError::new(file!(), line!(), query, e).into(),
+            }),
+        }
+    }
+
     /// Updates the Operating System
     ///
     /// This method does not check if the instance still exists.
@@ -587,7 +652,7 @@ impl<'a> NewInstance<'a> {
                         labels,
                         config_version
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17, $18)
+                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17::json, $18)
                     RETURNING *";
         sqlx::query_as(query)
             .bind(self.instance_id)
