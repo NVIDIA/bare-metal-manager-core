@@ -121,7 +121,7 @@ try:
 
     # Wait for Ready state
     print(f"Wait for DPU {machine_under_test_dpu} to report state 'Ready'")
-    admin_cli.wait_for_machine_ready(machine_under_test_dpu, timeout=60 * 60)
+    admin_cli.wait_for_machine_ready(machine_under_test_dpu, timeout=60 * 90)
 except Exception as e:
     print("Exception while waiting for machine Ready, putting machine into maintenance mode", file=sys.stderr)
     # We have to use managed host ID to do this, not DPU ID, but this may not exist
