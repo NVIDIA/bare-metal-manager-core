@@ -17,6 +17,7 @@
 
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
+    TrustedMachineId,
 };
 use crate::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
@@ -28,7 +29,7 @@ use sqlx::{Postgres, Transaction};
 
 pub async fn insert_into_approved_machines(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MachineId,
+    machine_id: TrustedMachineId,
     approval_type: MeasurementApprovedType,
     pcr_registers: Option<String>,
     comments: Option<String>,
@@ -74,7 +75,7 @@ pub async fn get_approved_machines(
 
 pub async fn get_approval_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
-    machine_id: MachineId,
+    machine_id: TrustedMachineId,
 ) -> eyre::Result<Option<MeasurementApprovedMachineRecord>> {
     common::get_object_for_id(txn, machine_id).await
 }

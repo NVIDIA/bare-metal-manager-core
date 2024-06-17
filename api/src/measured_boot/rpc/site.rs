@@ -18,6 +18,7 @@ use tonic::Status;
 
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
+    TrustedMachineId,
 };
 use crate::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
@@ -108,7 +109,7 @@ pub async fn handle_add_measurement_trusted_machine(
     let mut txn = begin_txn(db_conn).await?;
     let approval_record = insert_into_approved_machines(
         &mut txn,
-        MachineId::from_str(&req.machine_id).map_err(|_| {
+        TrustedMachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(
                 req.machine_id.clone(),
             ))

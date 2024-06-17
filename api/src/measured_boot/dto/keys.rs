@@ -26,16 +26,85 @@
 
 use crate::measured_boot::dto::traits::DbPrimaryUuid;
 use crate::measured_boot::interface::common::ToTable;
+use crate::model::machine::machine_id::MachineId;
 use crate::model::RpcDataConversionError;
 use crate::CarbideError;
 use rpc::protos::measured_boot::Uuid;
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::{PgArgumentBuffer, PgTypeInfo};
 use sqlx::{FromRow, Type};
 use std::convert::{Into, TryFrom};
 use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 use tonic::Status;
+
+/// TrustedMachineId is a special adaptation of a
+/// Carbide MachineId, which has support for being
+/// expressed as a machine ID, or "*", for the purpose
+/// of doing trusted machine approvals for measured
+/// boot.
+///
+/// This makes it so you can provide "*" as an input,
+/// as well as read it back into a bound instance, for
+/// the admin CLI, API calls, and backend.
+///
+/// It includes all of the necessary trait implementations
+/// to allow it to be used as a clap argument, sqlx binding,
+/// etc.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TrustedMachineId {
+    MachineId(MachineId),
+    Any,
+}
+
+impl FromStr for TrustedMachineId {
+    type Err = RpcDataConversionError;
+
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        if input == "*" {
+            Ok(Self::Any)
+        } else {
+            Ok(Self::MachineId(MachineId::from_str(input).map_err(
+                |_| RpcDataConversionError::InvalidMachineId(input.to_string()),
+            )?))
+        }
+    }
+}
+
+impl fmt::Display for TrustedMachineId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            Self::Any => write!(f, "*"),
+            Self::MachineId(machine_id) => write!(f, "{}", machine_id),
+        }
+    }
+}
+
+// Make TrustedMachineId bindable directly into a sqlx query.
+// Similar code exists for DbMachineId as well as MachineId.
+impl sqlx::Encode<'_, sqlx::Postgres> for TrustedMachineId {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        buf.extend(self.to_string().as_bytes());
+        sqlx::encode::IsNull::No
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for TrustedMachineId {
+    fn type_info() -> PgTypeInfo {
+        <&str as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &PgTypeInfo) -> bool {
+        <&str as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl DbPrimaryUuid for TrustedMachineId {
+    fn db_primary_uuid_name() -> &'static str {
+        "machine_id"
+    }
+}
 
 #[derive(Debug)]
 pub struct UuidEmptyStringError {}
