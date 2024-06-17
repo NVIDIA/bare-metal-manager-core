@@ -28,7 +28,7 @@ use crate::db::machine_topology::TopologyData;
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
-    MeasurementSystemProfileAttrId, MeasurementSystemProfileId,
+    MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
 };
 use crate::measured_boot::dto::traits::DbTable;
 use crate::measured_boot::interface::common::PcrRegisterValue;
@@ -1132,7 +1132,7 @@ pub struct MeasurementApprovedMachineRecord {
     pub approval_id: MeasurementApprovedMachineId,
 
     // machine_id is the ID of the machine this approval is for.
-    pub machine_id: MachineId,
+    pub machine_id: TrustedMachineId,
 
     // state is the type of approval (oneshot or persist).
     pub approval_type: MeasurementApprovedType,
@@ -1154,10 +1154,13 @@ pub struct MeasurementApprovedMachineRecord {
 
 impl<'r> FromRow<'r, PgRow> for MeasurementApprovedMachineRecord {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let machine_id: DbMachineId = row.try_get("machine_id")?;
+        let id_str: &str = row.try_get("machine_id")?;
+        let machine_id =
+            TrustedMachineId::from_str(id_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
         Ok(Self {
             approval_id: row.try_get("approval_id")?,
-            machine_id: machine_id.into_inner(),
+            machine_id,
             approval_type: row.try_get("approval_type")?,
             pcr_registers: row.try_get("pcr_registers")?,
             comments: row.try_get("comments")?,
@@ -1216,7 +1219,7 @@ impl TryFrom<MeasurementApprovedMachineRecordPb> for MeasurementApprovedMachineR
 
         Ok(Self {
             approval_id: MeasurementApprovedMachineId::try_from(msg.approval_id)?,
-            machine_id: MachineId::from_str(&msg.machine_id)?,
+            machine_id: TrustedMachineId::from_str(&msg.machine_id)?,
             approval_type: MeasurementApprovedType::from(approval_type),
             pcr_registers: match !msg.pcr_registers.is_empty() {
                 true => Some(msg.pcr_registers.clone()),

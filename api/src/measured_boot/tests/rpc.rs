@@ -16,6 +16,8 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::measured_boot::dto::keys::TrustedMachineId;
+    use crate::measured_boot::dto::records::MeasurementApprovedMachineRecord;
     use crate::measured_boot::interface::common::PcrRegisterValue;
     use crate::measured_boot::model::report::MeasurementReport;
     use crate::measured_boot::rpc::bundle;
@@ -26,6 +28,7 @@ mod tests {
     use crate::measured_boot::rpc::site;
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use rpc::protos::measured_boot;
+    use std::str::FromStr;
 
     // test_measurement_system_profiles is used to test all of the different
     // API handler functions that work with measured boot system profiles,
@@ -1084,6 +1087,343 @@ mod tests {
         let req = measured_boot::ListMeasurementTrustedProfilesRequest {};
         let resp = site::handle_list_measurement_trusted_profiles(&db_conn, &req).await?;
         assert_eq!(0, resp.approval_records.len());
+
+        Ok(())
+    }
+
+    // test_permissive_approvals is used to make sure that
+    // having a site-wide "permissive" approval of "*" works
+    // as intended.
+    #[sqlx::test]
+    pub async fn test_permissive_approvals(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Pre-flight: this should go into a more generic unit testing
+        // location, but I'm putting it here for now. -Chet
+        let trusted_all = TrustedMachineId::from_str("*")?;
+        assert_eq!(trusted_all, TrustedMachineId::Any);
+        let trusted_princess = TrustedMachineId::from_str(
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+        )?;
+        if let TrustedMachineId::MachineId(machine_id) = trusted_princess {
+            assert_eq!(
+                "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+                machine_id.to_string()
+            );
+        };
+
+        // First, create the permissive machine approval with "*",
+        // making sure the response is as expected, including converting
+        // the MeasurementApprovedMachineRecordPb back into a
+        // MeasurementApprovedMachineRecord.
+        let req = measured_boot::AddMeasurementTrustedMachineRequest {
+            machine_id: "*".to_string(),
+            approval_type: measured_boot::MeasurementApprovedTypePb::Persist.into(),
+            pcr_registers: String::from("0-6,8"),
+            comments: String::from(""),
+        };
+        let resp = site::handle_add_measurement_trusted_machine(&db_conn, &req).await?;
+        assert!(resp.approval_record.is_some());
+        let machine_approval =
+            MeasurementApprovedMachineRecord::from_grpc(resp.approval_record.as_ref())?;
+        assert_eq!("*".to_string(), machine_approval.machine_id.to_string());
+
+        // And then re-fetch the "*" approval just to make sure
+        // all of the `TrustedMachineId` stuff is working, even though
+        // the above result should have been based on RETURNING *.
+        let req = measured_boot::ListMeasurementTrustedMachinesRequest {};
+        let resp = site::handle_list_measurement_trusted_machines(&db_conn, &req).await?;
+        assert_eq!(1, resp.approval_records.len());
+        let permissive_approval =
+            MeasurementApprovedMachineRecord::from_grpc(Some(&resp.approval_records[0]))?;
+        assert_eq!(
+            permissive_approval.machine_id.to_string(),
+            String::from("*")
+        );
+
+        // Now, lets create three different machines, report
+        // measurements, and make sure both get Measured, which means
+        // there should be resulting profiles, bundles, and journal
+        // entries for both.
+        let dell_r750_topology = load_topology_json("dell_r750.json");
+        let lenovo_sr670_topology = load_topology_json("lenovo_sr670.json");
+        let lenovo_sr670_v2_topology = load_topology_json("lenovo_sr670_v2.json");
+
+        let mut txn = db_conn.begin().await?;
+        // princess-network
+        let princess_network = create_test_machine(
+            &mut txn,
+            "fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530",
+            &dell_r750_topology,
+        )
+        .await?;
+
+        // beer-louisiana
+        let beer_louisiana = create_test_machine(
+            &mut txn,
+            "fm100htrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0",
+            &lenovo_sr670_topology,
+        )
+        .await?;
+        // lime-coconut
+        let lime_coconut = create_test_machine(
+            &mut txn,
+            "fm100htdekjaiocbggbkttpjnjf4i1ac9li56c0ulsef42nien02mgl66tg",
+            &lenovo_sr670_v2_topology,
+        )
+        .await?;
+        txn.commit().await?;
+
+        // Now send for both machines.
+        // TODO(chet): Just make these fixtures that I
+        // can load up.
+        let princess_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "aa".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "bb".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "cc".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "dd".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 4,
+                sha256: "ee".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 5,
+                sha256: "ff".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 6,
+                sha256: "gg".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 7,
+                sha256: "hh".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 8,
+                sha256: "ii".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 9,
+                sha256: "jj".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 10,
+                sha256: "kk".to_string(),
+            },
+        ];
+
+        let req = measured_boot::CreateMeasurementReportRequest {
+            machine_id: princess_network.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&princess_values),
+        };
+        let result = report::handle_create_measurement_report(&db_conn, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+        assert_eq!(report.machine_id, princess_network.machine_id.to_string());
+
+        let beer_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "pp".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "qq".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "rr".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "ss".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 4,
+                sha256: "tt".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 5,
+                sha256: "uu".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 6,
+                sha256: "vv".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 7,
+                sha256: "ww".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 8,
+                sha256: "xx".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 9,
+                sha256: "yy".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 10,
+                sha256: "zz".to_string(),
+            },
+        ];
+
+        let req = measured_boot::CreateMeasurementReportRequest {
+            machine_id: beer_louisiana.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&beer_values),
+        };
+        let result = report::handle_create_measurement_report(&db_conn, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+        assert_eq!(report.machine_id, beer_louisiana.machine_id.to_string());
+
+        let lime_values: Vec<PcrRegisterValue> = vec![
+            PcrRegisterValue {
+                pcr_register: 0,
+                sha256: "kk".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 1,
+                sha256: "ll".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 2,
+                sha256: "mm".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 3,
+                sha256: "nn".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 4,
+                sha256: "oo".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 5,
+                sha256: "pp".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 6,
+                sha256: "qq".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 7,
+                sha256: "rr".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 8,
+                sha256: "ss".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 9,
+                sha256: "tt".to_string(),
+            },
+            PcrRegisterValue {
+                pcr_register: 10,
+                sha256: "uu".to_string(),
+            },
+        ];
+
+        let req = measured_boot::CreateMeasurementReportRequest {
+            machine_id: lime_coconut.machine_id.to_string(),
+            pcr_values: PcrRegisterValue::to_pb_vec(&lime_values),
+        };
+        let result = report::handle_create_measurement_report(&db_conn, &req).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert!(resp.report.is_some());
+        let report = resp.report.unwrap();
+        assert_eq!(report.machine_id, lime_coconut.machine_id.to_string());
+
+        // And confirm bundles were created for both. index[0] will contain the first
+        // bundle, for princess-network. index[1] will contain the second bundle, for
+        // beer-louisiana.
+        let req = measured_boot::ShowMeasurementBundlesRequest {};
+        let resp = bundle::handle_show_measurement_bundles(&db_conn, &req).await?;
+        assert_eq!(3, resp.bundles.len());
+
+        // bundles[0] is the princess bundle.
+        let princess_bundle = &resp.bundles[0];
+        assert_eq!(8, princess_bundle.values.len());
+        assert_eq!("aa".to_string(), princess_bundle.values[0].sha256);
+        assert_eq!("ii".to_string(), princess_bundle.values[7].sha256);
+
+        // bundles[1] is the beer bundle.
+        let beer_bundle = &resp.bundles[1];
+        assert_eq!(8, beer_bundle.values.len());
+        assert_eq!("pp".to_string(), beer_bundle.values[0].sha256);
+        assert_eq!("xx".to_string(), beer_bundle.values[7].sha256);
+
+        // bundles[2] is the lime bundle.
+        let lime_bundle = &resp.bundles[2];
+        assert_eq!(8, lime_bundle.values.len());
+        assert_eq!("kk".to_string(), lime_bundle.values[0].sha256);
+        assert_eq!("ss".to_string(), lime_bundle.values[7].sha256);
+
+        // And make sure the machines are measured.
+        let req = measured_boot::ShowCandidateMachineRequest {
+            selector: Some(
+                measured_boot::show_candidate_machine_request::Selector::MachineId(
+                    princess_network.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
+        assert!(resp.machine.is_some());
+        let machine = resp.machine.unwrap();
+        assert_eq!(machine.machine_id, princess_network.machine_id.to_string());
+        assert_eq!(
+            machine.state,
+            measured_boot::MeasurementMachineStatePb::Measured as i32
+        );
+
+        let req = measured_boot::ShowCandidateMachineRequest {
+            selector: Some(
+                measured_boot::show_candidate_machine_request::Selector::MachineId(
+                    beer_louisiana.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
+        assert!(resp.machine.is_some());
+        let machine = resp.machine.unwrap();
+        assert_eq!(machine.machine_id, beer_louisiana.machine_id.to_string());
+        assert_eq!(
+            machine.state,
+            measured_boot::MeasurementMachineStatePb::Measured as i32
+        );
+
+        let req = measured_boot::ShowCandidateMachineRequest {
+            selector: Some(
+                measured_boot::show_candidate_machine_request::Selector::MachineId(
+                    lime_coconut.machine_id.to_string(),
+                ),
+            ),
+        };
+        let resp = machine::handle_show_candidate_machine(&db_conn, &req).await?;
+        assert!(resp.machine.is_some());
+        let machine = resp.machine.unwrap();
+        assert_eq!(machine.machine_id, lime_coconut.machine_id.to_string());
+        assert_eq!(
+            machine.state,
+            measured_boot::MeasurementMachineStatePb::Measured as i32
+        );
 
         Ok(())
     }
