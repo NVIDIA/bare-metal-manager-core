@@ -625,7 +625,7 @@ pub(crate) async fn update_instance_config(
 ) -> Result<tonic::Response<rpc::Instance>, Status> {
     let request = request.into_inner();
     let instance_id = match request.instance_id {
-        Some(id) => Uuid::try_from(id).map_err(CarbideError::from)?,
+        Some(id) => uuid::Uuid::try_from(id).map_err(CarbideError::from)?,
         None => {
             return Err(CarbideError::MissingArgument("instance_id").into());
         }
