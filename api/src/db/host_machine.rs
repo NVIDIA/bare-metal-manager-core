@@ -117,8 +117,9 @@ impl HostMachine {
         //TODO: In multi DPU architecture, it should return Vec<Self>
         let query = "
 SELECT hm.* FROM host_machines hm
-JOIN machine_interfaces mi on hm.machine_id = hi.attached_dpu_machine_id
-WHERE mi.machine_id=$1";
+JOIN machine_interfaces mi ON hm.machine_id = mi.machine_id
+WHERE mi.attached_dpu_machine_id != mi.machine_id
+  AND mi.attached_dpu_machine_id = $1";
         sqlx::query_as(query)
             .bind(dpu_machine_id.to_string())
             .fetch_one(&mut **txn)
