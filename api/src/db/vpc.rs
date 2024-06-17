@@ -180,10 +180,18 @@ impl Vpc {
             builder.push_bind(search_config.name.unwrap());
             has_filter = true;
         }
-        if has_filter {
-            builder.push(" AND");
+        if let Some(tenant_org_id) = &search_config.tenant_org_id {
+            if has_filter {
+                builder.push(" AND ");
+            }
+            builder.push("organization_id = ");
+            builder.push_bind(tenant_org_id);
+            has_filter = true;
         }
-        builder.push(" deleted IS NULL");
+        if has_filter {
+            builder.push(" AND ");
+        }
+        builder.push("deleted IS NULL");
 
         let query = builder.build_query_as();
         let ids: Vec<VpcId> = query

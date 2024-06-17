@@ -189,36 +189,49 @@ impl Instance {
         txn: &mut Transaction<'_, Postgres>,
         search_config: rpc::InstanceSearchConfig,
     ) -> Result<Vec<uuid::Uuid>, CarbideError> {
-        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances");
+        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances ");
 
         #[derive(Debug, Clone, Copy, FromRow)]
         pub struct InstanceId(uuid::Uuid);
 
+        let mut has_filter = false;
         if search_config.label.is_some() {
             let label = search_config.label.unwrap();
             if label.key.is_empty() && label.value.is_some() {
                 builder.push(
-                    " WHERE EXISTS (
+                    "WHERE EXISTS (
                         SELECT 1
                         FROM jsonb_each_text(labels) AS kv
                         WHERE kv.value = ",
                 );
                 builder.push_bind(label.value.unwrap());
                 builder.push(")");
+                has_filter = true;
             } else if label.key.is_empty() && label.value.is_none() {
                 return Err(CarbideError::InvalidArgument(
                     "finding instances based on label needs either key or a value.".to_string(),
                 ));
             } else if !label.key.is_empty() && label.value.is_none() {
-                builder.push(" WHERE labels ->> ");
+                builder.push("WHERE labels ->> ");
                 builder.push_bind(label.key);
                 builder.push(" IS NOT NULL");
+                has_filter = true;
             } else if !label.key.is_empty() && label.value.is_some() {
-                builder.push(" WHERE labels ->> ");
+                builder.push("WHERE labels ->> ");
                 builder.push_bind(label.key);
                 builder.push(" = ");
                 builder.push_bind(label.value.unwrap());
+                has_filter = true;
             }
+        }
+        if let Some(tenant_org_id) = search_config.tenant_org_id {
+            if has_filter {
+                builder.push(" AND ");
+            } else {
+                builder.push("WHERE ");
+            }
+            builder.push("tenant_org = ");
+            builder.push_bind(tenant_org_id);
         }
 
         let query = builder.build_query_as();

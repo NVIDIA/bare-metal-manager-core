@@ -525,6 +525,7 @@ message VpcSearchQuery {
 
 message VpcSearchConfig {
   optional string name = 1;
+  optional string tenant_org_id = 2;
 }
 
 message VpcIdList {
@@ -837,6 +838,7 @@ message Metadata {
 message InstanceSearchConfig {
   // supports filtering on key, value, or key and value
   optional Label label = 1;
+  optional string tenant_org_id = 2;
 }
 
 message InstanceIdList {
