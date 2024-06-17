@@ -12,7 +12,10 @@
 
 use crate::common::api_fixtures::{
     create_managed_host, create_test_env,
-    instance::{create_instance, create_instance_with_labels, single_interface_network_config},
+    instance::{
+        create_instance, create_instance_with_labels, default_tenant_config,
+        single_interface_network_config,
+    },
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 use ::rpc::forge as rpc;
@@ -64,7 +67,10 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     }
 
     // test getting all ids
-    let request_all = tonic::Request::new(rpc::InstanceSearchConfig { label: None });
+    let request_all = tonic::Request::new(rpc::InstanceSearchConfig {
+        label: None,
+        tenant_org_id: None,
+    });
 
     let instance_ids_all = env
         .api
@@ -80,6 +86,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             key: "label_test_key".to_string(),
             value: None,
         }),
+        tenant_org_id: None,
     });
 
     let instance_ids_lbl_key = env
@@ -96,6 +103,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             key: "".to_string(),
             value: Some("label_value_1".to_string()),
         }),
+        tenant_org_id: None,
     });
 
     let instance_ids_lbl_val = env
@@ -112,6 +120,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             key: "label_test_key".to_string(),
             value: Some("label_value_3".to_string()),
         }),
+        tenant_org_id: None,
     });
 
     let instance_ids_lbl_key_val = env
@@ -121,6 +130,71 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(instance_ids_lbl_key_val.instance_ids.len(), 1);
+
+    // test getting ids based on tenant_org_id
+    let request_tenant = tonic::Request::new(rpc::InstanceSearchConfig {
+        label: None,
+        tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+    });
+
+    let instance_ids_tenant = env
+        .api
+        .find_instance_ids(request_tenant)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(instance_ids_tenant.instance_ids.len(), 10);
+
+    // test getting ids based on tenant_org_id and label key
+    let request_tenant_key = tonic::Request::new(rpc::InstanceSearchConfig {
+        label: Some(rpc::Label {
+            key: "label_test_key".to_string(),
+            value: None,
+        }),
+        tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+    });
+
+    let instance_ids_tenant_key = env
+        .api
+        .find_instance_ids(request_tenant_key)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(instance_ids_tenant_key.instance_ids.len(), 5);
+
+    // test getting ids based on tenant_org_id and label value
+    let request_tenant_lbl = tonic::Request::new(rpc::InstanceSearchConfig {
+        label: Some(rpc::Label {
+            key: "".to_string(),
+            value: Some("label_value_1".to_string()),
+        }),
+        tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+    });
+
+    let instance_ids_tenant_lbl = env
+        .api
+        .find_instance_ids(request_tenant_lbl)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(instance_ids_tenant_lbl.instance_ids.len(), 1);
+
+    // test getting ids based on tenant_org_id and label key and value
+    let request_tenant_key_lbl = tonic::Request::new(rpc::InstanceSearchConfig {
+        label: Some(rpc::Label {
+            key: "label_test_key".to_string(),
+            value: Some("label_value_1".to_string()),
+        }),
+        tenant_org_id: Some(default_tenant_config().tenant_organization_id),
+    });
+
+    let instance_ids_tenant_key_lbl = env
+        .api
+        .find_instance_ids(request_tenant_key_lbl)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(instance_ids_tenant_key_lbl.instance_ids.len(), 1);
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -166,6 +240,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
             key: "label_test_key".to_string(),
             value: None,
         }),
+        tenant_org_id: None,
     });
 
     let instance_id_list = env
