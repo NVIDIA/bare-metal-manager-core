@@ -483,6 +483,8 @@ pub(crate) async fn invoke_power(
             .map_err(|err| {
                 // print actual error for debugging, but don't leak internal info to user.
                 tracing::error!(machine=%machine_id, "{:?}", err);
+
+                // TODO: What does this error actually mean
                 CarbideError::GenericError(
                     "Internal Failure. Try again after sometime.".to_string(),
                 )

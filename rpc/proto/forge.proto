@@ -350,6 +350,8 @@ enum CredentialType {
   HostUefi = 4;
   HostBMCFactoryDefault = 5;
   DpuBMCFactoryDefault = 6;
+  SiteWideBmcRoot = 7;
+  BmcByMacAddress = 8;
 }
 
 message CredentialCreationRequest {
@@ -364,6 +366,7 @@ message CredentialCreationRequest {
   string password = 3;
   // For the BMC factory default credential: "dell", "lenovo", "hpe", "supermicro", etc
   optional string vendor = 4;
+  optional string mac_address = 5;
 }
 
 message CredentialDeletionRequest {
@@ -1789,15 +1792,18 @@ message MachineCredentialsUpdateRequest {
    enum CredentialPurpose {
       HBN = 0;
       LOGIN_USER = 1;
+      BMC = 2;
    }
-    message Credentials {
-        string user = 1;
-        string password = 2;
-        CredentialPurpose credential_purpose = 3;
-    }
+
+   message Credentials {
+       string user = 1;
+       string password = 2;
+       CredentialPurpose credential_purpose = 3;
+   }
 
     MachineId machine_id = 4;
     repeated Credentials credentials = 5;
+    optional string mac_address = 6;
 }
 
 message MachineCredentialsUpdateResponse {}

@@ -9,8 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-use std::{collections::HashMap, net::IpAddr, str::FromStr};
+use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
 
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
@@ -55,6 +54,16 @@ pub struct EndpointExplorationReport {
     pub machine_id: Option<MachineId>,
 }
 
+impl EndpointExplorationReport {
+    pub fn cannot_login(&self) -> bool {
+        if let Some(e) = self.last_exploration_error.clone() {
+            return e.is_unauthorized();
+        }
+
+        false
+    }
+}
+
 impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExplorationReport {
     fn from(report: EndpointExplorationReport) -> Self {
         rpc::site_explorer::EndpointExplorationReport {
@@ -86,6 +95,18 @@ pub struct ExploredEndpoint {
     pub preingestion_state: PreingestionState,
     /// Indicates that preingestion is waiting for site explorer to refresh the state
     pub waiting_for_explorer_refresh: bool,
+}
+
+impl Display for ExploredEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} / {}", self.address, self.report_version)
+    }
+}
+
+impl ExploredEndpoint {
+    pub fn cannot_login(&self) -> bool {
+        self.report.cannot_login()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -383,8 +404,6 @@ pub enum EndpointExplorationError {
     MissingCredentials { key: String, cause: String },
     #[error("Failed setting credential {key}: {cause}")]
     SetCredentials { key: String, cause: String },
-    #[error("None of the credentials we have worked, tried: {0}")]
-    InvalidCredentials(String),
     #[error("Endpoint is not a BMC with Redfish support")]
     MissingRedfish,
     #[error("BMC vendor field is not populated. Unsupported BMC.")]
@@ -393,6 +412,12 @@ pub enum EndpointExplorationError {
     #[error("Error: {details}")]
     #[serde(rename_all = "PascalCase")]
     Other { details: String },
+}
+
+impl EndpointExplorationError {
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, EndpointExplorationError::Unauthorized { details: _ })
+    }
 }
 
 /// The type of the endpoint
@@ -569,6 +594,22 @@ impl From<NetworkAdapter> for rpc::site_explorer::NetworkAdapter {
             part_number: adapter.part_number,
             serial_number: adapter.serial_number,
         }
+    }
+}
+
+impl NetworkAdapter {
+    pub fn is_bluefield(&self) -> bool {
+        let Some(model) = &self.model else {
+            // TODO: maybe model this as an enum that has "Indeterminable" if there's no model
+            // but for now it's 'technically' true
+            return false;
+        };
+
+        let normalized_model = model.to_lowercase();
+
+        normalized_model.contains("bluefield")
+            || normalized_model.starts_with("900-9d3b6")
+            || normalized_model.starts_with("900-9d3b4")
     }
 }
 

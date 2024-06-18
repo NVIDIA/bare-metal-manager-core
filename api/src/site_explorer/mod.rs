@@ -12,13 +12,13 @@
 
 use std::{
     collections::HashMap,
+    fmt::Display,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::Arc,
 };
 
 use config_version::ConfigVersion;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType};
 use mac_address::MacAddress;
 use sqlx::PgPool;
 use tokio::{net::lookup_host, sync::oneshot, task::JoinSet};
@@ -51,20 +51,28 @@ use crate::{
 
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
+mod credentials;
 mod metrics;
+pub use metrics::SiteExplorationMetrics;
+mod redfish;
 mod redfish_endpoint_explorer;
 pub use redfish_endpoint_explorer::RedfishEndpointExplorer;
 mod identify;
 pub use identify::{identify_bmc, IdentifyError};
-pub(crate) mod initial_setup;
 
-use self::metrics::{exploration_error_to_metric_label, SiteExplorationMetrics};
+use self::metrics::exploration_error_to_metric_label;
 
 struct Endpoint {
     address: IpAddr,
     iface: MachineInterface,
     old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
     pub(crate) expected: Option<ExpectedMachine>,
+}
+
+impl Display for Endpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.address)
+    }
 }
 
 impl Endpoint {
@@ -92,7 +100,6 @@ impl Endpoint {
 /// * `max_concurrent_machine_updates` the maximum number of updates allowed across all modules
 /// * `machine_update_run_interval` how often the manager calls the modules to start updates
 pub struct SiteExplorer {
-    credential_provider: Arc<dyn CredentialProvider + 'static>,
     database_connection: PgPool,
     enabled: bool,
     config: SiteExplorerConfig,
@@ -107,7 +114,6 @@ impl SiteExplorer {
         "SELECT pg_try_advisory_xact_lock((SELECT 'site_explorer_lock'::regclass::oid)::integer);";
 
     pub fn new(
-        credential_provider: Arc<dyn CredentialProvider + 'static>,
         database_connection: sqlx::PgPool,
         explorer_config: SiteExplorerConfig,
         dpu_models: &HashMap<DpuModel, DpuDesc>,
@@ -125,7 +131,6 @@ impl SiteExplorer {
         metric_holder.register_callback();
 
         SiteExplorer {
-            credential_provider,
             database_connection,
             enabled: explorer_config.enabled,
             config: explorer_config,
@@ -627,11 +632,7 @@ impl SiteExplorer {
             for chassis in ep.report.chassis.iter() {
                 for net_adapter in chassis.network_adapters.iter() {
                     if net_adapter.serial_number.is_some() {
-                        if net_adapter
-                            .model
-                            .as_ref()
-                            .is_some_and(|m| m.to_lowercase().contains("bluefield"))
-                        {
+                        if net_adapter.is_bluefield() {
                             num_all_dpus += 1;
                         }
                         let sn = net_adapter.serial_number.as_ref().unwrap();
@@ -690,51 +691,10 @@ impl SiteExplorer {
     /// Doing this upfront avoids the risk of trying to log into BMCs without
     /// the necessary credentials - which could trigger a lockout.
     async fn check_preconditions(&self, metrics: &mut SiteExplorationMetrics) -> CarbideResult<()> {
-        // Emit metrics for all potential misconfigurations before returning.
-        // That avoids finding more issues after fixing the first issue.
-        let mut errors = String::new();
-
-        for credential_key in &[
-            CredentialKey::DpuRedfish {
-                credential_type: CredentialType::DpuHardwareDefault,
-            },
-            CredentialKey::DpuRedfish {
-                credential_type: CredentialType::SiteDefault,
-            },
-            CredentialKey::HostRedfish {
-                credential_type: CredentialType::SiteDefault,
-            },
-        ] {
-            if let Err(e) = self
-                .credential_provider
-                .get_credentials(credential_key.clone())
-                .await
-            {
-                let credential_key_str = credential_key.to_key_str();
-
-                if !errors.is_empty() {
-                    errors.push('\n');
-                }
-                errors.push_str(&format!(
-                    "{:#}",
-                    e.wrap_err(format!(
-                        "Unable to load credentials for key: {}",
-                        credential_key_str
-                    )),
-                ));
-
-                *metrics
-                    .endpoint_explorations_failures_by_type
-                    .entry(format!("credentials_missing_{credential_key_str}"))
-                    .or_default() += 1;
-            }
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(CarbideError::GenericError(errors))
-        }
+        self.endpoint_explorer
+            .check_preconditions(metrics)
+            .await
+            .map_err(|e| CarbideError::GenericError(e.to_string()))
     }
 
     async fn update_explored_endpoints(

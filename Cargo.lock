@@ -2150,6 +2150,7 @@ dependencies = [
  "async-trait",
  "bmc-vendor",
  "eyre",
+ "mac_address",
  "opentelemetry",
  "rand 0.8.5",
  "rpc",
@@ -2800,7 +2801,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -3159,9 +3160,9 @@ checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
 name = "libredfish"
-version = "0.21.3"
+version = "0.21.5"
 source = "registry+https://urm.nvidia.com/artifactory/git/sw-ngc-forge-cargo-local.git"
-checksum = "98559b52ee3ade3b703bd0095a6968e7bf4c8ff525899b9f624c8289e63549f3"
+checksum = "cf810f982669f1322b6aa9bd3af1224588bb93860b3088b82a16af850be31fe4"
 dependencies = [
  "async-trait",
  "log",
@@ -3299,6 +3300,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8836fae9d0d4be2c8b4efcdd79e828a2faa058a90d005abf42f91cac5493a08e"
 dependencies = [
  "nix",
+ "serde",
  "winapi 0.3.9",
 ]
 

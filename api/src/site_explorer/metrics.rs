@@ -43,6 +43,12 @@ pub struct SiteExplorationMetrics {
     pub created_machines: usize,
 }
 
+impl Default for SiteExplorationMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SiteExplorationMetrics {
     pub fn new() -> Self {
         Self {
@@ -54,6 +60,19 @@ impl SiteExplorationMetrics {
             exploration_identified_managed_hosts: 0,
             created_machines: 0,
         }
+    }
+
+    fn increment_endpoint_explorations_failures(&mut self, failure_type: String) {
+        *self
+            .endpoint_explorations_failures_by_type
+            .entry(failure_type)
+            .or_default() += 1;
+    }
+
+    pub fn increment_credential_missing(&mut self, credential_key: String) {
+        self.increment_endpoint_explorations_failures(format!(
+            "credentials_missing_{credential_key}"
+        ))
     }
 }
 
@@ -190,7 +209,6 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
         EndpointExplorationError::Unauthorized { .. } => "unauthorized",
         EndpointExplorationError::MissingCredentials { .. } => "missing_credentials",
         EndpointExplorationError::SetCredentials { .. } => "set_credentials",
-        EndpointExplorationError::InvalidCredentials { .. } => "invalid_credentials",
         EndpointExplorationError::MissingRedfish => "missing_redfish",
         EndpointExplorationError::MissingVendor => "missing_vendor",
         EndpointExplorationError::Other { .. } => "other",

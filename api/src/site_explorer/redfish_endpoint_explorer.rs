@@ -10,32 +10,29 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::sync::Arc;
 
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType};
-use libredfish::{Redfish, RedfishError};
-use regex::Regex;
+use bmc_vendor::BMCVendor;
+use forge_secrets::credentials::{CredentialProvider, Credentials};
+use mac_address::MacAddress;
 
-use crate::db::expected_machine::ExpectedMachine;
-use crate::model::site_explorer::{ComputerSystemAttributes, NicMode};
-use crate::redfish::RedfishAuth;
+use crate::db::{expected_machine::ExpectedMachine, machine_interface::MachineInterface};
+
 use crate::{
-    db::machine_interface::MachineInterface,
-    model::site_explorer::{
-        Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-        EthernetInterface, Inventory, Manager, NetworkAdapter, Service,
-    },
-    redfish::{RedfishClientCreationError, RedfishClientPool},
+    model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},
+    redfish::RedfishClientPool,
     site_explorer::EndpointExplorer,
 };
 
+use super::credentials::CredentialClient;
+use super::metrics::SiteExplorationMetrics;
+use super::redfish::RedfishClient;
+
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct RedfishEndpointExplorer {
-    redfish_client_pool: Arc<dyn RedfishClientPool>,
-    credential_provider: Arc<dyn CredentialProvider>,
+    redfish_client: RedfishClient,
+    credential_client: CredentialClient,
 }
 
 impl RedfishEndpointExplorer {
@@ -44,520 +41,266 @@ impl RedfishEndpointExplorer {
         credential_provider: Arc<dyn CredentialProvider>,
     ) -> Self {
         Self {
-            redfish_client_pool,
-            credential_provider,
+            redfish_client: RedfishClient::new(redfish_client_pool),
+            credential_client: CredentialClient::new(credential_provider),
         }
     }
 
-    async fn try_get_client_with_hardware_cred(
+    pub async fn get_sitewide_bmc_root_credentials(
         &self,
-        address: SocketAddr,
-        credential_key: CredentialKey,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let client = self
-            .redfish_client_pool
-            .create_client(
-                &address.ip().to_string(),
-                Some(address.port()),
-                RedfishAuth::Key(credential_key),
-                true,
-            )
-            .await?;
-
-        Ok(client)
-    }
-
-    async fn try_change_root_password_to_site_default(
-        &self,
-        address: SocketAddr,
-        vendor: bmc_vendor::BMCVendor,
-    ) -> Result<bool, RedfishClientCreationError> {
-        let mut client = None;
-        if vendor.is_nvidia() {
-            // Vendor Nvidia could be a DPU or a host (Viking H100, Oberon GH200)
-            // Try DPU first
-            let credential_key = CredentialKey::DpuRedfish {
-                credential_type: CredentialType::DpuHardwareDefault,
-            };
-            if let Ok(c) = self
-                .try_get_client_with_hardware_cred(address, credential_key)
-                .await
-            {
-                client = Some(c);
-            }
-        }
-        let client = match client {
-            Some(client) => client, // DPU
-            None => {
-                let credential_key = CredentialKey::HostRedfish {
-                    credential_type: CredentialType::HostHardwareDefault { vendor },
-                };
-                self.try_get_client_with_hardware_cred(address, credential_key)
-                    .await?
-            }
-        };
-
-        let systems = client
-            .get_systems()
+    ) -> Result<Credentials, EndpointExplorationError> {
+        self.credential_client
+            .get_sitewide_bmc_root_credentials()
             .await
-            .map_err(RedfishClientCreationError::RedfishError)?;
-
-        let mut is_dpu = false;
-        let new_cred = if systems
-            .first()
-            .map(|x| x.to_lowercase().contains("bluefield"))
-            .unwrap_or(false)
-        {
-            is_dpu = true;
-            CredentialKey::DpuRedfish {
-                credential_type: CredentialType::SiteDefault,
-            }
-        } else {
-            CredentialKey::HostRedfish {
-                credential_type: CredentialType::SiteDefault,
-            }
-        };
-
-        self.redfish_client_pool
-            .change_root_password_to_site_default(client, new_cred)
-            .await?;
-
-        Ok(is_dpu)
     }
 
-    async fn try_hardware_default_creds(
+    pub async fn get_default_hardware_dpu_bmc_root_credentials(
         &self,
-        address: SocketAddr,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let (_org, vendor) = crate::site_explorer::identify_bmc(&address.to_string()).await?;
-        let is_dpu = self
-            .try_change_root_password_to_site_default(address, vendor)
-            .await?;
+    ) -> Result<Credentials, EndpointExplorationError> {
+        self.credential_client
+            .get_default_hardware_dpu_bmc_root_credentials()
+            .await
+    }
+
+    pub async fn get_bmc_root_credentials(
+        &self,
+        bmc_mac_address: MacAddress,
+    ) -> Result<Credentials, EndpointExplorationError> {
+        self.credential_client
+            .get_bmc_root_credentials(bmc_mac_address)
+            .await
+    }
+
+    pub async fn set_bmc_root_credentials(
+        &self,
+        bmc_mac_address: MacAddress,
+        credentials: Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        self.credential_client
+            .set_bmc_root_credentials(bmc_mac_address, credentials)
+            .await
+    }
+
+    pub async fn probe_redfish_endpoint(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> Result<BMCVendor, EndpointExplorationError> {
+        self.redfish_client
+            .probe_redfish_endpoint(bmc_ip_address)
+            .await
+    }
+
+    pub async fn set_bmc_root_password(
+        &self,
+        bmc_ip_address: SocketAddr,
+        bmc_vendor: BMCVendor,
+        current_bmc_credentials: Credentials,
+        new_bmc_credentials: Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        self.redfish_client
+            .set_bmc_root_password(
+                bmc_ip_address,
+                bmc_vendor,
+                current_bmc_credentials,
+                new_bmc_credentials,
+            )
+            .await
+    }
+
+    pub async fn generate_exploration_report(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.redfish_client
+            .generate_exploration_report(bmc_ip_address, username, password)
+            .await
+    }
+
+    // Handle machines that still have their bmc root password set to the factory default.
+    // (1) For hosts, the factory default must exist in the expected machines table (expected_machine). Otherwise, return an error.
+    // (2) For DPUs, try the hardware default root credentials.
+    // At this point, we dont know if the machine is a host or dpu. So, try both (1) and (2).
+    // If neither credentials work, return an error.
+    // If we can log in using the factory credentials:
+    // (1) use Redfish to set the machine's bmc root password to be the sitewide bmc root password.
+    // (2) update the BMC specific root password path in vault
+    pub async fn set_sitewide_bmc_root_password(
+        &self,
+        bmc_ip_address: SocketAddr,
+        bmc_mac_address: MacAddress,
+        bmc_vendor: BMCVendor,
+        expected_machine: Option<ExpectedMachine>,
+    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        let current_bmc_credentials;
+
+        tracing::info!(%bmc_ip_address, %bmc_mac_address, %bmc_vendor, "attempting to set the administrative credentials to the site password");
+
+        if let Some(expected_machine_credentials) = expected_machine {
+            tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected machine for this BMC mac address");
+            current_bmc_credentials = Credentials::UsernamePassword {
+                username: expected_machine_credentials.bmc_username,
+                password: expected_machine_credentials.bmc_password,
+            };
+        } else {
+            tracing::info!(%bmc_ip_address, %bmc_mac_address, %bmc_vendor, "No expected machine found, could be a BlueField");
+            // We dont know if this machine is a DPU at this point
+            // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
+            match bmc_vendor {
+                BMCVendor::Nvidia => {
+                    // This machine is either is either a DPU or a Viking host.
+                    // Try the DPU hardware default password to handle the DPU case
+                    // This password will not work for a Viking host and we will return an error
+                    current_bmc_credentials =
+                        self.get_default_hardware_dpu_bmc_root_credentials().await?;
+                }
+                _ => {
+                    return Err(EndpointExplorationError::MissingCredentials {
+                        key: "expected_machine".to_owned(),
+                        cause: format!(
+                            "The expected machine credentials do not exist for {} machine {}/{} ",
+                            bmc_vendor, bmc_ip_address, bmc_mac_address
+                        ),
+                    })
+                }
+            }
+        }
+
+        let sitewide_bmc_root_credentials = self.get_sitewide_bmc_root_credentials().await?;
+
+        // use redfish to set the machine's BMC root password to
+        // match Forge's sitewide BMC root password (from the factory default).
+        // return an error if we cannot log into the machine's BMC using current credentials
+        self.set_bmc_root_password(
+            bmc_ip_address,
+            bmc_vendor,
+            current_bmc_credentials,
+            sitewide_bmc_root_credentials.clone(),
+        )
+        .await?;
 
         tracing::info!(
-            address = %address,
-            "Changed password from factory default to site default"
+            %bmc_ip_address, %bmc_mac_address, %bmc_vendor,
+            "Site explorer successfully updated the root password for {bmc_mac_address} to the Forge sitewide BMC root password"
         );
-        let creds = if is_dpu {
-            forge_secrets::credentials::CredentialKey::DpuRedfish {
-                credential_type: CredentialType::SiteDefault,
-            }
-        } else {
-            CredentialKey::HostRedfish {
-                credential_type: CredentialType::SiteDefault,
-            }
-        };
-        self.redfish_client_pool
-            .create_client(
-                &address.ip().to_string(),
-                Some(address.port()),
-                RedfishAuth::Key(creds),
-                true,
-            )
+
+        // set the BMC root credentials in vault for this machine
+        self.set_bmc_root_credentials(bmc_mac_address, sitewide_bmc_root_credentials.clone())
+            .await?;
+
+        self.generate_exploration_report(bmc_ip_address, sitewide_bmc_root_credentials)
             .await
+    }
+
+    // Handle the legacy case: machines that were previously discovered through the legacy ingestion flow
+    // and already had their bmc's root account password changed from the factory to the site specific password.
+    // These machines do not need their root authentication changed; we just need to add the appropriate bmc specific
+    // credentials in vault so that the new site explorer flow can continue ingesting this machine
+    pub async fn handle_legacy_bmc_root_auth(
+        &self,
+        bmc_ip_address: SocketAddr,
+        bmc_mac_address: MacAddress,
+    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        let sitewide_bmc_root_credentials = self.get_sitewide_bmc_root_credentials().await?;
+
+        let report = self
+            .generate_exploration_report(bmc_ip_address, sitewide_bmc_root_credentials.clone())
+            .await?;
+
+        self.set_bmc_root_credentials(bmc_mac_address, sitewide_bmc_root_credentials)
+            .await?;
+
+        Ok(report)
     }
 }
 
 #[async_trait::async_trait]
 impl EndpointExplorer for RedfishEndpointExplorer {
+    async fn check_preconditions(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+    ) -> Result<(), EndpointExplorationError> {
+        self.credential_client.is_ready(metrics).await
+    }
+
+    // 1) Authenticate and set the BMC root account credentials
+    // 2) Authenticate and set the BMC forge-admin account credentials (TODO)
     async fn explore_endpoint(
         &self,
-        address: SocketAddr,
+        bmc_ip_address: SocketAddr,
         interface: &MachineInterface,
-        expected: Option<ExpectedMachine>,
+        expected_machine: Option<ExpectedMachine>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        if last_report.is_none() {
-            match super::initial_setup::host(
-                self.redfish_client_pool.clone(),
-                self.credential_provider.clone(),
-                address,
-                expected,
-            )
-            .await
-            {
-                // Host already setup, continue with normal exploration
-                Ok(None) => {}
-                // We changed something, wait for the reboot
-                Ok(Some(x)) => return Ok(x),
-
-                Err(EndpointExplorationError::Unauthorized { .. }) => {
-                    // We couldn't login with Host credentials, so this could be a DPU.
-                    // The Redfish ServiceRoot does not allow us to differentiate between a DPU and
-                    // any other NVIDIA machine (Viking, Oberon, etc).
-                    //
-                    // Continue with explore_endpoint
-                }
-                Err(e) => {
-                    return Err(e);
-                }
+        // If the site explorer was previously unable to login to the root BMC account using
+        // the expected credentials, wait for an operator to manually intervene.
+        // This will avoid locking us out of BMCs.
+        if let Some(report) = last_report {
+            if report.cannot_login() {
+                return Err(EndpointExplorationError::Other{ details: format!("Site explorer is not exploring endpoint {bmc_ip_address:#?} because it was previously unable to login using the known credentials") });
             }
         }
 
-        let headers = vec![
-            ("x-really-to-ip".to_string(), address.to_string()),
-            (
-                "x-really-to-mac".to_string(),
-                interface.mac_address.to_string(),
-            ),
-        ];
+        let bmc_mac_address = interface.mac_address;
+        let vendor = self.probe_redfish_endpoint(bmc_ip_address).await?;
+        tracing::trace!(%bmc_ip_address, "Is a {vendor} BMC that supports Redfish");
 
-        let client;
-        // Try DpuRedfish and HostRedfish credentials.
-        let client_result = self
-            .redfish_client_pool
-            .create_client_with_custom_headers(
-                &address.ip().to_string(),
-                Some(address.port()),
-                headers.as_slice(),
-                RedfishAuth::Key(CredentialKey::DpuRedfish {
-                    credential_type: CredentialType::SiteDefault,
-                }),
-                true,
-            )
-            .await;
+        // Authenticate and set the BMC root account credentials
 
-        match client_result {
-            Ok(c) => client = c,
-            Err(RedfishClientCreationError::RedfishError(e)) if e.is_unauthorized() => {
+        // Case 1: Vault contains a path at "bmc/{bmc_mac_address}/root"
+        // This machine has its BMC set to the Forge sitewide BMC root password.
+        // Create the redfish client and generate the report.
+        match self.get_bmc_root_credentials(bmc_mac_address).await {
+            Ok(credentials) => Ok(self
+                .generate_exploration_report(bmc_ip_address, credentials)
+                .await?),
+
+            Err(_) => {
+                tracing::info!(
+                    %bmc_ip_address,
+                    "Site explorer could not find an entry in vault at 'bmc/{}/root' - this is expected if the BMC has never been seen before.",
+                    bmc_mac_address,
+                );
+
+                // Case 2:
+                // The machine's BMC root password has already been set to the Forge Sitewide BMC root password.
+                // But, Vault does NOT have an entry for "bmc/{bmc_mac_address}/root"
+                // 1) Add an entry in vault for "bmc/{bmc_mac_address}/root"
+                // 2) Create the redfish client and generate the report.
                 match self
-                    .redfish_client_pool
-                    .create_client_with_custom_headers(
-                        &address.ip().to_string(),
-                        Some(address.port()),
-                        &headers,
-                        RedfishAuth::Key(CredentialKey::HostRedfish {
-                            credential_type: CredentialType::SiteDefault,
-                        }),
-                        true,
-                    )
+                    .handle_legacy_bmc_root_auth(bmc_ip_address, bmc_mac_address)
                     .await
                 {
-                    Ok(c) => client = c,
-                    Err(RedfishClientCreationError::RedfishError(e)) if e.is_unauthorized() => {
-                        client = self
-                            .try_hardware_default_creds(address)
+                    Ok(report) => Ok(report),
+                    Err(e) => match e {
+                        EndpointExplorationError::Unauthorized { details: _ } => {
+                            tracing::info!(
+                                %bmc_ip_address,
+                                "Site Explorer could not use site-wide credentials to login to this unknown BMC - this is expected if the BMC has never been seen before: {e}"
+                            );
+
+                            // Case 3:
+                            // The machine's BMC root password has not been set to the Forge Sitewide BMC root password
+                            // 1) Try to login to the machine's BMC root account
+                            // 2) Set the machine's BMC root password to the Forge Sitewide BMC root password
+                            // 3) Set the password policy for the machine's BMC
+                            // 4) Generate the report
+                            self.set_sitewide_bmc_root_password(
+                                bmc_ip_address,
+                                bmc_mac_address,
+                                vendor,
+                                expected_machine,
+                            )
                             .await
-                            .map_err(map_redfish_client_creation_error)?
-                    }
-                    Err(err) => return Err(map_redfish_client_creation_error(err)),
-                }
-            }
-            Err(err) => return Err(map_redfish_client_creation_error(err)),
-        };
-
-        let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
-        let vendor = service_root.vendor().map(|v| v.into());
-
-        let manager = fetch_manager(client.as_ref())
-            .await
-            .map_err(map_redfish_error)?;
-        let system = fetch_system(client.as_ref())
-            .await
-            .map_err(map_redfish_error)?;
-        let chassis = fetch_chassis(client.as_ref())
-            .await
-            .map_err(map_redfish_error)?;
-        let service = fetch_service(client.as_ref())
-            .await
-            .map_err(map_redfish_error)?;
-
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            last_exploration_error: None,
-            machine_id: None,
-            managers: vec![manager],
-            systems: vec![system],
-            chassis,
-            service,
-            vendor,
-        })
-    }
-}
-
-async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
-    let manager = client.get_manager().await?;
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, false, false).await?;
-
-    Ok(Manager {
-        ethernet_interfaces,
-        id: manager.id,
-    })
-}
-
-async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishError> {
-    let mut system = client.get_system().await?;
-    let is_dpu = system.id.to_lowercase().contains("bluefield");
-    let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu).await?;
-
-    // This part processes dpu case and do two things such as
-    // 1. update system serial_number in case it is empty using chassis serial_number
-    // 2. format serial_number data using the same rules as in fetch_chassis()
-    if is_dpu && system.serial_number.is_none() {
-        let chassis = client.get_chassis("Card1").await?;
-        system.serial_number = chassis.serial_number;
-    }
-
-    system.serial_number = system.serial_number.map(|s| s.trim().to_string());
-
-    let bios_attributes = match client.bios().await {
-        Ok(attributes) => attributes,
-        Err(error) => {
-            tracing::warn!("Could not retreive BIOS attributes: {error}");
-            HashMap::default()
-        }
-    };
-
-    let nic_mode: Option<NicMode> = if is_dpu {
-        bios_attributes
-            .get("NicMode")
-            .and_then(|v| v.as_str().and_then(|v| NicMode::from_str(v).ok()))
-    } else {
-        None
-    };
-
-    Ok(ComputerSystem {
-        ethernet_interfaces,
-        id: system.id,
-        manufacturer: system.manufacturer,
-        model: system.model,
-        serial_number: system.serial_number,
-        attributes: ComputerSystemAttributes { nic_mode },
-    })
-}
-
-async fn fetch_ethernet_interfaces(
-    client: &dyn Redfish,
-    fetch_system_interfaces: bool,
-    fetch_bluefield_oob: bool,
-) -> Result<Vec<EthernetInterface>, RedfishError> {
-    let eth_if_ids: Vec<String> = match match fetch_system_interfaces {
-        false => client.get_manager_ethernet_interfaces().await,
-        true => client.get_system_ethernet_interfaces().await,
-    } {
-        Ok(ids) => ids,
-        Err(e) => {
-            match e {
-                RedfishError::HTTPErrorCode { status_code, .. }
-                    if status_code == http::StatusCode::NOT_FOUND =>
-                {
-                    // API to enumerate Ethernet interfaces is not supported
-                    // This is the case for Bluefield NICs with some BMCs
-                    // For this case we use a workaround to fetch the OOB interface
-                    // information
-                    if fetch_system_interfaces && fetch_bluefield_oob {
-                        if let Some(oob_iface) = get_oob_interface(client).await? {
-                            return Ok(vec![oob_iface]);
                         }
-                    }
-                    return Ok(Vec::new());
+                        _ => Err(e),
+                    },
                 }
-                _ => return Err(e),
             }
         }
-    };
-    let mut eth_ifs: Vec<EthernetInterface> = Vec::new();
-
-    for iface_id in eth_if_ids.iter() {
-        let iface = match fetch_system_interfaces {
-            false => client.get_manager_ethernet_interface(iface_id).await,
-            true => client.get_system_ethernet_interface(iface_id).await,
-        }?;
-
-        let iface = EthernetInterface {
-            description: iface.description,
-            id: iface.id,
-            interface_enabled: iface.interface_enabled,
-            mac_address: iface.mac_address.map(|m| m.to_lowercase()),
-        };
-
-        eth_ifs.push(iface);
-    }
-
-    if eth_ifs.is_empty() && fetch_bluefield_oob {
-        // Temporary workaround untill get_system_ethernet_interface will return oob interface information
-        // Usually the workaround for not even being able to enumerate the interfaces
-        // would be used. But if a future Bluefield BMC revision returns interfaces
-        // but still misses the OOB interface, we would use this path.
-        if let Some(oob_iface) = get_oob_interface(client).await? {
-            eth_ifs.push(oob_iface);
-        }
-    }
-
-    Ok(eth_ifs)
-}
-
-async fn get_oob_interface(
-    client: &dyn Redfish,
-) -> Result<Option<EthernetInterface>, RedfishError> {
-    // Temporary workaround until oob mac would be possible to get via Redfish
-    let boot_options = client.get_boot_options().await?;
-    let mac_pattern = Regex::new(r"MAC\((?<mac>[[:alnum:]]+)\,").unwrap();
-
-    for option in boot_options.members.iter() {
-        // odata_id: "/redfish/v1/Systems/Bluefield/BootOptions/Boot0001"
-        let option_id = option.odata_id.split('/').last().unwrap();
-        let boot_option = client.get_boot_option(option_id).await?;
-        // display_name: "NET-OOB-IPV4"
-        if boot_option.display_name.contains("OOB") {
-            if boot_option.uefi_device_path.is_none() {
-                // Try whether there might be other matching options
-                continue;
-            }
-            // UefiDevicePath: "MAC(B83FD2909582,0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"
-            if let Some(captures) =
-                mac_pattern.captures(boot_option.uefi_device_path.unwrap().as_str())
-            {
-                let mac_addr_str = captures.name("mac").unwrap().as_str();
-                let mut mac_addr = String::new();
-
-                // Transform B83FD2909582 -> B8:3F:D2:90:95:82
-                for (i, c) in mac_addr_str.chars().enumerate() {
-                    mac_addr.push(c);
-                    if ((i + 1) % 2 == 0) && ((i + 1) < mac_addr_str.len()) {
-                        mac_addr.push(':');
-                    }
-                }
-
-                return Ok(Some(EthernetInterface {
-                    description: Some("1G DPU OOB network interface".to_string()),
-                    id: Some("oob_net0".to_string()),
-                    interface_enabled: None,
-                    mac_address: Some(mac_addr),
-                }));
-            }
-        }
-    }
-
-    // OOB Interface was not found
-    Ok(None)
-}
-
-async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishError> {
-    let mut chassis: Vec<Chassis> = Vec::new();
-
-    let chassis_list = client.get_chassis_all().await?;
-    for chassis_id in &chassis_list {
-        let Ok(desc) = client.get_chassis(chassis_id).await else {
-            continue;
-        };
-
-        let Ok(net_adapter_list) = client.get_chassis_network_adapters(chassis_id).await else {
-            continue;
-        };
-
-        let mut net_adapters: Vec<NetworkAdapter> = Vec::new();
-        for net_adapter_id in &net_adapter_list {
-            let value = client
-                .get_chassis_network_adapter(chassis_id, net_adapter_id)
-                .await?;
-
-            let net_adapter = NetworkAdapter {
-                id: value.id,
-                manufacturer: value.manufacturer,
-                model: value.model,
-                part_number: value.part_number,
-                serial_number: Some(
-                    value
-                        .serial_number
-                        .as_ref()
-                        .unwrap_or(&"".to_string())
-                        .trim()
-                        .to_string(),
-                ),
-            };
-
-            net_adapters.push(net_adapter);
-        }
-
-        chassis.push(Chassis {
-            id: chassis_id.to_string(),
-            manufacturer: desc.manufacturer,
-            model: desc.model,
-            part_number: desc.part_number,
-            serial_number: desc.serial_number,
-            network_adapters: net_adapters,
-        });
-    }
-
-    Ok(chassis)
-}
-
-async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishError> {
-    let mut service: Vec<Service> = Vec::new();
-
-    let inventory_list = client.get_software_inventories().await?;
-    let mut inventories: Vec<Inventory> = Vec::new();
-    for inventory_id in &inventory_list {
-        let Ok(value) = client.get_firmware(inventory_id).await else {
-            continue;
-        };
-
-        let inventory = Inventory {
-            id: value.id,
-            description: value.description,
-            version: value.version,
-            release_date: value.release_date,
-        };
-
-        inventories.push(inventory);
-    }
-
-    service.push(Service {
-        id: "FirmwareInventory".to_string(),
-        inventories,
-    });
-
-    Ok(service)
-}
-
-pub(crate) fn map_redfish_client_creation_error(
-    error: RedfishClientCreationError,
-) -> EndpointExplorationError {
-    match error {
-        RedfishClientCreationError::MissingCredentials { key, cause } => {
-            EndpointExplorationError::MissingCredentials {
-                key,
-                cause: format!("{cause:#}"),
-            }
-        }
-        RedfishClientCreationError::SetCredentials { key, cause } => {
-            EndpointExplorationError::SetCredentials {
-                key,
-                cause: format!("{cause:#}"),
-            }
-        }
-        RedfishClientCreationError::RedfishError(e) => map_redfish_error(e),
-        RedfishClientCreationError::SubtaskError(e) => EndpointExplorationError::Other {
-            details: format!("Error joining tokio task: {e}"),
-        },
-        RedfishClientCreationError::NotImplemented => EndpointExplorationError::Other {
-            details: "RedfishClientCreationError::NotImplemented".to_string(),
-        },
-        RedfishClientCreationError::IdentifyError(msg) => EndpointExplorationError::Other {
-            details: msg.to_string(),
-        },
-        RedfishClientCreationError::InvalidHeader(original_error) => {
-            EndpointExplorationError::Other {
-                details: format!("RedfishClientError::InvalidHeader: {}", original_error),
-            }
-        }
-    }
-}
-
-pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError {
-    match &error {
-        RedfishError::NetworkError { url: _, source }
-            if source.is_connect() || source.is_timeout() =>
-        {
-            // TODO: It might actually also be TLS related
-            EndpointExplorationError::Unreachable
-        }
-        error if error.is_unauthorized() => EndpointExplorationError::Unauthorized {
-            details: error.to_string(),
-        },
-        _ => EndpointExplorationError::RedfishError {
-            details: error.to_string(),
-        },
     }
 }

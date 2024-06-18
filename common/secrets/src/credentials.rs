@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use mac_address::MacAddress;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 
@@ -93,6 +94,17 @@ pub enum CredentialType {
     Machine { machine_id: String },
 }
 
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BmcCredentialType {
+    // Site Wide Root Credentials
+    SiteWideRoot,
+    // BMC Specific Root Credentials
+    BmcRoot { bmc_mac_address: MacAddress },
+    // BMC Specific Forge-Admin Credentials
+    BmcForgeAdmin { bmc_mac_address: MacAddress },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialKey {
     Bmc {
@@ -119,6 +131,9 @@ pub enum CredentialKey {
     },
     HostUefi {
         credential_type: CredentialType,
+    },
+    BmcCredentials {
+        credential_type: BmcCredentialType,
     },
 }
 
@@ -191,6 +206,20 @@ impl CredentialKey {
                     panic!("Not supported credential key");
                 }
             },
+            CredentialKey::BmcCredentials { credential_type } => {
+                let base: String = "machines/bmc".to_string();
+                match credential_type {
+                    BmcCredentialType::SiteWideRoot => {
+                        format!("{base}/site/root")
+                    }
+                    BmcCredentialType::BmcRoot { bmc_mac_address } => {
+                        format!("{base}/{bmc_mac_address}/root")
+                    }
+                    BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => {
+                        format!("{base}/{bmc_mac_address}/forge-admin-account")
+                    }
+                }
+            }
         }
     }
 }

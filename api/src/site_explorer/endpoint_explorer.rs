@@ -17,6 +17,8 @@ use crate::{
     model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},
 };
 
+use super::metrics::SiteExplorationMetrics;
+
 /// This trait defines how the `SiteExplorer` will query information about endpoints
 #[async_trait::async_trait]
 pub trait EndpointExplorer: Send + Sync + 'static {
@@ -32,4 +34,9 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         expected: Option<ExpectedMachine>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
+
+    async fn check_preconditions(
+        &self,
+        metrics: &mut SiteExplorationMetrics,
+    ) -> Result<(), EndpointExplorationError>;
 }

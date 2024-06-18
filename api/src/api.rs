@@ -24,7 +24,9 @@ use ::rpc::protos::forge::{
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
+};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
@@ -66,7 +68,7 @@ use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, Networ
 use crate::model::os::OperatingSystemVariant;
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
-use crate::redfish::{host_power_control, poll_redfish_job, set_host_uefi_password};
+use crate::redfish::{host_power_control, poll_redfish_job};
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
@@ -2112,39 +2114,24 @@ impl Forge for Api {
             )));
         };
 
-        let maybe_mac = if let Some(mac_str) = req.mac_address {
-            let mac = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
-
-            let mut txn = self.database_connection.begin().await.map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin find_many_by_bmc_mac_address",
-                    e,
-                ))
-            })?;
-            let mut expected =
-                ExpectedMachine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
-            txn.commit().await.map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "commit find_many_by_bmc_mac_address",
-                    e,
-                ))
-            })?;
-
-            expected.remove(&mac)
+        let bmc_mac_address: MacAddress;
+        if let Some(mac_str) = req.mac_address {
+            bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
         } else {
-            None
+            return Err(tonic::Status::invalid_argument(format!(
+                "request did not specify mac address: {req:#?}"
+            )));
         };
 
         let explorer = crate::site_explorer::RedfishEndpointExplorer::new(
             self.redfish_pool.clone(),
             self.credential_provider.clone(),
         );
+        let expected_machine = self.query_expected_machine(bmc_mac_address).await?;
+        let machine_interface = MachineInterface::mock_with_mac(bmc_mac_address);
+
         let report = explorer
-            .explore_endpoint(bmc_addr, &Default::default(), maybe_mac, None)
+            .explore_endpoint(bmc_addr, &machine_interface, expected_machine, None)
             .await
             .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
@@ -3296,70 +3283,18 @@ impl Forge for Api {
         })?;
 
         match credential_type {
-            rpc::CredentialType::HostBmc => {
-                if (self
-                    .credential_provider
-                    .get_credentials(CredentialKey::HostRedfish {
-                        credential_type: CredentialType::SiteDefault,
-                    })
-                    .await)
-                    .is_ok()
-                {
-                    // TODO: support reset credential
-                    return Err(tonic::Status::already_exists(
-                        "Not support to reset host BMC credential",
-                    ));
-                }
-
-                self.credential_provider
-                    .set_credentials(
-                        CredentialKey::HostRedfish {
-                            credential_type: CredentialType::SiteDefault,
-                        },
-                        Credentials::UsernamePassword {
-                            username: FORGE_SITE_WIDE_BMC_USERNAME.to_string(),
-                            password: password.clone(),
-                        },
-                    )
-                    .await
-                    .map_err(|e| {
-                        CarbideError::GenericError(format!(
-                            "Error setting credential for Host Bmc: {:?} ",
-                            e
-                        ))
-                    })?
+            rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
+                return Err(tonic::Status::invalid_argument("Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified."));
             }
-            rpc::CredentialType::Dpubmc => {
-                if (self
-                    .credential_provider
-                    .get_credentials(CredentialKey::DpuRedfish {
-                        credential_type: CredentialType::SiteDefault,
-                    })
-                    .await)
-                    .is_ok()
-                {
-                    // TODO: support reset credential
-                    return Err(tonic::Status::already_exists(
-                        "Not support to reset DPU BMC credential",
-                    ));
-                }
-                self.credential_provider
-                    .set_credentials(
-                        CredentialKey::DpuRedfish {
-                            credential_type: CredentialType::SiteDefault,
-                        },
-                        Credentials::UsernamePassword {
-                            username: FORGE_SITE_WIDE_BMC_USERNAME.to_string(),
-                            password: password.clone(),
-                        },
-                    )
+            rpc::CredentialType::SiteWideBmcRoot => {
+                self.set_sitewide_bmc_root_credentials(password)
                     .await
                     .map_err(|e| {
                         CarbideError::GenericError(format!(
-                            "Error setting credential for DPU Bmc: {:?} ",
+                            "Error setting Site Wide BMC Root credentials: {:?} ",
                             e
                         ))
-                    })?
+                    })?;
             }
             rpc::CredentialType::Ufm => {
                 if let Some(username) = req.username {
@@ -3488,6 +3423,32 @@ impl Forge for Api {
                         ))
                     })?
             }
+            rpc::CredentialType::BmcByMacAddress => {
+                let Some(mac_address) = req.mac_address else {
+                    return Err(tonic::Status::invalid_argument("mac address"));
+                };
+                let Some(username) = req.username else {
+                    return Err(tonic::Status::invalid_argument("missing username"));
+                };
+
+                self.credential_provider
+                    .set_credentials(
+                        CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::BmcRoot {
+                                bmc_mac_address: mac_address
+                                    .parse()
+                                    .map_err(|_| tonic::Status::invalid_argument("mac_address"))?,
+                            },
+                        },
+                        Credentials::UsernamePassword { username, password },
+                    )
+                    .await
+                    .map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Error updating credential for BMC {mac_address}: {e:?}"
+                        ))
+                    })?
+            }
         };
 
         Ok(Response::new(rpc::CredentialCreationResult {}))
@@ -3537,7 +3498,9 @@ impl Forge for Api {
             | rpc::CredentialType::DpuUefi
             | rpc::CredentialType::HostUefi
             | rpc::CredentialType::HostBmcFactoryDefault
-            | rpc::CredentialType::DpuBmcFactoryDefault => {
+            | rpc::CredentialType::DpuBmcFactoryDefault
+            | rpc::CredentialType::BmcByMacAddress
+            | rpc::CredentialType::SiteWideBmcRoot => {
                 // Not support delete credential for these types
             }
         };
@@ -3812,8 +3775,25 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        let job_id =
-            set_host_uefi_password(&snapshot.host_snapshot, self.redfish_pool.clone()).await?;
+        let redfish_client = crate::redfish::build_redfish_client_from_machine_snapshot(
+            &snapshot.host_snapshot,
+            &self.redfish_pool,
+            &mut txn,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("unable to create redfish client: {}", e);
+            tonic::Status::internal(format!(
+                "Could not create connection to Redfish API to {}, check logs",
+                machine_id
+            ))
+        })?;
+
+        let job_id = crate::redfish::set_host_uefi_password(
+            redfish_client.as_ref(),
+            self.redfish_pool.clone(),
+        )
+        .await?;
 
         let mut start = Instant::now();
         let mut sleep_duration: Duration = tokio::time::Duration::from_secs(5);
@@ -3822,10 +3802,9 @@ impl Forge for Api {
             loop {
                 sleep(sleep_duration).await;
                 if poll_redfish_job(
+                    redfish_client.as_ref(),
                     jid.clone(),
                     libredfish::JobState::Scheduled,
-                    self.redfish_pool.clone(),
-                    &snapshot.host_snapshot,
                 )
                 .await?
                 {
@@ -3841,11 +3820,10 @@ impl Forge for Api {
         }
 
         host_power_control(
+            redfish_client.as_ref(),
             &snapshot.host_snapshot,
             SystemPowerControl::ForceRestart,
-            None,
             self.ipmi_tool.clone(),
-            self.redfish_pool.clone(),
             &mut txn,
         )
         .await?;
@@ -3857,10 +3835,9 @@ impl Forge for Api {
             loop {
                 sleep(sleep_duration).await;
                 if poll_redfish_job(
+                    redfish_client.as_ref(),
                     jid.clone(),
                     libredfish::JobState::Completed,
-                    self.redfish_pool.clone(),
-                    &snapshot.host_snapshot,
                 )
                 .await?
                 {
@@ -5228,6 +5205,57 @@ impl Api {
             }
         }
         Ok(None)
+    }
+
+    async fn query_expected_machine(
+        &self,
+        mac: MacAddress,
+    ) -> Result<Option<ExpectedMachine>, CarbideError> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_many_by_bmc_mac_address",
+                e,
+            ))
+        })?;
+
+        let mut expected = ExpectedMachine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit find_many_by_bmc_mac_address",
+                e,
+            ))
+        })?;
+
+        Ok(expected.remove(&mac))
+    }
+
+    pub async fn set_sitewide_bmc_root_credentials(
+        &self,
+        password: String,
+    ) -> Result<(), CarbideError> {
+        let credential_key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRoot,
+        };
+
+        let credentials = Credentials::UsernamePassword {
+            username: FORGE_SITE_WIDE_BMC_USERNAME.to_string(),
+            password: password.clone(),
+        };
+
+        self.credential_provider
+            .set_credentials(credential_key, credentials)
+            .await
+            .map_err(|e| {
+                CarbideError::GenericError(format!(
+                    "Error setting credential for Host Bmc: {:?} ",
+                    e
+                ))
+            })
     }
 }
 

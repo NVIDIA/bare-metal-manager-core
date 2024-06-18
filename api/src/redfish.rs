@@ -19,7 +19,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
+};
 use http::{header::InvalidHeaderName, HeaderName, StatusCode};
 use libredfish::{
     model::{
@@ -30,7 +32,7 @@ use libredfish::{
 };
 
 use crate::{
-    db::{bmc_metadata::UserRoles, machine::Machine},
+    db::{machine::Machine, machine_interface::MachineInterface},
     ipmitool::IPMITool,
     model::machine::MachineSnapshot,
     CarbideError, CarbideResult,
@@ -56,6 +58,12 @@ pub enum RedfishClientCreationError {
     InvalidHeader(#[from] InvalidHeaderName),
     #[error("Failed setting credential {key}: {cause}")]
     SetCredentials { key: String, cause: eyre::Report },
+    #[error("Missing Arguments: {0}")]
+    MissingArgument(String),
+    #[error("Invalid Argument: {0}: {1}")]
+    InvalidArgument(String, String),
+    #[error("Database Error Loading Machine Interface")]
+    MachineInterfaceLoadError(#[from] crate::db::DatabaseError),
 }
 
 pub enum RedfishAuth {
@@ -86,15 +94,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         initialize: bool, // fetch some initial values like system id and manager id
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 
-    async fn change_root_password_to_site_default(
-        &self,
-        client: Box<dyn Redfish>,
-        new_credential_key: CredentialKey,
-    ) -> Result<(), RedfishClientCreationError>;
-
     async fn create_forge_admin_user(
         &self,
-        client: Box<dyn Redfish>,
+        client: &dyn Redfish,
         machine_id: String,
     ) -> Result<(), RedfishClientCreationError>;
 
@@ -271,50 +273,9 @@ impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImp
         }
     }
 
-    async fn change_root_password_to_site_default(
-        &self,
-        client: Box<dyn Redfish>,
-        new_credential_key: CredentialKey,
-    ) -> Result<(), RedfishClientCreationError> {
-        let credentials = self
-            .credential_provider
-            .get_credentials(new_credential_key.clone())
-            .await
-            .map_err(|cause| RedfishClientCreationError::MissingCredentials {
-                key: new_credential_key.to_key_str(),
-                cause,
-            })?;
-
-        let (username, password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        let username = if let CredentialKey::HostRedfish { .. } = new_credential_key {
-            let service_root = client
-                .get_service_root()
-                .await
-                .map_err(RedfishClientCreationError::RedfishError)?;
-
-            if matches!(service_root.vendor(), Some(RedfishVendor::AMI)) {
-                AMI_USERNAME.to_string()
-            } else {
-                username
-            }
-        } else {
-            username
-        };
-
-        tracing::info!("Using {username} user while updating root password to site default.");
-
-        client
-            .change_password(username.as_str(), password.as_str())
-            .await
-            .map_err(RedfishClientCreationError::RedfishError)
-    }
-
     async fn create_forge_admin_user(
         &self,
-        client: Box<dyn Redfish>,
+        client: &dyn Redfish,
         machine_id: String,
     ) -> Result<(), RedfishClientCreationError> {
         let username = FORGE_DPU_BMC_USERNAME;
@@ -998,17 +959,9 @@ impl RedfishClientPool for RedfishSim {
         }))
     }
 
-    async fn change_root_password_to_site_default(
-        &self,
-        _client: Box<dyn Redfish>,
-        _new_credential_key: CredentialKey,
-    ) -> Result<(), RedfishClientCreationError> {
-        Err(RedfishClientCreationError::NotImplemented)
-    }
-
     async fn create_forge_admin_user(
         &self,
-        client: Box<dyn Redfish>,
+        client: &dyn Redfish,
         _machine_id: String,
     ) -> Result<(), RedfishClientCreationError> {
         let username = FORGE_DPU_BMC_USERNAME;
@@ -1041,40 +994,16 @@ impl RedfishClientPool for RedfishSim {
 ///
 /// host_power_control allows control over the power of the host
 pub async fn host_power_control(
+    redfish_client: &dyn Redfish,
     machine_snapshot: &MachineSnapshot,
     action: SystemPowerControl,
-    key: Option<CredentialKey>,
     ipmi_tool: Arc<dyn IPMITool>,
-    redfish_client_pool: Arc<dyn RedfishClientPool>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> CarbideResult<()> {
-    let bmc_ip = machine_snapshot
-        .bmc_info
-        .ip
-        .as_deref()
-        .ok_or_else(|| CarbideError::MissingArgument("bmc_info.ip"))?;
-
-    let key = key.unwrap_or(CredentialKey::Bmc {
-        machine_id: machine_snapshot.machine_id.to_string(),
-        user_role: UserRoles::Administrator.to_string(),
-    });
-
-    let client = redfish_client_pool
-        .create_client(
-            bmc_ip,
-            machine_snapshot.bmc_info.port,
-            RedfishAuth::Key(key),
-            true,
-        )
-        .await
-        .map_err(|e| {
-            CarbideError::GenericError(format!("Failed to create redfish client: {}", e))
-        })?;
-
     if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
         // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
         // Supermicro will boot the users OS if we don't do this
-        client
+        redfish_client
             .boot_once(libredfish::Boot::Pxe)
             .await
             .map_err(CarbideError::RedfishError)?;
@@ -1086,14 +1015,19 @@ pub async fn host_power_control(
     // vikings reboot their DPU's if redfish reset is used. \
     // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
     if is_reboot && machine_snapshot.bmc_vendor.is_nvidia() {
+        let bmc_ip = machine_snapshot
+            .bmc_info
+            .ip
+            .as_ref()
+            .ok_or_else(|| CarbideError::MissingArgument("MachineState.bmc_info.ip: {e}"))?;
         ipmi_tool
-            .restart(&machine_snapshot.machine_id, bmc_ip.to_string(), false)
+            .restart(&machine_snapshot.machine_id, bmc_ip.clone(), false)
             .await
             .map_err(|e: eyre::ErrReport| {
                 CarbideError::GenericError(format!("Failed to restart machine: {}", e))
             })?;
     } else {
-        client
+        redfish_client
             .power(action)
             .await
             .map_err(CarbideError::RedfishError)?;
@@ -1107,75 +1041,26 @@ pub async fn host_power_control(
 /// It returns the job ID for the UEFI password change for vendors that require
 /// generating a job to set the UEFI password.
 pub async fn set_host_uefi_password(
-    host_snapshot: &MachineSnapshot,
+    redfish_client: &dyn Redfish,
     redfish_client_pool: Arc<dyn RedfishClientPool>,
 ) -> CarbideResult<Option<String>> {
-    let bmc_ip = host_snapshot.bmc_info.ip.as_deref().ok_or_else(|| {
-        CarbideError::GenericError(format!(
-            "missing bmc_ip in the host's snapshot: {:#?}",
-            host_snapshot
-        ))
-    })?;
-
-    let client: Box<dyn Redfish> = redfish_client_pool
-        .create_client(
-            bmc_ip,
-            host_snapshot.bmc_info.port,
-            RedfishAuth::Key(CredentialKey::Bmc {
-                machine_id: host_snapshot.machine_id.to_string(),
-                user_role: UserRoles::Administrator.to_string(),
-            }),
-            true,
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(%e, "Failed to run create_client call");
-            CarbideError::GenericError(format!("Failed to create redfish client: {}", e))
-        })?;
-
-    let job_id = redfish_client_pool
-        .uefi_setup(client.as_ref(), false)
+    redfish_client_pool
+        .uefi_setup(redfish_client, false)
         .await
         .map_err(|e| {
             tracing::error!(%e, "Failed to run uefi_setup call");
             CarbideError::GenericError(format!("Failed redfish uefi_setup subtask: {}", e))
-        })?;
-
-    Ok(job_id)
+        })
 }
 
 /// poll_redfish_job returns true if the job specified by job_id is at the state specified by job_state.
 /// it will return an error if the job could not be found.
 pub async fn poll_redfish_job(
+    redfish_client: &dyn Redfish,
     job_id: String,
     expected_state: libredfish::JobState,
-    redfish_client_pool: Arc<dyn RedfishClientPool>,
-    host_snapshot: &MachineSnapshot,
 ) -> CarbideResult<bool> {
-    let bmc_ip = host_snapshot.bmc_info.ip.as_deref().ok_or_else(|| {
-        CarbideError::GenericError(format!(
-            "missing bmc_ip in the host's snapshot: {:#?}",
-            host_snapshot
-        ))
-    })?;
-
-    let client: Box<dyn Redfish> = redfish_client_pool
-        .create_client(
-            bmc_ip,
-            host_snapshot.bmc_info.port,
-            RedfishAuth::Key(CredentialKey::Bmc {
-                machine_id: host_snapshot.machine_id.to_string(),
-                user_role: UserRoles::Administrator.to_string(),
-            }),
-            true,
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(%e, "Failed to run create_client call");
-            CarbideError::GenericError(format!("Failed to create redfish client: {}", e))
-        })?;
-
-    let job_state = client
+    let job_state = redfish_client
         .get_job_state(&job_id)
         .await
         .map_err(CarbideError::RedfishError)?;
@@ -1190,6 +1075,54 @@ pub async fn poll_redfish_job(
     }
 
     Ok(true)
+}
+
+pub async fn build_redfish_client_from_machine_snapshot(
+    target: &MachineSnapshot,
+    pool: &Arc<dyn RedfishClientPool>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+    let machine_id = &target.machine_id;
+
+    let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
+        RedfishClientCreationError::MissingArgument(format!(
+            "IP address is missing for {}",
+            machine_id
+        ))
+    })?;
+
+    let ip = maybe_ip.parse().map_err(|_| {
+        RedfishClientCreationError::InvalidArgument(
+            format!("Invalid IP address for {}", machine_id),
+            maybe_ip.into(),
+        )
+    })?;
+
+    let machine_interface_target =
+        MachineInterface::find_by_ip(txn, ip)
+            .await?
+            .ok_or_else(|| {
+                RedfishClientCreationError::MissingArgument(format!(
+                    "Machine Interface for IP address: {}",
+                    ip
+                ))
+            })?;
+
+    (*pool)
+        .clone()
+        .create_client(
+            ip.to_string().as_str(),
+            target.bmc_info.port,
+            RedfishAuth::Key(CredentialKey::BmcCredentials {
+                // TODO(ajf): Change this to Forge Admin user once site explorer
+                // ensures it exist, credentials are done by mac address
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: machine_interface_target.mac_address,
+                },
+            }),
+            true,
+        )
+        .await
 }
 
 #[cfg(test)]

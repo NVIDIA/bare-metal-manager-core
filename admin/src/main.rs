@@ -575,6 +575,7 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::Ufm.into(),
                     username: Some(username),
                     password,
+                    mac_address: None,
                     vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;
@@ -590,9 +591,10 @@ async fn main() -> color_eyre::Result<()> {
             CredentialAction::AddBMC(c) => {
                 let password = password_validator(c.password.clone()).await?;
                 let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::from(c.kind).into(),
+                    credential_type: CredentialType::SiteWideBmcRoot.into(),
                     username: None,
                     password,
+                    mac_address: None,
                     vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;
@@ -607,6 +609,7 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::from(c.kind).into(),
                     username: None,
                     password,
+                    mac_address: None,
                     vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;
@@ -616,6 +619,7 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::HostBmcFactoryDefault.into(),
                     username: Some(c.username),
                     password: c.password,
+                    mac_address: None,
                     vendor: Some(c.vendor.to_string()),
                 };
                 rpc::add_credential(api_config, req).await?;
@@ -625,6 +629,7 @@ async fn main() -> color_eyre::Result<()> {
                     credential_type: CredentialType::DpuBmcFactoryDefault.into(),
                     username: Some(c.username),
                     password: c.password,
+                    mac_address: None,
                     vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;

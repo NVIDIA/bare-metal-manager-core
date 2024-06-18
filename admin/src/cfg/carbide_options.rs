@@ -1014,22 +1014,6 @@ pub enum BmcMachine {
     Identify(BMCIdentify),
 }
 
-#[derive(ValueEnum, Parser, Debug, Clone)]
-pub enum BMCCredentialType {
-    Host,
-    Dpu,
-}
-
-impl From<BMCCredentialType> for rpc::forge::CredentialType {
-    fn from(c_type: BMCCredentialType) -> Self {
-        use rpc::forge::CredentialType::*;
-        match c_type {
-            BMCCredentialType::Host => HostBmc,
-            BMCCredentialType::Dpu => Dpubmc,
-        }
-    }
-}
-
 #[derive(Parser, Debug)]
 pub enum CredentialAction {
     #[clap(about = "Add UFM credential")]
@@ -1067,9 +1051,6 @@ pub struct DeleteUFMCredential {
 
 #[derive(Parser, Debug)]
 pub struct AddBMCredential {
-    #[clap(long, required(true), help = "The kind of BMC credential")]
-    pub kind: BMCCredentialType,
-
     #[clap(long, required(true), help = "The password of BMC")]
     pub password: String,
 }
