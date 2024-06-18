@@ -18,7 +18,7 @@ pub struct IBNetwork {
     /// The name of IB network.
     pub name: String,
     /// The pkey of IB network.
-    pub pkey: i32,
+    pub pkey: u16,
     /// Default false; create sharp allocation accordingly.
     pub enable_sharp: bool,
     /// Default 2k; one of 2k or 4k; the MTU of the services.

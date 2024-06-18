@@ -66,7 +66,7 @@ pub struct PortConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PartitionKey(i32);
+pub struct PartitionKey(u16);
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Partition {
@@ -135,10 +135,10 @@ impl From<Vec<PortConfig>> for Filter {
     }
 }
 
-impl TryFrom<i32> for PartitionKey {
+impl TryFrom<u16> for PartitionKey {
     type Error = UFMError;
 
-    fn try_from(pkey: i32) -> Result<Self, Self::Error> {
+    fn try_from(pkey: u16) -> Result<Self, Self::Error> {
         if pkey != (pkey & 0x7fff) {
             return Err(UFMError::InvalidPKey(pkey.to_string()));
         }
@@ -151,9 +151,10 @@ impl TryFrom<String> for PartitionKey {
     type Error = UFMError;
 
     fn try_from(pkey: String) -> Result<Self, Self::Error> {
+        let pkey = pkey.to_lowercase();
         let base = if pkey.starts_with(HEX_PRE) { 16 } else { 10 };
         let p = pkey.trim_start_matches(HEX_PRE);
-        let k = i32::from_str_radix(p, base);
+        let k = u16::from_str_radix(p, base);
 
         match k {
             Ok(v) => Ok(PartitionKey(v)),
@@ -184,8 +185,8 @@ impl ToString for PartitionKey {
     }
 }
 
-impl From<PartitionKey> for i32 {
-    fn from(v: PartitionKey) -> i32 {
+impl From<PartitionKey> for u16 {
+    fn from(v: PartitionKey) -> u16 {
         v.0
     }
 }

@@ -2467,9 +2467,7 @@ impl Forge for Api {
                         .await
                         .map_err(CarbideError::from)?
                 {
-                    ib_fabric
-                        .unbind_ib_ports(pkey.into(), guids.to_vec())
-                        .await?;
+                    ib_fabric.unbind_ib_ports(pkey, guids.to_vec()).await?;
                     response.ufm_unregistrations += 1;
 
                     //TODO: release VF GUID resource when VF supported.
@@ -5182,7 +5180,7 @@ impl Api {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         owner_id: &str,
-    ) -> Result<Option<i16>, CarbideError> {
+    ) -> Result<Option<u16>, CarbideError> {
         match self
             .common_pools
             .infiniband

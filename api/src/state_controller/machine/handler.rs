@@ -2582,7 +2582,7 @@ async fn record_infiniband_status_observation(
         // Get the status of ports from UFM, and persist it as observed status.
         let filter = ib::Filter {
             guids: Some(v),
-            pkey: ibpartition.config.pkey.map(|pkey| pkey as i32),
+            pkey: ibpartition.config.pkey,
         };
         let ports = ib_fabric
             .find_ib_port(Some(filter))
@@ -2718,7 +2718,7 @@ async fn unbind_ib_ports(
             })?;
 
         ib_fabric
-            .unbind_ib_ports(pkey as i32, v)
+            .unbind_ib_ports(pkey, v)
             .await
             .map_err(|_| StateHandlerError::IBFabricError("unbind_ib_ports".to_string()))?;
     }

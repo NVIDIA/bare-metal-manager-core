@@ -159,7 +159,7 @@ impl IBFabric for MockIBFabric {
     }
 
     /// Delete IBPort
-    async fn unbind_ib_ports(&self, _pkey: i32, ids: Vec<String>) -> Result<(), CarbideError> {
+    async fn unbind_ib_ports(&self, _pkey: u16, ids: Vec<String>) -> Result<(), CarbideError> {
         let mut ibports = self
             .ibports
             .lock()

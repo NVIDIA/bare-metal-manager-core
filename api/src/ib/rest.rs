@@ -105,7 +105,7 @@ impl IBFabric for RestIBFabric {
     }
 
     /// Delete IBPort
-    async fn unbind_ib_ports(&self, pkey: i32, ids: Vec<String>) -> Result<(), CarbideError> {
+    async fn unbind_ib_ports(&self, pkey: u16, ids: Vec<String>) -> Result<(), CarbideError> {
         let pkey = PartitionKey::try_from(pkey).map_err(CarbideError::from)?;
 
         self.ufm

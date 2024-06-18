@@ -204,7 +204,16 @@ fn expand_ip_range(start_s: &str, end_s: &str) -> Result<Vec<Ipv4Addr>, eyre::Re
 
 // All the numbers between start_s and end_s
 fn expand_int_range(start_s: &str, end_s: &str) -> Result<Vec<i32>, eyre::Report> {
-    let start: i32 = start_s.parse()?;
-    let end: i32 = end_s.parse()?;
+    let start: i32 = parse_int_range(start_s)?;
+    let end: i32 = parse_int_range(end_s)?;
     Ok((start..end).collect())
+}
+
+const HEX_PRE: &str = "0x";
+fn parse_int_range(data: &str) -> Result<i32, eyre::Report> {
+    let data = data.to_lowercase();
+    let base = if data.starts_with(HEX_PRE) { 16 } else { 10 };
+    let p = data.trim_start_matches(HEX_PRE);
+
+    i32::from_str_radix(p, base).map_err(eyre::Report::from)
 }

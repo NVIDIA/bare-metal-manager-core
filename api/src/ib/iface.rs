@@ -20,7 +20,7 @@ use crate::CarbideError;
 #[derive(Default)]
 pub struct Filter {
     pub guids: Option<Vec<String>>,
-    pub pkey: Option<i32>,
+    pub pkey: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,7 +73,7 @@ pub trait IBFabric: Send + Sync {
     ) -> Result<(), CarbideError>;
 
     /// Delete IBPort
-    async fn unbind_ib_ports(&self, pkey: i32, id: Vec<String>) -> Result<(), CarbideError>;
+    async fn unbind_ib_ports(&self, pkey: u16, id: Vec<String>) -> Result<(), CarbideError>;
 
     /// Find IBPort
     async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError>;

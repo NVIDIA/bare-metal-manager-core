@@ -68,7 +68,7 @@ pub struct EthernetPools {
 
 /// ResourcePools that are used for infiniband
 pub struct IbPools {
-    pub pool_pkey: Arc<DbResourcePool<i16>>,
+    pub pool_pkey: Arc<DbResourcePool<u16>>,
 }
 
 impl CommonPools {
@@ -83,7 +83,7 @@ impl CommonPools {
             Arc::new(DbResourcePool::new(VNI.to_string(), ValueType::Integer));
         let pool_vpc_vni: Arc<DbResourcePool<i32>> =
             Arc::new(DbResourcePool::new(VPC_VNI.to_string(), ValueType::Integer));
-        let pool_pkey: Arc<DbResourcePool<i16>> =
+        let pool_pkey: Arc<DbResourcePool<u16>> =
             Arc::new(DbResourcePool::new(PKEY.to_string(), ValueType::Integer));
 
         // We can't run if any of the mandatory pools are missing

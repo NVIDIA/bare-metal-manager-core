@@ -40,7 +40,7 @@ impl From<&IBPartition> for IBNetwork {
     fn from(ib: &IBPartition) -> IBNetwork {
         Self {
             name: ib.config.name.clone(),
-            pkey: ib.config.pkey.unwrap_or(0) as i32,
+            pkey: ib.config.pkey.unwrap_or(0),
             enable_sharp: false,
             mtu: ib.config.mtu as u16,
             ipoib: true,
