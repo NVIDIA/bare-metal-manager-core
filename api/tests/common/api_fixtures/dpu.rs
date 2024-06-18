@@ -324,6 +324,7 @@ pub async fn update_dpu_machine_credentials(env: &TestEnv, dpu_machine_id: rpc::
         .api
         .update_machine_credentials(Request::new(MachineCredentialsUpdateRequest {
             machine_id: Some(dpu_machine_id),
+            mac_address: None,
             credentials: vec![
                 Credentials {
                     user: FIXTURE_DPU_SSH_USERNAME.to_string(),

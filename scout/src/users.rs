@@ -24,6 +24,7 @@ pub async fn create_users(
     let update_request = ::rpc::forge::MachineCredentialsUpdateRequest {
         credentials: vec![login_user_creds, hbn_user_creds],
         machine_id: Some(machine_id.to_string().into()),
+        mac_address: None,
     };
 
     let request = tonic::Request::new(update_request);

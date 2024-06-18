@@ -50,6 +50,25 @@ pub struct MachineInterface {
     last_dhcp: Option<DateTime<Utc>>,
 }
 
+impl MachineInterface {
+    pub fn mock_with_mac(mac_address: MacAddress) -> MachineInterface {
+        MachineInterface {
+            id: Uuid::nil(),
+            attached_dpu_machine_id: None,
+            domain_id: None,
+            machine_id: None,
+            segment_id: Uuid::nil(),
+            mac_address,
+            hostname: String::new(),
+            primary_interface: true,
+            addresses: Vec::new(),
+            vendors: Vec::new(),
+            created: chrono::DateTime::default(),
+            last_dhcp: None,
+        }
+    }
+}
+
 pub struct UsedAdminNetworkIpResolver {
     pub segment_id: uuid::Uuid,
 }

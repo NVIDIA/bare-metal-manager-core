@@ -35,7 +35,7 @@ use carbide::{
             ExploredManagedHost, Inventory, Manager, NetworkAdapter, NicMode, Service,
         },
     },
-    site_explorer::{EndpointExplorer, SiteExplorer},
+    site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
     state_controller::machine::handler::MachineStateHandler,
 };
 use mac_address::MacAddress;
@@ -264,7 +264,6 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        env.credential_provider.clone(),
         env.pool.clone(),
         explorer_config,
         &dpu_config,
@@ -604,7 +603,6 @@ async fn test_site_explorer_creates_managed_host(
     };
 
     let explorer = SiteExplorer::new(
-        env.credential_provider.clone(),
         env.pool.clone(),
         explorer_config,
         &dpu_config,
@@ -714,7 +712,7 @@ async fn test_site_explorer_creates_managed_host(
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
         dpus: vec![ExploredDpu {
-            bmc_ip: IpAddr::from_str("192.168.1.2")?,
+            bmc_ip: IpAddr::from_str(response.address.as_str())?,
             host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
             report: dpu_report.clone(),
         }],
@@ -750,7 +748,7 @@ async fn test_site_explorer_creates_managed_host(
     );
     assert_eq!(
         dpu_machine.bmc_info().ip.clone().unwrap(),
-        "192.168.1.2".to_string()
+        response.address.to_string()
     );
     assert_eq!(
         dpu_machine.bmc_info().firmware_version.clone().unwrap(),
@@ -941,7 +939,6 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     };
 
     let explorer = SiteExplorer::new(
-        env.credential_provider.clone(),
         env.pool.clone(),
         explorer_config,
         &dpu_config,
@@ -1170,16 +1167,22 @@ struct FakeEndpointExplorer {
 
 #[async_trait::async_trait]
 impl EndpointExplorer for FakeEndpointExplorer {
+    async fn check_preconditions(
+        &self,
+        _metrics: &mut SiteExplorationMetrics,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
     async fn explore_endpoint(
         &self,
-        address: SocketAddr,
+        bmc_ip_address: SocketAddr,
         _interface: &MachineInterface,
         _expected: Option<ExpectedMachine>,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        tracing::info!("Endpoint {address} is getting explored");
+        tracing::info!("Endpoint {bmc_ip_address} is getting explored");
         let guard = self.reports.lock().unwrap();
-        let res = guard.get(&address.ip()).unwrap();
+        let res = guard.get(&bmc_ip_address.ip()).unwrap();
         res.clone()
     }
 }

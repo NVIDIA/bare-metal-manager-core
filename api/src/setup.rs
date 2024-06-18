@@ -389,7 +389,6 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     let _ib_fabric_monitor_handle = ib_fabric_monitor.start()?;
 
     let site_explorer = SiteExplorer::new(
-        credential_provider.clone(),
         db_pool.clone(),
         carbide_config.site_explorer.clone(),
         &carbide_config.dpu_models,

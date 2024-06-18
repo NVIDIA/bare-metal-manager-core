@@ -3,7 +3,8 @@ use ::rpc::forge::{
     machine_credentials_update_request::Credentials, MachineCredentialsUpdateRequest,
     MachineCredentialsUpdateResponse,
 };
-use forge_secrets::credentials::{CredentialKey, CredentialProvider};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialProvider};
+use mac_address::MacAddress;
 
 use crate::{
     model::{
@@ -15,6 +16,7 @@ use crate::{
 
 pub struct UpdateCredentials {
     pub machine_id: MachineId,
+    pub mac_address: Option<MacAddress>,
     pub credentials: Vec<Credentials>,
 }
 
@@ -30,8 +32,17 @@ impl TryFrom<MachineCredentialsUpdateRequest> for UpdateCredentials {
                 .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?,
         )?;
 
+        let mac_address = match user_credentials.mac_address {
+            Some(v) => Some(
+                v.parse()
+                    .map_err(|_| RpcDataConversionError::InvalidMacAddress("mac_address".into()))?,
+            ),
+            None => None,
+        };
+
         Ok(Self {
             machine_id,
+            mac_address,
             credentials: user_credentials.credentials,
         })
     }
@@ -56,6 +67,13 @@ impl UpdateCredentials {
                 },
                 CredentialPurpose::LoginUser => CredentialKey::DpuSsh {
                     machine_id: self.machine_id.to_string(),
+                },
+                CredentialPurpose::Bmc => CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot {
+                        bmc_mac_address: self
+                            .mac_address
+                            .ok_or_else(|| CarbideError::MissingArgument("MAC Address"))?,
+                    },
                 },
             };
 

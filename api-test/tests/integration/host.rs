@@ -14,6 +14,20 @@ use std::{net::SocketAddr, thread, time};
 
 use crate::grpcurl::{grpcurl, grpcurl_for};
 
+// This is set by Site Explorer so we populate it here
+const BMC_CREDENTIALS55: &str = r#"{
+  "credential_type": 8,
+  "username": "admin",
+  "password": "notforprod",
+  "mac_address": "00:11:22:33:44:55"
+}"#;
+const BMC_CREDENTIALS66: &str = r#"{
+  "credential_type": 8,
+  "username": "admin",
+  "password": "notforprod",
+  "mac_address": "00:11:22:33:44:66"
+}"#;
+
 const BMC_METADATA: &str = r#"{
   "machine_id": {
     "id": "$HOST_MACHINE_ID"
@@ -45,6 +59,8 @@ pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &host_machine_id);
     grpcurl(addr, "UpdateBMCMetaData", Some(data))?;
     grpcurl(addr, "CreateCredential", Some(UEFI_CREDENTIALS))?;
+    grpcurl(addr, "CreateCredential", Some(BMC_CREDENTIALS55))?;
+    grpcurl(addr, "CreateCredential", Some(BMC_CREDENTIALS66))?;
     tracing::info!("Created HOST Machine with ID {host_machine_id}. Starting discovery.");
 
     grpcurl(

@@ -23,7 +23,7 @@ use carbide::{
             ExploredManagedHost, Inventory, Manager, NicMode, Service,
         },
     },
-    site_explorer::{EndpointExplorer, SiteExplorer},
+    site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
     state_controller::machine::handler::MachineStateHandler,
     CarbideError,
 };
@@ -68,7 +68,6 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        env.credential_provider.clone(),
         env.pool.clone(),
         explorer_config,
         &dpu_config,
@@ -179,7 +178,6 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        env.credential_provider.clone(),
         env.pool.clone(),
         explorer_config,
         &dpu_config,
@@ -370,7 +368,6 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
-        env.credential_provider.clone(),
         env.pool.clone(),
         explorer_config,
         &dpu_config,
@@ -483,7 +480,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
         dpus: vec![ExploredDpu {
-            bmc_ip: IpAddr::from_str("192.168.1.2")?,
+            bmc_ip: IpAddr::from_str(response.address.as_str())?,
             host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
             report: dpu_report.clone(),
         }],
@@ -659,6 +656,12 @@ struct FakeEndpointExplorer {
 
 #[async_trait::async_trait]
 impl EndpointExplorer for FakeEndpointExplorer {
+    async fn check_preconditions(
+        &self,
+        _metrics: &mut SiteExplorationMetrics,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
     async fn explore_endpoint(
         &self,
         address: SocketAddr,
