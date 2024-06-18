@@ -4418,12 +4418,8 @@ impl Forge for Api {
             .into_inner()
             .pcr_values
             .drain(..)
-            .map(|pcr_u8| {
-                String::from_utf8(pcr_u8).map_err(|e| {
-                    CarbideError::GenericError(format!("failed to parse utf8 PCR value: {}", e))
-                })
-            })
-            .collect::<Result<Vec<String>, CarbideError>>()?
+            .map(hex::encode)
+            .collect::<Vec<String>>()
             .into();
 
         // In this case, we're not doing anything with
