@@ -296,7 +296,13 @@ where
                     ),
                     KeyValue::new(
                         "grpc.status_code",
-                        grpc_status.map(|code| code as i64).unwrap_or(499),
+                        grpc_status
+                            .map(|code| {
+                                // Debug format is required
+                                // Using code.to_string() will not yield the expected result
+                                format!("{:?}", code)
+                            })
+                            .unwrap_or_else(|| "Unknown".to_string()),
                     ),
                 ];
 
