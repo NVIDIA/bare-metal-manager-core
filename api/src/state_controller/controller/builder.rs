@@ -64,7 +64,7 @@ pub struct Builder<IO: StateControllerIO> {
         >,
     >,
     forge_api: Option<Arc<dyn rpc::forge::forge_server::Forge>>,
-    pool_pkey: Option<Arc<DbResourcePool<i16>>>,
+    pool_pkey: Option<Arc<DbResourcePool<u16>>>,
     ipmi_tool: Option<Arc<dyn IPMITool>>,
 }
 
@@ -251,7 +251,7 @@ impl<IO: StateControllerIO> Builder<IO> {
     }
 
     /// Configures the resource pool for allocation / release pkey
-    pub fn pool_pkey(mut self, pool_pkey: Arc<DbResourcePool<i16>>) -> Self {
+    pub fn pool_pkey(mut self, pool_pkey: Arc<DbResourcePool<u16>>) -> Self {
         self.pool_pkey = Some(pool_pkey);
         self
     }

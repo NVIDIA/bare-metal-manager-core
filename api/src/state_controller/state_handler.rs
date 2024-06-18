@@ -43,7 +43,7 @@ pub struct StateHandlerServices {
     pub ib_fabric_manager: Arc<dyn IBFabricManager>,
 
     /// Resource pool for ib pkey allocate/release.
-    pub pool_pkey: Option<Arc<DbResourcePool<i16>>>,
+    pub pool_pkey: Option<Arc<DbResourcePool<u16>>>,
 
     /// An implementation of the IPMITool that understands how to reboot a machine
     pub ipmi_tool: Arc<dyn IPMITool>,

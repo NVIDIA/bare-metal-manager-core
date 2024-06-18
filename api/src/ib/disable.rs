@@ -70,7 +70,7 @@ impl IBFabric for DisableIBFabric {
     }
 
     /// Delete IBPort
-    async fn unbind_ib_ports(&self, _: i32, _: Vec<String>) -> Result<(), CarbideError> {
+    async fn unbind_ib_ports(&self, _: u16, _: Vec<String>) -> Result<(), CarbideError> {
         Err(CarbideError::IBFabricError(
             "ib fabric is disabled".to_string(),
         ))

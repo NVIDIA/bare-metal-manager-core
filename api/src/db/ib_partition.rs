@@ -96,7 +96,7 @@ impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
 #[derive(Debug, Clone)]
 pub struct IBPartitionConfig {
     pub name: String,
-    pub pkey: Option<i16>,
+    pub pkey: Option<u16>,
     pub tenant_organization_id: TenantOrganizationId,
     pub mtu: i32,
     pub rate_limit: i32,
@@ -155,12 +155,14 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
             TenantOrganizationId::try_from(tenant_organization_id_str.to_string())
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
+        let pkey: i32 = row.try_get("pkey")?;
+
         Ok(IBPartition {
             id: row.try_get("id")?,
             version,
             config: IBPartitionConfig {
                 name: row.try_get("name")?,
-                pkey: Some(row.try_get("pkey")?),
+                pkey: Some(pkey as u16),
                 tenant_organization_id,
                 mtu: row.try_get("mtu")?,
                 rate_limit: row.try_get("rate_limit")?,
@@ -297,7 +299,7 @@ impl NewIBPartition {
         let segment: IBPartition = sqlx::query_as(query)
             .bind(self.id)
             .bind(&conf.name)
-            .bind(conf.pkey)
+            .bind(conf.pkey.map(|k| k as i32))
             .bind(&conf.tenant_organization_id.to_string())
             .bind(conf.mtu)
             .bind(conf.rate_limit)
@@ -391,9 +393,9 @@ impl IBPartition {
     pub async fn find_pkey_by_partition_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         id: Uuid,
-    ) -> Result<Option<i16>, DatabaseError> {
+    ) -> Result<Option<u16>, DatabaseError> {
         #[derive(Debug, Clone, Copy, FromRow)]
-        pub struct Pkey(i16);
+        pub struct Pkey(i32);
 
         let query = "SELECT pkey FROM ib_partitions WHERE id = $1";
 
@@ -403,7 +405,7 @@ impl IBPartition {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(pkey.map(|id| id.0))
+        Ok(pkey.map(|id| id.0 as u16))
     }
 
     /// Updates the IB partition state that is owned by the state controller
