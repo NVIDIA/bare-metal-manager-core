@@ -16,6 +16,7 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::db::machine::Machine;
     use crate::measured_boot::dto::keys::TrustedMachineId;
     use crate::measured_boot::dto::records::MeasurementApprovedMachineRecord;
     use crate::measured_boot::interface::common::PcrRegisterValue;
@@ -1424,6 +1425,30 @@ mod tests {
             machine.state,
             measured_boot::MeasurementMachineStatePb::Measured as i32
         );
+
+        // And then do a force-cleanup on all of them to make sure
+        // that bit works (which will clean up all reports and journals).
+        let mut txn = db_conn.begin().await?;
+        assert!(
+            Machine::force_cleanup(&mut txn, &princess_network.machine_id)
+                .await
+                .is_ok()
+        );
+        assert!(Machine::force_cleanup(&mut txn, &beer_louisiana.machine_id)
+            .await
+            .is_ok());
+        assert!(Machine::force_cleanup(&mut txn, &lime_coconut.machine_id)
+            .await
+            .is_ok());
+        txn.commit().await?;
+
+        let req = measured_boot::ShowMeasurementJournalsRequest {};
+        let resp = journal::handle_show_measurement_journals(&db_conn, &req).await?;
+        assert_eq!(0, resp.journals.len());
+
+        let req = measured_boot::ShowMeasurementReportsRequest {};
+        let resp = report::handle_show_measurement_reports(&db_conn, &req).await?;
+        assert_eq!(0, resp.reports.len());
 
         Ok(())
     }
