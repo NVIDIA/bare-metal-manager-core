@@ -25,12 +25,12 @@
 use super::keys::UuidEmptyStringError;
 use crate::db::machine::DbMachineId;
 use crate::db::machine_topology::TopologyData;
+use crate::db::DbTable;
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
     MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
 };
-use crate::measured_boot::dto::traits::DbTable;
 use crate::measured_boot::interface::common::PcrRegisterValue;
 use crate::measured_boot::interface::common::ToTable;
 use crate::model::machine::machine_id::MachineId;

@@ -16,12 +16,12 @@
 */
 
 use crate::db::machine::DbMachineId;
+use crate::db::{DbPrimaryUuid, DbTable};
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleStateRecord,
     MeasurementBundleValueRecord, MeasurementReportRecord,
 };
-use crate::measured_boot::dto::traits::{DbPrimaryUuid, DbTable};
 use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
 use sqlx::{Postgres, Transaction};
