@@ -12,7 +12,7 @@
 
 use std::{fmt::Write, ops::Deref, str::FromStr};
 
-use crate::measured_boot::dto::traits::DbPrimaryUuid;
+use crate::db::DbPrimaryUuid;
 use crate::measured_boot::interface::common::ToTable;
 use crate::model::{hardware_info::HardwareInfo, RpcDataConversionError};
 use data_encoding::BASE32_DNSSEC;

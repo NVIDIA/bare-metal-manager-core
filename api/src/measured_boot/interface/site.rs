@@ -15,6 +15,7 @@
  *  tables in the database, leveraging the site-specific record types.
 */
 
+use crate::db::DbTable;
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
@@ -22,7 +23,6 @@ use crate::measured_boot::dto::keys::{
 use crate::measured_boot::dto::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
-use crate::measured_boot::dto::traits::DbTable;
 use crate::measured_boot::interface::common;
 use crate::model::machine::machine_id::MachineId;
 use sqlx::{Postgres, Transaction};

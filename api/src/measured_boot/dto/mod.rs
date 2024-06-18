@@ -22,4 +22,3 @@
 
 pub mod keys;
 pub mod records;
-pub mod traits;

@@ -15,7 +15,7 @@
  *  for making boilerplate copy-pasta code handled in a common way.
 */
 
-use crate::measured_boot::dto::traits::{DbPrimaryUuid, DbTable};
+use crate::db::{DbPrimaryUuid, DbTable};
 use rpc::protos::measured_boot::PcrRegisterValuePb;
 use sqlx::postgres::PgRow;
 use sqlx::query_builder::QueryBuilder;
@@ -73,6 +73,9 @@ pub trait ToTable {
     }
 }
 
+/// convert_to_table leverages input instances which
+/// implement the ToTable trait for the purpose of
+/// printing themselves as a prettytable.
 pub fn convert_to_table<T: ToTable>(input: &T) -> eyre::Result<String> {
     input.to_table()
 }

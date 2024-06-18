@@ -24,7 +24,7 @@
  *  mad because it cant bind it as a UUID.
 */
 
-use crate::measured_boot::dto::traits::DbPrimaryUuid;
+use crate::db::DbPrimaryUuid;
 use crate::measured_boot::interface::common::ToTable;
 use crate::model::machine::machine_id::MachineId;
 use crate::model::RpcDataConversionError;
