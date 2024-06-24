@@ -80,7 +80,7 @@ dependencies = [
 category = "Ephemeral Image"
 dependencies = [
 	"mkosi-clean-artifacts",
-	"copy-debug-artifacts",
+	"copy-forge-scout-ci",
 	"copy-forge-prod-root-ca",
 	"mkosi-build-scout",
 	"mkosi-build-qcow-imager",
@@ -93,7 +93,7 @@ dependencies = [
 category = "Ephemeral Image"
 dependencies = [
 	"mkosi-clean-artifacts",
-	"copy-debug-artifacts",
+	"copy-forge-scout",
 	"copy-forge-dev-root-ca",
 	"mkosi-build-scout",
 	"mkosi-build-qcow-imager",
@@ -136,8 +136,16 @@ args = [
 	"mkosi.profiles/scout/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
-[tasks.copy-debug-artifacts]
-category = "Copy Debug Artifacts"
+[tasks.copy-forge-scout]
+category = "Copy Forge Scout locally"
+command = "cp"
+args = [
+	"${REPO_ROOT}/target/release/forge-scout",
+	"mkosi.profiles/scout/mkosi.extra/opt/forge/",
+]
+
+[tasks.copy-forge-scout-ci]
+category = "Copy Forge Scout in CI"
 command = "cp"
 args = [
 	"${REPO_ROOT}/target/debug/forge-scout",
@@ -435,6 +443,7 @@ description = "Download the hbn doca container on aarch64 gitlab runner"
 command = "docker"
 args = [
 	"pull",
+    	"--platform=linux/arm64",
 	"${DOCA_HBN_URI}",
 ]
 
@@ -444,6 +453,7 @@ description = "Download the doca telemetry container on aarch64 gitlab runner"
 command = "docker"
 args = [
 	"pull",
+    	"--platform=linux/arm64",
 	"${DOCA_TELEMETRY_URI}",
 ]
 
@@ -453,7 +463,7 @@ description = "Download the kubelet pause container on aarch64 gitlab runner"
 command = "docker"
 args = [
 	"pull",
-    "--platform=linux/arm64",
+    	"--platform=linux/arm64",
 	"${K8S_PAUSE_URI}",
 ]
 
@@ -533,6 +543,20 @@ args = [
 	"/tmp/bfb-dump/initramfs-tmp/forge_root.pem",
 ]
 
+[tasks.cleanup-old-debs]
+category = "iPXE Kernel"
+description = "remove all the old debs in the target folder"
+command = "find"
+args = [
+    "${REPO_ROOT}/pxe/debs",
+    "-type",
+    "f",
+    "-not",
+    "-name",
+    "libnss-exec_0.2.0-1_arm64.deb",
+    "-delete"
+]
+
 [tasks.download-debs-for-bfb]
 category = "iPXE Kernel"
 description = "wget the debs to nvinit_setup"
@@ -543,6 +567,9 @@ args = [
     "--directory-prefix=${REPO_ROOT}/pxe/debs",
 ]
 cwd = "${REPO_ROOT}/pxe"
+dependencies = [
+    "cleanup-old-debs"
+]
 
 [tasks.bfb-add-debs-to-bfb]
 category = "iPXE Kernel"
