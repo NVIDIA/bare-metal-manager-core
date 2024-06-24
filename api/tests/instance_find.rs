@@ -67,7 +67,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     }
 
     // test getting all ids
-    let request_all = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_all = tonic::Request::new(rpc::InstanceSearchFilter {
         label: None,
         tenant_org_id: None,
     });
@@ -81,7 +81,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     assert_eq!(instance_ids_all.instance_ids.len(), 10);
 
     // test getting ids based on label key
-    let request_lbl_key = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_lbl_key = tonic::Request::new(rpc::InstanceSearchFilter {
         label: Some(rpc::Label {
             key: "label_test_key".to_string(),
             value: None,
@@ -98,7 +98,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     assert_eq!(instance_ids_lbl_key.instance_ids.len(), 5);
 
     // test getting ids based on label value
-    let request_lbl_val = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_lbl_val = tonic::Request::new(rpc::InstanceSearchFilter {
         label: Some(rpc::Label {
             key: "".to_string(),
             value: Some("label_value_1".to_string()),
@@ -115,7 +115,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     assert_eq!(instance_ids_lbl_val.instance_ids.len(), 1);
 
     // test getting ids based on label key and value
-    let request_lbl_key_val = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_lbl_key_val = tonic::Request::new(rpc::InstanceSearchFilter {
         label: Some(rpc::Label {
             key: "label_test_key".to_string(),
             value: Some("label_value_3".to_string()),
@@ -132,7 +132,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     assert_eq!(instance_ids_lbl_key_val.instance_ids.len(), 1);
 
     // test getting ids based on tenant_org_id
-    let request_tenant = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_tenant = tonic::Request::new(rpc::InstanceSearchFilter {
         label: None,
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
     });
@@ -146,7 +146,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     assert_eq!(instance_ids_tenant.instance_ids.len(), 10);
 
     // test getting ids based on tenant_org_id and label key
-    let request_tenant_key = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_tenant_key = tonic::Request::new(rpc::InstanceSearchFilter {
         label: Some(rpc::Label {
             key: "label_test_key".to_string(),
             value: None,
@@ -163,7 +163,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     assert_eq!(instance_ids_tenant_key.instance_ids.len(), 5);
 
     // test getting ids based on tenant_org_id and label value
-    let request_tenant_lbl = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_tenant_lbl = tonic::Request::new(rpc::InstanceSearchFilter {
         label: Some(rpc::Label {
             key: "".to_string(),
             value: Some("label_value_1".to_string()),
@@ -180,7 +180,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     assert_eq!(instance_ids_tenant_lbl.instance_ids.len(), 1);
 
     // test getting ids based on tenant_org_id and label key and value
-    let request_tenant_key_lbl = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_tenant_key_lbl = tonic::Request::new(rpc::InstanceSearchFilter {
         label: Some(rpc::Label {
             key: "label_test_key".to_string(),
             value: Some("label_value_1".to_string()),
@@ -235,7 +235,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         }
     }
 
-    let request_ids = tonic::Request::new(rpc::InstanceSearchConfig {
+    let request_ids = tonic::Request::new(rpc::InstanceSearchFilter {
         label: Some(rpc::Label {
             key: "label_test_key".to_string(),
             value: None,
@@ -268,4 +268,52 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         let instance_id = instance.id.unwrap();
         assert!(instance_id_list.instance_ids.contains(&instance_id));
     }
+}
+
+#[sqlx::test()]
+async fn test_find_instances_by_ids_over_max(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // create vector of IDs with more than max allowed
+    // it does not matter if these are real or not, since we are testing an error back for passing more than max
+    let end_index: u32 = env.config.max_find_by_ids + 1;
+    let instance_ids: Vec<rpc::Uuid> = (1..=end_index)
+        .map(|_| rpc::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        })
+        .collect();
+
+    let request = tonic::Request::new(rpc::InstanceIdList { instance_ids });
+
+    let response = env.api.find_instances_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing no machine IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        format!(
+            "no more than {} IDs can be accepted",
+            env.config.max_find_by_ids
+        )
+    );
+}
+
+#[sqlx::test()]
+async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let request = tonic::Request::new(rpc::InstanceIdList::default());
+
+    let response = env.api.find_instances_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing no machine IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        "at least one ID must be provided",
+    );
 }

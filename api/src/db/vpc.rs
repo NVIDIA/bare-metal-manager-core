@@ -167,7 +167,7 @@ impl NewVpc {
 impl Vpc {
     pub async fn find_ids(
         txn: &mut Transaction<'_, Postgres>,
-        search_config: rpc::VpcSearchConfig,
+        filter: rpc::VpcSearchFilter,
     ) -> Result<Vec<uuid::Uuid>, CarbideError> {
         #[derive(Debug, Clone, Copy, FromRow)]
         pub struct VpcId(uuid::Uuid);
@@ -175,12 +175,12 @@ impl Vpc {
         // build query
         let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpcs WHERE ");
         let mut has_filter = false;
-        if search_config.name.is_some() {
+        if let Some(name) = &filter.name {
             builder.push("name = ");
-            builder.push_bind(search_config.name.unwrap());
+            builder.push_bind(name);
             has_filter = true;
         }
-        if let Some(tenant_org_id) = &search_config.tenant_org_id {
+        if let Some(tenant_org_id) = &filter.tenant_org_id {
             if has_filter {
                 builder.push(" AND ");
             }

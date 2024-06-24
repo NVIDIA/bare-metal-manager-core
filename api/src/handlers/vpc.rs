@@ -121,7 +121,7 @@ pub(crate) async fn delete(
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::VpcSearchConfig>,
+    request: Request<rpc::VpcSearchFilter>,
 ) -> Result<Response<rpc::VpcIdList>, Status> {
     log_request_data(&request);
 
@@ -134,9 +134,9 @@ pub(crate) async fn find_ids(
         ))
     })?;
 
-    let search_config: rpc::VpcSearchConfig = request.into_inner();
+    let filter: rpc::VpcSearchFilter = request.into_inner();
 
-    let vpc_ids = Vpc::find_ids(&mut txn, search_config).await?;
+    let vpc_ids = Vpc::find_ids(&mut txn, filter).await?;
 
     Ok(Response::new(rpc::VpcIdList {
         vpc_ids: vpc_ids
@@ -180,6 +180,10 @@ pub(crate) async fn find_by_ids(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
+    } else if vpc_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
     }
 
     let db_vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::List(&vpc_ids)).await;

@@ -187,7 +187,7 @@ impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
 impl Instance {
     pub async fn find_ids(
         txn: &mut Transaction<'_, Postgres>,
-        search_config: rpc::InstanceSearchConfig,
+        filter: rpc::InstanceSearchFilter,
     ) -> Result<Vec<uuid::Uuid>, CarbideError> {
         let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances ");
 
@@ -195,8 +195,7 @@ impl Instance {
         pub struct InstanceId(uuid::Uuid);
 
         let mut has_filter = false;
-        if search_config.label.is_some() {
-            let label = search_config.label.unwrap();
+        if let Some(label) = filter.label {
             if label.key.is_empty() && label.value.is_some() {
                 builder.push(
                     "WHERE EXISTS (
@@ -224,7 +223,7 @@ impl Instance {
                 has_filter = true;
             }
         }
-        if let Some(tenant_org_id) = search_config.tenant_org_id {
+        if let Some(tenant_org_id) = filter.tenant_org_id {
             if has_filter {
                 builder.push(" AND ");
             } else {

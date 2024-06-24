@@ -46,7 +46,7 @@ pub(crate) async fn allocate(
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::InstanceSearchConfig>,
+    request: Request<rpc::InstanceSearchFilter>,
 ) -> Result<Response<rpc::InstanceIdList>, Status> {
     log_request_data(&request);
 
@@ -59,9 +59,9 @@ pub(crate) async fn find_ids(
         ))
     })?;
 
-    let search_config: rpc::InstanceSearchConfig = request.into_inner();
+    let filter: rpc::InstanceSearchFilter = request.into_inner();
 
-    let instance_ids = Instance::find_ids(&mut txn, search_config).await?;
+    let instance_ids = Instance::find_ids(&mut txn, filter).await?;
 
     Ok(tonic::Response::new(rpc::InstanceIdList {
         instance_ids: instance_ids
@@ -107,6 +107,10 @@ pub(crate) async fn find_by_ids(
             "no more than {max_find_by_ids} IDs can be accepted"
         ))
         .into());
+    } else if instance_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
     }
 
     let db_instances = Instance::find(

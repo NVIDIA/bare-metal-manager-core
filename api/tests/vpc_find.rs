@@ -31,7 +31,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     }
 
     // test getting all ids
-    let request_all = tonic::Request::new(rpc::VpcSearchConfig {
+    let request_all = tonic::Request::new(rpc::VpcSearchFilter {
         name: None,
         tenant_org_id: None,
     });
@@ -45,7 +45,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_all.vpc_ids.len(), 4);
 
     // test getting ids based on name
-    let request_name = tonic::Request::new(rpc::VpcSearchConfig {
+    let request_name = tonic::Request::new(rpc::VpcSearchFilter {
         name: Some("vpc_2".to_string()),
         tenant_org_id: None,
     });
@@ -59,7 +59,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_name.vpc_ids.len(), 1);
 
     // test search by tenant_org_id
-    let request_tenant = tonic::Request::new(rpc::VpcSearchConfig {
+    let request_tenant = tonic::Request::new(rpc::VpcSearchFilter {
         name: None,
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
     });
@@ -73,7 +73,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_tenant.vpc_ids.len(), 4);
 
     // test search by tenant_org_id and name
-    let request_tenant_name = tonic::Request::new(rpc::VpcSearchConfig {
+    let request_tenant_name = tonic::Request::new(rpc::VpcSearchFilter {
         name: Some("vpc_2".to_string()),
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
     });
@@ -99,7 +99,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
         }
     }
 
-    let request_ids = tonic::Request::new(rpc::VpcSearchConfig {
+    let request_ids = tonic::Request::new(rpc::VpcSearchFilter {
         name: Some("vpc_3".to_string()),
         tenant_org_id: None,
     });
@@ -123,4 +123,52 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_list.vpcs.len(), 1);
 
     assert_eq!(vpc3, vpc_list.vpcs[0]);
+}
+
+#[sqlx::test()]
+async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // create vector of IDs with more than max allowed
+    // it does not matter if these are real or not, since we are testing an error back for passing more than max
+    let end_index: u32 = env.config.max_find_by_ids + 1;
+    let vpc_ids: Vec<rpc::Uuid> = (1..=end_index)
+        .map(|_| rpc::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        })
+        .collect();
+
+    let request = tonic::Request::new(rpc::VpcIdList { vpc_ids });
+
+    let response = env.api.find_vpcs_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing no machine IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        format!(
+            "no more than {} IDs can be accepted",
+            env.config.max_find_by_ids
+        )
+    );
+}
+
+#[sqlx::test()]
+async fn test_find_vpcs_by_ids_none(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let request = tonic::Request::new(rpc::VpcIdList::default());
+
+    let response = env.api.find_vpcs_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing no machine IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        "at least one ID must be provided",
+    );
 }
