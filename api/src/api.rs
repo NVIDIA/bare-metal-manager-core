@@ -209,7 +209,7 @@ impl Forge for Api {
 
     async fn find_vpcs_by_ids(
         &self,
-        request: Request<rpc::VpcIdList>,
+        request: Request<rpc::VpcsByIdsRequest>,
     ) -> Result<Response<rpc::VpcList>, Status> {
         crate::handlers::vpc::find_by_ids(self, request).await
     }
@@ -309,7 +309,7 @@ impl Forge for Api {
 
     async fn find_instances_by_ids(
         &self,
-        request: Request<rpc::InstanceIdList>,
+        request: Request<rpc::InstancesByIdsRequest>,
     ) -> Result<Response<rpc::InstanceList>, Status> {
         crate::handlers::instance::find_by_ids(self, request).await
     }
