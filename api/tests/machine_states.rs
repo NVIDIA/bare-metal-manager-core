@@ -17,7 +17,7 @@ use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
 use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
 use carbide::state_controller::machine::handler::MachineStateHandler;
 use common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
-use common::api_fixtures::{create_managed_host, create_test_env};
+use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
 use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::Action;
 
@@ -429,6 +429,26 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     // We use forge_dpu_agent's health reporting as a signal that
     // DPU has rebooted.
     network_configured(&env, &dpu_machine_id).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        handler.clone(),
+        3,
+        &mut txn,
+        ManagedHostState::HostNotReady {
+            machine_state: MachineState::MachineValidating {
+                context: "Discovery".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    machine_validation_completed(&env, host_rpc_machine_id.clone(), None).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(

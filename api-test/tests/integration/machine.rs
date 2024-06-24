@@ -68,3 +68,14 @@ pub fn cleanup_completed(addr: SocketAddr, machine_id: &str) -> eyre::Result<()>
     let _ = grpcurl(addr, "CleanupMachineCompleted", Some(data))?;
     Ok(())
 }
+
+pub fn machine_validation_completed(addr: SocketAddr, host_machine_id: &str) -> eyre::Result<()> {
+    grpcurl(
+        addr,
+        "MachineValidationCompleted",
+        Some(&serde_json::json!({
+            "machine_id": {"id": host_machine_id}
+        })),
+    )?;
+    Ok(())
+}

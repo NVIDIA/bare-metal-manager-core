@@ -14,6 +14,7 @@ pub mod boot_override;
 pub mod domain;
 pub mod ib_partition;
 pub mod instance;
+pub mod machine_validation;
 pub mod network_segment;
 pub mod resource_pool;
 pub mod tenant;

@@ -156,6 +156,12 @@ pub struct Machine {
 
     // Is the bios password set on the machine
     bios_password_set_time: Option<DateTime<Utc>>,
+
+    /// Last host validation finished.
+    last_machine_validation_time: Option<DateTime<Utc>>,
+
+    /// current machine validation id.
+    current_machine_validation_id: Option<uuid::Uuid>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -230,6 +236,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             inventory: machine_inventory.map(|x| x.0),
             controller_state_outcome: state_outcome.map(|x| x.0),
             bios_password_set_time: row.try_get("bios_password_set_time")?,
+            last_machine_validation_time: row.try_get("last_machine_validation_time")?,
+            current_machine_validation_id: row.try_get("current_machine_validation_id")?,
         })
     }
 }
@@ -949,6 +957,13 @@ SELECT m.id FROM
         self.bios_password_set_time
     }
 
+    pub fn last_machine_validation_time(&self) -> Option<DateTime<Utc>> {
+        self.last_machine_validation_time
+    }
+    pub fn current_machine_validation_id(&self) -> Option<uuid::Uuid> {
+        self.current_machine_validation_id
+    }
+
     pub async fn update_reboot_time(
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
@@ -1254,15 +1269,7 @@ SELECT m.id FROM
         txn: &mut Transaction<'_, Postgres>,
         failure: FailureDetails,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
-        let _id: (DbMachineId,) = sqlx::query_as(query)
-            .bind(sqlx::types::Json(failure))
-            .bind(self.id.to_string())
-            .fetch_one(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
+        Machine::update_failure_details_by_machine_id(&self.id, txn, failure).await
     }
 
     pub async fn clear_failure_details(
@@ -1616,6 +1623,52 @@ SELECT m.id FROM
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_machine_ids", e))?;
 
         Ok(machine_ids.into_iter().map(MachineId::from).collect())
+    }
+
+    pub async fn update_machine_validation_time(
+        machine_id: &MachineId,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE machines SET last_machine_validation_time=NOW() WHERE id=$1 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+    pub async fn update_current_machine_validation_id(
+        machine_id: &MachineId,
+        current_machine_validation_id: uuid::Uuid,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET current_machine_validation_id=$1 WHERE id=$2 RETURNING *";
+        let _id = sqlx::query_as::<_, Self>(query)
+            .bind(current_machine_validation_id)
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn update_failure_details_by_machine_id(
+        machine_id: &MachineId,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        failure: FailureDetails,
+    ) -> Result<(), DatabaseError> {
+        let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
+        let _id: (DbMachineId,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(failure))
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
     }
 }
 

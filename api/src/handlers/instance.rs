@@ -412,7 +412,7 @@ pub(crate) async fn invoke_power(
     let machine_id = match &request.machine_id {
         Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
         None => {
-            return Err(Status::invalid_argument("A machine UUID is required"));
+            return Err(Status::invalid_argument("A machine id is required"));
         }
     };
     log_machine_id(&machine_id);

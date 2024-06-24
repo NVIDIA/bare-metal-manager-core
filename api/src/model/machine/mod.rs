@@ -121,6 +121,10 @@ pub struct MachineSnapshot {
     /// Reprovisioning is needed?
     pub reprovision_requested: Option<ReprovisionRequest>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
+    /// Last host validation finished.
+    pub last_machine_validation_time: Option<DateTime<Utc>>,
+    /// current machine validation id.
+    pub current_machine_validation_id: Option<uuid::Uuid>,
 }
 
 impl MachineSnapshot {
@@ -240,6 +244,7 @@ pub enum FailureCause {
     NoError,
     NVMECleanFailed { err: String },
     Discovery { err: String },
+    MachineValidation { err: String },
     UnhandledState { err: String },
 
     // Host Attestation / Measured Boot related failure causes.
@@ -323,6 +328,12 @@ pub enum MachineState {
     /// Lockdown handling.
     WaitingForLockdown {
         lockdown_info: LockdownInfo,
+    },
+    MachineValidating {
+        context: String,
+        id: uuid::Uuid,
+        completed: usize,
+        total: usize,
     },
 }
 
@@ -483,6 +494,7 @@ impl Display for FailureCause {
             }
             FailureCause::MeasurementsRetired { .. } => write!(f, "MeasurementsRetired"),
             FailureCause::MeasurementsRevoked { .. } => write!(f, "MeasurementsRevoked"),
+            FailureCause::MachineValidation { .. } => write!(f, "MachineValidation"),
         }
     }
 }

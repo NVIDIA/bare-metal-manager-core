@@ -51,6 +51,7 @@ use crate::db::machine_boot_override::MachineBootOverride;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::dynamic_settings;
+use crate::handlers::machine_validation::mark_machine_validation_complete;
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
@@ -2209,6 +2210,9 @@ impl Forge for Api {
                 ManagedHostState::HostNotReady {
                     machine_state: MachineState::Init,
                 } => (Action::Retry, None),
+                ManagedHostState::HostNotReady {
+                    machine_state: MachineState::MachineValidating { .. },
+                } => (Action::MachineValidation, None),
                 ManagedHostState::HostNotReady {
                     machine_state: MachineState::WaitingForDiscovery,
                 }
@@ -4998,6 +5002,14 @@ impl Forge for Api {
         })?;
 
         Ok(Response::new(rpc::MachineRebootCompletedResponse {}))
+    }
+
+    // machine has completed validation
+    async fn machine_validation_completed(
+        &self,
+        request: Request<rpc::MachineValidationCompletedRequest>,
+    ) -> Result<Response<rpc::MachineValidationCompletedResponse>, Status> {
+        mark_machine_validation_complete(self, request).await
     }
 }
 

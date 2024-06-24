@@ -34,6 +34,7 @@ use rpc::{
 };
 use tonic::Request;
 
+use crate::common::api_fixtures::machine_validation_completed;
 use crate::common::api_fixtures::{
     discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
     TestEnv,
@@ -253,6 +254,26 @@ pub async fn create_host_machine(
         3,
         &mut txn,
         ManagedHostState::HostNotReady {
+            machine_state: MachineState::MachineValidating {
+                context: "Discovery".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    machine_validation_completed(env, host_rpc_machine_id.clone(), None).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        handler.clone(),
+        3,
+        &mut txn,
+        ManagedHostState::HostNotReady {
             machine_state: MachineState::Discovered,
         },
     )
@@ -303,4 +324,140 @@ pub async fn host_uefi_setup(
         let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
         assert_eq!(response.action, Action::Noop as i32);
     }
+}
+
+pub async fn create_machine_with_machine_validation_completion_error(
+    env: &TestEnv,
+    host_config: &ManagedHostConfig,
+    dpu_machine_id: &MachineId,
+    error: Option<String>,
+) -> rpc::MachineId {
+    use carbide::model::machine::{LockdownInfo, LockdownMode, LockdownState, MachineState};
+    let bmc_machine_interface_id =
+        host_bmc_discover_dhcp(env, &host_config.host_bmc_mac_address.to_string()).await;
+    // Let's find the IP that we assign to the BMC
+    let mut txn = env.pool.begin().await.unwrap();
+    let bmc_interface =
+        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+            .await
+            .unwrap();
+    let host_bmc_ip = bmc_interface.addresses()[0].address;
+    txn.rollback().await.unwrap();
+
+    let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
+
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        default_dpu_models(),
+        env.reachability_params,
+        env.attestation_enabled,
+    );
+    let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
+    let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
+    let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
+
+    let mut txn = env.pool.begin().await.unwrap();
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        handler.clone(),
+        2,
+        &mut txn,
+        ManagedHostState::HostNotReady {
+            machine_state: MachineState::WaitingForDiscovery,
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+    assert_eq!(response.action, Action::Discovery as i32);
+
+    update_bmc_metadata(
+        env,
+        host_rpc_machine_id.clone(),
+        &host_bmc_ip.to_string(),
+        FIXTURE_HOST_BMC_ADMIN_USER_NAME.to_string(),
+        host_config.host_bmc_mac_address.to_string(),
+        FIXTURE_HOST_BMC_VERSION.to_owned(),
+        FIXTURE_HOST_BMC_FIRMWARE_VERSION.to_owned(),
+    )
+    .await;
+
+    discovery_completed(env, host_rpc_machine_id.clone(), None).await;
+
+    host_uefi_setup(
+        env,
+        &host_machine_id,
+        handler.clone(),
+        host_rpc_machine_id.clone(),
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        handler.clone(),
+        3,
+        &mut txn,
+        ManagedHostState::HostNotReady {
+            machine_state: MachineState::WaitingForLockdown {
+                lockdown_info: LockdownInfo {
+                    state: LockdownState::WaitForDPUUp,
+                    mode: LockdownMode::Enable,
+                },
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    // We use forge_dpu_agent's health reporting as a signal that
+    // DPU has rebooted.
+    super::network_configured(env, dpu_machine_id).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &host_machine_id,
+        handler.clone(),
+        3,
+        &mut txn,
+        ManagedHostState::HostNotReady {
+            machine_state: MachineState::MachineValidating {
+                context: "Discovery".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    machine_validation_completed(env, host_rpc_machine_id.clone(), error).await;
+
+    env.run_machine_state_controller_iteration(handler).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = Machine::find_one(
+        &mut txn,
+        dpu_machine_id,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    match machine.current_state() {
+        ManagedHostState::Failed { .. } => {}
+        s => {
+            panic!("Incorrect state: {}", s);
+        }
+    }
+
+    txn.commit().await.unwrap();
+
+    host_rpc_machine_id
 }
