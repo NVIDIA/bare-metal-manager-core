@@ -127,14 +127,13 @@ impl DpuMachine {
             )
             .await;
             self.api_state = api_state;
-            if reboot_requested && self.last_reboot.elapsed() > Duration::from_secs(60) {
+            if reboot_requested {
                 self.last_reboot = Instant::now();
-                self.mat_state = MachineState::Init;
                 logs.push(format!(
                     "DPU: Reboot requested: new state: {} api state: {}",
                     self.mat_state, self.api_state
                 ));
-                return Ok(false);
+                self.mat_state = MachineState::Rebooting;
             } else {
                 logs.push(format!(
                     "D: start: mat state: {} api state: {}",
@@ -291,6 +290,13 @@ impl DpuMachine {
                 } else {
                     Ok(true)
                 }
+            }
+            MachineState::Rebooting => {
+                if self.last_reboot.elapsed() > Duration::from_secs(self.config.dpu_reboot_delay) {
+                    self.mat_state = MachineState::Init;
+                    self.last_reboot = Instant::now();
+                }
+                return Ok(true);
             }
             MachineState::DhcpComplete => {
                 let Some(machine_interface_id) = self

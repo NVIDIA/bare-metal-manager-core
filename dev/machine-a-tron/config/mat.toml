@@ -16,6 +16,9 @@ bmc_starting_port = 2000
 host_count = 200
 dpu_per_host_count = 1
 boot_delay = 10
+dpu_reboot_delay = 30 # in units of seconds
+host_reboot_delay = 30 # in units of seconds
+
 # assumes running from REPO_ROOT
 template_dir = "dev/machine-a-tron/templates"
 dpu_bmc_redfish_template_dir = "dev/machine-a-tron/templates/dpu_bmc_redfish"

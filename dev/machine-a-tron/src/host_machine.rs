@@ -37,6 +37,7 @@ pub enum MachineState {
     ControlComplete,
     GetNetworkConfig,
     MachineUp,
+    Rebooting,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -232,14 +233,14 @@ impl HostMachine {
             )
             .await;
             self.api_state = api_state;
-            if reboot_requested && self.last_reboot.elapsed() > Duration::from_secs(60) {
+            if reboot_requested {
                 self.last_reboot = Instant::now();
-                self.mat_state = MachineState::Init;
                 self.log(format!(
                     "Host: Reboot requested: new state: {} api state: {}",
                     self.mat_state, self.api_state
                 ));
-                return Ok(false);
+                self.mat_state = MachineState::Rebooting;
+                work_done = true;
             }
             if old_api_state != self.api_state {
                 work_done = true;
@@ -375,6 +376,15 @@ impl HostMachine {
                         self.mat_state = MachineState::DhcpComplete;
                         Ok(true)
                     }
+                }
+                MachineState::Rebooting => {
+                    if self.last_reboot.elapsed()
+                        > Duration::from_secs(self.config.host_reboot_delay)
+                    {
+                        self.mat_state = MachineState::Init;
+                        self.last_reboot = Instant::now();
+                    }
+                    Ok(true)
                 }
                 MachineState::DhcpComplete => {
                     let Some(first_mac_address) =
