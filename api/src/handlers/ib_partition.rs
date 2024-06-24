@@ -12,18 +12,18 @@
 
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
-use crate::api::Api;
+use crate::api::{log_request_data, Api};
 use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig, NewIBPartition};
 use crate::db::{DatabaseError, UuidKeyedObjectFilter};
+use crate::model::RpcDataConversionError;
 use crate::CarbideError;
 
 pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::IbPartitionCreationRequest>,
 ) -> Result<Response<rpc::IbPartition>, Status> {
-    crate::api::log_request_data(&request);
+    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -61,11 +61,102 @@ pub(crate) async fn create(
     Ok(resp)
 }
 
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::IbPartitionSearchFilter>,
+) -> Result<Response<rpc::IbPartitionIdList>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin ib_partition::find_ids",
+            e,
+        ))
+    })?;
+
+    let filter: rpc::IbPartitionSearchFilter = request.into_inner();
+
+    let ib_partition_ids = IBPartition::find_ids(&mut txn, filter).await?;
+
+    Ok(Response::new(rpc::IbPartitionIdList {
+        ib_partition_ids: ib_partition_ids
+            .into_iter()
+            .map(|id| rpc::Uuid {
+                value: id.to_string(),
+            })
+            .collect(),
+    }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::IbPartitionsByIdsRequest>,
+) -> Result<Response<rpc::IbPartitionList>, Status> {
+    log_request_data(&request);
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin ib_partition::find_by_ids",
+            e,
+        ))
+    })?;
+
+    let rpc::IbPartitionsByIdsRequest {
+        ib_partition_ids,
+        include_history,
+        ..
+    } = request.into_inner();
+
+    let partition_ids: Result<Vec<uuid::Uuid>, CarbideError> = ib_partition_ids
+        .iter()
+        .map(|id| {
+            uuid::Uuid::try_from(id.value.as_str()).map_err(|_| {
+                CarbideError::from(RpcDataConversionError::InvalidIbPartitionId(
+                    id.value.to_string(),
+                ))
+            })
+        })
+        .collect();
+    let partition_ids = partition_ids?;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if partition_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if partition_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let partitions = IBPartition::find(
+        &mut txn,
+        UuidKeyedObjectFilter::List(&partition_ids),
+        IBPartitionSearchConfig { include_history },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let mut result = Vec::with_capacity(partitions.len());
+    for ibp in partitions {
+        result.push(ibp.try_into()?);
+    }
+    Ok(Response::new(rpc::IbPartitionList {
+        ib_partitions: result,
+    }))
+}
+
+// DEPRECATED: use find_ids and find_by_ids instead
 pub(crate) async fn find(
     api: &Api,
     request: Request<rpc::IbPartitionQuery>,
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
-    crate::api::log_request_data(&request);
+    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -81,7 +172,7 @@ pub(crate) async fn find(
     } = request.into_inner();
 
     let uuid_filter = match id {
-        Some(id) => match Uuid::try_from(id) {
+        Some(id) => match uuid::Uuid::try_from(id) {
             Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
             Err(err) => {
                 return Err(Status::invalid_argument(format!(
@@ -111,7 +202,7 @@ pub(crate) async fn delete(
     api: &Api,
     request: Request<rpc::IbPartitionDeletionRequest>,
 ) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
-    crate::api::log_request_data(&request);
+    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -125,7 +216,7 @@ pub(crate) async fn delete(
     let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
     let uuid = match id {
-        Some(id) => match Uuid::try_from(id) {
+        Some(id) => match uuid::Uuid::try_from(id) {
             Ok(uuid) => uuid,
             Err(_err) => {
                 return Err(CarbideError::InvalidArgument("id".to_string()).into());
@@ -177,7 +268,7 @@ pub(crate) async fn for_tenant(
     api: &Api,
     request: Request<rpc::TenantSearchQuery>,
 ) -> Result<Response<rpc::IbPartitionList>, Status> {
-    crate::api::log_request_data(&request);
+    log_request_data(&request);
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

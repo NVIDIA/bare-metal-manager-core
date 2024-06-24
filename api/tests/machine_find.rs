@@ -460,7 +460,7 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+#[sqlx::test()]
 async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
@@ -493,5 +493,23 @@ async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
             "no more than {} IDs can be accepted",
             env.config.max_find_by_ids
         )
+    );
+}
+
+#[sqlx::test()]
+async fn test_find_machines_by_ids_none(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let request = tonic::Request::new(carbide::api::rpc::MachineIdList::default());
+
+    let response = env.api.find_machines_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing no machine IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        "at least one ID must be provided",
     );
 }

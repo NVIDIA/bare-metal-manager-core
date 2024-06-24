@@ -22,7 +22,7 @@ service Forge {
   rpc CreateVpc(VpcCreationRequest) returns (Vpc);
   rpc UpdateVpc(VpcUpdateRequest) returns (VpcUpdateResult);
   rpc DeleteVpc(VpcDeletionRequest) returns (VpcDeletionResult);
-  rpc FindVpcIds(VpcSearchConfig) returns (VpcIdList);
+  rpc FindVpcIds(VpcSearchFilter) returns (VpcIdList);
   rpc FindVpcsByIds(VpcIdList) returns (VpcList);
   // DEPRECATED: use FindVpcIds and FindVpcsByIds instead
   rpc FindVpcs(VpcSearchQuery) returns (VpcList);
@@ -33,7 +33,9 @@ service Forge {
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
   rpc NetworkSegmentsForVpc(VpcSearchQuery) returns (NetworkSegmentList);
 
-  // Find a IB partition
+  rpc FindIBPartitionIds(IBPartitionSearchFilter) returns (IBPartitionIdList);
+  rpc FindIBPartitionsByIds(IBPartitionsByIdsRequest) returns (IBPartitionList);
+  // DEPRECATED: use FindVpcIds and FindVpcsByIds instead
   rpc FindIBPartitions(IBPartitionQuery) returns (IBPartitionList);
   // Create a IB partition
   rpc CreateIBPartition(IBPartitionCreationRequest) returns (IBPartition);
@@ -63,7 +65,7 @@ service Forge {
   // to determine whether all updates have been applied.
   rpc UpdateInstanceConfig(InstanceConfigUpdateRequest) returns (Instance);
 
-  rpc FindInstanceIds(InstanceSearchConfig) returns (InstanceIdList);
+  rpc FindInstanceIds(InstanceSearchFilter) returns (InstanceIdList);
   rpc FindInstancesByIds(InstanceIdList) returns (InstanceList);
   // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
@@ -529,7 +531,7 @@ message VpcSearchQuery {
   optional string name = 2;
 }
 
-message VpcSearchConfig {
+message VpcSearchFilter {
   optional string name = 1;
   optional string tenant_org_id = 2;
 }
@@ -704,6 +706,20 @@ message IBPartitionQuery {
   optional IBPartitionSearchConfig search_config = 2;
 }
 
+message IBPartitionSearchFilter {
+  optional string tenant_org_id = 1;
+  optional string name = 2;
+}
+
+message IBPartitionsByIdsRequest {
+  repeated UUID ib_partition_ids = 1;
+  bool include_history = 2;
+}
+
+message IBPartitionIdList {
+  repeated UUID ib_partition_ids = 1;
+}
+
 message NetworkSegmentStateHistory {
   string state = 1;
   string version = 2;
@@ -841,7 +857,7 @@ message Metadata {
   repeated Label labels = 3;
 }
 
-message InstanceSearchConfig {
+message InstanceSearchFilter {
   // supports filtering on key, value, or key and value
   optional Label label = 1;
   optional string tenant_org_id = 2;

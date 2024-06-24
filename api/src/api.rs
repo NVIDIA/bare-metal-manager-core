@@ -202,7 +202,7 @@ impl Forge for Api {
 
     async fn find_vpc_ids(
         &self,
-        request: Request<rpc::VpcSearchConfig>,
+        request: Request<rpc::VpcSearchFilter>,
     ) -> Result<Response<rpc::VpcIdList>, Status> {
         crate::handlers::vpc::find_ids(self, request).await
     }
@@ -222,6 +222,21 @@ impl Forge for Api {
         crate::handlers::vpc::find(self, request).await
     }
 
+    async fn find_ib_partition_ids(
+        &self,
+        request: Request<rpc::IbPartitionSearchFilter>,
+    ) -> Result<Response<rpc::IbPartitionIdList>, Status> {
+        crate::handlers::ib_partition::find_ids(self, request).await
+    }
+
+    async fn find_ib_partitions_by_ids(
+        &self,
+        request: Request<rpc::IbPartitionsByIdsRequest>,
+    ) -> Result<Response<rpc::IbPartitionList>, Status> {
+        crate::handlers::ib_partition::find_by_ids(self, request).await
+    }
+
+    // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
     async fn find_ib_partitions(
         &self,
         request: Request<rpc::IbPartitionQuery>,
@@ -287,7 +302,7 @@ impl Forge for Api {
 
     async fn find_instance_ids(
         &self,
-        request: Request<rpc::InstanceSearchConfig>,
+        request: Request<rpc::InstanceSearchFilter>,
     ) -> Result<Response<rpc::InstanceIdList>, Status> {
         crate::handlers::instance::find_ids(self, request).await
     }
@@ -1330,6 +1345,11 @@ impl Forge for Api {
             return Err(CarbideError::InvalidArgument(format!(
                 "no more than {max_find_by_ids} IDs can be accepted"
             ))
+            .into());
+        } else if machine_ids.is_empty() {
+            return Err(CarbideError::InvalidArgument(
+                "at least one ID must be provided".to_string(),
+            )
             .into());
         }
 

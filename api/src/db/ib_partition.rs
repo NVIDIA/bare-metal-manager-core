@@ -19,9 +19,7 @@ use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Transaction};
-use sqlx::{Postgres, Row};
-use uuid::Uuid;
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::machine::Machine;
 use crate::ib::IBFabricManagerConfig;
@@ -64,7 +62,7 @@ pub struct IBPartitionSearchConfig {
 
 #[derive(Debug, Clone)]
 pub struct NewIBPartition {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
 
     pub config: IBPartitionConfig,
 }
@@ -113,7 +111,7 @@ pub struct IBPartitionStatus {
 
 #[derive(Debug, Clone)]
 pub struct IBPartition {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
     pub version: ConfigVersion,
 
     pub config: IBPartitionConfig,
@@ -327,7 +325,7 @@ impl IBPartition {
     ///
     pub async fn list_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<Uuid>, DatabaseError> {
+    ) -> Result<Vec<uuid::Uuid>, DatabaseError> {
         let query = "SELECT id FROM ib_partitions";
         let mut results = Vec::new();
         let mut segment_id_stream = sqlx::query_as::<_, IBPartitionId>(query).fetch(&mut **txn);
@@ -353,6 +351,39 @@ impl IBPartition {
         };
 
         Ok(results)
+    }
+
+    pub async fn find_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        filter: rpc::IbPartitionSearchFilter,
+    ) -> Result<Vec<uuid::Uuid>, CarbideError> {
+        #[derive(Debug, Clone, Copy, FromRow)]
+        pub struct IbPartitionId(uuid::Uuid);
+
+        // build query
+        let mut builder = sqlx::QueryBuilder::new("SELECT id FROM ib_partitions");
+        let mut has_filter = false;
+        if let Some(tenant_org_id) = &filter.tenant_org_id {
+            builder.push(" WHERE organization_id = ");
+            builder.push_bind(tenant_org_id);
+            has_filter = true;
+        }
+        if let Some(name) = &filter.name {
+            if has_filter {
+                builder.push(" AND name = ");
+            } else {
+                builder.push(" WHERE name = ");
+            }
+            builder.push_bind(name);
+        }
+
+        let query = builder.build_query_as();
+        let ids: Vec<IbPartitionId> = query
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partition::find_ids", e))?;
+
+        Ok(ids.into_iter().map(|id| id.0).collect())
     }
 
     pub async fn find(
@@ -392,7 +423,7 @@ impl IBPartition {
 
     pub async fn find_pkey_by_partition_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        id: Uuid,
+        id: uuid::Uuid,
     ) -> Result<Option<u16>, DatabaseError> {
         #[derive(Debug, Clone, Copy, FromRow)]
         pub struct Pkey(i32);
