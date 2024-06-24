@@ -35,6 +35,8 @@ pub struct MachineConfig {
     pub host_count: u32,
     pub dpu_per_host_count: u32,
     pub boot_delay: u32,
+    pub dpu_reboot_delay: u64,  // in units of seconds
+    pub host_reboot_delay: u64, // in units of seconds
     pub template_dir: String,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
