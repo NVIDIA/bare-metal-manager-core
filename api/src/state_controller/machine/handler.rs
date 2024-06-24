@@ -350,8 +350,28 @@ impl MachineStateHandler {
                         // Reboot host
                         restart_machine(&state.host_snapshot, ctx.services, txn).await?;
 
+                        purge_machine_validation_results(
+                            &state.host_snapshot.machine_id,
+                            "CleanupState".to_string(),
+                            txn,
+                        )
+                        .await?;
+
+                        let current_machine_validation_id = uuid::Uuid::new_v4();
+
+                        Machine::update_current_machine_validation_id(
+                            &state.host_snapshot.machine_id,
+                            current_machine_validation_id,
+                            txn,
+                        )
+                        .await?;
                         let next_state = ManagedHostState::HostNotReady {
-                            machine_state: MachineState::Discovered,
+                            machine_state: MachineState::MachineValidating {
+                                context: "CleanupState".to_string(),
+                                id: current_machine_validation_id,
+                                completed: 1,
+                                total: 1,
+                            },
                         };
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
@@ -1724,6 +1744,9 @@ fn rebooted(target: &MachineSnapshot) -> bool {
     target.last_reboot_time.unwrap_or_default() > target.current.version.timestamp()
 }
 
+fn machine_validation_completed(target: &MachineSnapshot) -> bool {
+    target.last_machine_validation_time.unwrap_or_default() > target.current.version.timestamp()
+}
 // Was machine rebooted after state change?
 fn discovered_after_state_transition(
     version: ConfigVersion,
@@ -2054,8 +2077,27 @@ impl StateHandler for HostMachineStateHandler {
                                 // DHCP Discover. A second reboot starts DHCP cycle again when DPU is already up.
                                 restart_machine(&state.host_snapshot, ctx.services, txn).await?;
                                 if LockdownMode::Enable == lockdown_info.mode {
+                                    purge_machine_validation_results(
+                                        &state.host_snapshot.machine_id,
+                                        "Discovery".to_string(),
+                                        txn,
+                                    )
+                                    .await?;
+                                    let current_machine_validation_id = uuid::Uuid::new_v4();
+
+                                    Machine::update_current_machine_validation_id(
+                                        &state.host_snapshot.machine_id,
+                                        current_machine_validation_id,
+                                        txn,
+                                    )
+                                    .await?;
                                     let next_state = ManagedHostState::HostNotReady {
-                                        machine_state: MachineState::Discovered,
+                                        machine_state: MachineState::MachineValidating {
+                                            context: "Discovery".to_string(),
+                                            id: current_machine_validation_id,
+                                            completed: 1,
+                                            total: 1,
+                                        },
                                     };
                                     Ok(StateHandlerOutcome::Transition(next_state))
                                 } else {
@@ -2103,6 +2145,51 @@ impl StateHandler for HostMachineStateHandler {
                         host_machine_id.clone(),
                         state.managed_state.clone(),
                     ))
+                }
+                MachineState::MachineValidating {
+                    context,
+                    id,
+                    completed,
+                    total,
+                } => {
+                    tracing::info!(
+                        "context = {} id = {} completed = {} total = {}",
+                        context,
+                        id,
+                        completed,
+                        total
+                    );
+                    // Host validation completed
+                    if machine_validation_completed(&state.host_snapshot) {
+                        if state.host_snapshot.failure_details.cause == FailureCause::NoError {
+                            tracing::info!(
+                                "{} machine validation completed",
+                                state.host_snapshot.machine_id
+                            );
+                            restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                            return Ok(StateHandlerOutcome::Transition(
+                                ManagedHostState::HostNotReady {
+                                    machine_state: MachineState::Discovered,
+                                },
+                            ));
+                        } else {
+                            tracing::info!(
+                                "{} machine validation failed",
+                                state.host_snapshot.machine_id
+                            );
+                            return Ok(StateHandlerOutcome::Transition(ManagedHostState::Failed {
+                                details: state.host_snapshot.failure_details.clone(),
+                                machine_id: state.host_snapshot.machine_id.clone(),
+                                retry_count: 0,
+                            }));
+                        }
+                    } else {
+                        tracing::info!(
+                            "{} machine validation failed",
+                            state.host_snapshot.machine_id
+                        );
+                    }
+                    Ok(StateHandlerOutcome::DoNothing)
                 }
             }
         } else {
@@ -2662,6 +2749,15 @@ async fn restart_machine(
         )
         .await
     }
+}
+
+async fn purge_machine_validation_results(
+    _machine_id: &MachineId,
+    _context: String,
+    _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StateHandlerError> {
+    // MachineValidationResult::delete_by_context(txn, context, machine_id).await?;
+    Ok(())
 }
 
 async fn host_power_state(

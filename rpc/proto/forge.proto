@@ -305,6 +305,9 @@ service Forge {
 
   rpc RebootCompleted(MachineRebootCompletedRequest) returns (MachineRebootCompletedResponse);
 
+  // Machine-Validation completed
+  rpc MachineValidationCompleted(MachineValidationCompletedRequest) returns (MachineValidationCompletedResponse);
+
 }
 
 message BindRequest{
@@ -1821,6 +1824,7 @@ message ForgeAgentControlResponse {
 		RETRY = 4;      // Machine needs more time to come in proper state. Retry again.
 		MEASURE = 5;    // Machine needs to send measurements for attestation.
 		LOGERROR = 6;   // Log error.
+		MACHINE_VALIDATION = 7;   // Machine validation.
 	}
 	Action action = 1;
 
@@ -2400,3 +2404,11 @@ message MachineRebootCompletedResponse { }
 message MachineRebootCompletedRequest {
 	MachineId machine_id = 1;
 }
+
+message MachineValidationCompletedRequest {
+  MachineId machine_id = 1;
+  optional string machine_validation_error = 2;
+}
+
+message MachineValidationCompletedResponse { }
+

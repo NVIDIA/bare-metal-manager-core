@@ -112,6 +112,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
                 MachineState::Discovered => "discovered",
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
+                MachineState::MachineValidating { .. } => "machinevalidating",
             }
         }
 

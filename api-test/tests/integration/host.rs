@@ -127,3 +127,17 @@ pub fn discover_machine(addr: SocketAddr, ip_address: &str) -> eyre::Result<Stri
     )?;
     Ok(host_machine_id.to_string())
 }
+
+pub fn machine_validation_completed(
+    addr: SocketAddr,
+    host_machine_id: &str,
+) -> eyre::Result<String> {
+    grpcurl(
+        addr,
+        "MachineValidationCompleted",
+        Some(&serde_json::json!({
+            "machine_id": {"id": host_machine_id}
+        })),
+    )?;
+    Ok(host_machine_id.to_string())
+}

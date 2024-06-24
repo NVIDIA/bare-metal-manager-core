@@ -28,9 +28,9 @@ mod client;
 mod deprovision;
 mod discovery;
 mod ipmi;
+mod machine_validation;
 mod register;
 mod users;
-
 struct DevEnv {
     in_qemu: bool,
 }
@@ -181,6 +181,10 @@ async fn handle_action(
         }
         Action::Measure => {
             attestation::run(config, machine_id).await?;
+        }
+        Action::MachineValidation => {
+            tracing::info!("Machine validationstub code");
+            machine_validation::completed(config, machine_id, None).await?;
         }
     }
     Ok(())

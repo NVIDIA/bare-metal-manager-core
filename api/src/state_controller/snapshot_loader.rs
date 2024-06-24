@@ -105,6 +105,8 @@ pub async fn get_machine_snapshot(
         reprovision_requested: machine.reprovisioning_requested(),
         last_reboot_requested: machine.last_reboot_requested(),
         bios_password_set_time: machine.bios_password_set_time(),
+        last_machine_validation_time: machine.last_machine_validation_time(),
+        current_machine_validation_id: machine.current_machine_validation_id(),
     };
 
     Ok(snapshot)

@@ -149,6 +149,52 @@ impl TestEnv {
         // TODO: This will in the future also spin up redfish mocks for these components
         ManagedHostSim { config }
     }
+    fn fill_machine_information(
+        &self,
+        state: &ManagedHostState,
+        machine: &Machine,
+    ) -> ManagedHostState {
+        //This block is to fill data that is populated within statemachine
+        match state.clone() {
+            ManagedHostState::DpuDiscoveringState { .. } => state.clone(),
+            ManagedHostState::DPUNotReady { .. } => state.clone(),
+            ManagedHostState::HostNotReady { machine_state } => {
+                let mc = match machine_state {
+                    carbide::model::machine::MachineState::Init => machine_state,
+                    carbide::model::machine::MachineState::WaitingForNetworkInstall => {
+                        machine_state
+                    }
+                    carbide::model::machine::MachineState::WaitingForNetworkConfig => machine_state,
+                    carbide::model::machine::MachineState::UefiSetup { .. } => machine_state,
+                    carbide::model::machine::MachineState::WaitingForDiscovery => machine_state,
+                    carbide::model::machine::MachineState::Discovered => machine_state,
+                    carbide::model::machine::MachineState::WaitingForLockdown { .. } => {
+                        machine_state
+                    }
+                    carbide::model::machine::MachineState::MachineValidating {
+                        context,
+                        id: _,
+                        completed,
+                        total,
+                    } => carbide::model::machine::MachineState::MachineValidating {
+                        context,
+                        id: machine.current_machine_validation_id().unwrap_or_default(),
+                        completed,
+                        total,
+                    },
+                };
+                ManagedHostState::HostNotReady { machine_state: mc }
+            }
+            ManagedHostState::Ready => state.clone(),
+            ManagedHostState::Assigned { .. } => state.clone(),
+            ManagedHostState::WaitingForCleanup { .. } => state.clone(),
+            ManagedHostState::Created => state.clone(),
+            ManagedHostState::ForceDeletion => state.clone(),
+            ManagedHostState::Failed { .. } => state.clone(),
+            ManagedHostState::DPUReprovision { .. } => state.clone(),
+            ManagedHostState::Measuring { .. } => state.clone(),
+        }
+    }
 
     /// Runs one iteration of the machine state controller handler with the services
     /// in this test environment
@@ -174,7 +220,9 @@ impl TestEnv {
             .unwrap()
             .unwrap();
 
-            if machine.current_state() == expected_state {
+            let comparable_state = self.fill_machine_information(&expected_state, &machine);
+
+            if machine.current_state() == comparable_state {
                 return;
             }
         }
@@ -189,7 +237,8 @@ impl TestEnv {
         .unwrap();
 
         panic!(
-            "Expected Machine state to be {expected_state} after {max_iterations} iterations, but state is {}",
+            "Expected Machine state to be {} after {max_iterations} iterations, but state is {}",
+            expected_state.clone(),
             machine.current_state()
         );
     }
@@ -811,4 +860,23 @@ pub async fn reboot_completed(
         .await
         .unwrap()
         .into_inner()
+}
+
+// Emulates the `MachineValidationComplete` request of a Host
+pub async fn machine_validation_completed(
+    env: &TestEnv,
+    machine_id: rpc::forge::MachineId,
+    machine_validation_error: Option<String>,
+) {
+    let _response = env
+        .api
+        .machine_validation_completed(Request::new(
+            rpc::forge::MachineValidationCompletedRequest {
+                machine_id: Some(machine_id),
+                machine_validation_error,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
 }

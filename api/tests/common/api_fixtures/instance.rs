@@ -359,6 +359,30 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         3,
         &mut txn,
         ManagedHostState::HostNotReady {
+            machine_state: MachineState::MachineValidating {
+                context: "CleanupState".to_string(),
+                id: uuid::Uuid::default(),
+                completed: 1,
+                total: 1,
+            },
+        },
+    )
+    .await;
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    Machine::update_machine_validation_time(host_machine_id, &mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    env.run_machine_state_controller_iteration_until_state_matches(
+        host_machine_id,
+        handler.clone(),
+        3,
+        &mut txn,
+        ManagedHostState::HostNotReady {
             machine_state: MachineState::Discovered,
         },
     )

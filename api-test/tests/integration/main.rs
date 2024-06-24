@@ -19,6 +19,7 @@ use std::{
 };
 
 use grpcurl::grpcurl;
+use host::machine_validation_completed;
 use sqlx::{migrate::MigrateDatabase, Postgres, Row};
 use tokio::time::sleep;
 
@@ -198,6 +199,11 @@ async fn test_integration() -> eyre::Result<()> {
     metrics::assert_metric_line(&metrics, r#"forge_machines_total{fresh="true"} 1"#);
 
     machine::cleanup_completed(carbide_api_addr, &host_machine_id)?;
+
+    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Host/MachineValidating")?;
+
+    machine::machine_validation_completed(carbide_api_addr, &host_machine_id)?;
+
     machine::wait_for_state(carbide_api_addr, &host_machine_id, "Discovered")?;
 
     // It stays in Discovered until we notify that reboot happened, which this test doesn't
@@ -254,6 +260,10 @@ async fn host_boostrap(carbide_api_addr: SocketAddr) -> eyre::Result<String> {
     // Wait until carbide-api is prepared to admit the DPU might have rebooted.
     // There are hard coded sleeps in carbide-api before this happens.
     machine::wait_for_state(carbide_api_addr, &host_machine_id, "WaitForDPUUp")?;
+
+    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Host/MachineValidating")?;
+
+    machine_validation_completed(carbide_api_addr, &host_machine_id)?;
 
     // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
     machine::wait_for_state(carbide_api_addr, &host_machine_id, "Host/Discovered")?;
