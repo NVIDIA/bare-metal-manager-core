@@ -919,21 +919,24 @@ scheduled-test:get-latest-versions:
     name: golang:1.22
     entrypoint: [ "" ]
   variables:
-    TESTABLE_VERSION_PATTERN: '^v\d{4}\.\d{2}(\.\d{2})?(-\w+-\d+|-\w+(-\d+){1,2}-g\w+|-\d+-g\w+)?$'
+    TESTABLE_VERSION_PATTERN: '^v\d{4}\.\d{2}\.\d{2}-rc\d+-\d+-\d+-g\w+$'  # Ignore any version without a git hash
   before_script:
     - set -xeuo pipefail
     - mkdir -p /root/.docker
     - cp .docker/config.json /root/.docker/config.json
     - go install github.com/google/go-containerregistry/cmd/crane@v0.19.1
   script:
-    - CARBIDE_VERSIONS="$(crane ls "${APPLICATION_DOCKER_IMAGE}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 10 | tac)"
-    - BOOT_AARCH64_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_AARCH64}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 10 | tac)"
-    - BOOT_X86_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_X86_64}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 10 | tac)"
+    - CARBIDE_VERSIONS="$(crane ls "${APPLICATION_DOCKER_IMAGE}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 20 | tac)"
+    - BOOT_AARCH64_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_AARCH64}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 20 | tac)"
+    - BOOT_X86_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_X86_64}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 20 | tac)"
     - |
       LATEST_COMMON_VERSION=""
       for version in $(echo "${CARBIDE_VERSIONS}"); do
+        git_hash=$(echo "$version" | awk -F'-g' '{print $2}')
+        git -C carbide log trunk | grep -q "$git_hash" || continue
         if [[ $(echo "${BOOT_AARCH64_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]] && [[ $(echo "${BOOT_X86_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]]; then
           LATEST_COMMON_VERSION=$version
+          echo "Found latest common version: $LATEST_COMMON_VERSION"
           break
         fi
       done
@@ -941,7 +944,7 @@ scheduled-test:get-latest-versions:
         echo "Error: There is no common version across the last 10 versions of nvmetal-carbide, boot-artifacts-aarch64 and boot-artifacts-x86_64."
         exit 1
       fi
-    - SSH_CONSOLE_VERSION="$(crane ls "${DEV_NVCR_BASE}"/ssh-console | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 1)"
+    - SSH_CONSOLE_VERSION="$(crane ls "${DEV_NVCR_BASE}"/ssh-console | sort -V | tail -n 1)"
     - |
       if [[ -z "${SSH_CONSOLE_VERSION}" ]]; then
         echo "Error: SSH_CONSOLE_VERSION is empty."
