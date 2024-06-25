@@ -241,7 +241,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
         // This will avoid locking us out of BMCs.
         if let Some(report) = last_report {
             if report.cannot_login() {
-                return Err(EndpointExplorationError::Other{ details: format!("Site explorer is not exploring endpoint {bmc_ip_address:#?} because it was previously unable to login using the known credentials") });
+                return Err(EndpointExplorationError::AvoidLockout);
             }
         }
 

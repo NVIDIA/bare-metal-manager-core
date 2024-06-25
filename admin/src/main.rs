@@ -585,19 +585,28 @@ async fn main() -> color_eyre::Result<()> {
                 let req = forgerpc::CredentialDeletionRequest {
                     credential_type: CredentialType::Ufm.into(),
                     username: Some(username),
+                    mac_address: None,
                 };
                 rpc::delete_credential(api_config, req).await?;
             }
             CredentialAction::AddBMC(c) => {
                 let password = password_validator(c.password.clone()).await?;
                 let req = forgerpc::CredentialCreationRequest {
-                    credential_type: CredentialType::SiteWideBmcRoot.into(),
+                    credential_type: CredentialType::from(c.kind).into(),
                     username: None,
                     password,
-                    mac_address: None,
+                    mac_address: c.mac_address,
                     vendor: None,
                 };
                 rpc::add_credential(api_config, req).await?;
+            }
+            CredentialAction::DeleteBMC(c) => {
+                let req = forgerpc::CredentialDeletionRequest {
+                    credential_type: CredentialType::from(c.kind).into(),
+                    username: None,
+                    mac_address: c.mac_address,
+                };
+                rpc::delete_credential(api_config, req).await?;
             }
             CredentialAction::AddUefi(c) => {
                 let mut password = password_validator(c.password.clone()).await?;
@@ -655,6 +664,9 @@ async fn main() -> color_eyre::Result<()> {
             SiteExplorer::Explore(opts) => {
                 let report = rpc::explore(api_config, &opts.address, opts.mac).await?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
+            }
+            SiteExplorer::ClearError(opts) => {
+                rpc::clear_site_explorer_last_known_error(api_config, opts.address).await?;
             }
         },
         CarbideCommand::MachineInterfaces(machine_interfaces) => match machine_interfaces {

@@ -838,6 +838,22 @@ pub async fn explore(
     .await
 }
 
+pub async fn clear_site_explorer_last_known_error(
+    api_config: &ApiConfig<'_>,
+    ip_address: String,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ClearSiteExplorationErrorRequest { ip_address });
+        client
+            .clear_site_exploration_error(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner();
+        Ok(())
+    })
+    .await
+}
+
 pub async fn find_machine_ids(
     api_config: &ApiConfig<'_>,
     machine_type: Option<MachineType>,

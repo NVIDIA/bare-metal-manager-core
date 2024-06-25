@@ -211,6 +211,7 @@ pub fn exploration_error_to_metric_label(error: &EndpointExplorationError) -> St
         EndpointExplorationError::SetCredentials { .. } => "set_credentials",
         EndpointExplorationError::MissingRedfish => "missing_redfish",
         EndpointExplorationError::MissingVendor => "missing_vendor",
+        EndpointExplorationError::AvoidLockout => "avoid_lockout",
         EndpointExplorationError::Other { .. } => "other",
     }
     .to_string()

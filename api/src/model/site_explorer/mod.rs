@@ -408,6 +408,8 @@ pub enum EndpointExplorationError {
     MissingRedfish,
     #[error("BMC vendor field is not populated. Unsupported BMC.")]
     MissingVendor,
+    #[error("Site explorer will not explore this endpoint to avoid lockout: it could not login previously")]
+    AvoidLockout,
     /// An error which is not further detailed
     #[error("Error: {details}")]
     #[serde(rename_all = "PascalCase")]
@@ -417,6 +419,7 @@ pub enum EndpointExplorationError {
 impl EndpointExplorationError {
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, EndpointExplorationError::Unauthorized { details: _ })
+            || matches!(self, EndpointExplorationError::AvoidLockout)
     }
 }
 

@@ -1020,10 +1020,10 @@ pub enum CredentialAction {
     AddUFM(AddUFMCredential),
     #[clap(about = "Delete UFM credential")]
     DeleteUFM(DeleteUFMCredential),
-    #[clap(
-        about = "Add site-wide Host/DPU BMC default credential (NOTE: this parameter can be set only once)"
-    )]
+    #[clap(about = "Add BMC credentials")]
     AddBMC(AddBMCredential),
+    #[clap(about = "Delete BMC credentials")]
+    DeleteBMC(DeleteBMCredential),
     #[clap(
         about = "Add site-wide DPU UEFI default credential (NOTE: this parameter can be set only once)"
     )]
@@ -1049,10 +1049,53 @@ pub struct DeleteUFMCredential {
     pub url: String,
 }
 
+#[derive(ValueEnum, Parser, Debug, Clone)]
+pub enum BmcCredentialType {
+    // Site Wide BMC Root Account Credentials
+    SiteWideRoot,
+    // BMC Specific Root Credentials
+    BmcRoot,
+    // BMC Specific Forge-Admin Credentials
+    BmcForgeAdmin,
+}
+
+impl From<BmcCredentialType> for rpc::forge::CredentialType {
+    fn from(c_type: BmcCredentialType) -> Self {
+        use rpc::forge::CredentialType::*;
+        match c_type {
+            BmcCredentialType::SiteWideRoot => SiteWideBmcRoot,
+            BmcCredentialType::BmcRoot => RootBmcByMacAddress,
+            BmcCredentialType::BmcForgeAdmin => BmcForgeAdminByMacAddress,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 pub struct AddBMCredential {
+    #[clap(
+        long,
+        require_equals(true),
+        required(true),
+        help = "The BMC Credential kind"
+    )]
+    pub kind: BmcCredentialType,
     #[clap(long, required(true), help = "The password of BMC")]
     pub password: String,
+    #[clap(long, help = "The MAC address of the BMC")]
+    pub mac_address: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct DeleteBMCredential {
+    #[clap(
+        long,
+        require_equals(true),
+        required(true),
+        help = "The BMC Credential kind"
+    )]
+    pub kind: BmcCredentialType,
+    #[clap(long, help = "The MAC address of the BMC")]
+    pub mac_address: Option<String>,
 }
 
 #[derive(ValueEnum, Parser, Debug, Clone)]
@@ -1147,6 +1190,10 @@ pub enum SiteExplorer {
         about = "Asks carbide-api to explore a single host and prints the report. Does not store it."
     )]
     Explore(ExploreOptions),
+    #[clap(
+        about = "Clear the last known error for the BMC in the latest site exploration report."
+    )]
+    ClearError(ExploreOptions),
 }
 
 #[derive(Parser, Debug)]
