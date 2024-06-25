@@ -1000,6 +1000,13 @@ pub async fn host_power_control(
     ipmi_tool: Arc<dyn IPMITool>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> CarbideResult<()> {
+    // Always log to ensure we can see that forge is doing the power controlling
+    tracing::info!(
+        machine_id = machine_snapshot.machine_id.to_string(),
+        action = action.to_string(),
+        "Host Power Control"
+    );
+
     if machine_snapshot.bmc_vendor.is_lenovo() || machine_snapshot.bmc_vendor.is_supermicro() {
         // Lenovos prepend the users OS to the boot order once it is installed and this cleans up the mess
         // Supermicro will boot the users OS if we don't do this
