@@ -933,7 +933,7 @@ scheduled-test:get-latest-versions:
       LATEST_COMMON_VERSION=""
       for version in $(echo "${CARBIDE_VERSIONS}"); do
         git_hash=$(echo "$version" | awk -F'-g' '{print $2}')
-        git -C carbide log trunk | grep -q "$git_hash" || continue
+        git log trunk | grep -q "$git_hash" || continue
         if [[ $(echo "${BOOT_AARCH64_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]] && [[ $(echo "${BOOT_X86_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]]; then
           LATEST_COMMON_VERSION=$version
           echo "Found latest common version: $LATEST_COMMON_VERSION"
@@ -941,7 +941,7 @@ scheduled-test:get-latest-versions:
         fi
       done
       if [[ -z "${LATEST_COMMON_VERSION}" ]]; then
-        echo "Error: There is no common version across the last 10 versions of nvmetal-carbide, boot-artifacts-aarch64 and boot-artifacts-x86_64."
+        echo "Error: There is no common version across the last 20 versions of nvmetal-carbide, boot-artifacts-aarch64 and boot-artifacts-x86_64."
         exit 1
       fi
     - SSH_CONSOLE_VERSION="$(crane ls "${DEV_NVCR_BASE}"/ssh-console | sort -V | tail -n 1)"
