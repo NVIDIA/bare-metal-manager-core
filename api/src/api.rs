@@ -44,6 +44,7 @@ use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::expected_machine::ExpectedMachine;
+use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::IBPartition;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
@@ -104,8 +105,8 @@ use crate::{resource_pool, site_explorer};
 /// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
 const DPU_ADMIN_USERNAME: &str = "forge";
 
-/// Username for default site-wide BMC username.
-const FORGE_SITE_WIDE_BMC_USERNAME: &str = "root";
+/// Username for the root BMC account.
+const FORGE_ROOT_BMC_USERNAME: &str = "root";
 
 // vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
 // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
@@ -3447,31 +3448,29 @@ impl Forge for Api {
                         ))
                     })?
             }
-            rpc::CredentialType::BmcByMacAddress => {
+            rpc::CredentialType::RootBmcByMacAddress => {
                 let Some(mac_address) = req.mac_address else {
                     return Err(tonic::Status::invalid_argument("mac address"));
                 };
-                let Some(username) = req.username else {
-                    return Err(tonic::Status::invalid_argument("missing username"));
-                };
 
-                self.credential_provider
-                    .set_credentials(
-                        CredentialKey::BmcCredentials {
-                            credential_type: BmcCredentialType::BmcRoot {
-                                bmc_mac_address: mac_address
-                                    .parse()
-                                    .map_err(|_| tonic::Status::invalid_argument("mac_address"))?,
-                            },
-                        },
-                        Credentials::UsernamePassword { username, password },
-                    )
+                let parsed_mac: MacAddress = mac_address
+                    .parse::<MacAddress>()
+                    .map_err(CarbideError::from)?;
+
+                self.set_bmc_root_credentials_by_mac(parsed_mac, password)
                     .await
                     .map_err(|e| {
                         CarbideError::GenericError(format!(
-                            "Error updating credential for BMC {mac_address}: {e:?}"
+                            "Error setting Site Wide BMC Root credentials: {:?} ",
+                            e
                         ))
-                    })?
+                    })?;
+            }
+            rpc::CredentialType::BmcForgeAdminByMacAddress => {
+                // TODO: support credential creation for forge-admin
+                return Err(tonic::Status::invalid_argument(
+                    "Forge does not support creating forge-admin credentials yet.",
+                ));
             }
         };
 
@@ -3517,14 +3516,36 @@ impl Forge for Api {
                     return Err(tonic::Status::invalid_argument("missing UFM Url"));
                 }
             }
+            rpc::CredentialType::SiteWideBmcRoot => {
+                // TODO: actually delete entry from vault instead of setting to empty string
+                self.set_sitewide_bmc_root_credentials("".to_string())
+                    .await?;
+            }
+            rpc::CredentialType::RootBmcByMacAddress => {
+                match req.mac_address {
+                    Some(mac_address) => {
+                        let parsed_mac: MacAddress = mac_address
+                            .parse::<MacAddress>()
+                            .map_err(CarbideError::from)?;
+
+                        // TODO: actually delete entry from vault instead of setting to empty string
+                        self.set_bmc_root_credentials_by_mac(parsed_mac, "".to_string())
+                            .await?;
+                    }
+                    None => {
+                        return Err(tonic::Status::invalid_argument(
+                            "request does not specify mac address",
+                        ));
+                    }
+                }
+            }
             rpc::CredentialType::HostBmc
             | rpc::CredentialType::Dpubmc
             | rpc::CredentialType::DpuUefi
             | rpc::CredentialType::HostUefi
             | rpc::CredentialType::HostBmcFactoryDefault
             | rpc::CredentialType::DpuBmcFactoryDefault
-            | rpc::CredentialType::BmcByMacAddress
-            | rpc::CredentialType::SiteWideBmcRoot => {
+            | rpc::CredentialType::BmcForgeAdminByMacAddress => {
                 // Not support delete credential for these types
             }
         };
@@ -5031,6 +5052,40 @@ impl Forge for Api {
     ) -> Result<Response<rpc::MachineValidationCompletedResponse>, Status> {
         mark_machine_validation_complete(self, request).await
     }
+
+    async fn clear_site_exploration_error(
+        &self,
+        request: Request<rpc::ClearSiteExplorationErrorRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        log_request_data(&request);
+        let req = request.into_inner();
+
+        let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin clear_last_known_error",
+                e,
+            ))
+        })?;
+
+        DbExploredEndpoint::clear_last_known_error(bmc_ip, &mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit clear_last_known_error",
+                e,
+            ))
+        })?;
+
+        Ok(Response::new(()))
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {
@@ -5266,6 +5321,19 @@ impl Api {
         Ok(expected.remove(&mac))
     }
 
+    async fn set_bmc_credentials(
+        &self,
+        credential_key: CredentialKey,
+        credentials: Credentials,
+    ) -> Result<(), CarbideError> {
+        self.credential_provider
+            .set_credentials(credential_key, credentials)
+            .await
+            .map_err(|e| {
+                CarbideError::GenericError(format!("Error setting credential for BMC: {:?} ", e))
+            })
+    }
+
     pub async fn set_sitewide_bmc_root_credentials(
         &self,
         password: String,
@@ -5275,19 +5343,28 @@ impl Api {
         };
 
         let credentials = Credentials::UsernamePassword {
-            username: FORGE_SITE_WIDE_BMC_USERNAME.to_string(),
+            username: FORGE_ROOT_BMC_USERNAME.to_string(),
             password: password.clone(),
         };
 
-        self.credential_provider
-            .set_credentials(credential_key, credentials)
-            .await
-            .map_err(|e| {
-                CarbideError::GenericError(format!(
-                    "Error setting credential for Host Bmc: {:?} ",
-                    e
-                ))
-            })
+        self.set_bmc_credentials(credential_key, credentials).await
+    }
+
+    pub async fn set_bmc_root_credentials_by_mac(
+        &self,
+        bmc_mac_address: MacAddress,
+        password: String,
+    ) -> Result<(), CarbideError> {
+        let credential_key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+        };
+
+        let credentials = Credentials::UsernamePassword {
+            username: FORGE_ROOT_BMC_USERNAME.to_string(),
+            password: password.clone(),
+        };
+
+        self.set_bmc_credentials(credential_key, credentials).await
     }
 }
 

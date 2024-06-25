@@ -146,6 +146,8 @@ service Forge {
 
   // Gets the latest Site Exploration report
   rpc GetSiteExplorationReport(GetSiteExplorationRequest) returns (site_explorer.SiteExplorationReport);
+  // Clear the last known error for the BMC
+  rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty); 
   // Explore an individual BMC and show the report
   rpc Explore(ExploreRequest) returns (site_explorer.EndpointExplorationReport);
 
@@ -356,7 +358,8 @@ enum CredentialType {
   HostBMCFactoryDefault = 5;
   DpuBMCFactoryDefault = 6;
   SiteWideBmcRoot = 7;
-  BmcByMacAddress = 8;
+  RootBmcByMacAddress = 8;
+  BmcForgeAdminByMacAddress = 9;
 }
 
 message CredentialCreationRequest {
@@ -377,6 +380,7 @@ message CredentialCreationRequest {
 message CredentialDeletionRequest {
   CredentialType credential_type = 1;
   optional string username = 2;
+  optional string mac_address = 3;
 }
 
 message CredentialCreationResult {
@@ -1566,6 +1570,11 @@ message CredentialResponse {
 
 message GetSiteExplorationRequest {
 
+}
+
+message ClearSiteExplorationErrorRequest {
+  // The IP address of the BMC whose error should be cleared from the explored_endpoints table 
+  string ip_address = 1;
 }
 
 message ExploreRequest {

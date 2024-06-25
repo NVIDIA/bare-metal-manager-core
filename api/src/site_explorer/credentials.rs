@@ -12,7 +12,7 @@
 
 use crate::model::site_explorer::EndpointExplorationError;
 use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
+    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
 use mac_address::MacAddress;
 use std::sync::Arc;
@@ -21,10 +21,6 @@ use super::metrics::SiteExplorationMetrics;
 
 const SITEWIDE_BMC_ROOT_CREDENTIAL_KEY: CredentialKey = CredentialKey::BmcCredentials {
     credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
-};
-
-const DPU_HARDWARE_DEFAULT_CREDENTIAL_KEY: CredentialKey = CredentialKey::DpuRedfish {
-    credential_type: CredentialType::DpuHardwareDefault,
 };
 
 pub fn get_bmc_root_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {
@@ -38,6 +34,18 @@ pub struct CredentialClient {
 }
 
 impl CredentialClient {
+    fn valid_credentials(credentials: Credentials) -> bool {
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        if username.is_empty() || password.is_empty() {
+            return false;
+        }
+
+        true
+    }
+
     async fn get_credentials(
         &self,
         credential_key: CredentialKey,
@@ -47,7 +55,18 @@ impl CredentialClient {
             .get_credentials(credential_key.clone())
             .await
         {
-            Ok(credentials) => Ok(credentials),
+            Ok(credentials) => {
+                if !Self::valid_credentials(credentials.clone()) {
+                    return Err(EndpointExplorationError::Other {
+                        details: format!(
+                            "vault does not have a valid entry at {}",
+                            credential_key.to_key_str()
+                        ),
+                    });
+                }
+
+                Ok(credentials)
+            }
             Err(err) => Err(EndpointExplorationError::MissingCredentials {
                 key: credential_key.to_key_str(),
                 cause: err.to_string(),
@@ -83,26 +102,14 @@ impl CredentialClient {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
-        // Emit metrics for all potential misconfigurations before returning.
-        // That avoids finding more issues after fixing the first issue.
-        let mut errors = String::new();
-
-        for credential_key in &[
-            SITEWIDE_BMC_ROOT_CREDENTIAL_KEY,
-            DPU_HARDWARE_DEFAULT_CREDENTIAL_KEY,
-        ] {
-            if let Some(e) = self.get_credentials((*credential_key).clone()).await.err() {
-                let credential_key_str = credential_key.to_key_str();
-                metrics.increment_credential_missing(credential_key_str.clone());
-                errors.push_str(&format!(
-                    "Unable to load credentials {credential_key_str}: {e}"
-                ));
-            }
-        }
-
-        // TODO: find a more elegant way to do this
-        if !errors.is_empty() {
-            return Err(EndpointExplorationError::Other { details: errors });
+        let credential_key = SITEWIDE_BMC_ROOT_CREDENTIAL_KEY;
+        if let Some(e) = self.get_credentials(credential_key.clone()).await.err() {
+            let credential_key_str = credential_key.to_key_str();
+            metrics.increment_credential_missing(credential_key_str.clone());
+            return Err(EndpointExplorationError::MissingCredentials {
+                key: credential_key.to_key_str(),
+                cause: e.to_string(),
+            });
         }
 
         Ok(())

@@ -147,6 +147,28 @@ impl DbExploredEndpoint {
             })
     }
 
+    /// find_all_by_ip returns a list of explored endpoints that match the ip (should be a list of one)
+    pub async fn find_all_by_ip(
+        address: IpAddr,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+        let query = "SELECT * FROM explored_endpoints WHERE address = $1;";
+
+        sqlx::query_as::<_, Self>(query)
+            .bind(address)
+            .fetch_all(&mut **txn)
+            .await
+            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+            .map_err(|e| {
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "explored_endpoints find_all_preingestion_complete",
+                    e,
+                )
+            })
+    }
+
     /// Updates the explored information about a node
     ///
     /// This operation will return `Ok(false)` if the entry had been deleted in
@@ -171,6 +193,20 @@ WHERE address = $3 AND version=$4";
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(query_result.rows_affected() > 0)
+    }
+
+    /// clear_last_known_error clears the last known error in explored_endpoints for the BMC identified by IP
+    pub async fn clear_last_known_error(
+        address: IpAddr,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        for row in Self::find_all_by_ip(address, txn).await? {
+            let mut report = row.report;
+            report.last_exploration_error = None;
+            Self::try_update(address, row.report_version, &report, txn).await?;
+        }
+
+        Ok(())
     }
 
     /// set_waiting_for_explorer_refresh sets a flag that will be cleared next time try_update runs.
