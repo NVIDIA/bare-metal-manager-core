@@ -1073,10 +1073,21 @@ impl DpuMachineStateHandler {
                 .replace("bf-", "");
             let update_version = component_value.version.as_ref().unwrap();
 
-            if version_compare::compare_to(cur_version, update_version, version_compare::Cmp::Ge)
-                .unwrap()
-            {
-                return Ok(None);
+            match version_compare::compare_to(
+                cur_version.clone(),
+                update_version,
+                version_compare::Cmp::Ge,
+            ) {
+                Ok(update_is_not_needed) => {
+                    if update_is_not_needed {
+                        return Ok(None);
+                    }
+                }
+                Err(e) => {
+                    return Err(StateHandlerError::FirmwareUpdateError(eyre!(
+                        "Could not compare firmware versions (cur_version: {cur_version}, update_version: {update_version}): {e:#?}",
+                    )));
+                }
             };
         };
 
