@@ -1,3 +1,4 @@
+---
 extensions:
   file_storage/cursors:
     directory: /var/lib/otelcol-contrib/cursors
@@ -9,14 +10,14 @@ receivers:
     units:
       - forge-dpu-agent
     storage: file_storage/cursors
+
   prometheus:
     config:
       scrape_configs:
         - job_name: 'otel-collector'
           scrape_interval: 10s
           file_sd_configs:
-            - files:
-              - fd_configs/fd_discovery.yaml
+            - files: ["fd_configs/fd_discovery.yaml"]
           relabel_configs:
             - source_labels: [__address__]
               regex: '[^:]+(:\d+)'
@@ -50,6 +51,14 @@ receivers:
       filesystem:
       paging:
 
+  prometheus/internal-telemetry:
+    config:
+      scrape_configs:
+        - job_name: dpu-otelcol-telemetry
+          scrape_interval: 10s
+          static_configs:
+            - targets: ["127.0.0.1:8889"]
+
 processors:
   batch: {}
   batch/metrics:
@@ -81,10 +90,17 @@ processors:
     log_statements:
       - context: log
         statements:
-          - set(cache["MESSAGE"], body["MESSAGE"])
-          - set(cache["_SYSTEMD_UNIT"], body["_SYSTEMD_UNIT"])
-          - set(body, cache)
+          - keep_keys(body, ["MESSAGE", "_SYSTEMD_UNIT"])
           - set(attributes["systemd.unit"], body["_SYSTEMD_UNIT"])
+  # Avoid "duplicate label name" errors on the site controller
+  transform/internal-telemetry:
+    error_mode: ignore
+    metric_statements:
+      - context: resource
+        statements:
+          - delete_key(attributes, "service.instance.id")
+          - set(attributes["job.name"], attributes["service.name"])
+          - delete_key(attributes, "service.name")
 
 exporters:
   otlp/site:
@@ -102,18 +118,31 @@ service:
       receivers: [journald]
       processors:
         - memory_limiter
-        - batch
         - resourcedetection
         - resource
         - transform
+        - batch
       exporters: [otlp/site]
     metrics:
       receivers: [prometheus, hostmetrics, hostmetrics/disk]
-      processors: [memory_limiter, batch/metrics, resourcedetection]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - batch/metrics
       exporters: [prometheus, otlp/site]
+    metrics/telemetry:
+      receivers: [prometheus/internal-telemetry]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - transform/internal-telemetry
+        - batch/metrics
+      exporters: [otlp/site]
   extensions: [file_storage/cursors]
-  # Turn off otel collector metrics (which by default are exposed on port 8888,
-  # already in use by Forge, and cause the service to terminate with an error)
+  # Internal otel collector metrics by default are exposed on port 8888,
+  # already in use by Forge, causing otelcol-contrib to terminate with an
+  # error.
   telemetry:
     metrics:
-      level: none
+      address: "127.0.0.1:8889"
+      level: normal
