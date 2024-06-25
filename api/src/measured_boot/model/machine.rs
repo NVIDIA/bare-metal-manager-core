@@ -19,6 +19,7 @@ use crate::measured_boot::dto::keys::UuidEmptyStringError;
 use crate::measured_boot::dto::records::{
     MeasurementBundleState, MeasurementJournalRecord, MeasurementMachineState,
 };
+use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::machine::{
@@ -211,6 +212,23 @@ pub async fn get_measurement_machine_state(
             None => MeasurementMachineState::Discovered,
         },
     )
+}
+
+/// get_measurement_bundle_state returns the state of the current bundle
+/// associated with the machine, if one exists.
+pub async fn get_measurement_bundle_state(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+) -> eyre::Result<Option<MeasurementBundleState>> {
+    let result = internal_get_latest_journal_for_id(&mut *txn, machine_id.clone()).await?;
+    if let Some(journal_record) = result {
+        if let Some(bundle_id) = journal_record.bundle_id {
+            if let Some(bundle) = get_measurement_bundle_by_id(txn, bundle_id).await? {
+                return Ok(Some(bundle.state));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// get_latest_journal_for_id returns the latest journal record for the
