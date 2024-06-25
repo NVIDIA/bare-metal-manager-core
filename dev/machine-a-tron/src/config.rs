@@ -60,6 +60,8 @@ pub struct MachineATronConfig {
     pub bmc_mock_host_tar: String,
     #[serde(default = "default_bmc_mock_dpu_tar")]
     pub bmc_mock_dpu_tar: String,
+    pub pxe_server_host: String,
+    pub pxe_server_port: String,
 }
 
 fn default_bmc_mock_listen_address() -> String {
