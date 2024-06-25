@@ -23,7 +23,7 @@ service Forge {
   rpc UpdateVpc(VpcUpdateRequest) returns (VpcUpdateResult);
   rpc DeleteVpc(VpcDeletionRequest) returns (VpcDeletionResult);
   rpc FindVpcIds(VpcSearchFilter) returns (VpcIdList);
-  rpc FindVpcsByIds(VpcIdList) returns (VpcList);
+  rpc FindVpcsByIds(VpcsByIdsRequest) returns (VpcList);
   // DEPRECATED: use FindVpcIds and FindVpcsByIds instead
   rpc FindVpcs(VpcSearchQuery) returns (VpcList);
 
@@ -66,7 +66,7 @@ service Forge {
   rpc UpdateInstanceConfig(InstanceConfigUpdateRequest) returns (Instance);
 
   rpc FindInstanceIds(InstanceSearchFilter) returns (InstanceIdList);
-  rpc FindInstancesByIds(InstanceIdList) returns (InstanceList);
+  rpc FindInstancesByIds(InstancesByIdsRequest) returns (InstanceList);
   // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
   rpc FindInstanceByMachineID(MachineId) returns (InstanceList);
@@ -544,6 +544,10 @@ message VpcIdList {
   repeated UUID vpc_ids = 1;
 }
 
+message VpcsByIdsRequest {
+  repeated UUID vpc_ids = 1;
+}
+
 message TenantSearchQuery {
   optional string tenantOrganizationId = 1;
 }
@@ -868,6 +872,10 @@ message InstanceSearchFilter {
 }
 
 message InstanceIdList {
+  repeated UUID instance_ids = 1;
+}
+
+message InstancesByIdsRequest {
   repeated UUID instance_ids = 1;
 }
 

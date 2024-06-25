@@ -75,7 +75,7 @@ pub(crate) async fn find_ids(
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::InstanceIdList>,
+    request: Request<rpc::InstancesByIdsRequest>,
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
     let mut txn = api.database_connection.begin().await.map_err(|e| {

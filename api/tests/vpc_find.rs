@@ -112,7 +112,9 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(vpc_ids_list.vpc_ids.len(), 1);
 
-    let request_vpcs = tonic::Request::new(vpc_ids_list.clone());
+    let request_vpcs = tonic::Request::new(rpc::VpcsByIdsRequest {
+        vpc_ids: vpc_ids_list.vpc_ids.clone(),
+    });
 
     let vpc_list = env
         .api
@@ -138,7 +140,7 @@ async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
         })
         .collect();
 
-    let request = tonic::Request::new(rpc::VpcIdList { vpc_ids });
+    let request = tonic::Request::new(rpc::VpcsByIdsRequest { vpc_ids });
 
     let response = env.api.find_vpcs_by_ids(request).await;
     // validate
@@ -159,7 +161,7 @@ async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
 async fn test_find_vpcs_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let request = tonic::Request::new(rpc::VpcIdList::default());
+    let request = tonic::Request::new(rpc::VpcsByIdsRequest::default());
 
     let response = env.api.find_vpcs_by_ids(request).await;
     // validate
