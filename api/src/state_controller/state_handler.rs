@@ -161,9 +161,7 @@ pub enum StateHandlerError {
     LoadSnapshotError(#[from] SnapshotLoaderError),
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
-    // TODO: This should be replaced - but requires downstream errors to migrate
-    // off from CarbideError
-    #[error("Unable to load snapshot: {0}")]
+    #[error("Failed to advance state: {0}")]
     GenericError(eyre::Report),
     #[error("State for object {object_id} can not be advanced. Missing data: {missing}")]
     MissingData {
