@@ -34,7 +34,8 @@ use crate::{
     },
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     measured_boot::{
-        dto::records::MeasurementMachineState, model::machine::get_measurement_machine_state,
+        dto::records::{MeasurementBundleState, MeasurementMachineState},
+        model::machine::{get_measurement_bundle_state, get_measurement_machine_state},
     },
     model::{
         instance::{
@@ -700,6 +701,11 @@ async fn handle_measuring_state(
     state: &ManagedHostStateSnapshot,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Option<ManagedHostState>, StateHandlerError> {
+    let machine_id = &state.host_snapshot.machine_id;
+    let machine_state = get_measurement_machine_state(txn, machine_id.clone())
+        .await
+        .map_err(StateHandlerError::GenericError)?;
+
     match measuring_state {
         // In this state, the machine has been discovered, and the
         // API is now waiting for a measurement report, which is up
@@ -714,11 +720,7 @@ async fn handle_measuring_state(
         // If no match is found, then the machine will hang out in
         // MeasuringState::PendingBundle.
         MeasuringState::WaitingForMeasurements => {
-            let machine_id = state.host_snapshot.machine_id.clone();
-            let state = get_measurement_machine_state(txn, machine_id.clone())
-                .await
-                .map_err(StateHandlerError::GenericError)?;
-            Ok(match state {
+            Ok(match machine_state {
                 // "Discovered" is the MeasurementMachineState equivalent of
                 // "no measurements have been sent yet". If that's the case,
                 // then continue waiting for measurements.
@@ -727,22 +729,15 @@ async fn handle_measuring_state(
                     measuring_state: MeasuringState::PendingBundle,
                 }),
                 MeasurementMachineState::Measured => Some(ManagedHostState::Ready),
-                MeasurementMachineState::MeasuringFailed => {
-                    // TODO(chet): Need to differentiate between retired and revoked
-                    // in here. I'll do that in a subsequent MR.
-                    let failure_details = FailureDetails {
-                        cause: FailureCause::MeasurementsRevoked {
-                            err: "measurements matched revoked bundle".to_string(),
-                        },
+                MeasurementMachineState::MeasuringFailed => Some(ManagedHostState::Failed {
+                    details: FailureDetails {
+                        cause: get_measurement_failure_cause(txn, machine_id).await?,
                         failed_at: chrono::Utc::now(),
                         source: FailureSource::StateMachine,
-                    };
-                    Some(ManagedHostState::Failed {
-                        details: failure_details,
-                        machine_id: machine_id.clone(),
-                        retry_count: 0,
-                    })
-                }
+                    },
+                    machine_id: machine_id.clone(),
+                    retry_count: 0,
+                }),
             })
         }
         // In this state, a measurement report of PCR values has been
@@ -750,11 +745,7 @@ async fn handle_measuring_state(
         // yet. Check to see if they match one now (which happens via
         // bundle promotion). If not, keep on waiting.
         MeasuringState::PendingBundle => {
-            let machine_id = state.host_snapshot.machine_id.clone();
-            let state = get_measurement_machine_state(txn, machine_id.clone())
-                .await
-                .map_err(StateHandlerError::GenericError)?;
-            Ok(match state {
+            Ok(match machine_state {
                 // "PendingBundle" is the current state, so if this is returned,
                 // just keep on waiting for a matching bundle.
                 MeasurementMachineState::PendingBundle => None,
@@ -767,25 +758,65 @@ async fn handle_measuring_state(
                     measuring_state: MeasuringState::WaitingForMeasurements,
                 }),
                 MeasurementMachineState::Measured => Some(ManagedHostState::Ready),
-                MeasurementMachineState::MeasuringFailed => {
-                    // TODO(chet): Need to differentiate between retired and revoked
-                    // in here. I'll do that in a subsequent MR.
-                    let failure_details = FailureDetails {
-                        cause: FailureCause::MeasurementsRevoked {
-                            err: "measurements matched revoked bundle".to_string(),
-                        },
+                MeasurementMachineState::MeasuringFailed => Some(ManagedHostState::Failed {
+                    details: FailureDetails {
+                        cause: get_measurement_failure_cause(txn, machine_id).await?,
                         failed_at: chrono::Utc::now(),
                         source: FailureSource::StateMachine,
-                    };
-                    Some(ManagedHostState::Failed {
-                        details: failure_details,
-                        machine_id: machine_id.clone(),
-                        retry_count: 0,
-                    })
-                }
+                    },
+                    machine_id: machine_id.clone(),
+                    retry_count: 0,
+                }),
             })
         }
     }
+}
+
+/// get_measurement_failure_cause gets the currently associated
+/// measurement bundle for a given machine ID (if one exists), and
+/// maps the state of the bundle to a FailureCause.
+///
+/// This is intended to be used when a machine is in MeasuringFailed,
+/// and we want to dig into the corresponding bundle state to see why
+/// it failed (e.g. retired or revoked).
+///
+/// If a bundle is not associated, or the associated bundle is not
+/// in a retired or revoked state, then this will return an error.
+///
+/// TODO(chet): There's probably a world where the bundle state
+/// could be stored in the journal entry itself (so there's no need
+/// for a subsequent query), or a world where I introduce some
+/// ComposedState type of thing where I can join across the journal
+/// and bundle to do a single query + return a single ComposedState
+/// that has everything I want.
+async fn get_measurement_failure_cause(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    machine_id: &MachineId,
+) -> Result<FailureCause, StateHandlerError> {
+    let state = get_measurement_bundle_state(txn, machine_id)
+        .await
+        .map_err(StateHandlerError::GenericError)?
+        .ok_or(StateHandlerError::MissingData {
+            object_id: machine_id.to_string(),
+            missing: "expected bundle reference from journal for failed measurements",
+        })?;
+
+    let failure_cause = match state {
+        MeasurementBundleState::Retired => FailureCause::MeasurementsRetired {
+            err: "measurements matched retired bundle".to_string(),
+        },
+        MeasurementBundleState::Revoked => FailureCause::MeasurementsRevoked {
+            err: "measurements matched revoked bundle".to_string(),
+        },
+        _ => {
+            return Err(StateHandlerError::MissingData {
+                object_id: machine_id.to_string(),
+                missing: "expected retired or revoked bundle for failure cause",
+            });
+        }
+    };
+
+    Ok(failure_cause)
 }
 
 /// Handle workflow of DPU reprovision
