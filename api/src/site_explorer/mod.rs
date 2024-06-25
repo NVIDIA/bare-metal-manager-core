@@ -337,17 +337,25 @@ impl SiteExplorer {
                             if let Some(cur_version) =
                                 dpu_report.report.dpu_component_version(dpu_component)
                             {
-                                if version_compare::compare_to(
+                                match version_compare::compare_to(
                                     &cur_version,
                                     min_version,
                                     version_compare::Cmp::Lt,
-                                )
-                                .unwrap()
-                                {
-                                    return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                                    "{:?} firmware version {} is not supported. Please update to: {}",
-                                    dpu_component, cur_version, min_version
-                                )));
+                                ) {
+                                    Ok(is_unsuppored_firmware_version) => {
+                                        if is_unsuppored_firmware_version {
+                                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                                                "{:?} firmware version {} is not supported. Please update to: {}",
+                                                dpu_component, cur_version, min_version
+                                            )));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        return Err(CarbideError::GenericError(format!(
+                                            "Could not compare firmware versions (cur_version: {cur_version}, min_version: {min_version}) for DPU {:#?}: {e:#?}",
+                                            dpu_report.report.machine_id
+                                        )));
+                                    }
                                 }
                             }
                         }
