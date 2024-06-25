@@ -1,5 +1,6 @@
 use ::rpc::Timestamp;
 use mac_address::MacAddress;
+use reqwest::ClientBuilder;
 use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
 
 use crate::{api_client, config::MachineATronContext, host_machine::AddressConfigError};
@@ -7,6 +8,12 @@ use crate::{api_client, config::MachineATronContext, host_machine::AddressConfig
 use std::sync::atomic::{AtomicU32, Ordering};
 
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
+
+pub enum PXEresponse {
+    Exit,
+    Efi,
+    Error,
+}
 
 pub fn next_mac() -> MacAddress {
     let next_mac_num = NEXT_MAC_ADDRESS.fetch_add(1, Ordering::Acquire);
@@ -59,6 +66,39 @@ pub fn reboot_requested_for_machine(
         );
     }
     rr
+}
+
+pub async fn send_pxe_boot_request(url: String, forward_ip: String) -> PXEresponse {
+    let client = ClientBuilder::new().build().unwrap();
+    let response = client
+        .get(&url)
+        .header("X-Forwarded-For", forward_ip)
+        .send()
+        .await;
+
+    match response {
+        Ok(res) => {
+            if res.status().is_success() {
+                tracing::info!("PXE Request successful with status: {}", res.status());
+
+                let result = res.text().await.unwrap();
+                if result.contains("exit") {
+                    tracing::info!("PXE Request is EXIT");
+                    PXEresponse::Exit
+                } else {
+                    tracing::info!("PXE Request is EFI");
+                    PXEresponse::Efi
+                }
+            } else {
+                tracing::error!("Request failed with status: {}", res.status());
+                PXEresponse::Error
+            }
+        }
+        Err(e) => {
+            tracing::error!("PXE Request failed: {}", e);
+            PXEresponse::Error
+        }
+    }
 }
 
 pub async fn get_api_state(

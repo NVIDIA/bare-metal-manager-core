@@ -19,13 +19,15 @@ dhcp_server_address = "192.168.252.78"
 # override_target_ip = "192.168.1.100" # this computer's IP (the one running machine-a-tron), as accessible from carbide
 # override_target_port = 2000
 bmc_mock_listen_address = "0.0.0.0:2000"
+pxe_server_host = "192.168.252.76"
+pxe_server_port = "8080"
 
 [machines.config]
 host_count = 20
 dpu_per_host_count = 1
 boot_delay = 10
-dpu_reboot_delay = 30 # in units of seconds
-host_reboot_delay = 30 # in units of seconds
+dpu_reboot_delay = 20 # in units of seconds
+host_reboot_delay = 20 # in units of seconds
 
 # assumes running from REPO_ROOT
 template_dir = "dev/machine-a-tron/templates"

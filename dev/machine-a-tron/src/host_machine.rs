@@ -19,7 +19,7 @@ use crate::{
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::{DhcpRelayClient, DhcpResponseInfo},
     dpu_machine::DpuMachine,
-    machine_utils::{get_api_state, get_fac_action, next_mac},
+    machine_utils::{get_api_state, get_fac_action, next_mac, send_pxe_boot_request, PXEresponse},
     tui::{HostDetails, UiEvent},
 };
 
@@ -389,6 +389,33 @@ impl HostMachine {
                         );
                         return Ok(false);
                     };
+
+                    let url = format!(
+                        "http://{}:{}/api/v0/pxe/boot?uuid={}&buildarch=x86_64",
+                        self.app_context.app_config.pxe_server_host,
+                        self.app_context.app_config.pxe_server_port,
+                        machine_interface_id
+                    );
+
+                    let forward_ip = self
+                        .machine_dhcp_info
+                        .as_ref()
+                        .map(|info| info.ip_address)
+                        .unwrap()
+                        .to_string();
+
+                    match send_pxe_boot_request(url, forward_ip).await {
+                        PXEresponse::Exit => {
+                            self.mat_state = MachineState::MachineUp;
+                        }
+                        PXEresponse::Error => {
+                            tracing::warn!("PXE request failed. Retrying...");
+                            return Ok(false);
+                        }
+                        PXEresponse::Efi => {
+                            // Continue to the next state
+                        }
+                    }
 
                     let start = Instant::now();
                     let Ok(machine_discovery_result) = api_client::discover_machine(
