@@ -592,7 +592,7 @@ category = "iPXE Kernel"
 description = "Add the scout to the bfb"
 command = "cp"
 args = [
-	"${REPO_ROOT}/target/aarch64-unknown-linux-gnu/debug/forge-scout",
+	"${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-scout",
 	"/tmp/bfb-dump/initramfs-tmp",
 ]
 dependencies = [
