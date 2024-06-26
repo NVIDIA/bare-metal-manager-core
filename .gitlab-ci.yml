@@ -915,6 +915,10 @@ scheduled-test:get-latest-versions:
       optional: false
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+  retry:
+    when:
+      - runner_system_failure
+    max: 2
   image:
     name: golang:1.22
     entrypoint: [ "" ]
@@ -933,7 +937,7 @@ scheduled-test:get-latest-versions:
       LATEST_COMMON_VERSION=""
       for version in $(echo "${CARBIDE_VERSIONS}"); do
         git_hash=$(echo "$version" | awk -F'-g' '{print $2}')
-        git log trunk | grep -q "$git_hash" || continue
+        git log origin/trunk | grep "$git_hash" || continue
         if [[ $(echo "${BOOT_AARCH64_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]] && [[ $(echo "${BOOT_X86_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]]; then
           LATEST_COMMON_VERSION=$version
           echo "Found latest common version: $LATEST_COMMON_VERSION"
@@ -1143,10 +1147,6 @@ scheduled-test:machine-lifecycle-test:
     - job: scheduled-test:get-api-certificate
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-  retry:
-    when:
-      - runner_system_failure
-    max: 2
   image:
     name: $CONTAINER_MACHINE_LIFECYCLE_TEST
     entrypoint: [ "" ]
