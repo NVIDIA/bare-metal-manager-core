@@ -81,6 +81,7 @@ use crate::{
         attestation::SecretAkPub,
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         domain::Domain,
+        explored_managed_host::DbExploredManagedHost,
         instance::{DeleteInstance, Instance},
         machine::Machine,
         machine_interface::MachineInterface,
@@ -2596,6 +2597,20 @@ impl Forge for Api {
                 }
                 response.host_interfaces_deleted = true;
             }
+
+            if let Some(addr) = &machine.bmc_info().ip {
+                if let Ok(addr) = IpAddr::from_str(addr) {
+                    tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id());
+
+                    DbExploredEndpoint::delete(&mut txn, addr)
+                        .await
+                        .map_err(CarbideError::from)?;
+
+                    DbExploredManagedHost::delete_by_host_bmc_addr(&mut txn, addr)
+                        .await
+                        .map_err(CarbideError::from)?;
+                }
+            }
         }
 
         txn.commit().await.map_err(|e| {
@@ -2657,6 +2672,20 @@ impl Forge for Api {
                 }
                 response.dpu_interfaces_deleted = true;
             }
+
+            if let Some(addr) = &dpu_machine.bmc_info().ip {
+                if let Ok(addr) = IpAddr::from_str(addr) {
+                    tracing::info!(
+                        "Cleaning up explored endpoint at {addr} {}",
+                        dpu_machine.id()
+                    );
+
+                    DbExploredEndpoint::delete(&mut txn, addr)
+                        .await
+                        .map_err(CarbideError::from)?;
+                }
+            }
+
             txn.commit().await.map_err(|e| {
                 CarbideError::from(DatabaseError::new(
                     file!(),
