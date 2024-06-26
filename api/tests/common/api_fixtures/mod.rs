@@ -395,7 +395,7 @@ pub fn get_config() -> CarbideConfig {
         auth: None,
         pools: None,
         networks: None,
-        dpu_impi_tool_impl: None,
+        dpu_ipmi_tool_impl: None,
         dpu_ipmi_reboot_attempts: Some(0),
         initial_domain_name: Some("test.com".to_string()),
         initial_dpu_agent_upgrade_policy: None,

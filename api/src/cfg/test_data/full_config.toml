@@ -14,7 +14,7 @@ dpu_nic_firmware_reprovision_update_enabled = true
 dpu_nic_firmware_update_version = { "BlueField SoC" = "24.38.1402", "BlueField-3 SmartNIC Main Card" = "32.38.1402" }
 max_concurrent_machine_updates = 1
 machine_update_run_interval = 60
-dpu_impi_tool_impl = "fake"
+dpu_ipmi_tool_impl = "fake"
 dpu_ipmi_reboot_attempts = 1
 max_find_by_ids = 75
 
