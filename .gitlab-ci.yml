@@ -918,7 +918,7 @@ scheduled-test:get-latest-versions:
   retry:
     when:
       - runner_system_failure
-    max: 2
+    max: 1
   image:
     name: golang:1.22
     entrypoint: [ "" ]
@@ -972,7 +972,7 @@ scheduled-test:auto-deploy-site-controller:
   retry:
     when:
       - runner_system_failure
-    max: 2
+    max: 1
   image:
     name: $CONTAINER_SITE_AUTO_DEPLOY
     entrypoint: [ "" ]
@@ -1014,7 +1014,7 @@ scheduled-test:get-api-certificate:
   retry:
     when:
       - runner_system_failure
-    max: 2
+    max: 1
   image:
     name: $CONTAINER_SITE_AUTO_DEPLOY
     entrypoint: [ "" ]
@@ -1057,7 +1057,7 @@ scheduled-test:verify-site-controller-version:
   retry:
     when:
       - runner_system_failure
-    max: 2
+    max: 1
   image:
     name: $CONTAINER_FORGE_ADMIN_CLI_URM
     entrypoint: [ "" ]
@@ -1090,7 +1090,7 @@ scheduled-test:run-cloud-api-tests:
   retry:
     when:
       - runner_system_failure
-    max: 2
+    max: 1
   variables:
     CARBIDE_API_URL: $CARBIDE_API_URL
     PROJECT: forge
@@ -1147,6 +1147,8 @@ scheduled-test:machine-lifecycle-test:
     - job: scheduled-test:get-api-certificate
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+  retry:
+    max: 0
   image:
     name: $CONTAINER_MACHINE_LIFECYCLE_TEST
     entrypoint: [ "" ]
