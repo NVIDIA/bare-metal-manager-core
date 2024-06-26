@@ -156,7 +156,7 @@ pub fn create_ipmi_tool<C: CredentialProvider + 'static>(
     carbide_config: &CarbideConfig,
 ) -> Arc<dyn IPMITool> {
     if carbide_config
-        .dpu_impi_tool_impl
+        .dpu_ipmi_tool_impl
         .as_ref()
         .is_some_and(|tool| tool == "test")
     {

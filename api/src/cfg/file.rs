@@ -89,7 +89,7 @@ pub struct CarbideConfig {
     pub networks: Option<HashMap<String, NetworkDefinition>>,
 
     // The type of ipmitool to user (prod or fake)
-    pub dpu_impi_tool_impl: Option<String>,
+    pub dpu_ipmi_tool_impl: Option<String>,
 
     // The number of retries to perform if ipmi returns an error
     pub dpu_ipmi_reboot_attempts: Option<u32>,
@@ -918,7 +918,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .keys()
                 .cloned()
                 .collect_vec(),
-            dpu_ipmi_tool_impl: value.dpu_impi_tool_impl.unwrap_or("Not Set".to_string()),
+            dpu_ipmi_tool_impl: value.dpu_ipmi_tool_impl.unwrap_or("Not Set".to_string()),
             dpu_ipmi_reboot_attempt: value.dpu_ipmi_reboot_attempts.unwrap_or_default(),
             initial_domain_name: value.initial_domain_name,
             initial_dpu_agent_upgrade_policy: value
