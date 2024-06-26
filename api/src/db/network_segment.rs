@@ -27,7 +27,6 @@ use itertools::Itertools;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Transaction};
 use sqlx::{Postgres, Row};
-use uuid::Uuid;
 
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -64,11 +63,11 @@ impl From<rpc::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
 
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
     pub version: ConfigVersion,
     pub name: String,
-    pub subdomain_id: Option<Uuid>,
-    pub vpc_id: Option<Uuid>,
+    pub subdomain_id: Option<uuid::Uuid>,
+    pub vpc_id: Option<uuid::Uuid>,
     pub mtu: i32,
 
     pub controller_state: Versioned<NetworkSegmentControllerState>,
@@ -109,8 +108,8 @@ pub enum NetworkSegmentType {
 #[derive(Debug)]
 pub struct NewNetworkSegment {
     pub name: String,
-    pub subdomain_id: Option<Uuid>,
-    pub vpc_id: Option<Uuid>,
+    pub subdomain_id: Option<uuid::Uuid>,
+    pub vpc_id: Option<uuid::Uuid>,
     pub mtu: i32,
     pub prefixes: Vec<NewNetworkPrefix>,
     pub vlan_id: Option<i16>,
@@ -446,7 +445,7 @@ impl NetworkSegment {
     pub async fn list_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
         segment_type: Option<NetworkSegmentType>,
-    ) -> Result<Vec<Uuid>, DatabaseError> {
+    ) -> Result<Vec<uuid::Uuid>, DatabaseError> {
         let (query, mut segment_id_stream) = if let Some(segment_type) = segment_type {
             let query = "SELECT id FROM network_segments where network_segment_type=$1";
             let stream = sqlx::query_as::<_, NetworkSegmentId>(query)
@@ -466,6 +465,39 @@ impl NetworkSegment {
         }
 
         Ok(results)
+    }
+
+    pub async fn find_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        filter: rpc::NetworkSegmentSearchFilter,
+    ) -> Result<Vec<uuid::Uuid>, CarbideError> {
+        #[derive(Debug, Clone, Copy, FromRow)]
+        pub struct NetworkSegmentId(uuid::Uuid);
+
+        // build query
+        let mut builder = sqlx::QueryBuilder::new("SELECT s.id FROM network_segments AS s");
+        let mut has_filter = false;
+        if let Some(tenant_org_id) = &filter.tenant_org_id {
+            builder.push(" JOIN vpcs AS v ON s.vpc_id = v.id WHERE v.organization_id = ");
+            builder.push_bind(tenant_org_id);
+            has_filter = true;
+        }
+        if let Some(name) = &filter.name {
+            if has_filter {
+                builder.push(" AND s.name = ");
+            } else {
+                builder.push(" WHERE s.name = ");
+            }
+            builder.push_bind(name);
+        }
+
+        let query = builder.build_query_as();
+        let ids: Vec<NetworkSegmentId> = query
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "network_segment::find_ids", e))?;
+
+        Ok(ids.into_iter().map(|id| id.0).collect())
     }
 
     pub async fn find(
@@ -511,7 +543,7 @@ impl NetworkSegment {
         let all_uuids = all_records
             .iter()
             .map(|record| record.id)
-            .collect::<Vec<Uuid>>();
+            .collect::<Vec<uuid::Uuid>>();
 
         // TODO(ajf): N+1 query alert.  Optimize later.
 

@@ -266,6 +266,21 @@ impl Forge for Api {
         crate::handlers::ib_partition::for_tenant(self, request).await
     }
 
+    async fn find_network_segment_ids(
+        &self,
+        request: Request<rpc::NetworkSegmentSearchFilter>,
+    ) -> Result<Response<rpc::NetworkSegmentIdList>, Status> {
+        crate::handlers::network_segment::find_ids(self, request).await
+    }
+
+    async fn find_network_segments_by_ids(
+        &self,
+        request: Request<rpc::NetworkSegmentsByIdsRequest>,
+    ) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+        crate::handlers::network_segment::find_by_ids(self, request).await
+    }
+
+    // DEPRECATED: use find_network_segment_ids and find_network_segments_by_ids instead
     async fn find_network_segments(
         &self,
         request: Request<rpc::NetworkSegmentQuery>,

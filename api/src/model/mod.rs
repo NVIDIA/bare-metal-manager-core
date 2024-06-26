@@ -81,6 +81,8 @@ pub enum RpcDataConversionError {
     InvalidVpcId(String),
     #[error("IB Partition ID {0} is not valid")]
     InvalidIbPartitionId(String),
+    #[error("Network Segment ID {0} is not valid")]
+    InvalidNetworkSegmentId(String),
 }
 
 /// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
