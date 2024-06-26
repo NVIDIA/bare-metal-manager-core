@@ -9,3 +9,6 @@ cratesio = { index = "https://github.com/rust-lang/crates.io-index" }
 # This linker seems faster than default, but not everyone is using it yet
 #[target.x86_64-unknown-linux-gnu]
 #rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=lld"]
+
+[env]
+RUST_TEST_THREADS = "8"
