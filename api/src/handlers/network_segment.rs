@@ -13,9 +13,8 @@
 use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
-use crate::api::Api;
+use crate::api::{log_request_data, Api};
 use crate::db::network_segment::NetworkSegment;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::network_segment::NetworkSegmentType;
@@ -23,8 +22,104 @@ use crate::db::network_segment::NewNetworkSegment;
 use crate::db::DatabaseError;
 use crate::db::UuidKeyedObjectFilter;
 use crate::model::network_segment::NetworkSegmentControllerState;
+use crate::model::RpcDataConversionError;
 use crate::CarbideError;
 
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::NetworkSegmentSearchFilter>,
+) -> Result<Response<rpc::NetworkSegmentIdList>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin network_segment::find_ids",
+            e,
+        ))
+    })?;
+
+    let filter: rpc::NetworkSegmentSearchFilter = request.into_inner();
+
+    let segment_ids = NetworkSegment::find_ids(&mut txn, filter).await?;
+
+    Ok(Response::new(rpc::NetworkSegmentIdList {
+        network_segments_ids: segment_ids
+            .into_iter()
+            .map(|id| rpc::Uuid {
+                value: id.to_string(),
+            })
+            .collect(),
+    }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::NetworkSegmentsByIdsRequest>,
+) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+    log_request_data(&request);
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin network_segment::find_by_ids",
+            e,
+        ))
+    })?;
+
+    let rpc::NetworkSegmentsByIdsRequest {
+        network_segments_ids,
+        include_history,
+        include_num_free_ips,
+        ..
+    } = request.into_inner();
+
+    let network_segments_ids: Result<Vec<uuid::Uuid>, CarbideError> = network_segments_ids
+        .iter()
+        .map(|id| {
+            uuid::Uuid::try_from(id.value.as_str()).map_err(|_| {
+                CarbideError::from(RpcDataConversionError::InvalidNetworkSegmentId(
+                    id.value.to_string(),
+                ))
+            })
+        })
+        .collect();
+    let network_segments_ids = network_segments_ids?;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if network_segments_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if network_segments_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let segments = NetworkSegment::find(
+        &mut txn,
+        UuidKeyedObjectFilter::List(&network_segments_ids),
+        NetworkSegmentSearchConfig {
+            include_history,
+            include_num_free_ips,
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let mut result = Vec::with_capacity(segments.len());
+    for seg in segments {
+        result.push(seg.try_into()?);
+    }
+    Ok(Response::new(rpc::NetworkSegmentList {
+        network_segments: result,
+    }))
+}
+
+// DEPRECATED: use find_ids and find_by_ids instead
 pub(crate) async fn find(
     api: &Api,
     request: Request<rpc::NetworkSegmentQuery>,
@@ -45,7 +140,7 @@ pub(crate) async fn find(
     } = request.into_inner();
 
     let uuid_filter = match id {
-        Some(id) => match Uuid::try_from(id) {
+        Some(id) => match uuid::Uuid::try_from(id) {
             Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
             Err(err) => {
                 return Err(Status::invalid_argument(format!(
@@ -149,7 +244,7 @@ pub(crate) async fn delete(
     let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
     let uuid = match id {
-        Some(id) => match Uuid::try_from(id) {
+        Some(id) => match uuid::Uuid::try_from(id) {
             Ok(uuid) => uuid,
             Err(_err) => {
                 return Err(CarbideError::InvalidArgument("id".to_string()).into());
@@ -215,7 +310,7 @@ pub(crate) async fn for_vpc(
     let rpc::VpcSearchQuery { id, .. } = request.into_inner();
 
     let uuid = match id {
-        Some(id) => match Uuid::try_from(id) {
+        Some(id) => match uuid::Uuid::try_from(id) {
             Ok(uuid) => uuid,
             Err(_) => {
                 return Err(CarbideError::MissingArgument("id").into());

@@ -27,7 +27,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
     for i in 0..4 {
-        let (_vpc_id, _vpc) = create_vpc(&env, format!("vpc_{}", i)).await;
+        let (_vpc_id, _vpc) = create_vpc(&env, format!("vpc_{}", i), None).await;
     }
 
     // test getting all ids
@@ -93,7 +93,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
 
     let mut vpc3 = rpc::Vpc::default();
     for i in 0..4 {
-        let (_vpc_id, vpc) = create_vpc(&env, format!("vpc_{}", i)).await;
+        let (_vpc_id, vpc) = create_vpc(&env, format!("vpc_{}", i), None).await;
         if i == 3 {
             vpc3 = vpc;
         }

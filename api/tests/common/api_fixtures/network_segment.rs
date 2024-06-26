@@ -35,6 +35,7 @@ pub async fn create_underlay_network_segment(env: &TestEnv) -> uuid::Uuid {
         "192.0.1.0/24",
         "192.0.1.1",
         rpc::forge::NetworkSegmentType::Underlay,
+        None,
     )
     .await
 }
@@ -46,16 +47,18 @@ pub async fn create_admin_network_segment(env: &TestEnv) -> uuid::Uuid {
         "192.0.2.0/24",
         "192.0.2.1",
         rpc::forge::NetworkSegmentType::Admin,
+        None,
     )
     .await
 }
 
-async fn create_network_segment(
+pub async fn create_network_segment(
     env: &TestEnv,
     name: &str,
     prefix: &str,
     gateway: &str,
     segment_type: rpc::forge::NetworkSegmentType,
+    vpc_id: Option<rpc::Uuid>,
 ) -> uuid::Uuid {
     let request = rpc::forge::NetworkSegmentCreationRequest {
         id: None,
@@ -72,7 +75,7 @@ async fn create_network_segment(
             free_ip_count: 0,
         }],
         subdomain_id: Some(FIXTURE_CREATED_DOMAIN_UUID.into()),
-        vpc_id: None,
+        vpc_id,
         segment_type: segment_type as _,
     };
 

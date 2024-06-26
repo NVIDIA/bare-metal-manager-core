@@ -28,6 +28,9 @@ service Forge {
   rpc FindVpcs(VpcSearchQuery) returns (VpcList);
 
   // Segments - i.e. Overlay Networks
+  rpc FindNetworkSegmentIds(NetworkSegmentSearchFilter) returns (NetworkSegmentIdList);
+  rpc FindNetworkSegmentsByIds(NetworkSegmentsByIdsRequest) returns (NetworkSegmentList);
+  // DEPRECATED: use FindNetworkSegmentIds and FindNetworkSegmentIds instead
   rpc FindNetworkSegments(NetworkSegmentQuery) returns (NetworkSegmentList);
   rpc CreateNetworkSegment(NetworkSegmentCreationRequest) returns (NetworkSegment);
   rpc DeleteNetworkSegment(NetworkSegmentDeletionRequest) returns (NetworkSegmentDeletionResult);
@@ -799,6 +802,21 @@ message NetworkSegmentSearchConfig {
 message NetworkSegmentQuery {
   UUID id = 1;
   optional NetworkSegmentSearchConfig search_config = 2;
+}
+
+message NetworkSegmentSearchFilter {
+  optional string name = 1;
+  optional string tenant_org_id = 2;
+}
+
+message NetworkSegmentIdList {
+  repeated UUID network_segments_ids = 1;
+}
+
+message NetworkSegmentsByIdsRequest {
+  repeated UUID network_segments_ids = 1;
+  bool include_history = 2;
+  bool include_num_free_ips = 3;
 }
 
 message NetworkPrefix {
