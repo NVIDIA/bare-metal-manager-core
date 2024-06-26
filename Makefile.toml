@@ -70,7 +70,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	-it urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest \
-	cargo build -p scout -p admin
+	cargo build -p scout -p admin --release
 '''
 dependencies = ["check-cargo-home-set"]
 
