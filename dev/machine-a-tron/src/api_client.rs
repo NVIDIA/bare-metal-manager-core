@@ -174,7 +174,7 @@ pub async fn update_bmc_metadata(
     template_dir: &str,
     machine_type: MachineType,
     machine_id: rpc::MachineId,
-    bmc_host: Option<Ipv4Addr>,
+    bmc_host: Ipv4Addr,
 ) -> ClientApiResult<rpc::forge::BmcMetaDataUpdateResponse> {
     let json_path = if machine_type == MachineType::Dpu {
         format!("{}/dpu_metadata_update.json", template_dir)
@@ -195,7 +195,8 @@ pub async fn update_bmc_metadata(
     default_data.machine_id = Some(machine_id);
 
     default_data.bmc_info = Some(rpc::forge::BmcInfo {
-        ip: bmc_host.map(|i| i.to_string()),
+        ip: Some(bmc_host.to_string()),
+        port: Some(app_context.app_config.bmc_mock_port.into()),
         ..Default::default()
     });
 
@@ -367,4 +368,41 @@ pub async fn force_delete_machine(
             .map_err(ClientApiError::InvocationError)
     })
     .await
+}
+
+pub async fn machine_validation_complete(
+    app_context: &MachineATronContext,
+    machine_id: &rpc::MachineId,
+) -> ClientApiResult<()> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .machine_validation_completed(tonic::Request::new(
+                rpc::forge::MachineValidationCompletedRequest {
+                    machine_id: Some(machine_id.clone()),
+                    machine_validation_error: None,
+                },
+            ))
+            .await
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+    .map(|_| ())
+}
+
+pub async fn reboot_completed(
+    app_context: &MachineATronContext,
+    machine_id: rpc::MachineId,
+) -> ClientApiResult<()> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .reboot_completed(tonic::Request::new(
+                rpc::forge::MachineRebootCompletedRequest {
+                    machine_id: Some(machine_id),
+                },
+            ))
+            .await
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+    .map(|_| ())
 }

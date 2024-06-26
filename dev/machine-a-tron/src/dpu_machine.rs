@@ -1,3 +1,5 @@
+use axum::Router;
+use std::net::SocketAddr;
 use std::{fmt::Display, time::Duration};
 
 use ::rpc::Timestamp;
@@ -6,6 +8,8 @@ use rpc::forge::ManagedHostNetworkConfigResponse;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::bmc_mock_wrapper::{BmcMockWrapper, DpuBmcInfo, MockBmcInfo};
+use crate::host_machine::SendRebootCompleted;
 use crate::{
     api_client,
     config::{MachineATronContext, MachineConfig},
@@ -14,7 +18,7 @@ use crate::{
     machine_utils::{get_api_state, get_fac_action, next_mac, send_pxe_boot_request, PXEresponse},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DpuMachine {
     pub mat_id: Uuid,
     pub config: MachineConfig,
@@ -34,18 +38,18 @@ pub struct DpuMachine {
     pub bmc_mac_address: MacAddress,
     pub bmc_dhcp_info: Option<DhcpResponseInfo>,
 
+    bmc: Option<BmcMockWrapper>,
     last_reboot: Instant,
     m_a_t_last_known_reboot_request: Option<Timestamp>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DpuBmcInfo {
-    pub mac_address: MacAddress,
-    pub serial: String,
+    bmc_mock_router: Router,
 }
 
 impl DpuMachine {
-    pub fn new(app_context: MachineATronContext, config: MachineConfig) -> Self {
+    pub fn new(
+        app_context: MachineATronContext,
+        config: MachineConfig,
+        bmc_mock_router: Router,
+    ) -> Self {
         DpuMachine {
             mat_id: Uuid::new_v4(),
             config,
@@ -65,8 +69,10 @@ impl DpuMachine {
             bmc_mat_id: Uuid::new_v4(),
             bmc_mac_address: next_mac(),
             bmc_dhcp_info: None,
+            bmc: None,
             last_reboot: Instant::now(),
             m_a_t_last_known_reboot_request: None,
+            bmc_mock_router,
         }
     }
 
@@ -173,6 +179,20 @@ impl DpuMachine {
                             tracing::warn!("Failed waiting on dhcp response");
                             return Ok(false);
                         };
+
+                        let bmc_mock_address = SocketAddr::new(
+                            dhcp_response_info.ip_address.into(),
+                            self.app_context.app_config.bmc_mock_port,
+                        );
+                        let mut bmc = BmcMockWrapper::new(
+                            MockBmcInfo::Dpu(self.bmc_info()),
+                            self.bmc_mock_router.clone(),
+                            bmc_mock_address,
+                            self.app_context.clone(),
+                        );
+
+                        bmc.start().await?;
+                        self.bmc = Some(bmc);
 
                         self.update_dhcp_record(dhcp_response_info);
 
@@ -299,7 +319,7 @@ impl DpuMachine {
 
                 match send_pxe_boot_request(url, forward_ip).await {
                     PXEresponse::Exit => {
-                        self.mat_state = MachineState::MachineUp;
+                        self.mat_state = MachineState::MachineUp(SendRebootCompleted(true));
                     }
                     PXEresponse::Error => {
                         tracing::warn!("PXE request failed. Retrying...");
@@ -345,9 +365,6 @@ impl DpuMachine {
             }
             MachineState::HardwareDiscoveryComplete => {
                 let machine_id = self.get_machine_id()?;
-
-                // let bmc_host_and_port =
-                //     format!("{}:{}", self.app_context.app_config.bmc_ip, self.bmc_port);
                 let Some(dhcp_info) = self.bmc_dhcp_info.as_ref() else {
                     tracing::warn!("D: missing dhcp_response_info");
                     return Ok(false);
@@ -358,7 +375,7 @@ impl DpuMachine {
                     template_dir,
                     rpc::forge::MachineType::Dpu,
                     machine_id,
-                    Some(dhcp_info.ip_address),
+                    dhcp_info.ip_address,
                 )
                 .await
                 {
@@ -415,7 +432,7 @@ impl DpuMachine {
                 {
                     Ok(network_config) => {
                         self.network_config_response = Some(network_config);
-                        self.mat_state = MachineState::MachineUp;
+                        self.mat_state = MachineState::MachineUp(SendRebootCompleted(false));
                         Ok(true)
                     }
                     Err(e) => {
@@ -426,7 +443,7 @@ impl DpuMachine {
                     }
                 }
             }
-            MachineState::MachineUp => {
+            MachineState::MachineUp(_) => {
                 let machine_id = self.get_machine_id()?;
                 let elapsed = self
                     .last_network_status_update
@@ -456,7 +473,7 @@ impl DpuMachine {
                         self.mat_state = MachineState::GetNetworkConfig;
                         Ok(true)
                     }
-                    "DPU/INIT" => {
+                    "DPU/Init" => {
                         self.mat_state = MachineState::Init;
                         Ok(true)
                     }
@@ -480,7 +497,9 @@ impl DpuMachine {
     pub fn bmc_info(&self) -> DpuBmcInfo {
         DpuBmcInfo {
             serial: self.mac_address.to_string().replace(':', ""),
-            mac_address: self.bmc_mac_address,
+            bmc_mac_address: self.bmc_mac_address,
+            host_mac_address: self.host_mac_address,
+            oob_mac_address: self.mac_address,
         }
     }
 }

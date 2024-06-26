@@ -1,3 +1,5 @@
+use axum::Router;
+use std::net::SocketAddr;
 use std::{
     collections::HashMap,
     convert::From,
@@ -6,14 +8,14 @@ use std::{
 };
 
 use ::rpc::Timestamp;
-use bmc_mock::BmcMockError;
 use chrono::{DateTime, Local};
 use mac_address::MacAddress;
 use rpc::forge_agent_control_response::Action;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use crate::dpu_machine::DpuBmcInfo;
+use crate::api_client::ClientApiError;
+use crate::bmc_mock_wrapper::{BmcMockWrapper, HostBmcInfo, MockBmcInfo};
 use crate::{
     api_client,
     config::{MachineATronContext, MachineConfig},
@@ -35,9 +37,12 @@ pub enum MachineState {
     DiscoveryComplete,
     ControlComplete,
     GetNetworkConfig,
-    MachineUp,
+    MachineUp(SendRebootCompleted),
     Rebooting,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SendRebootCompleted(pub bool);
 
 #[derive(thiserror::Error, Debug)]
 pub enum MachineStateError {
@@ -48,11 +53,13 @@ pub enum MachineStateError {
     #[error("{0}")]
     InvalidAddress(String),
     #[error("Error launching BMC mock service: {0}")]
-    BmcMockServiceError(BmcMockError),
+    BmcMockServiceError(String),
     #[error("Error configuring listening address: {0}")]
     ListenAddressConfigError(AddressConfigError),
     #[error("Could not find certificates at {0}")]
     MissingCertificates(String),
+    #[error("Error calling forge API: {0}")]
+    ClientApi(#[from] ClientApiError),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -69,7 +76,7 @@ impl Display for MachineState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct HostMachine {
     pub mat_id: Uuid,
     pub config: MachineConfig,
@@ -91,16 +98,12 @@ pub struct HostMachine {
     pub logs: Vec<String>,
 
     dpus_previously_ready: bool,
+    bmc: Option<BmcMockWrapper>,
 
     last_reboot: Instant,
     m_a_t_last_known_reboot_request: Option<Timestamp>,
-}
 
-#[derive(Debug, Clone)]
-pub struct HostBmcInfo {
-    pub mac_address: MacAddress,
-    pub serial: String,
-    pub dpus: Vec<DpuBmcInfo>,
+    host_bmc_mock_router: Router,
 }
 
 impl Display for HostMachine {
@@ -136,7 +139,9 @@ impl Display for HostMachine {
 impl HostMachine {
     fn log(&mut self, msg: String) {
         let log_time = DateTime::<Local>::from(SystemTime::now());
-        self.logs.push(format!("{} {}", log_time, msg));
+        let log_str = format!("{} {}", log_time, msg);
+        tracing::info!(log_str);
+        self.logs.push(log_str);
 
         let over = self.logs.len().saturating_sub(MAX_LOG_LINES);
         if over > 0 {
@@ -169,12 +174,18 @@ impl HostMachine {
         app_context: MachineATronContext,
         config: MachineConfig,
         ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
+        host_bmc_mock_router: Router,
+        dpu_bmc_mock_router: Router,
     ) -> Self {
         let mut dpus = Vec::default();
         let mut dpu_index = HashMap::default();
 
         for d_index in 0..config.dpu_per_host_count as usize {
-            let dpu = DpuMachine::new(app_context.clone(), config.clone());
+            let dpu = DpuMachine::new(
+                app_context.clone(),
+                config.clone(),
+                dpu_bmc_mock_router.clone(),
+            );
             dpu_index.insert(dpu.mat_id, d_index);
             dpu_index.insert(dpu.bmc_mat_id, d_index);
             dpus.push(dpu);
@@ -200,8 +211,10 @@ impl HostMachine {
 
             logs: Vec::default(),
             dpus_previously_ready: false,
+            bmc: None,
             last_reboot: Instant::now(),
             m_a_t_last_known_reboot_request: None,
+            host_bmc_mock_router,
         }
     }
 
@@ -235,7 +248,7 @@ impl HostMachine {
                 &mut self.m_a_t_last_known_reboot_request,
             )
             .await;
-            self.api_state = api_state;
+            self.api_state = api_state.clone();
             if reboot_requested {
                 self.last_reboot = Instant::now();
                 self.log(format!(
@@ -243,6 +256,10 @@ impl HostMachine {
                     self.mat_state, self.api_state
                 ));
                 self.mat_state = MachineState::Rebooting;
+                work_done = true;
+            }
+            if api_state.contains("MachineValidating") {
+                api_client::machine_validation_complete(&self.app_context, &machine_id).await?;
                 work_done = true;
             }
             if old_api_state != self.api_state {
@@ -259,7 +276,9 @@ impl HostMachine {
                     false
                 }
             };
-            dpus_ready &= dpu.get_state() == MachineState::MachineUp;
+            if let MachineState::MachineUp(_) = dpu.get_state() {
+                dpus_ready = true;
+            }
         }
         for l in logs {
             self.log(l);
@@ -298,6 +317,19 @@ impl HostMachine {
                             return Ok(false);
                         };
 
+                        let bmc_mock_address = SocketAddr::new(
+                            dhcp_response_info.ip_address.into(),
+                            self.app_context.app_config.bmc_mock_port,
+                        );
+                        let mut bmc = BmcMockWrapper::new(
+                            MockBmcInfo::Host(self.bmc_info()),
+                            self.host_bmc_mock_router.clone(),
+                            bmc_mock_address,
+                            self.app_context.clone(),
+                        );
+
+                        bmc.start().await?;
+                        self.bmc = Some(bmc);
                         self.update_dhcp_info(dhcp_response_info);
                         self.log(format!(
                             "BMC DHCP Request for {} took {}ms",
@@ -305,10 +337,10 @@ impl HostMachine {
                             start.elapsed().as_millis()
                         ));
 
-                        Ok(true)
+                        Ok::<bool, MachineStateError>(true)
                     } else {
                         self.mat_state = MachineState::Init;
-                        Ok(true)
+                        Ok::<bool, MachineStateError>(true)
                     }
                 }
                 MachineState::Init => {
@@ -406,7 +438,7 @@ impl HostMachine {
 
                     match send_pxe_boot_request(url, forward_ip).await {
                         PXEresponse::Exit => {
-                            self.mat_state = MachineState::MachineUp;
+                            self.mat_state = MachineState::MachineUp(SendRebootCompleted(true));
                         }
                         PXEresponse::Error => {
                             tracing::warn!("PXE request failed. Retrying...");
@@ -454,7 +486,7 @@ impl HostMachine {
                         &template_dir,
                         rpc::forge::MachineType::Host,
                         machine_id,
-                        Some(dhcp_info.ip_address),
+                        dhcp_info.ip_address,
                     )
                     .await
                     {
@@ -510,11 +542,11 @@ impl HostMachine {
                     Ok(true)
                 }
                 MachineState::ControlComplete => {
-                    self.mat_state = MachineState::MachineUp;
+                    self.mat_state = MachineState::MachineUp(SendRebootCompleted(true));
                     Ok(true)
                 }
                 MachineState::GetNetworkConfig => Ok(false),
-                MachineState::MachineUp => {
+                MachineState::MachineUp(SendRebootCompleted(send_reboot_complete)) => {
                     let machine_id = self.get_machine_id()?;
                     let start = Instant::now();
                     let action = get_fac_action(&self.app_context, machine_id.clone()).await;
@@ -527,6 +559,12 @@ impl HostMachine {
                     if action == Action::Discovery {
                         self.log("Starting discovery".to_string());
                         self.mat_state = MachineState::DhcpComplete;
+                        return Ok(true);
+                    }
+
+                    if send_reboot_complete {
+                        api_client::reboot_completed(&self.app_context, machine_id.clone()).await?;
+                        self.mat_state = MachineState::MachineUp(SendRebootCompleted(false));
                         Ok(true)
                     } else {
                         Ok(false)
@@ -593,7 +631,7 @@ impl HostMachine {
 
     pub fn bmc_info(&self) -> HostBmcInfo {
         HostBmcInfo {
-            mac_address: self.bmc_mac_address,
+            bmc_mac_address: self.bmc_mac_address,
             serial: self.bmc_mac_address.to_string().replace(':', ""),
             dpus: self.dpu_machines.iter().map(|d| d.bmc_info()).collect(),
         }

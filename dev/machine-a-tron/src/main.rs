@@ -6,6 +6,7 @@ pub mod dpu_machine;
 pub mod host_machine;
 pub mod machine_a_tron;
 pub mod machine_utils;
+mod redfish_rewriter;
 pub mod tui;
 
 use std::error::Error;

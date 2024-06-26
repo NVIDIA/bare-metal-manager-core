@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::path::Path;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -15,8 +15,6 @@ use crate::{
     tui::{Tui, UiEvent},
 };
 
-use crate::bmc_mock_wrapper::BmcMockWrapper;
-use crate::host_machine::HostBmcInfo;
 use tokio::sync::mpsc::channel;
 
 #[derive(PartialEq, Eq)]
@@ -37,7 +35,6 @@ impl MachineATron {
         let running = Arc::new(AtomicBool::new(true));
         let (app_tx, mut app_rx) = channel(5000);
         let mut machine_ids: Vec<String> = Vec::new();
-        let mut bmc_infos: Vec<HostBmcInfo> = Vec::new();
 
         let (tui_handle, ui_event_tx) = if self.app_context.app_config.tui_enabled {
             let (ui_tx, ui_rx) = channel(5000);
@@ -57,16 +54,29 @@ impl MachineATron {
 
         let mut machine_handles = Vec::default();
 
+        let dpu_bmc_mock_router = bmc_mock::tar_router(
+            Path::new(self.app_context.app_config.bmc_mock_dpu_tar.as_str()),
+            None,
+        )?;
+        let host_bmc_mock_router = bmc_mock::tar_router(
+            Path::new(self.app_context.app_config.bmc_mock_host_tar.as_str()),
+            None,
+        )?;
+
         for (config_name, config) in self.app_context.app_config.machines.iter() {
             tracing::info!("Constructing machines for config {}", config_name);
             for _ in 0..config.host_count {
                 let running = running.clone();
                 let app_context = self.app_context.clone();
                 let mut dhcp_client_clone = dhcp_client.clone();
-                let mut machine =
-                    HostMachine::new(app_context, config.clone(), ui_event_tx.clone());
+                let mut machine = HostMachine::new(
+                    app_context,
+                    config.clone(),
+                    ui_event_tx.clone(),
+                    host_bmc_mock_router.clone(),
+                    dpu_bmc_mock_router.clone(),
+                );
                 machine_ids.push(machine.get_machine_id_str());
-                bmc_infos.push(machine.bmc_info());
 
                 let join_handle = tokio::spawn(async move {
                     while running.as_ref().load(Ordering::Relaxed) {
@@ -86,16 +96,6 @@ impl MachineATron {
             }
         }
         tracing::info!("Machine construction complete");
-
-        let bmc_mock_listen_address: SocketAddr = self
-            .app_context
-            .app_config
-            .bmc_mock_listen_address
-            .parse()?;
-
-        let mut bmc_wrapper =
-            BmcMockWrapper::new(bmc_infos, bmc_mock_listen_address, self.app_context.clone())?;
-        bmc_wrapper.start()?;
 
         while running.as_ref().load(Ordering::Relaxed)
             && !tui_handle.as_ref().is_some_and(|t| t.is_finished())
@@ -139,7 +139,6 @@ impl MachineATron {
                 .inspect_err(|e| tracing::warn!("Error running TUI: {e}"));
         }
 
-        bmc_wrapper.stop();
         tracing::info!("machine-a-tron finished");
         Ok(())
     }
