@@ -83,4 +83,18 @@ impl DbExploredManagedHost {
 
         Ok(())
     }
+
+    pub async fn delete_by_host_bmc_addr(
+        txn: &mut Transaction<'_, Postgres>,
+        addr: IpAddr,
+    ) -> Result<(), DatabaseError> {
+        let query = "DELETE FROM explored_managed_hosts WHERE host_bmc_ip = $1;";
+        let _result = sqlx::query(query)
+            .bind(addr)
+            .execute(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
 }

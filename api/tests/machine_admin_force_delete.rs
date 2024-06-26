@@ -13,6 +13,7 @@
 use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest};
 use carbide::{
     db::{
+        explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
         machine_state_history::MachineStateHistory,
         machine_topology::MachineTopology,
@@ -23,8 +24,7 @@ use carbide::{
         InstanceState, ManagedHostState,
     },
 };
-use std::collections::HashSet;
-use std::str::FromStr;
+use std::{collections::HashSet, net::IpAddr, str::FromStr};
 
 pub mod common;
 use crate::common::api_fixtures::managed_host::create_managed_host_multi_dpu;
@@ -85,7 +85,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     assert!(response.all_done, "DPU must be deleted");
 
     // Validate that the DPU is gone
-    validate_machine_deletion(&env, &dpu_machine_id).await;
+    validate_machine_deletion(&env, &dpu_machine_id, None).await;
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -98,7 +98,7 @@ async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPo
     assert!(response.all_done, "Host must be deleted");
 
     for id in [host_machine_id, dpu_machine_id] {
-        validate_machine_deletion(&env, &id).await;
+        validate_machine_deletion(&env, &id, None).await;
     }
 }
 
@@ -106,6 +106,53 @@ async fn test_admin_force_delete_dpu_and_host_by_dpu_machine_id(pool: sqlx::PgPo
 async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let bmc_addrs = vec![
+        IpAddr::from_str(
+            env.find_machines(Some(host_machine_id.to_string().into()), None, true)
+                .await
+                .machines
+                .first()
+                .unwrap()
+                .bmc_info
+                .as_ref()
+                .unwrap()
+                .ip
+                .as_ref()
+                .unwrap(),
+        )
+        .unwrap(),
+        IpAddr::from_str(
+            env.find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+                .await
+                .machines
+                .first()
+                .unwrap()
+                .bmc_info
+                .as_ref()
+                .unwrap()
+                .ip
+                .as_ref()
+                .unwrap(),
+        )
+        .unwrap(),
+    ];
+
+    // Fake some explored endpoints
+    let mut txn = env.pool.begin().await.unwrap();
+
+    for addr in &bmc_addrs {
+        DbExploredEndpoint::insert(*addr, &Default::default(), &mut txn)
+            .await
+            .unwrap();
+    }
+
+    assert!(!DbExploredEndpoint::find_all_by_ip(bmc_addrs[0], &mut txn)
+        .await
+        .unwrap()
+        .is_empty());
+
+    txn.commit().await.unwrap();
 
     let response = force_delete(&env, &host_machine_id).await;
     validate_delete_response(&response, Some(&host_machine_id), &dpu_machine_id);
@@ -125,7 +172,7 @@ async fn test_admin_force_delete_dpu_and_host_by_host_machine_id(pool: sqlx::PgP
 
     // Everything should be gone now
     for id in [host_machine_id, dpu_machine_id] {
-        validate_machine_deletion(&env, &id).await;
+        validate_machine_deletion(&env, &id, Some(&bmc_addrs)).await;
     }
 }
 
@@ -166,7 +213,7 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
     validate_delete_response(&response, Some(host.id()), &dpu_machine_id);
     assert!(response.all_done, "DPU must be deleted");
 
-    validate_machine_deletion(&env, &dpu_machine_id).await;
+    validate_machine_deletion(&env, &dpu_machine_id, None).await;
 
     // The MachineInterface for the host should still exist
     let mut ifaces = env
@@ -249,7 +296,11 @@ fn validate_delete_response_multi_dpu(
 }
 
 /// Validates that the Machine has been fully deleted
-async fn validate_machine_deletion(env: &TestEnv, machine_id: &MachineId) {
+async fn validate_machine_deletion(
+    env: &TestEnv,
+    machine_id: &MachineId,
+    bmc_addrs: Option<&Vec<IpAddr>>,
+) {
     // The machine should be now be gone in the API
     let response = env
         .find_machines(Some(machine_id.to_string().into()), None, true)
@@ -278,6 +329,15 @@ async fn validate_machine_deletion(env: &TestEnv, machine_id: &MachineId) {
             .unwrap()
             .is_empty()
     );
+
+    if let Some(bmc_addrs) = bmc_addrs {
+        for bmc_addr in bmc_addrs {
+            assert!(DbExploredEndpoint::find_all_by_ip(*bmc_addr, &mut txn)
+                .await
+                .unwrap()
+                .is_empty());
+        }
+    }
     txn.rollback().await.unwrap();
 }
 
@@ -404,7 +464,7 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
 
     // Everything should be gone now
     for id in [host_machine_id, dpu_machine_id] {
-        validate_machine_deletion(&env, &id).await;
+        validate_machine_deletion(&env, &id, None).await;
     }
 }
 
@@ -449,7 +509,7 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
         .collect::<Vec<_>>();
 
     for id in [&[host_id], dpu_db_ids.as_slice()].concat().iter() {
-        validate_machine_deletion(&env, id).await;
+        validate_machine_deletion(&env, id, None).await;
     }
 }
 
@@ -495,6 +555,6 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
         .collect::<Vec<_>>();
 
     for id in [&[host_id], dpu_db_ids.as_slice()].concat().iter() {
-        validate_machine_deletion(&env, id).await;
+        validate_machine_deletion(&env, id, None).await;
     }
 }
