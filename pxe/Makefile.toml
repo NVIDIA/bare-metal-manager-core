@@ -36,6 +36,7 @@ BF3_CEC_PACKAGE = "https://urm.nvidia.com/artifactory/sw-bmc-generic-local/Glaci
 [tasks.build-boot-artifacts-x86_64]
 dependencies = [
         "mkdir-static-x86_64",
+        "cleanup-pxe-submodule",
         { name = "build-cli", path = "${REPO_ROOT}" },
         "build",
         "create-ephemeral-image-x86_64",
@@ -60,6 +61,7 @@ dependencies = [
 [tasks.build-boot-artifacts-aarch64]
 dependencies = [
 	"mkdir-static-aarch64",
+        "cleanup-pxe-submodule",
 	"bfb-aarch64",
 	"ipxe-aarch64",
 	"setup-apt-repo",
@@ -101,6 +103,16 @@ dependencies = [
 	"mkosi-copy-scout-to-webroot",
 
 ]
+
+[tasks.cleanup-pxe-submodule]
+category = "ipxe"
+cwd = "${REPO_ROOT}/pxe/ipxe/upstream"
+script = '''
+set -e
+
+git reset --hard --quiet
+git clean -fd --quiet
+'''
 
 [tasks.mkdir-static-aarch64]
 category = "ipxe"
