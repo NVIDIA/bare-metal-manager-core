@@ -5,22 +5,22 @@ interface = "cni0"
 tui_enabled = true # requires log file
 use_dhcp_api = true
 dhcp_server_address = "192.168.252.78"
-
-# machine-a-tron runs one instance of bmc-mock for every mocked DPU and host.
-# This is to avoid needing to allocate lots of IPs/ports when mocking lots of
-# machines.
-#
-# NOTE! This should correspond with the override_target_{ip, port} settings in
-# carbide's site_explorer config. For example:
-#
-# [site_explorer]
-# enabled = true
-# create_machines = true
-# override_target_ip = "192.168.1.100" # this computer's IP (the one running machine-a-tron), as accessible from carbide
-# override_target_port = 2000
-bmc_mock_listen_address = "0.0.0.0:2000"
 pxe_server_host = "192.168.252.76"
 pxe_server_port = "8080"
+
+# Port to listen on for running bmc-mock instances for each host/DPU. We use a
+# nonstandard port to avoid needing to run as root. Note: This must correspond
+# with the value of the site_explorer.override_target_port option in carbide's
+# site-config.toml to work, otherwise carbide will use port 443 to contact the
+# mock BMC instances. Alternatively, you can leave this at 443 and use `sysctl
+# net.ipv4.ip_unprivileged_port_start=0` to allow non-root users to bind to
+# port 443.
+bmc_mock_port = 2000
+
+# Set this to "sudo" or "doas" if you're not running this as root. This allows
+# the DHCP mocks to bind to interfaces in the above IP range. Must be
+# configured to run without a password.
+# sudo_command = "/usr/bin/sudo"
 
 [machines.config]
 host_count = 20

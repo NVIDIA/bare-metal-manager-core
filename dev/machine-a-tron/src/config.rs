@@ -54,18 +54,19 @@ pub struct MachineATronConfig {
     pub use_dhcp_api: bool,
     pub dhcp_server_address: String,
 
-    #[serde(default = "default_bmc_mock_listen_address")]
-    pub bmc_mock_listen_address: String,
+    #[serde(default = "default_bmc_mock_port")]
+    pub bmc_mock_port: u16,
     #[serde(default = "default_bmc_mock_host_tar")]
     pub bmc_mock_host_tar: String,
     #[serde(default = "default_bmc_mock_dpu_tar")]
     pub bmc_mock_dpu_tar: String,
     pub pxe_server_host: String,
     pub pxe_server_port: String,
+    pub sudo_command: Option<String>,
 }
 
-fn default_bmc_mock_listen_address() -> String {
-    String::from("0.0.0.0:2000")
+fn default_bmc_mock_port() -> u16 {
+    2000
 }
 fn default_bmc_mock_host_tar() -> String {
     String::from("dev/bmc-mock/lenovo_thinksystem_sr670.tar.gz")
