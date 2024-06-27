@@ -19,7 +19,6 @@ use figment::{
     Figment,
 };
 use forge_secrets::{
-    certificates::CertificateProvider,
     credentials::CredentialProvider,
     forge_vault::{
         ForgeVaultAuthenticationType, ForgeVaultClientConfig, ForgeVaultMetrics, GaugeHolder,
@@ -197,18 +196,18 @@ async fn create_and_connect_postgres_pool(config: &CarbideConfig) -> eyre::Resul
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider + 'static>(
+pub async fn start_api(
     carbide_config: Arc<CarbideConfig>,
-    credential_provider: Arc<C1>,
-    certificate_provider: Arc<C2>,
     meter: opentelemetry::metrics::Meter,
     dynamic_settings: crate::dynamic_settings::DynamicSettings,
-    ipmi_tool: Arc<dyn IPMITool>,
 ) -> eyre::Result<()> {
+    let vault_client = create_vault_client(meter.clone()).await?;
+    let ipmi_tool = create_ipmi_tool(vault_client.clone(), &carbide_config);
+
     let rf_pool = libredfish::RedfishClientPool::builder()
         .build()
         .map_err(CarbideError::from)?;
-    let redfish_pool = RedfishClientPoolImpl::new(credential_provider.clone(), rf_pool);
+    let redfish_pool = RedfishClientPoolImpl::new(vault_client.clone(), rf_pool);
     let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
@@ -237,7 +236,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
     };
 
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
-        credential_provider.clone(),
+        vault_client.clone(),
         ib::IBFabricManagerConfig {
             manager_type: fabric_manager_type,
             max_partition_per_tenant: ib_config.max_partition_per_tenant,
@@ -299,8 +298,8 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
 
     let api_service = Arc::new(Api::new(
         carbide_config.clone(),
-        credential_provider.clone(),
-        certificate_provider.clone(),
+        vault_client.clone(),
+        vault_client.clone(),
         db_pool.clone(),
         shared_redfish_pool.clone(),
         eth_data,
@@ -395,7 +394,7 @@ pub async fn start_api<C1: CredentialProvider + 'static, C2: CertificateProvider
         meter.clone(),
         Arc::new(RedfishEndpointExplorer::new(
             shared_redfish_pool.clone(),
-            credential_provider.clone(),
+            vault_client.clone(),
         )),
     );
     let _site_explorer_stop_handle = site_explorer.start()?;

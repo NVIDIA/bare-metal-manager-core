@@ -355,10 +355,6 @@ pub async fn run(
     };
     dynamic_settings.start_reset_task(dynamic_settings::RESET_PERIOD);
 
-    let forge_vault_client = setup::create_vault_client(tconf.meter.clone()).await?;
-
-    let ipmi_tool = setup::create_ipmi_tool(forge_vault_client.clone(), &carbide_config);
-
     tracing::info!(
         address = carbide_config.listen.to_string(),
         build_version = forge_version::v!(build_version),
@@ -367,13 +363,5 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    setup::start_api(
-        carbide_config,
-        forge_vault_client.clone(),
-        forge_vault_client,
-        tconf.meter,
-        dynamic_settings,
-        ipmi_tool,
-    )
-    .await
+    setup::start_api(carbide_config, tconf.meter, dynamic_settings).await
 }
