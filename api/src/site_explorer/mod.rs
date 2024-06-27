@@ -498,7 +498,6 @@ impl SiteExplorer {
                         &mut txn,
                         Some(&hardware_info),
                         dpu_machine.id(),
-                        true,
                     )
                     .await?;
 
@@ -568,8 +567,10 @@ impl SiteExplorer {
                         &mut txn,
                         Some(&hardware_info),
                         dpu_machine.id(),
-                        false,
                     )
+                    .await?;
+                machine_interface
+                    .set_primary_interface(&mut txn, false)
                     .await?;
                 let host_id = host_machine_id
                     .as_ref()

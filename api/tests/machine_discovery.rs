@@ -50,7 +50,6 @@ async fn test_machine_discovery_no_domain(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
-        true,
     )
     .await
     .expect("Unable to create machine");
@@ -85,7 +84,6 @@ async fn test_machine_discovery_with_domain(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
-        true,
     )
     .await
     .expect("Unable to create machine");

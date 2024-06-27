@@ -333,7 +333,6 @@ impl MachineInterface {
         machines: Option<MachineId>,
         mac_address: MacAddress,
         relay: IpAddr,
-        primary: bool,
     ) -> CarbideResult<Self> {
         match machines {
             None => {
@@ -346,7 +345,6 @@ impl MachineInterface {
                     &mut *txn,
                     mac_address,
                     relay,
-                    primary,
                 )
                 .await?)
             }
@@ -374,7 +372,6 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         mac_address: MacAddress,
         relay: IpAddr,
-        primary: bool,
     ) -> CarbideResult<Self> {
         let mut existing_mac = MachineInterface::find_by_mac_address(txn, mac_address).await?;
         match &existing_mac.len() {
@@ -392,7 +389,7 @@ impl MachineInterface {
                             &segment,
                             &mac_address,
                             segment.subdomain_id,
-                            primary,
+                            true,
                             AddressSelectionStrategy::Automatic,
                         )
                         .await?;
@@ -692,7 +689,6 @@ impl MachineInterface {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         hardware_info: Option<&HardwareInfo>,
         dpu_id: &MachineId,
-        primary: bool,
     ) -> Result<Self, CarbideError> {
         let admin_network = NetworkSegment::admin(txn).await?;
 
@@ -721,19 +717,9 @@ impl MachineInterface {
             .await
             .map_err(CarbideError::from)?;
 
-        let machine_interface = Self::find_or_create_machine_interface(
-            txn,
-            existing_machine,
-            host_mac,
-            gateway,
-            primary,
-        )
-        .await?;
-        if machine_interface.primary_interface() != primary {
-            machine_interface
-                .set_primary_interface(txn, primary)
+        let machine_interface =
+            Self::find_or_create_machine_interface(txn, existing_machine, host_mac, gateway)
                 .await?;
-        }
         machine_interface
             .associate_interface_with_dpu_machine(txn, dpu_id)
             .await?;
