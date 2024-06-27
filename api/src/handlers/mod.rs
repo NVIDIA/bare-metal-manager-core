@@ -11,6 +11,7 @@
  */
 
 pub mod boot_override;
+pub mod credential;
 pub mod domain;
 pub mod ib_partition;
 pub mod instance;
