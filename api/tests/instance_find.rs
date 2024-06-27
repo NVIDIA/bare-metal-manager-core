@@ -319,3 +319,18 @@ async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
         "at least one ID must be provided",
     );
 }
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let request = tonic::Request::new(rpc::MachineId {
+        id: dpu_machine_id.to_string(),
+    });
+
+    let response = env.api.find_instance_by_machine_id(request).await;
+    // validate
+    assert!(response.is_ok(),);
+    assert_eq!(response.unwrap().into_inner().instances.len(), 0);
+}

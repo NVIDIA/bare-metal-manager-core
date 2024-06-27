@@ -154,7 +154,7 @@ pub async fn create_forge_client(
 pub async fn get_instance(
     client: &mut ForgeClientT,
     dpu_machine_id: String,
-) -> Result<Instance, eyre::Error> {
+) -> Result<Option<Instance>, eyre::Error> {
     let request = tonic::Request::new(rpc::MachineId {
         id: dpu_machine_id.clone(),
     });
@@ -169,10 +169,7 @@ pub async fn get_instance(
         }
     };
 
-    return instances
-        .first()
-        .ok_or_else(|| eyre::eyre!("instances array is empty in response"))
-        .cloned();
+    return Ok(instances.first().cloned());
 }
 
 // phone_home returns the timestamp returned from Carbide as a string
@@ -180,7 +177,12 @@ pub async fn phone_home(
     client: &mut ForgeClientT,
     dpu_machine_id: String,
 ) -> Result<Timestamp, eyre::Error> {
-    let instance = get_instance(client, dpu_machine_id).await?;
+    let Some(instance) = get_instance(client, dpu_machine_id.clone()).await? else {
+        return Err(eyre::eyre!(
+            "No instance found with dpu_machine {}.",
+            dpu_machine_id
+        ));
+    };
 
     let request: tonic::Request<InstancePhoneHomeLastContactRequest> =
         tonic::Request::new(InstancePhoneHomeLastContactRequest {
