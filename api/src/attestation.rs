@@ -126,7 +126,6 @@ pub fn cli_make_cred(
     let unique = match ek_pub {
         Public::Rsa { unique, .. } => unique,
         _ => {
-            println!("Not an RSA key");
             return Err(CarbideError::AttestationBindKeyError(
                 "EK Pub is not in RSA format".to_string(),
             ));

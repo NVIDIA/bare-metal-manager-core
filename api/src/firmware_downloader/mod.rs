@@ -111,7 +111,7 @@ impl FirmwareDownloader {
                         return;
                     }
                     if let Err(e) = std::fs::rename(&dst_filename, &filename) {
-                        println!("FirmwareDownloader rename failed: {e}");
+                        tracing::error!("FirmwareDownloader rename failed: {e}");
                         let _ = std::fs::remove_file(dst_filename);
                         actual
                             .lock()
