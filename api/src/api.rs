@@ -1010,7 +1010,6 @@ impl Forge for Api {
                 &mut txn,
                 Some(&hardware_info),
                 machine.id(),
-                true,
             )
             .await?;
 
