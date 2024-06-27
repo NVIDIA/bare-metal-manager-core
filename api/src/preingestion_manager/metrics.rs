@@ -130,7 +130,7 @@ impl MetricHolder {
                 }
             },
         ) {
-            tracing::error!("Failed to register SiteExplorer metrics: {e}");
+            tracing::error!("Failed to register PreingestionManager metrics: {e}");
         };
     }
 
