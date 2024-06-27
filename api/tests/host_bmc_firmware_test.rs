@@ -13,11 +13,13 @@
 pub mod common;
 
 use carbide::{
-    db::explored_endpoints::DbExploredEndpoint,
-    db::DatabaseError,
-    model::machine::machine_id::MachineId,
-    model::site_explorer::{
-        Chassis, EndpointExplorationReport, EndpointType, Inventory, PreingestionState, Service,
+    db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
+    model::{
+        machine::machine_id::MachineId,
+        site_explorer::{
+            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
+            EndpointType, Inventory, PreingestionState, Service,
+        },
     },
     preingestion_manager::PreingestionManager,
 };
@@ -262,7 +264,14 @@ fn build_exploration_report(
         vendor: Some(bmc_vendor::BMCVendor::Dell),
         last_exploration_error: None,
         managers: vec![],
-        systems: vec![],
+        systems: vec![ComputerSystem {
+            model: Some(model.to_string()),
+            ethernet_interfaces: vec![],
+            id: "".to_string(),
+            manufacturer: Some(vendor.to_string()),
+            serial_number: None,
+            attributes: ComputerSystemAttributes { nic_mode: None },
+        }],
         chassis: vec![Chassis {
             model: Some(model.to_string()),
             id: "".to_string(),

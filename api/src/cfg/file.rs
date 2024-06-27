@@ -11,7 +11,12 @@
  */
 
 use std::sync::Arc;
-use std::{collections::HashMap, fmt::Display, net::SocketAddr, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+};
 
 use arc_swap::ArcSwap;
 use chrono::Duration;
@@ -788,9 +793,10 @@ pub struct ParsedHosts {
 }
 
 impl ParsedHosts {
-    pub fn find(&self, vendor: String, model: String) -> Option<FirmwareHost> {
+    pub fn find(&self, address: IpAddr, vendor: String, model: String) -> Option<FirmwareHost> {
         let key = vendor_model_to_key(vendor, model);
         let ret = self.map.get(&key).map(|x| x.to_owned());
+        tracing::info!("ParsedHosts::find {address}: key {key} found {ret:?}");
         ret
     }
 }

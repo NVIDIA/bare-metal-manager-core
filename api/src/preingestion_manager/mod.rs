@@ -149,6 +149,19 @@ impl PreingestionManager {
         }
 
         let items = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
+        if !items.is_empty() && items.len() < 3 {
+            // Show states if a modest amount, just count otherwise
+            tracing::info!(
+                "PreingestionManager: Working on {} items {:?}",
+                items.len(),
+                items
+                    .iter()
+                    .map(|x| format!("({}: {:?})", x.address, x.preingestion_state))
+                    .collect::<Vec<String>>()
+            );
+        } else {
+            tracing::info!("PreingestionManager: Working on {} items", items.len())
+        }
         let mut task_set = JoinSet::new();
         let active_uploads = Arc::new(Mutex::new(0));
 
@@ -272,24 +285,32 @@ impl PreingestionManagerStatic {
             Some(vendor) => vendor.to_owned(),
             None => {
                 // No vendor found for the endpoint, we can't match firmware
+                tracing::info!("find_fw_info_for_host: {} No vendor", endpoint.address);
                 return None;
             }
         };
-        let chassis_with_model = endpoint.report.chassis.iter().find(|&x| x.model.is_some());
-        let model = match chassis_with_model {
+        // Use Systems, not Chassis; at least for Lenovo, Chassis has what is more of a SKU instead of the actual model name.
+        let system_with_model = endpoint.report.systems.iter().find(|&x| x.model.is_some());
+        let model = match system_with_model {
             Some(chassis) => match &chassis.model {
                 Some(model) => model.to_owned(),
                 None => {
+                    tracing::info!("find_fw_info_for_host: {} No model", endpoint.address);
                     // No model found for the endpoint, we can't match firmware
                     return None;
                 }
             },
             None => {
-                // No chassis with model found for the endpoint, we can't match firmware
+                // No system with model found for the endpoint, we can't match firmware
+                tracing::info!(
+                    "find_fw_info_for_host: {} No system with model",
+                    endpoint.address
+                );
                 return None;
             }
         };
-        self.host_info.find(vendor.to_string(), model)
+        self.host_info
+            .find(endpoint.address, vendor.to_string(), model)
     }
 
     /// check_firmware_versions_below_preingestion will check if we actually need to do firmware upgrades before
@@ -303,6 +324,10 @@ impl PreingestionManagerStatic {
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
         let fw_info = match self.find_fw_info_for_host(endpoint) {
             None => {
+                tracing::info!(
+                    "check_firmware_versions_below_preingestion {}: No maching firmware info found",
+                    endpoint.address
+                );
                 // No desired firmware description found for this host, nothing to do.
                 // This is the expected path for DPUs.
                 DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
@@ -313,19 +338,34 @@ impl PreingestionManagerStatic {
         for (fwtype, desc) in &fw_info.components {
             if let Some(min_preingestion) = &desc.preingest_upgrade_when_below {
                 if let Some(current) = find_version(endpoint, &fw_info, *fwtype) {
+                    tracing::info!("check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}", endpoint.address);
+
                     if version_compare::compare(current, min_preingestion)
                         .is_ok_and(|c| c == version_compare::Cmp::Lt)
                     {
+                        tracing::info!(
+                            "check_firmware_versions_below_preingestion {}: Start upload of {fwtype:?}",
+                            endpoint.address
+                        );
                         // One or both of the versions are low enough to absolutely need upgrades first - do them both while we're at it.
                         let delayed_upgrade = self
                             .start_firmware_uploads_or_continue(txn, endpoint, active_uploads)
                             .await?;
                         return Ok(delayed_upgrade);
+                    } else {
+                        tracing::info!(
+                            "check_firmware_versions_below_preingestion {}: {fwtype:?} is good",
+                            endpoint.address
+                        );
                     }
                 }
             }
         }
 
+        tracing::info!(
+            "check_firmware_versions_below_preingestion {}: Satisfied and marking complete",
+            endpoint.address
+        );
         // Good enough for now at least, proceed with ingestion.
         DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
         Ok(false)
@@ -342,6 +382,10 @@ impl PreingestionManagerStatic {
         active_uploads: Arc<Mutex<i64>>,
     ) -> DatabaseResult<bool> {
         if endpoint.waiting_for_explorer_refresh {
+            tracing::info!(
+                "start_firmware_uploads_or_continue {}: Waiting for explorer refresh",
+                endpoint.address
+            );
             // We've updated something and are waiting for site explorer to get back around to it
             return Ok(false);
         }
@@ -368,6 +412,10 @@ impl PreingestionManagerStatic {
         }
         if !enabled {
             // Auto updates are disabled, so call everything "good".
+            tracing::info!(
+                "start_firmware_uploads_or_continue {}: Auto updates disabled",
+                endpoint.address
+            );
             DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
             return Ok(false);
         }
@@ -375,6 +423,11 @@ impl PreingestionManagerStatic {
         let fw_info = match self.find_fw_info_for_host(endpoint) {
             None => {
                 // No desired firmware description found for this host
+                tracing::info!(
+                    "start_firmware_uploads_or_continue {}: No firmware info found",
+                    endpoint.address
+                );
+
                 return Ok(false);
             }
             Some(fw_info) => fw_info,
@@ -398,6 +451,11 @@ impl PreingestionManagerStatic {
             }
         }
 
+        tracing::info!(
+            "start_firmware_uploads_or_continue {}: No further updates needed",
+            endpoint.address
+        );
+
         // Nothing needed to be updated, we're complete.
         DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
         Ok(false)
@@ -414,7 +472,13 @@ impl PreingestionManagerStatic {
     ) -> Result<(bool, bool), DatabaseError> {
         {
             match need_upgrade(endpoint, fw_info, fw_type) {
-                None => Ok((false, false)),
+                None => {
+                    tracing::info!(
+                        "start_upgrade_if_needed {}: Upgrade of {fw_type:?} not needed",
+                        endpoint.address
+                    );
+                    Ok((false, false))
+                }
                 Some(to_install) => {
                     let mut active_uploads = active_uploads.lock().await;
                     if *active_uploads >= self.max_uploads {
@@ -567,6 +631,11 @@ fn find_version(
             .iter()
             .find(|&x| fw_info.matching_version_id(&x.id, firmware_type))
         {
+            tracing::info!(
+                "find_version {}: For {firmware_type:?} found {:?}",
+                endpoint.address,
+                matching_inventory.version
+            );
             return matching_inventory.version.clone();
         };
     }
@@ -653,6 +722,10 @@ async fn initiate_update(
             return Ok(());
         }
     };
+    tracing::info!(
+        "initiate_update: Started upload of firmware to {}",
+        endpoint_clone.address
+    );
     let task = match redfish_client
         .update_firmware_multipart(to_install.get_filename().as_path(), true)
         .await
@@ -660,12 +733,16 @@ async fn initiate_update(
         Ok(task) => task,
         Err(e) => {
             tracing::error!(
-                "Failed uploading firmware to {}: {e}",
-                endpoint_clone.address.to_string()
+                "initiate_update: Failed uploading firmware to {}: {e}",
+                endpoint_clone.address
             );
             return Ok(());
         }
     };
+    tracing::info!(
+        "initiate_update: Started upload of firmware to {}",
+        endpoint_clone.address
+    );
 
     DbExploredEndpoint::set_preingestion_waittask(endpoint_clone.address, task, txn).await?;
 
