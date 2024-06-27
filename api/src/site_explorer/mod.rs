@@ -194,6 +194,7 @@ impl SiteExplorer {
                 span_id,
                 otel.status_code = tracing::field::Empty,
                 otel.status_message = tracing::field::Empty,
+                created_machines = tracing::field::Empty,
                 identified_managed_hosts = tracing::field::Empty,
                 endpoint_explorations = tracing::field::Empty,
                 endpoint_explorations_success = tracing::field::Empty,
@@ -209,6 +210,7 @@ impl SiteExplorer {
                 "identified_managed_hosts",
                 metrics.exploration_identified_managed_hosts,
             );
+            explore_site_span.record("created_machines", metrics.created_machines);
             explore_site_span.record("endpoint_explorations", metrics.endpoint_explorations);
             explore_site_span.record(
                 "endpoint_explorations_success",
