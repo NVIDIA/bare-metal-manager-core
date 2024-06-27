@@ -38,7 +38,7 @@ service Forge {
 
   rpc FindIBPartitionIds(IBPartitionSearchFilter) returns (IBPartitionIdList);
   rpc FindIBPartitionsByIds(IBPartitionsByIdsRequest) returns (IBPartitionList);
-  // DEPRECATED: use FindVpcIds and FindVpcsByIds instead
+  // DEPRECATED: use FindIBPartitionIds and FindIBPartitionsByIds instead
   rpc FindIBPartitions(IBPartitionQuery) returns (IBPartitionList);
   // Create a IB partition
   rpc CreateIBPartition(IBPartitionCreationRequest) returns (IBPartition);
@@ -133,6 +133,9 @@ service Forge {
   rpc UpdateTenant(UpdateTenantRequest) returns (UpdateTenantResponse);
 
   rpc CreateTenantKeyset(CreateTenantKeysetRequest) returns (CreateTenantKeysetResponse);
+  rpc FindTenantKeysetIds(TenantKeysetSearchFilter) returns (TenantKeysetIdList);
+  rpc FindTenantKeysetsByIds(TenantKeysetsByIdsRequest) returns (TenantKeySetList);
+  // DEPRECATED: use FindTenantKeysetIds and FindTenantKeysetsByIds instead
   rpc FindTenantKeyset(FindTenantKeysetRequest) returns (TenantKeySetList);
   rpc UpdateTenantKeyset(UpdateTenantKeysetRequest) returns (UpdateTenantKeysetResponse);
   rpc DeleteTenantKeyset(DeleteTenantKeysetRequest) returns (DeleteTenantKeysetResponse);
@@ -2218,6 +2221,19 @@ message DeleteTenantKeysetRequest {
   TenantKeysetIdentifier keyset_identifier = 1;
 }
 message DeleteTenantKeysetResponse {}
+
+message TenantKeysetSearchFilter {
+  optional string tenant_org_id = 1;
+}
+
+message TenantKeysetIdList {
+  repeated TenantKeysetIdentifier keyset_ids = 1;
+}
+
+message TenantKeysetsByIdsRequest {
+  repeated TenantKeysetIdentifier keyset_ids = 1;
+  bool include_key_data = 2;
+}
 
 // the tenantPublicKey will be checked against the following lists for permission to access the instance:
 // 1) the instance's keysets.

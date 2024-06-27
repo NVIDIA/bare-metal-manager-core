@@ -12,7 +12,7 @@
 
 use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row};
+use sqlx::{FromRow, Postgres, Row, Transaction};
 
 use super::instance::Instance;
 use super::ObjectFilter;
@@ -22,6 +22,7 @@ use crate::model::tenant::{
     TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
 use crate::{CarbideError, CarbideResult};
+use ::rpc::forge as rpc;
 
 impl Tenant {
     pub async fn create_and_persist(
@@ -135,6 +136,23 @@ impl<'r> sqlx::FromRow<'r, PgRow> for TenantKeyset {
     }
 }
 
+// simplified tenant keyset id struct with tenant_org_id and keyset_id both as string
+// used in find_ids and find_by_ids
+#[derive(Debug, Clone, FromRow)]
+pub struct TenantKeysetId {
+    pub organization_id: String,
+    pub keyset_id: String,
+}
+
+impl From<TenantKeysetId> for rpc::TenantKeysetIdentifier {
+    fn from(src: TenantKeysetId) -> Self {
+        Self {
+            organization_id: src.organization_id,
+            keyset_id: src.keyset_id,
+        }
+    }
+}
+
 impl TenantKeyset {
     pub async fn create(
         &self,
@@ -150,6 +168,56 @@ impl TenantKeyset {
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    }
+
+    pub async fn find_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        filter: rpc::TenantKeysetSearchFilter,
+    ) -> Result<Vec<TenantKeysetId>, DatabaseError> {
+        // build query
+        let mut builder =
+            sqlx::QueryBuilder::new("SELECT organization_id, keyset_id FROM tenant_keysets");
+        if let Some(tenant_org_id) = &filter.tenant_org_id {
+            builder.push(" WHERE organization_id = ");
+            builder.push_bind(tenant_org_id);
+        }
+        // execute
+        let query = builder.build_query_as();
+        let ids: Vec<TenantKeysetId> = query
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "tenant_keyset::find_ids", e))?;
+
+        Ok(ids)
+    }
+
+    pub async fn find_by_ids(
+        txn: &mut Transaction<'_, Postgres>,
+        ids: Vec<rpc::TenantKeysetIdentifier>,
+        include_key_data: bool,
+    ) -> Result<Vec<TenantKeyset>, DatabaseError> {
+        // build query
+        let mut builder = sqlx::QueryBuilder::new(
+            "SELECT * FROM tenant_keysets WHERE (organization_id, keyset_id) IN ",
+        );
+        builder.push_tuples(ids.iter(), |mut b, id| {
+            b.push_bind(id.organization_id.clone())
+                .push_bind(id.keyset_id.clone());
+        });
+        // execute
+        let query = builder.build_query_as();
+        let mut keysets: Vec<TenantKeyset> = query
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "tenant_keyset::find_by_ids", e))?;
+
+        if !include_key_data {
+            for data in &mut keysets {
+                data.keyset_content.public_keys.clear();
+            }
+        }
+
+        Ok(keysets)
     }
 
     pub async fn find(

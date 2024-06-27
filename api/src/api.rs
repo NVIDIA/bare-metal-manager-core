@@ -207,7 +207,7 @@ impl Forge for Api {
         crate::handlers::vpc::find_by_ids(self, request).await
     }
 
-    // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
+    // DEPRECATED: use find_vpc_ids and find_vpcs_by_ids instead
     async fn find_vpcs(
         &self,
         request: Request<rpc::VpcSearchQuery>,
@@ -229,7 +229,7 @@ impl Forge for Api {
         crate::handlers::ib_partition::find_by_ids(self, request).await
     }
 
-    // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
+    // DEPRECATED: use find_ib_partition_ids and find_ib_partitions_by_ids instead
     async fn find_ib_partitions(
         &self,
         request: Request<rpc::IbPartitionQuery>,
@@ -322,7 +322,7 @@ impl Forge for Api {
         crate::handlers::instance::find_by_ids(self, request).await
     }
 
-    // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
+    // DEPRECATED: use find_instance_ids and find_instances_by_ids instead
     async fn find_instances(
         &self,
         request: Request<rpc::InstanceSearchQuery>,
@@ -844,6 +844,21 @@ impl Forge for Api {
         crate::handlers::tenant_keyset::create(self, request).await
     }
 
+    async fn find_tenant_keyset_ids(
+        &self,
+        request: Request<rpc::TenantKeysetSearchFilter>,
+    ) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
+        crate::handlers::tenant_keyset::find_ids(self, request).await
+    }
+
+    async fn find_tenant_keysets_by_ids(
+        &self,
+        request: Request<rpc::TenantKeysetsByIdsRequest>,
+    ) -> Result<Response<rpc::TenantKeySetList>, Status> {
+        crate::handlers::tenant_keyset::find_by_ids(self, request).await
+    }
+
+    // DEPRECATED: use find_tenant_keyset_ids and find_tenant_keysets_by_ids instead
     async fn find_tenant_keyset(
         &self,
         request: Request<rpc::FindTenantKeysetRequest>,
@@ -1370,7 +1385,7 @@ impl Forge for Api {
         }))
     }
 
-    // DEPRECATED: use GetMachineIds and FindMachinesByIds instead
+    // DEPRECATED: use find_machine_ids and find_machines_by_ids instead
     async fn find_machines(
         &self,
         request: Request<rpc::MachineSearchQuery>,
