@@ -230,14 +230,13 @@ pub(crate) async fn find_by_machine_id(
         .await
         .map_err(CarbideError::from)?;
 
-    let snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
-        Status::invalid_argument(format!("Snapshot not found for machine {}", machine_id)),
-    )?)
-    .map_err(CarbideError::from)?;
+    let instances = if let Some(instance) = mh_snapshot.instance {
+        vec![rpc::Instance::try_from(instance).map_err(CarbideError::from)?]
+    } else {
+        vec![]
+    };
 
-    let response = Response::new(rpc::InstanceList {
-        instances: vec![snapshot],
-    });
+    let response = Response::new(rpc::InstanceList { instances });
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

@@ -16,7 +16,7 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::Instance;
@@ -133,8 +133,11 @@ async fn run_instance_metadata_fetcher(
         );
 
         match fetch_latest_ip_addresses(forge_client_config.clone(), &state).await {
-            Ok(config) => {
+            Ok(Some(config)) => {
                 state.current.store(Arc::new(Some(config)));
+            }
+            Ok(None) => {
+                info!("No instance is found configured on the host yet.")
             }
             Err(err) => {
                 error!(
@@ -151,9 +154,11 @@ async fn run_instance_metadata_fetcher(
 async fn fetch_latest_ip_addresses(
     client_config: ForgeClientConfig,
     state: &InstanceMetadataFetcherState,
-) -> Result<InstanceMetadata, eyre::Error> {
+) -> Result<Option<InstanceMetadata>, eyre::Error> {
     let mut client = create_forge_client(&state.config.forge_api, client_config).await?;
-    let instance = get_instance(&mut client, state.config.machine_id.clone()).await?;
+    let Some(instance) = get_instance(&mut client, state.config.machine_id.clone()).await? else {
+        return Ok(None);
+    };
 
     let hostname = match instance.id.clone() {
         Some(name) => name.to_string(),
@@ -187,12 +192,12 @@ async fn fetch_latest_ip_addresses(
         }
     };
 
-    Ok(InstanceMetadata {
+    Ok(Some(InstanceMetadata {
         address: pf_address,
         hostname,
         user_data,
         ib_devices: devices,
-    })
+    }))
 }
 
 fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>, eyre::Error> {
