@@ -82,6 +82,7 @@ pub mod ib_partition;
 pub mod instance;
 pub mod managed_host;
 pub mod network_segment;
+pub mod tenant;
 pub mod vpc;
 
 /// The datacenter-level DHCP relay that is assumed for all DPU discovery

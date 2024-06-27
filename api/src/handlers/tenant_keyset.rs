@@ -13,7 +13,7 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
-use crate::api::Api;
+use crate::api::{log_request_data, Api};
 use crate::db::{DatabaseError, ObjectFilter};
 use crate::model::tenant::{
     TenantKeyset, TenantKeysetIdentifier, TenantPublicKeyValidationRequest, UpdateTenantKeyset,
@@ -59,6 +59,80 @@ pub(crate) async fn create(
     }))
 }
 
+pub(crate) async fn find_ids(
+    api: &Api,
+    request: Request<rpc::TenantKeysetSearchFilter>,
+) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin tenant_keyset::find_ids",
+            e,
+        ))
+    })?;
+
+    let filter: rpc::TenantKeysetSearchFilter = request.into_inner();
+
+    let keyset_ids = TenantKeyset::find_ids(&mut txn, filter)
+        .await
+        .map_err(CarbideError::from)?;
+
+    Ok(Response::new(rpc::TenantKeysetIdList {
+        keyset_ids: keyset_ids
+            .into_iter()
+            .map(rpc::TenantKeysetIdentifier::from)
+            .collect(),
+    }))
+}
+
+pub(crate) async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::TenantKeysetsByIdsRequest>,
+) -> Result<Response<rpc::TenantKeySetList>, Status> {
+    log_request_data(&request);
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin tenant_keyset::find_by_ids",
+            e,
+        ))
+    })?;
+
+    let rpc::TenantKeysetsByIdsRequest {
+        keyset_ids,
+        include_key_data,
+        ..
+    } = request.into_inner();
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if keyset_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if keyset_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let keysets = TenantKeyset::find_by_ids(&mut txn, keyset_ids, include_key_data).await;
+
+    let result = keysets
+        .map(|vpc| rpc::TenantKeySetList {
+            keyset: vpc.into_iter().map(rpc::TenantKeyset::from).collect(),
+        })
+        .map(Response::new)
+        .map_err(CarbideError::from)?;
+
+    Ok(result)
+}
+
+// DEPRECATED: use find_ids and find_by_ids instead
 pub(crate) async fn find(
     api: &Api,
     request: Request<rpc::FindTenantKeysetRequest>,
