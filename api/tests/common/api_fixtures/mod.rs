@@ -32,6 +32,7 @@ use carbide::{
     ib::{self, IBFabricManager, IBFabricManagerConfig, IBFabricManagerType},
     ipmitool::IPMIToolTestImpl,
     logging::level_filter::ActiveLevel,
+    measured_boot::interface::common::PcrRegisterValue,
     model::{
         hardware_info::TpmEkCertificate,
         machine::{
@@ -874,6 +875,49 @@ pub async fn machine_validation_completed(
             rpc::forge::MachineValidationCompletedRequest {
                 machine_id: Some(machine_id),
                 machine_validation_error,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+}
+
+/// inject_machine_measurements injects auto-approved measurements
+/// for a machine. This also will create a new profile and bundle,
+/// if needed, as part of the auto-approval process.
+pub async fn inject_machine_measurements(env: &TestEnv, machine_id: rpc::forge::MachineId) {
+    let _response = env
+        .api
+        .add_measurement_trusted_machine(Request::new(
+            rpc::protos::measured_boot::AddMeasurementTrustedMachineRequest {
+                machine_id: machine_id.to_string(),
+                approval_type: rpc::protos::measured_boot::MeasurementApprovedTypePb::Oneshot
+                    as i32,
+                pcr_registers: "0-1".to_string(),
+                comments: "".to_string(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let pcr_values: Vec<PcrRegisterValue> = vec![
+        PcrRegisterValue {
+            pcr_register: 0,
+            sha256: "aa".to_string(),
+        },
+        PcrRegisterValue {
+            pcr_register: 1,
+            sha256: "bb".to_string(),
+        },
+    ];
+
+    let _response = env
+        .api
+        .attest_candidate_machine(Request::new(
+            rpc::protos::measured_boot::AttestCandidateMachineRequest {
+                machine_id: machine_id.to_string(),
+                pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
             },
         ))
         .await

@@ -13,6 +13,8 @@ pub mod common;
 
 use carbide::cfg::default_dpu_models;
 use carbide::db::machine::{Machine, MachineSearchConfig};
+use carbide::measured_boot::dto::records::MeasurementBundleState;
+use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
 use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
 use carbide::state_controller::machine::handler::MachineStateHandler;
@@ -20,6 +22,7 @@ use common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install
 use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
 use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::Action;
+use tonic::Request;
 
 use crate::common::api_fixtures::{
     discovery_completed,
@@ -621,4 +624,119 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         matches!(outcome, PersistentStateHandlerOutcome::Wait{ reason } if !reason.is_empty()),
         "Third iteration should be waiting for DPU agent, and include a wait reason",
     );
+}
+
+/// test_measurement_failed_state_transition is used to test the state
+/// machine changes surrounding measured boot, more specifically, making
+/// sure the handle_measuring_state function works as expected, in terms
+/// of being able to fluidly switch back and forth between Ready/Failed
+/// states in reaction to measurement bundle management changes behind the
+/// scenes via the API and/or CLI.
+///
+/// This includes the initial movement of a machine to Ready state after
+/// initial attestation, "failure" of a machine (out of Ready state) into
+/// a FailureCause::MeasurementsRetired state by retiring the bundle that
+/// put it into Ready state, and then re-activating the bundle to move
+/// the machine from ::Failed -> back to ::Ready.
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
+    // For this test case, we'll flip on attestation, which will
+    // introduce the measurement states into the state machine (which
+    // also includes additional steps that happen during `create_managed_host`.
+    let mut env = create_test_env(pool).await;
+    env.attestation_enabled = true;
+
+    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        default_dpu_models(),
+        env.reachability_params,
+        env.attestation_enabled,
+    );
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    // This is kind of redundant since `create_managed_host` returns a machine
+    // in Ready state, but, just to be super explicit...
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(host.current_state(), ManagedHostState::Ready));
+    txn.commit().await.unwrap();
+
+    // At this point there is an attested/measured machine in Ready state,
+    // so get its bundle, retire it, run another iteration, and make sure
+    // its retired.
+    let bundles_response = env
+        .api
+        .show_measurement_bundles(Request::new(
+            rpc::protos::measured_boot::ShowMeasurementBundlesRequest {},
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(1, bundles_response.bundles.len());
+    let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
+    assert_eq!(bundle.state, MeasurementBundleState::Active);
+    let mut txn = env.pool.begin().await.unwrap();
+    let retired_bundle = MeasurementBundle::set_state_for_id(
+        &mut txn,
+        bundle.bundle_id,
+        MeasurementBundleState::Retired,
+    )
+    .await
+    .unwrap();
+    assert_eq!(bundle.bundle_id, retired_bundle.bundle_id);
+    assert_eq!(retired_bundle.state, MeasurementBundleState::Retired);
+    txn.commit().await.unwrap();
+
+    // .. and now flip it to retired.
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        host.current_state(),
+        ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: carbide::model::machine::FailureCause::MeasurementsRetired { .. },
+                ..
+            },
+            ..
+        }
+    ));
+    txn.commit().await.unwrap();
+
+    // ..and now reactivate the bundle.
+    let mut txn = env.pool.begin().await.unwrap();
+    let reactivated_bundle = MeasurementBundle::set_state_for_id(
+        &mut txn,
+        retired_bundle.bundle_id,
+        MeasurementBundleState::Active,
+    )
+    .await
+    .unwrap();
+    assert_eq!(retired_bundle.bundle_id, reactivated_bundle.bundle_id);
+    txn.commit().await.unwrap();
+
+    // ..and now flip it back.
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(host.current_state(), ManagedHostState::Ready));
+    txn.commit().await.unwrap();
 }

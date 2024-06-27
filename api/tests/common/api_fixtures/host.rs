@@ -34,11 +34,11 @@ use rpc::{
 };
 use tonic::Request;
 
-use crate::common::api_fixtures::machine_validation_completed;
 use crate::common::api_fixtures::{
     discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
     TestEnv,
 };
+use crate::common::api_fixtures::{inject_machine_measurements, machine_validation_completed};
 
 use strum::IntoEnumIterator;
 
@@ -280,8 +280,31 @@ pub async fn create_host_machine(
     .await;
     txn.commit().await.unwrap();
 
+    // This is what simulates a reboot being completed.
     let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
     assert_eq!(response.action, Action::Noop as i32);
+
+    // TODO(chet): At some point this flag can go, and
+    // attestation will just be enabled, but for now, leverage
+    // the fact the flag exists (it also makes me feel better
+    // knowing I've got some control here for the time being).
+    if env.attestation_enabled {
+        let mut txn = env.pool.begin().await.unwrap();
+        env.run_machine_state_controller_iteration_until_state_matches(
+            &host_machine_id,
+            handler.clone(),
+            3,
+            &mut txn,
+            ManagedHostState::Measuring {
+                measuring_state: carbide::model::machine::MeasuringState::WaitingForMeasurements,
+            },
+        )
+        .await;
+        txn.commit().await.unwrap();
+
+        inject_machine_measurements(env, host_rpc_machine_id.clone()).await;
+    }
+
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
