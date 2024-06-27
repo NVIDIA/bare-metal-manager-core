@@ -24,9 +24,7 @@ use ::rpc::protos::forge::{
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
-};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
@@ -76,7 +74,6 @@ use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
 use crate::{
     auth,
-    credentials::UpdateCredentials,
     db::{
         attestation::SecretAkPub,
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
@@ -103,20 +100,14 @@ use crate::{
 };
 use crate::{resource_pool, site_explorer};
 
-/// Username for debug SSH access to DPU. Created by cloud-init on boot. Password in Vault.
-const DPU_ADMIN_USERNAME: &str = "forge";
-
-/// Username for the root BMC account.
-const FORGE_ROOT_BMC_USERNAME: &str = "root";
-
 // vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
 // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
-    credential_provider: Arc<dyn CredentialProvider>,
-    certificate_provider: Arc<dyn CertificateProvider>,
+    pub(crate) credential_provider: Arc<dyn CredentialProvider>,
+    pub(crate) certificate_provider: Arc<dyn CertificateProvider>,
     pub(crate) redfish_pool: Arc<dyn RedfishClientPool>,
     pub(crate) eth_data: ethernet_virtualization::EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,
@@ -1601,90 +1592,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::CredentialRequest>,
     ) -> Result<Response<rpc::CredentialResponse>, Status> {
-        log_request_data(&request);
-
-        let query = request.into_inner().host_id;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_dpu_ssh_credential",
-                e,
-            ))
-        })?;
-        let machine_id = match Machine::find_by_query(&mut txn, &query)
-            .await
-            .map_err(CarbideError::from)?
-        {
-            Some(machine) => {
-                log_machine_id(machine.id());
-                if !machine.is_dpu() {
-                    return Err(Status::not_found(format!(
-                        "Searching for machine {} was found for '{query}', but it is not a DPU",
-                        machine.id()
-                    )));
-                }
-                machine.id().clone()
-            }
-            None => {
-                return Err(CarbideError::NotFoundError {
-                    kind: "machine",
-                    id: query,
-                }
-                .into());
-            }
-        };
-
-        // We don't need this transaction
-        let _ = txn.rollback().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "rollback get_dpu_ssh_credential",
-                e,
-            ))
-        })?;
-
-        // Load credentials from Vault
-        let credentials = self
-            .credential_provider
-            .get_credentials(CredentialKey::DpuSsh {
-                machine_id: machine_id.to_string(),
-            })
-            .await
-            .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
-                Ok(vaultrs::error::ClientError::APIError { code: 404, .. }) => {
-                    CarbideError::NotFoundError {
-                        kind: "dpu-ssh-cred",
-                        id: machine_id.to_string(),
-                    }
-                }
-                Ok(ce) => CarbideError::GenericError(format!("Vault error: {}", ce)),
-                Err(err) => CarbideError::GenericError(format!(
-                    "Error getting SSH credentials for DPU: {:?}",
-                    err
-                )),
-            })?;
-
-        let (username, password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        // UpdateMachineCredentials only allows a single account currently so warn if it's
-        // not the correct one.
-        if username != DPU_ADMIN_USERNAME {
-            tracing::warn!(
-                expected = DPU_ADMIN_USERNAME,
-                found = username,
-                "Unexpected username in Vault"
-            );
-        }
-
-        Ok(Response::new(rpc::CredentialResponse {
-            username,
-            password,
-        }))
+        crate::handlers::credential::get_dpu_ssh_credential(self, request).await
     }
 
     // Network status of each managed host, as reported by forge-dpu-agent.
@@ -1888,18 +1796,7 @@ impl Forge for Api {
         &self,
         request: Request<MachineCredentialsUpdateRequest>,
     ) -> Result<Response<MachineCredentialsUpdateResponse>, Status> {
-        // Note that we don't log the request here via `log_request_data`.
-        // Doing that would make credentials show up in the log stream
-        tracing::Span::current().record("request", "MachineCredentialsUpdateRequest { }");
-
-        let request =
-            UpdateCredentials::try_from(request.into_inner()).map_err(CarbideError::from)?;
-        log_machine_id(&request.machine_id);
-
-        Ok(request
-            .update(self.credential_provider.as_ref())
-            .await
-            .map(Response::new)?)
+        crate::handlers::credential::update_machine_credentials(self, request).await
     }
 
     // The carbide pxe server makes this RPC call
@@ -3340,261 +3237,14 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::CredentialCreationRequest>,
     ) -> Result<tonic::Response<rpc::CredentialCreationResult>, tonic::Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-        let password = req.password;
-
-        let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
-            CarbideError::NotFoundError {
-                kind: "credential_type",
-                id: req.credential_type.to_string(),
-            }
-        })?;
-
-        match credential_type {
-            rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
-                return Err(tonic::Status::invalid_argument("Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified."));
-            }
-            rpc::CredentialType::SiteWideBmcRoot => {
-                self.set_sitewide_bmc_root_credentials(password)
-                    .await
-                    .map_err(|e| {
-                        CarbideError::GenericError(format!(
-                            "Error setting Site Wide BMC Root credentials: {:?} ",
-                            e
-                        ))
-                    })?;
-            }
-            rpc::CredentialType::Ufm => {
-                if let Some(username) = req.username {
-                    self.credential_provider
-                        .set_credentials(
-                            CredentialKey::UfmAuth {
-                                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
-                            },
-                            Credentials::UsernamePassword {
-                                username: username.clone(),
-                                password: password.clone(),
-                            },
-                        )
-                        .await
-                        .map_err(|e| {
-                            CarbideError::GenericError(format!(
-                                "Error setting credential for Ufm {}: {:?} ",
-                                username.clone(),
-                                e
-                            ))
-                        })?;
-                } else {
-                    return Err(tonic::Status::invalid_argument("missing UFM Url"));
-                }
-            }
-            rpc::CredentialType::DpuUefi => {
-                if (self
-                    .credential_provider
-                    .get_credentials(CredentialKey::DpuUefi {
-                        credential_type: CredentialType::SiteDefault,
-                    })
-                    .await)
-                    .is_ok()
-                {
-                    // TODO: support reset credential
-                    return Err(tonic::Status::already_exists(
-                        "Not support to reset DPU UEFI credential",
-                    ));
-                }
-                self.credential_provider
-                    .set_credentials(
-                        CredentialKey::DpuUefi {
-                            credential_type: CredentialType::SiteDefault,
-                        },
-                        Credentials::UsernamePassword {
-                            username: "".to_string(),
-                            password: password.clone(),
-                        },
-                    )
-                    .await
-                    .map_err(|e| {
-                        CarbideError::GenericError(format!(
-                            "Error setting credential for DPU UEFI: {:?} ",
-                            e
-                        ))
-                    })?
-            }
-            rpc::CredentialType::HostUefi => {
-                if self
-                    .credential_provider
-                    .get_credentials(CredentialKey::HostUefi {
-                        credential_type: CredentialType::SiteDefault,
-                    })
-                    .await
-                    .is_ok()
-                {
-                    // TODO: support reset credential
-                    return Err(tonic::Status::already_exists(
-                        "Resetting the Host UEFI credentials in Vault is not supported",
-                    ));
-                }
-                self.credential_provider
-                    .set_credentials(
-                        CredentialKey::HostUefi {
-                            credential_type: CredentialType::SiteDefault,
-                        },
-                        Credentials::UsernamePassword {
-                            username: "".to_string(),
-                            password: password.clone(),
-                        },
-                    )
-                    .await
-                    .map_err(|e| {
-                        CarbideError::GenericError(format!(
-                            "Error setting credential for Host UEFI: {e:?}"
-                        ))
-                    })?
-            }
-            rpc::CredentialType::HostBmcFactoryDefault => {
-                let Some(username) = req.username else {
-                    return Err(tonic::Status::invalid_argument("missing username"));
-                };
-                let Some(vendor) = req.vendor else {
-                    return Err(tonic::Status::invalid_argument("missing vendor"));
-                };
-                let vendor: bmc_vendor::BMCVendor = vendor.as_str().into();
-                self.credential_provider
-                    .set_credentials(
-                        CredentialKey::HostRedfish {
-                            credential_type: CredentialType::HostHardwareDefault { vendor },
-                        },
-                        Credentials::UsernamePassword { username, password },
-                    )
-                    .await
-                    .map_err(|e| {
-                        CarbideError::GenericError(format!(
-                            "Error setting Host factory default credential: {e:?}"
-                        ))
-                    })?
-            }
-            rpc::CredentialType::DpuBmcFactoryDefault => {
-                let Some(username) = req.username else {
-                    return Err(tonic::Status::invalid_argument("missing username"));
-                };
-                self.credential_provider
-                    .set_credentials(
-                        CredentialKey::DpuRedfish {
-                            credential_type: CredentialType::DpuHardwareDefault,
-                        },
-                        Credentials::UsernamePassword { username, password },
-                    )
-                    .await
-                    .map_err(|e| {
-                        CarbideError::GenericError(format!(
-                            "Error setting DPU factory default credential: {e:?}"
-                        ))
-                    })?
-            }
-            rpc::CredentialType::RootBmcByMacAddress => {
-                let Some(mac_address) = req.mac_address else {
-                    return Err(tonic::Status::invalid_argument("mac address"));
-                };
-
-                let parsed_mac: MacAddress = mac_address
-                    .parse::<MacAddress>()
-                    .map_err(CarbideError::from)?;
-
-                self.set_bmc_root_credentials_by_mac(parsed_mac, password)
-                    .await
-                    .map_err(|e| {
-                        CarbideError::GenericError(format!(
-                            "Error setting Site Wide BMC Root credentials: {:?} ",
-                            e
-                        ))
-                    })?;
-            }
-            rpc::CredentialType::BmcForgeAdminByMacAddress => {
-                // TODO: support credential creation for forge-admin
-                return Err(tonic::Status::invalid_argument(
-                    "Forge does not support creating forge-admin credentials yet.",
-                ));
-            }
-        };
-
-        Ok(Response::new(rpc::CredentialCreationResult {}))
+        crate::handlers::credential::create_credential(self, request).await
     }
 
     async fn delete_credential(
         &self,
         request: tonic::Request<rpc::CredentialDeletionRequest>,
     ) -> Result<tonic::Response<rpc::CredentialDeletionResult>, tonic::Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
-            CarbideError::NotFoundError {
-                kind: "credential_type",
-                id: req.credential_type.to_string(),
-            }
-        })?;
-
-        match credential_type {
-            rpc::CredentialType::Ufm => {
-                if let Some(username) = req.username {
-                    self.credential_provider
-                        .set_credentials(
-                            CredentialKey::UfmAuth {
-                                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
-                            },
-                            Credentials::UsernamePassword {
-                                username: username.clone(),
-                                password: "".to_string(),
-                            },
-                        )
-                        .await
-                        .map_err(|e| {
-                            CarbideError::GenericError(format!(
-                                "Error deleting credential for Ufm {}: {:?} ",
-                                username.clone(),
-                                e
-                            ))
-                        })?;
-                } else {
-                    return Err(tonic::Status::invalid_argument("missing UFM Url"));
-                }
-            }
-            rpc::CredentialType::SiteWideBmcRoot => {
-                // TODO: actually delete entry from vault instead of setting to empty string
-                self.set_sitewide_bmc_root_credentials("".to_string())
-                    .await?;
-            }
-            rpc::CredentialType::RootBmcByMacAddress => {
-                match req.mac_address {
-                    Some(mac_address) => {
-                        let parsed_mac: MacAddress = mac_address
-                            .parse::<MacAddress>()
-                            .map_err(CarbideError::from)?;
-
-                        // TODO: actually delete entry from vault instead of setting to empty string
-                        self.set_bmc_root_credentials_by_mac(parsed_mac, "".to_string())
-                            .await?;
-                    }
-                    None => {
-                        return Err(tonic::Status::invalid_argument(
-                            "request does not specify mac address",
-                        ));
-                    }
-                }
-            }
-            rpc::CredentialType::HostBmc
-            | rpc::CredentialType::Dpubmc
-            | rpc::CredentialType::DpuUefi
-            | rpc::CredentialType::HostUefi
-            | rpc::CredentialType::HostBmcFactoryDefault
-            | rpc::CredentialType::DpuBmcFactoryDefault
-            | rpc::CredentialType::BmcForgeAdminByMacAddress => {
-                // Not support delete credential for these types
-            }
-        };
-
-        Ok(Response::new(rpc::CredentialDeletionResult {}))
+        crate::handlers::credential::delete_credential(self, request).await
     }
 
     /// Returns a list of all configured route server addresses
@@ -5363,52 +5013,6 @@ impl Api {
         })?;
 
         Ok(expected.remove(&mac))
-    }
-
-    async fn set_bmc_credentials(
-        &self,
-        credential_key: CredentialKey,
-        credentials: Credentials,
-    ) -> Result<(), CarbideError> {
-        self.credential_provider
-            .set_credentials(credential_key, credentials)
-            .await
-            .map_err(|e| {
-                CarbideError::GenericError(format!("Error setting credential for BMC: {:?} ", e))
-            })
-    }
-
-    pub async fn set_sitewide_bmc_root_credentials(
-        &self,
-        password: String,
-    ) -> Result<(), CarbideError> {
-        let credential_key = CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::SiteWideRoot,
-        };
-
-        let credentials = Credentials::UsernamePassword {
-            username: FORGE_ROOT_BMC_USERNAME.to_string(),
-            password: password.clone(),
-        };
-
-        self.set_bmc_credentials(credential_key, credentials).await
-    }
-
-    pub async fn set_bmc_root_credentials_by_mac(
-        &self,
-        bmc_mac_address: MacAddress,
-        password: String,
-    ) -> Result<(), CarbideError> {
-        let credential_key = CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-        };
-
-        let credentials = Credentials::UsernamePassword {
-            username: FORGE_ROOT_BMC_USERNAME.to_string(),
-            password: password.clone(),
-        };
-
-        self.set_bmc_credentials(credential_key, credentials).await
     }
 }
 
