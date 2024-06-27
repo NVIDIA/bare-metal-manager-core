@@ -78,7 +78,7 @@ function get_distro_image() {
 			echo "Ubuntu version $distro_version not supported" | tee $log_output
 			exit 1;
 		fi
-		rootfs_label="cloudimg-rootfs"
+		
 		efi_label="UEFI"
 		image_url=https://cloud-images.ubuntu.com/releases/$codename/release/ubuntu-$distro_version-server-cloudimg-$arch.img
 		shaurl=https://cloud-images.ubuntu.com/releases/$codename/release/SHA256SUMS
@@ -338,6 +338,13 @@ function main() {
 		if [ ! -z "$line" ]; then
 			rootfs_uuid=$(echo $line|cut -d'=' -f2)
 		fi
+		line=$(echo $i|grep 'rootfs_label')
+		if [ ! -z "$line" ]; then
+			rootfs_label=$(echo $line|cut -d'=' -f2)
+		else
+			rootfs_label="cloudimg-rootfs" #default rootfs name for cloud images
+		fi
+		
 	done
 
 	if [ ! -z "$distro_name" ]; then
