@@ -39,9 +39,9 @@ pub enum IBFabricManagerType {
     Rest,
 }
 
-pub struct IBFabricManagerImpl<C> {
+pub struct IBFabricManagerImpl {
     config: IBFabricManagerConfig,
-    credential_provider: Arc<C>,
+    credential_provider: Arc<dyn CredentialProvider>,
     mock_fabric: Arc<dyn IBFabric>,
     disable_fabric: Arc<dyn IBFabric>,
 }
@@ -61,10 +61,10 @@ impl Default for IBFabricManagerConfig {
     }
 }
 
-pub fn create_ib_fabric_manager<C: CredentialProvider + 'static>(
-    credential_provider: Arc<C>,
+pub fn create_ib_fabric_manager(
+    credential_provider: Arc<dyn CredentialProvider>,
     config: IBFabricManagerConfig,
-) -> IBFabricManagerImpl<C> {
+) -> IBFabricManagerImpl {
     let mock_fabric = Arc::new(mock::MockIBFabric {
         ibsubnets: Arc::new(Mutex::new(HashMap::new())),
         ibports: Arc::new(Mutex::new(HashMap::new())),
@@ -81,7 +81,7 @@ pub fn create_ib_fabric_manager<C: CredentialProvider + 'static>(
 }
 
 #[async_trait]
-impl<C: CredentialProvider + 'static> IBFabricManager for IBFabricManagerImpl<C> {
+impl IBFabricManager for IBFabricManagerImpl {
     fn get_config(&self) -> IBFabricManagerConfig {
         self.config.clone()
     }
