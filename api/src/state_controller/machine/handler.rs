@@ -275,7 +275,7 @@ impl MachineStateHandler {
                 if let Some(reprovisioning_requested) =
                     dpu_reprovisioning_needed(&state.dpu_snapshots[0])
                 {
-                    restart_machine(&state.dpu_snapshots[0], ctx.services, txn).await?;
+                    handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
                     Machine::update_dpu_reprovision_start_time(
                         &state.dpu_snapshots[0].machine_id,
                         txn,
@@ -346,7 +346,7 @@ impl MachineStateHandler {
                         ) {
                             let status = trigger_reboot_if_needed(
                                 &state.host_snapshot,
-                                &state.host_snapshot,
+                                state,
                                 None,
                                 &self.reachability_params,
                                 ctx.services,
@@ -357,7 +357,13 @@ impl MachineStateHandler {
                         }
 
                         // Reboot host
-                        restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                        handler_host_power_control(
+                            state,
+                            ctx.services,
+                            SystemPowerControl::ForceRestart,
+                            txn,
+                        )
+                        .await?;
 
                         purge_machine_validation_results(
                             &state.host_snapshot.machine_id,
@@ -445,7 +451,13 @@ impl MachineStateHandler {
                         // First time, host is already up and reported that discovery is failed.
                         // Let's reboot now immediately.
                         if *retry_count == 0 {
-                            restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                            handler_host_power_control(
+                                state,
+                                ctx.services,
+                                SystemPowerControl::ForceRestart,
+                                txn,
+                            )
+                            .await?;
                             let next_state = ManagedHostState::Failed {
                                 retry_count: retry_count + 1,
                                 details: details.clone(),
@@ -456,7 +468,7 @@ impl MachineStateHandler {
 
                         if trigger_reboot_if_needed(
                             &state.host_snapshot,
-                            &state.host_snapshot,
+                            state,
                             Some(*retry_count as i64),
                             &self.reachability_params,
                             ctx.services,
@@ -494,7 +506,7 @@ impl MachineStateHandler {
 
                         if trigger_reboot_if_needed(
                             &state.host_snapshot,
-                            &state.host_snapshot,
+                            state,
                             Some(*retry_count as i64),
                             &self.reachability_params,
                             ctx.services,
@@ -619,7 +631,14 @@ impl MachineStateHandler {
             } => {
                 // User approval must have received, otherwise reprovision has not
                 // started.
-                if let Err(err) = restart_machine(&state.host_snapshot, ctx.services, txn).await {
+                if let Err(err) = handler_host_power_control(
+                    state,
+                    ctx.services,
+                    SystemPowerControl::ForceRestart,
+                    txn,
+                )
+                .await
+                {
                     tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
                 }
 
@@ -654,7 +673,7 @@ impl MachineStateHandler {
 
         // TODO: multidpu: Check for all DPUs
         if next_state.is_some() {
-            restart_machine(&state.dpu_snapshots[0], ctx.services, txn).await?;
+            handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
             return Ok(next_state);
         }
 
@@ -1037,7 +1056,7 @@ async fn handle_dpu_reprovision(
             if !rebooted(&state.dpu_snapshots[0]) {
                 trigger_reboot_if_needed(
                     &state.dpu_snapshots[0],
-                    &state.host_snapshot,
+                    state,
                     None,
                     reachability_params,
                     services,
@@ -1047,13 +1066,7 @@ async fn handle_dpu_reprovision(
                 return Ok(None);
             }
 
-            handler_host_power_control(
-                &state.host_snapshot,
-                services,
-                SystemPowerControl::ForceOff,
-                txn,
-            )
-            .await?;
+            handler_host_power_control(state, services, SystemPowerControl::ForceOff, txn).await?;
             set_managed_host_topology_update_needed(txn, state).await?;
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
         }
@@ -1083,18 +1096,12 @@ async fn handle_dpu_reprovision(
                     "Machine {} is still not power-off state. Turning off for host again.",
                     state.host_snapshot.machine_id
                 );
-                handler_host_power_control(
-                    &state.host_snapshot,
-                    services,
-                    SystemPowerControl::ForceOff,
-                    txn,
-                )
-                .await?;
+                handler_host_power_control(state, services, SystemPowerControl::ForceOff, txn)
+                    .await?;
 
                 return Ok(None);
             }
-            handler_host_power_control(&state.host_snapshot, services, SystemPowerControl::On, txn)
-                .await?;
+            handler_host_power_control(state, services, SystemPowerControl::On, txn).await?;
             Ok(Some(next_state_resolver.next_state(reprovision_state)))
         }
         ReprovisionState::WaitingForNetworkInstall => {
@@ -1132,13 +1139,8 @@ async fn handle_dpu_reprovision(
                     .map_err(StateHandlerError::from)?;
             }
 
-            handler_host_power_control(
-                &state.host_snapshot,
-                services,
-                SystemPowerControl::ForceRestart,
-                txn,
-            )
-            .await?;
+            handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn)
+                .await?;
 
             // We need to wait for the host to reboot and submit it's new Hardware information in
             // case of Ready.
@@ -1164,7 +1166,7 @@ async fn try_wait_for_dpu_discovery_and_reboot(
     ) {
         let _status = trigger_reboot_if_needed(
             &state.dpu_snapshots[0],
-            &state.host_snapshot,
+            state,
             None,
             reachability_params,
             services,
@@ -1175,7 +1177,7 @@ async fn try_wait_for_dpu_discovery_and_reboot(
         return Ok(Poll::Pending);
     }
 
-    restart_machine(&state.dpu_snapshots[0], services, txn).await?;
+    handler_restart_dpu(&state.dpu_snapshots[0], services, txn).await?;
 
     Ok(Poll::Ready(()))
 }
@@ -1757,7 +1759,7 @@ impl StateHandler for DpuMachineStateHandler {
                 if !rebooted(&state.dpu_snapshots[0]) {
                     let status = trigger_reboot_if_needed(
                         &state.dpu_snapshots[0],
-                        &state.host_snapshot,
+                        state,
                         None,
                         &self.reachability_params,
                         ctx.services,
@@ -1768,7 +1770,7 @@ impl StateHandler for DpuMachineStateHandler {
                 }
 
                 // hbn needs a restart to be able to come online, second reboot of dpu discovery
-                restart_machine(&state.dpu_snapshots[0], ctx.services, txn).await?;
+                handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
 
                 let next_state = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::WaitingForNetworkConfig,
@@ -1787,7 +1789,7 @@ impl StateHandler for DpuMachineStateHandler {
                 }
 
                 if let Err(e) = handler_host_power_control(
-                    &state.host_snapshot,
+                    state,
                     ctx.services,
                     SystemPowerControl::ForceRestart,
                     txn,
@@ -1848,7 +1850,7 @@ struct RebootStatus {
 /// it again. The reboot continues till 6 hours only. After that this function gives up.
 async fn trigger_reboot_if_needed(
     target: &MachineSnapshot,
-    host: &MachineSnapshot,
+    state: &ManagedHostStateSnapshot,
     retry_count: Option<i64>,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
@@ -1860,6 +1862,7 @@ async fn trigger_reboot_if_needed(
             status: "No pending reboot. Will keep waiting.".to_string(),
         });
     };
+    let host = &state.host_snapshot;
     if let MachineLastRebootRequestedMode::PowerOff = last_reboot_requested.mode {
         // PowerOn the host.
         tracing::info!(
@@ -1903,8 +1906,7 @@ async fn trigger_reboot_if_needed(
         };
 
         tracing::trace!(machine_id=%target.machine_id, "Redfish setting host power state to {action}");
-        handler_host_power_control(host, services, action, txn).await?;
-        Machine::update_reboot_requested_time(&target.machine_id, txn, action.into()).await?;
+        handler_host_power_control(state, services, action, txn).await?;
         return Ok(RebootStatus {
             increase_retry_count: false,
             status: format!("Set power state to {action} using Redfish API"),
@@ -1945,19 +1947,24 @@ async fn trigger_reboot_if_needed(
                 // PowerDown
                 // DPU or host, in both cases power down is triggered from host.
                 let action = SystemPowerControl::ForceOff;
-                handler_host_power_control(host, services, action, txn).await?;
-                // Update target machine also. In case of DPU, target machine is DPU. In case of
-                // Host stuck, target machine is host. In case of host, this field will be updated
-                // twice. Well, it should not harm much.
-                Machine::update_reboot_requested_time(&target.machine_id, txn, action.into())
-                    .await?;
+                handler_host_power_control(state, services, action, txn).await?;
                 format!(
                     "Has not come up after {} minutes, trying ForceOff, cycle: {cycle}",
                     time_elapsed_since_state_change,
                 )
             } else {
                 // Reboot
-                restart_machine(target, services, txn).await?;
+                if target.machine_id.machine_type().is_dpu() {
+                    handler_restart_dpu(target, services, txn).await?;
+                } else {
+                    handler_host_power_control(
+                        state,
+                        services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
+                }
                 format!(
                     "Has not come up after {} minutes. Rebooting again, cycle: {cycle}.",
                     time_elapsed_since_state_change
@@ -2060,7 +2067,7 @@ async fn handler_host_lockdown(
     state: &mut ManagedHostStateSnapshot,
 ) -> Result<ManagedHostState, StateHandlerError> {
     // Enable Bios/BMC lockdown now.
-    lockdown_host(txn, &state.host_snapshot, ctx.services).await?;
+    lockdown_host(txn, state, ctx.services).await?;
 
     Ok(ManagedHostState::HostNotReady {
         machine_state: MachineState::WaitingForLockdown {
@@ -2280,7 +2287,7 @@ impl StateHandler for HostMachineStateHandler {
                         );
                         let status = trigger_reboot_if_needed(
                             &state.host_snapshot,
-                            &state.host_snapshot,
+                            state,
                             None,
                             &self.host_handler_params.reachability_params,
                             ctx.services,
@@ -2338,7 +2345,14 @@ impl StateHandler for HostMachineStateHandler {
                                 // During power cycle, DPU also reboots. Now DPU and Host are coming up together. Since DPU is not ready yet,
                                 // it does not forward DHCP discover from host and host goes into failure mode and stops sending further
                                 // DHCP Discover. A second reboot starts DHCP cycle again when DPU is already up.
-                                restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+
+                                handler_host_power_control(
+                                    state,
+                                    ctx.services,
+                                    SystemPowerControl::ForceRestart,
+                                    txn,
+                                )
+                                .await?;
                                 if LockdownMode::Enable == lockdown_info.mode {
                                     purge_machine_validation_results(
                                         &state.host_snapshot.machine_id,
@@ -2389,7 +2403,7 @@ impl StateHandler for HostMachineStateHandler {
                     } else {
                         let status = trigger_reboot_if_needed(
                             &state.host_snapshot,
-                            &state.host_snapshot,
+                            state,
                             None,
                             &self.host_handler_params.reachability_params,
                             ctx.services,
@@ -2429,7 +2443,13 @@ impl StateHandler for HostMachineStateHandler {
                                 "{} machine validation completed",
                                 state.host_snapshot.machine_id
                             );
-                            restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                            handler_host_power_control(
+                                state,
+                                ctx.services,
+                                SystemPowerControl::ForceRestart,
+                                txn,
+                            )
+                            .await?;
                             return Ok(StateHandlerOutcome::Transition(
                                 ManagedHostState::HostNotReady {
                                     machine_state: MachineState::Discovered,
@@ -2563,7 +2583,13 @@ impl StateHandler for InstanceStateHandler {
                     .await?;
 
                     // Reboot host
-                    restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                    handler_host_power_control(
+                        state,
+                        ctx.services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
 
                     // Instance is ready.
                     // We can not determine if machine is rebooted successfully or not. Just leave
@@ -2600,8 +2626,13 @@ impl StateHandler for InstanceStateHandler {
                         // Reboot host. Host will boot with carbide discovery image now. Changes
                         // are done in get_pxe_instructions api.
                         // User will loose all access to instance now.
-                        if let Err(err) =
-                            restart_machine(&state.host_snapshot, ctx.services, txn).await
+                        if let Err(err) = handler_host_power_control(
+                            state,
+                            ctx.services,
+                            SystemPowerControl::ForceRestart,
+                            txn,
+                        )
+                        .await
                         {
                             // Fix: 4647451
                             // No need to return if reboot fails. The managedhost will move to next
@@ -2631,7 +2662,7 @@ impl StateHandler for InstanceStateHandler {
                     if !rebooted(&state.host_snapshot) {
                         let status = trigger_reboot_if_needed(
                             &state.host_snapshot,
-                            &state.host_snapshot,
+                            state,
                             // can't send 0. 0 will force power-off as cycle calculator.
                             Some(retry.count as i64 + 1),
                             &self.reachability_params,
@@ -2678,7 +2709,7 @@ impl StateHandler for InstanceStateHandler {
                         // If we are here, it is definitely because user has already given
                         // approval, but a repeat check doesn't harm anyway.
                         if reprovisioning_requested.user_approval_received {
-                            restart_machine(&state.dpu_snapshots[0], ctx.services, txn).await?;
+                            handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
                             let next_state = ManagedHostState::Assigned {
                                 instance_state: InstanceState::DPUReprovision {
                                     reprovision_state: if reprovisioning_requested.update_firmware
@@ -2749,7 +2780,13 @@ impl StateHandler for InstanceStateHandler {
 
                     // TODO: TPM cleanup
                     // Reboot host
-                    restart_machine(&state.host_snapshot, ctx.services, txn).await?;
+                    handler_host_power_control(
+                        state,
+                        ctx.services,
+                        SystemPowerControl::ForceRestart,
+                        txn,
+                    )
+                    .await?;
 
                     let next_state = ManagedHostState::WaitingForCleanup {
                         cleanup_state: CleanupState::HostCleanup,
@@ -2989,29 +3026,20 @@ async fn unbind_ib_ports(
 }
 
 /// Issues a reboot request command to a host or DPU
-async fn restart_machine(
+async fn handler_restart_dpu(
     machine_snapshot: &MachineSnapshot,
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    if machine_snapshot.machine_id.machine_type().is_dpu() {
-        restart_dpu(machine_snapshot, services).await?;
-        Machine::update_reboot_requested_time(
-            &machine_snapshot.machine_id,
-            txn,
-            crate::model::machine::MachineLastRebootRequestedMode::Reboot,
-        )
-        .await
-        .map_err(|err| err.into())
-    } else {
-        handler_host_power_control(
-            machine_snapshot,
-            services,
-            SystemPowerControl::ForceRestart,
-            txn,
-        )
-        .await
-    }
+    restart_dpu(machine_snapshot, services).await?;
+    Machine::update_reboot_requested_time(
+        &machine_snapshot.machine_id,
+        txn,
+        crate::model::machine::MachineLastRebootRequestedMode::Reboot,
+    )
+    .await
+    .map_err(|err| err.into())
+    //handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn).await
 }
 
 async fn purge_machine_validation_results(
@@ -3036,13 +3064,13 @@ async fn host_power_state(
 }
 
 pub async fn handler_host_power_control(
-    machine_snapshot: &MachineSnapshot,
+    managedhost_snapshot: &ManagedHostStateSnapshot,
     services: &StateHandlerServices,
     action: SystemPowerControl,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
     let redfish_client = build_redfish_client_from_machine_snapshot(
-        machine_snapshot,
+        &managedhost_snapshot.host_snapshot,
         &services.redfish_client_pool,
         txn,
     )
@@ -3050,7 +3078,7 @@ pub async fn handler_host_power_control(
 
     host_power_control(
         redfish_client.as_ref(),
-        machine_snapshot,
+        &managedhost_snapshot.host_snapshot,
         action,
         services.ipmi_tool.clone(),
         txn,
@@ -3059,6 +3087,15 @@ pub async fn handler_host_power_control(
     .map_err(|e| {
         StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
     })?;
+
+    // If host is forcedOff/On, it will impact DPU also. So DPU timestamp should also be updated
+    // here.
+    if action == SystemPowerControl::ForceOff || action == SystemPowerControl::On {
+        for dpu_snapshot in &managedhost_snapshot.dpu_snapshots {
+            Machine::update_reboot_requested_time(&dpu_snapshot.machine_id, txn, action.into())
+                .await?;
+        }
+    }
 
     Ok(())
 }
@@ -3091,11 +3128,12 @@ async fn restart_dpu(
 /// Issues a lockdown and reboot request command to a host.
 async fn lockdown_host(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    machine_snapshot: &MachineSnapshot,
+    state: &ManagedHostStateSnapshot,
     services: &StateHandlerServices,
 ) -> Result<(), StateHandlerError> {
+    let host_snapshot = &state.host_snapshot;
     let redfish_client = build_redfish_client_from_machine_snapshot(
-        machine_snapshot,
+        host_snapshot,
         &services.redfish_client_pool,
         txn,
     )
@@ -3123,13 +3161,7 @@ async fn lockdown_host(
 
     tracing::info!("Forcing restart");
 
-    handler_host_power_control(
-        machine_snapshot,
-        services,
-        SystemPowerControl::ForceRestart,
-        txn,
-    )
-    .await?;
+    handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn).await?;
 
     Ok(())
 }
