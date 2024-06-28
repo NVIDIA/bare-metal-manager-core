@@ -63,10 +63,20 @@ processors:
   batch: {}
   batch/metrics:
     timeout: 0s
+  filter/metrics-site:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'IsMatch(name, "^process.*")'
   memory_limiter:
     check_interval: 1s
     limit_percentage: 50
     spike_limit_percentage: 20
+  resource:
+    attributes:
+      - action: insert
+        key: exporter
+        value: "forge-dpu"
   # Add hostname at the resource level
   resourcedetection:
     detectors: ["system"]
@@ -79,11 +89,6 @@ processors:
           enabled: false
         host.id:
           enabled: false
-  resource:
-    attributes:
-      - action: insert
-        key: exporter
-        value: "forge-dpu"
   # Remove all but the "MESSAGE" and "_SYSTEMD_UNIT" keys from each log record
   transform:
     error_mode: ignore
@@ -129,7 +134,15 @@ service:
         - memory_limiter
         - resourcedetection
         - batch/metrics
-      exporters: [prometheus, otlp/site]
+      exporters: [prometheus]
+    metrics/site:
+      receivers: [prometheus, hostmetrics, hostmetrics/disk]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - filter/metrics-site
+        - batch/metrics
+      exporters: [otlp/site]
     metrics/telemetry:
       receivers: [prometheus/internal-telemetry]
       processors:
