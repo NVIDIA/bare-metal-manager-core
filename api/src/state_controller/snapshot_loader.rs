@@ -12,7 +12,7 @@
 
 use crate::{
     db::{
-        instance::Instance,
+        instance::{Instance, InstanceId},
         machine::Machine,
         machine_interface::MachineInterface,
         machine_interface_address::MachineInterfaceAddress,
@@ -46,7 +46,7 @@ pub trait InstanceSnapshotLoader: Send + Sync + std::fmt::Debug {
     async fn load_instance_snapshot(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         machine_state: ManagedHostState,
         reprovision_request: Option<ReprovisionRequest>,
     ) -> Result<InstanceSnapshot, SnapshotLoaderError>;
@@ -62,7 +62,7 @@ pub enum SnapshotLoaderError {
     #[error("Hardware information for Machine {0} is missing")]
     MissingHardwareInfo(MachineId),
     #[error("Instance with ID {0} was not found")]
-    InstanceNotFound(uuid::Uuid),
+    InstanceNotFound(InstanceId),
     #[error("Invalid result: {0}")]
     InvalidResult(String),
     #[error("Machine with ID {0} was not found.")]
@@ -236,7 +236,7 @@ impl InstanceSnapshotLoader for DbSnapshotLoader {
     async fn load_instance_snapshot(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         machine_state: ManagedHostState,
         reprovision_request: Option<ReprovisionRequest>,
     ) -> Result<InstanceSnapshot, SnapshotLoaderError> {

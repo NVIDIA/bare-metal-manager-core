@@ -29,6 +29,7 @@ use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
 use crate::{
+    db::instance::InstanceId,
     db::{DatabaseError, UuidKeyedObjectFilter},
     model::ib_partition::{
         IBPartitionControllerState, IB_DEFAULT_MTU, IB_DEFAULT_RATE_LIMIT,
@@ -541,7 +542,7 @@ impl IBPartition {
 
 pub async fn allocate_port_guid(
     _txn: &mut Transaction<'_, Postgres>,
-    _instance_id: uuid::Uuid,
+    _instance_id: InstanceId,
     ib_config: &InstanceInfinibandConfig,
     machine: &Machine,
 ) -> CarbideResult<InstanceInfinibandConfig> {

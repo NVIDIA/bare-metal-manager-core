@@ -50,6 +50,7 @@ use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::expected_machine::ExpectedMachine;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::IBPartition;
+use crate::db::instance::InstanceId;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
@@ -680,10 +681,8 @@ impl Forge for Api {
                 observed_at,
                 interfaces,
             };
-            let Some(instance_id_rpc) = request.instance_id else {
-                return Err(CarbideError::MissingArgument("applied_config.instance_id").into());
-            };
-            let instance_id = Uuid::try_from(instance_id_rpc).map_err(CarbideError::from)?;
+
+            let instance_id = InstanceId::from_grpc(request.instance_id)?;
             Instance::update_network_status_observation(&mut txn, instance_id, &instance_obs)
                 .await
                 .map_err(CarbideError::from)?;

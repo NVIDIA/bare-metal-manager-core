@@ -12,6 +12,7 @@
 
 use carbide::{
     cfg::default_dpu_models,
+    db::instance::InstanceId,
     db::machine::Machine,
     model::{
         machine::machine_id::MachineId, machine::CleanupState, machine::MachineState,
@@ -35,7 +36,7 @@ pub async fn create_instance(
     network: Option<rpc::InstanceNetworkConfig>,
     infiniband: Option<rpc::InstanceInfinibandConfig>,
     keyset_ids: Vec<String>,
-) -> (uuid::Uuid, rpc::Instance) {
+) -> (InstanceId, rpc::Instance) {
     let mut tenant_config = default_tenant_config();
     tenant_config.tenant_keyset_ids = keyset_ids;
 
@@ -57,7 +58,7 @@ pub async fn create_instance_with_labels(
     infiniband: Option<rpc::InstanceInfinibandConfig>,
     keyset_ids: Vec<String>,
     instance_metadata: rpc::Metadata,
-) -> (uuid::Uuid, rpc::Instance) {
+) -> (InstanceId, rpc::Instance) {
     let mut tenant_config = default_tenant_config();
     tenant_config.tenant_keyset_ids = keyset_ids;
 
@@ -82,7 +83,7 @@ pub async fn create_instance_with_ib_config(
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
     ib_config: rpc::forge::InstanceInfinibandConfig,
-) -> (uuid::Uuid, rpc::forge::Instance) {
+) -> (InstanceId, rpc::forge::Instance) {
     let config = config_for_ib_config(ib_config);
 
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
@@ -138,8 +139,8 @@ pub async fn create_instance_with_config(
     host_machine_id: &MachineId,
     config: rpc::InstanceConfig,
     instance_metadata: Option<rpc::Metadata>,
-) -> (uuid::Uuid, rpc::Instance) {
-    let instance_id: uuid::Uuid = env
+) -> (InstanceId, rpc::Instance) {
+    let instance_id: InstanceId = env
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
@@ -171,7 +172,7 @@ pub async fn advance_created_instance_into_ready_state(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
-    instance_id: uuid::Uuid,
+    instance_id: InstanceId,
 ) -> rpc::Instance {
     let handler = MachineStateHandler::new(
         chrono::Duration::minutes(5),
@@ -221,7 +222,7 @@ pub async fn advance_created_instance_into_ready_state(
 
 pub async fn delete_instance(
     env: &TestEnv,
-    instance_id: uuid::Uuid,
+    instance_id: InstanceId,
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
 ) {

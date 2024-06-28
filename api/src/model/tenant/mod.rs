@@ -17,12 +17,13 @@ use config_version::ConfigVersion;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+use crate::db::instance::InstanceId;
 use crate::model::RpcDataConversionError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum TenantError {
     #[error("Publickey validation fail for instance {0}, key {1}")]
-    PublickeyValidationFailed(uuid::Uuid, String),
+    PublickeyValidationFailed(InstanceId, String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -391,19 +392,14 @@ impl FromStr for TenantOrganizationId {
 }
 
 pub struct TenantPublicKeyValidationRequest {
-    pub instance_id: uuid::Uuid,
+    pub instance_id: InstanceId,
     pub public_key: String,
 }
 
 impl TryFrom<rpc::forge::ValidateTenantPublicKeyRequest> for TenantPublicKeyValidationRequest {
     type Error = RpcDataConversionError;
     fn try_from(value: rpc::forge::ValidateTenantPublicKeyRequest) -> Result<Self, Self::Error> {
-        let instance_id: uuid::Uuid = uuid::Uuid::parse_str(&value.instance_id).map_err(|_| {
-            RpcDataConversionError::InvalidUuid(
-                "Instance id is invalid in tenant public key validation",
-            )
-        })?;
-
+        let instance_id = InstanceId::from_str(&value.instance_id)?;
         Ok(TenantPublicKeyValidationRequest {
             instance_id,
             public_key: value.tenant_public_key,

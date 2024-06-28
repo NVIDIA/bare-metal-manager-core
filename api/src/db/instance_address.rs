@@ -22,6 +22,7 @@ use super::{
     address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
     UuidKeyedObjectFilter,
 };
+use crate::db::instance::InstanceId;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::network_segment::NetworkSegmentControllerState;
@@ -31,7 +32,7 @@ use crate::{CarbideError, CarbideResult};
 #[derive(Debug, FromRow, Clone)]
 pub struct InstanceAddress {
     pub id: Uuid,
-    pub instance_id: Uuid,
+    pub instance_id: InstanceId,
     pub circuit_id: String,
     pub address: IpAddr,
 }
@@ -60,7 +61,7 @@ impl InstanceAddress {
     pub async fn find_for_instance(
         txn: &mut Transaction<'_, Postgres>,
         filter: UuidKeyedObjectFilter<'_>,
-    ) -> Result<HashMap<Uuid, Vec<InstanceAddress>>, DatabaseError> {
+    ) -> Result<HashMap<InstanceId, Vec<InstanceAddress>>, DatabaseError> {
         let base_query = "SELECT * FROM instance_addresses isa {where}".to_owned();
 
         Ok(match filter {
@@ -93,11 +94,11 @@ impl InstanceAddress {
 
     pub async fn delete(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
     ) -> Result<(), DatabaseError> {
         // Lock MUST be taken by calling function.
         let query = "DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id";
-        let _: Vec<(uuid::Uuid,)> = sqlx::query_as(query)
+        let _: Vec<(InstanceId,)> = sqlx::query_as(query)
             .bind(instance_id)
             .fetch_all(&mut **txn)
             .await
@@ -173,7 +174,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
     /// Returns the updated configuration which includes allocated addresses
     pub async fn allocate(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         instance_network: &InstanceNetworkConfig,
     ) -> CarbideResult<InstanceNetworkConfig> {
         let mut updated_config = instance_network.clone();

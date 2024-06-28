@@ -10,7 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::{db::machine_interface::MachineInterface, model::machine::machine_id::MachineId};
+use carbide::{
+    db::instance::InstanceId, db::machine_interface::MachineInterface,
+    model::machine::machine_id::MachineId,
+};
 use common::api_fixtures::{create_test_env, TestEnv};
 use rpc::forge::{forge_server::Forge, PxeInstructions};
 
@@ -169,7 +172,7 @@ pub async fn create_instance(
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
     always_boot_with_ipxe: bool,
-) -> (uuid::Uuid, rpc::Instance) {
+) -> (InstanceId, rpc::Instance) {
     let mut os = default_os_config();
     match &mut os.variant {
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
