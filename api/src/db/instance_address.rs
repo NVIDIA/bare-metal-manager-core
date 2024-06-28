@@ -306,17 +306,18 @@ WHERE network_segments.id = $1::uuid";
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-    use config_version::{ConfigVersion, Versioned};
-
     use super::*;
+    use crate::db::vpc::VpcId;
     use crate::model::{
         controller_outcome::PersistentStateHandlerOutcome,
         instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
     };
+    use chrono::Utc;
+    use config_version::{ConfigVersion, Versioned};
+    use std::str::FromStr;
 
     fn create_valid_validation_data() -> Vec<NetworkSegment> {
-        let vpc_id = uuid::uuid!("11609f10-c11d-1101-3261-6293ea0c0100");
+        let vpc_id = VpcId::from_str("11609f10-c11d-1101-3261-6293ea0c0100").unwrap();
         let network_segments: Vec<NetworkSegment> = InterfaceFunctionId::iter_all()
             .enumerate()
             .map(|(idx, _function_id)| {
@@ -386,7 +387,7 @@ mod tests {
     fn validate_multiple_vpc_must_fail() {
         let mut data = create_valid_validation_data();
         let config = create_valid_network_config();
-        data[0].vpc_id = Some(uuid::Uuid::new_v4());
+        data[0].vpc_id = Some(uuid::Uuid::new_v4().into());
         assert!(InstanceAddress::validate(&data, &config).is_err());
     }
 

@@ -15,11 +15,11 @@ use std::str::FromStr;
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
+use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use super::DatabaseError;
-use crate::db::UuidKeyedObjectFilter;
 use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
 
@@ -32,9 +32,93 @@ use crate::{CarbideError, CarbideResult};
 const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
     VpcVirtualizationType::EthernetVirtualizer;
 
+/// VpcId is a strongly typed UUID specific to a VPC ID, with
+/// trait implementations allowing it to be passed around as
+/// a UUID, an RPC UUID, bound to sqlx queries, etc.
+#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[sqlx(type_name = "UUID")]
+pub struct VpcId(pub uuid::Uuid);
+
+impl From<VpcId> for uuid::Uuid {
+    fn from(id: VpcId) -> Self {
+        id.0
+    }
+}
+
+impl From<uuid::Uuid> for VpcId {
+    fn from(uuid: uuid::Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl FromStr for VpcId {
+    type Err = RpcDataConversionError;
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("VpcId")
+        })?))
+    }
+}
+
+impl fmt::Display for VpcId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<VpcId> for rpc::Uuid {
+    fn from(val: VpcId) -> Self {
+        Self {
+            value: val.to_string(),
+        }
+    }
+}
+
+impl TryFrom<rpc::Uuid> for VpcId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<Option<rpc::Uuid>> for VpcId {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+        let Some(input_uuid) = msg else {
+            return Err(CarbideError::MissingArgument("VpcId").into());
+        };
+        Ok(Self::try_from(input_uuid)?)
+    }
+}
+
+impl PgHasArrayType for VpcId {
+    fn array_type_info() -> PgTypeInfo {
+        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    }
+}
+
+///
+/// A parameter to find() to filter resources by VpcId;
+///
+#[derive(Clone)]
+pub enum VpcIdKeyedObjectFilter<'a> {
+    /// Don't filter by VpcId
+    All,
+
+    /// Filter by a list of VpcIds
+    List(&'a [VpcId]),
+
+    /// Retrieve a single resource
+    One(VpcId),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vpc {
-    pub id: uuid::Uuid,
+    pub id: VpcId,
     pub name: String,
     pub tenant_organization_id: String,
     pub version: ConfigVersion,
@@ -100,7 +184,7 @@ impl FromStr for VpcVirtualizationType {
 
 #[derive(Clone, Debug)]
 pub struct NewVpc {
-    pub id: uuid::Uuid,
+    pub id: VpcId,
     pub name: String,
     pub tenant_organization_id: String,
     pub network_virtualization_type: VpcVirtualizationType,
@@ -108,7 +192,7 @@ pub struct NewVpc {
 
 #[derive(Clone, Debug)]
 pub struct UpdateVpc {
-    pub id: uuid::Uuid,
+    pub id: VpcId,
     pub if_version_match: Option<ConfigVersion>,
     pub name: String,
     pub tenant_organization_id: String,
@@ -116,7 +200,7 @@ pub struct UpdateVpc {
 
 #[derive(Clone, Debug)]
 pub struct VpcSearchQuery {
-    pub id: Option<uuid::Uuid>,
+    pub id: Option<VpcId>,
     pub string: Option<String>,
 }
 
@@ -168,10 +252,7 @@ impl Vpc {
     pub async fn find_ids(
         txn: &mut Transaction<'_, Postgres>,
         filter: rpc::VpcSearchFilter,
-    ) -> Result<Vec<uuid::Uuid>, CarbideError> {
-        #[derive(Debug, Clone, Copy, FromRow)]
-        pub struct VpcId(uuid::Uuid);
-
+    ) -> Result<Vec<VpcId>, CarbideError> {
         // build query
         let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpcs WHERE ");
         let mut has_filter = false;
@@ -199,12 +280,12 @@ impl Vpc {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "vpc::find_ids", e))?;
 
-        Ok(ids.into_iter().map(|id| id.0).collect())
+        Ok(ids)
     }
 
     pub async fn set_vni(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        id: uuid::Uuid,
+        id: VpcId,
         vni: i32,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE vpcs SET vni = $1 WHERE id = $2 AND vni IS NULL";
@@ -219,17 +300,17 @@ impl Vpc {
 
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
+        filter: VpcIdKeyedObjectFilter<'_>,
     ) -> Result<Vec<Vpc>, DatabaseError> {
         let results: Vec<Vpc> = match filter {
-            UuidKeyedObjectFilter::All => {
+            VpcIdKeyedObjectFilter::All => {
                 let query = "SELECT * FROM vpcs WHERE deleted is NULL";
                 sqlx::query_as(query)
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
-            UuidKeyedObjectFilter::One(uuid) => {
+            VpcIdKeyedObjectFilter::One(uuid) => {
                 let query = "SELECT * FROM vpcs WHERE id = $1 and deleted is NULL";
                 sqlx::query_as(query)
                     .bind(uuid)
@@ -237,7 +318,7 @@ impl Vpc {
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
-            UuidKeyedObjectFilter::List(list) => {
+            VpcIdKeyedObjectFilter::List(list) => {
                 let query = "select * from vpcs WHERE id = ANY($1) and deleted is NULL";
                 sqlx::query_as(query)
                     .bind(list)
@@ -283,7 +364,7 @@ impl Vpc {
     /// If the VPC already had been delete, this returns Ok(`None`)
     pub async fn try_delete(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        id: uuid::Uuid,
+        id: VpcId,
     ) -> Result<Option<Self>, DatabaseError> {
         // TODO: Should this update the version?
         let query = "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 AND deleted is null RETURNING *";
@@ -321,8 +402,8 @@ impl TryFrom<rpc::VpcCreationRequest> for NewVpc {
             Some(v) => v.try_into()?,
         };
         let id = match value.id {
-            Some(v) => uuid::Uuid::try_from(v)?,
-            None => uuid::Uuid::new_v4(),
+            Some(v) => VpcId::try_from(v)?,
+            None => VpcId::from(uuid::Uuid::new_v4()),
         };
         Ok(NewVpc {
             id,
@@ -366,9 +447,11 @@ impl UpdateVpc {
         let current_version = match self.if_version_match {
             Some(version) => version,
             None => {
-                let vpcs = Vpc::find(txn, UuidKeyedObjectFilter::One(self.id)).await?;
+                let vpcs = Vpc::find(txn, VpcIdKeyedObjectFilter::One(self.id)).await?;
                 if vpcs.len() != 1 {
-                    return Err(CarbideError::FindOneReturnedManyResultsError(self.id));
+                    return Err(CarbideError::FindOneReturnedManyResultsError(
+                        self.id.into(),
+                    ));
                 }
                 vpcs[0].version
             }

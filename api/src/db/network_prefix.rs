@@ -18,6 +18,7 @@ use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::DatabaseError;
+use crate::db::vpc::VpcId;
 use crate::db::UuidKeyedObjectFilter;
 use crate::CarbideError;
 
@@ -162,7 +163,7 @@ impl NetworkPrefix {
     // all of the network prefixes from that.
     pub async fn find_by_vpc(
         txn: &mut Transaction<'_, Postgres>,
-        vpc_id: uuid::Uuid,
+        vpc_id: VpcId,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let query = "SELECT np.* FROM network_prefixes np INNER JOIN network_segments ns ON np.segment_id = ns.id WHERE ns.vpc_id = $1";
 

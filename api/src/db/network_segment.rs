@@ -16,6 +16,7 @@ use std::str::FromStr;
 
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine_interface::UsedAdminNetworkIpResolver;
+use crate::db::vpc::VpcId;
 use crate::dhcp::allocation::IpAllocator;
 use ::rpc::forge as rpc;
 use ::rpc::protos::forge::TenantState;
@@ -67,7 +68,7 @@ pub struct NetworkSegment {
     pub version: ConfigVersion,
     pub name: String,
     pub subdomain_id: Option<uuid::Uuid>,
-    pub vpc_id: Option<uuid::Uuid>,
+    pub vpc_id: Option<VpcId>,
     pub mtu: i32,
 
     pub controller_state: Versioned<NetworkSegmentControllerState>,
@@ -109,7 +110,7 @@ pub enum NetworkSegmentType {
 pub struct NewNetworkSegment {
     pub name: String,
     pub subdomain_id: Option<uuid::Uuid>,
-    pub vpc_id: Option<uuid::Uuid>,
+    pub vpc_id: Option<VpcId>,
     pub mtu: i32,
     pub prefixes: Vec<NewNetworkPrefix>,
     pub vlan_id: Option<i16>,
@@ -248,7 +249,7 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
                 None => None,
             },
             vpc_id: match value.vpc_id {
-                Some(v) => Some(uuid::Uuid::try_from(v)?),
+                Some(v) => Some(VpcId::try_from(v)?),
                 None => None,
             },
             mtu: value.mtu.unwrap_or(match segment_type {

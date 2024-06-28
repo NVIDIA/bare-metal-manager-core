@@ -14,8 +14,8 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
-use crate::db::vpc::{NewVpc, UpdateVpc, Vpc};
-use crate::db::{DatabaseError, UuidKeyedObjectFilter};
+use crate::db::vpc::{NewVpc, UpdateVpc, Vpc, VpcId, VpcIdKeyedObjectFilter};
+use crate::db::DatabaseError;
 use crate::model::RpcDataConversionError;
 use crate::CarbideError;
 
@@ -80,7 +80,7 @@ pub(crate) async fn delete(
 
     // TODO: This needs to validate that nothing references the VPC anymore
     // (like NetworkSegments)
-    let vpc_id: uuid::Uuid = request
+    let vpc_id: VpcId = request
         .into_inner()
         .id
         .ok_or(CarbideError::MissingArgument("id"))?
@@ -162,12 +162,12 @@ pub(crate) async fn find_by_ids(
         ))
     })?;
 
-    let vpc_ids: Result<Vec<uuid::Uuid>, CarbideError> = request
+    let vpc_ids: Result<Vec<VpcId>, CarbideError> = request
         .into_inner()
         .vpc_ids
         .iter()
         .map(|id| {
-            uuid::Uuid::try_from(id.value.as_str()).map_err(|_| {
+            VpcId::try_from(id.clone()).map_err(|_| {
                 CarbideError::from(RpcDataConversionError::InvalidVpcId(id.value.to_string()))
             })
         })
@@ -186,7 +186,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let db_vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::List(&vpc_ids)).await;
+    let db_vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::List(&vpc_ids)).await;
 
     let result = db_vpcs
         .map(|vpc| rpc::VpcList {
@@ -213,8 +213,8 @@ pub(crate) async fn find(
 
     let vpcs = match (id, name) {
         (Some(id), _) => {
-            let uuid = match uuid::Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+            let uuid = match VpcId::try_from(id) {
+                Ok(uuid) => VpcIdKeyedObjectFilter::One(uuid),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
                         "Supplied invalid UUID: {}",
@@ -225,7 +225,7 @@ pub(crate) async fn find(
             Vpc::find(&mut txn, uuid).await
         }
         (None, Some(name)) => Vpc::find_by_name(&mut txn, &name).await,
-        (None, None) => Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await,
+        (None, None) => Vpc::find(&mut txn, VpcIdKeyedObjectFilter::All).await,
     };
 
     let result = vpcs
