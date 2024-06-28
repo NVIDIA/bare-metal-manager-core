@@ -145,7 +145,7 @@ async fn download(
     fake_sleep: Option<Duration>,
 ) -> Result<(), Report> {
     // Actual downloader.  We aren't able to return errors to callers here, we just print to the log, and will retry on the next request.
-    let dirname = match Path::file_name(filename) {
+    let dirname = match Path::parent(filename) {
         Some(x) => x.to_string_lossy().to_string(),
         None => {
             return Err(eyre!(
