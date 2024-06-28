@@ -61,8 +61,8 @@ pub enum RpcDataConversionError {
     InvalidTenantOrg(String),
     #[error("Interface Function Type {0} is not valid")]
     InvalidInterfaceFunctionType(i32),
-    #[error("Invalid UUID for field {0}")]
-    InvalidUuid(&'static str),
+    #[error("Invalid UUID for field of type {0}: {1}")]
+    InvalidUuid(&'static str, String),
     #[error("Argument {0} is missing")]
     MissingArgument(&'static str),
     #[error("Machine state {0} is invalid")]

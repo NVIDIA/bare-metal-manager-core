@@ -147,7 +147,7 @@ impl FromStr for MeasurementSystemProfileId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementSystemProfileId")
+            RpcDataConversionError::InvalidUuid("MeasurementSystemProfileId", input.to_string())
         })?))
     }
 }
@@ -218,7 +218,7 @@ impl FromStr for MeasurementSystemProfileAttrId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementSystemProfileAttrId")
+            RpcDataConversionError::InvalidUuid("MeasurementSystemProfileAttrId", input.to_string())
         })?))
     }
 }
@@ -284,7 +284,7 @@ impl FromStr for MeasurementBundleId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementBundleId")
+            RpcDataConversionError::InvalidUuid("MeasurementBundleId", input.to_string())
         })?))
     }
 }
@@ -365,7 +365,7 @@ impl FromStr for MeasurementBundleValueId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementBundleValueId")
+            RpcDataConversionError::InvalidUuid("MeasurementBundleValueId", input.to_string())
         })?))
     }
 }
@@ -431,7 +431,7 @@ impl FromStr for MeasurementReportId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementReportId")
+            RpcDataConversionError::InvalidUuid("MeasurementReportId", input.to_string())
         })?))
     }
 }
@@ -501,7 +501,7 @@ impl FromStr for MeasurementReportValueId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementReportValueId")
+            RpcDataConversionError::InvalidUuid("MeasurementReportValueId", input.to_string())
         })?))
     }
 }
@@ -567,7 +567,7 @@ impl FromStr for MeasurementJournalId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementJournalId")
+            RpcDataConversionError::InvalidUuid("MeasurementJournalId", input.to_string())
         })?))
     }
 }
@@ -641,7 +641,7 @@ impl FromStr for MeasurementApprovedMachineId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementApprovedMachineId")
+            RpcDataConversionError::InvalidUuid("MeasurementApprovedMachineId", input.to_string())
         })?))
     }
 }
@@ -715,7 +715,7 @@ impl FromStr for MeasurementApprovedProfileId {
 
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("MeasurementApprovedProfileId")
+            RpcDataConversionError::InvalidUuid("MeasurementApprovedProfileId", input.to_string())
         })?))
     }
 }

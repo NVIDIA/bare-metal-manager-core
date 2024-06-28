@@ -206,9 +206,13 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                     .ok_or(RpcDataConversionError::MissingArgument(
                         "InstanceInterfaceConfig::network_segment_id",
                     ))?;
-            let network_segment_id = uuid::Uuid::try_from(network_segment_id).map_err(|_| {
-                RpcDataConversionError::InvalidUuid("InstanceInterfaceConfig::network_segment_id")
-            })?;
+            let network_segment_id =
+                uuid::Uuid::try_from(network_segment_id.clone()).map_err(|_| {
+                    RpcDataConversionError::InvalidUuid(
+                        "InstanceInterfaceConfig::network_segment_id",
+                        network_segment_id.value,
+                    )
+                })?;
 
             interfaces.push(InstanceInterfaceConfig {
                 function_id,

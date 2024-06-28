@@ -117,8 +117,11 @@ impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
                     .ok_or(RpcDataConversionError::MissingArgument(
                         "InstanceIbInterfaceConfig::ib_partition_id",
                     ))?;
-            let ib_partition_id = uuid::Uuid::try_from(ib_partition_id).map_err(|_| {
-                RpcDataConversionError::InvalidUuid("InstanceIbInterfaceConfig::ib_partition_id")
+            let ib_partition_id = uuid::Uuid::try_from(ib_partition_id.clone()).map_err(|_| {
+                RpcDataConversionError::InvalidUuid(
+                    "InstanceIbInterfaceConfig::ib_partition_id",
+                    ib_partition_id.value,
+                )
             })?;
 
             ib_interfaces.push(InstanceIbInterfaceConfig {
