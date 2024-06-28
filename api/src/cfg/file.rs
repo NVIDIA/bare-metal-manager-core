@@ -735,7 +735,7 @@ impl FirmwareEntry {
         }
     }
     pub fn get_checksum(&self) -> String {
-        match &self.url {
+        match &self.checksum {
             None => "".to_string(),
             Some(checksum) => checksum.to_owned(),
         }
