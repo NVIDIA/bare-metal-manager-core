@@ -311,10 +311,37 @@ workspace = false
 dependencies = ["build-debug-test-prerequisites", "test"]
 workspace = false
 
+[tasks.check-measured-boot-endpoints-enabled]
+workspace = false
+description = "Check if measured boot endpoints are not disabled"
+dependencies = ["build-release"]
+script = '''
+RESULT1=`strings target/release/carbide-api|grep "Could not unmarshal AK Pub"`
+RESULT2=`strings target/release/carbide-api|grep "Could not unmarshall Attest struct"`
+
+if [ -z "$RESULT1" ] || [ -z "$RESULT2" ]; then
+  @@fail
+fi
+'''
+
+[tasks.build-release]
+args = ["build", "--release", "--features", "carbide-api/tss-esapi", "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )"]
+
+[tasks.build-release-forge-admin-cli]
+description = "Builds forge-admin-cli separately to avoid tss-esapi dependency"
+category = "Build"
+install_crate = false
+toolchain = "${CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN}"
+command = "cargo"
+args = ["build", "--release", "-p", "admin", "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )"]
+dependencies = ["build-release"] # need to make sure the "wrong" forge-admin-cli is built first so that we could overwrite it
+
 [tasks.build-and-test-release-container-services]
 workspace = false
 dependencies = [
   "build-release", # Start with release builds, since some artifacts are used in integration tests
+  "build-release-forge-admin-cli",
+  "check-measured-boot-endpoints-enabled",
   "test-flow", # Then run all tests
 ]
 

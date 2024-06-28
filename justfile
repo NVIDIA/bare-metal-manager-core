@@ -2,7 +2,7 @@
 export DOCKER_BUILDKIT := "1"
 
 components_dir := "api pxe dns dhcp dev/bmc-mock admin"
-components_name := "carbide-api carbide-pxe carbide-dns dhcp bmc-mock admin"
+components_name := "\"carbide-api --features carbide-api/tss-esapi\" carbide-pxe carbide-dns dhcp bmc-mock admin"
 
 # Start cargo-watch for components "{{components}}"
 watch: check forged-link skaffold-dirs

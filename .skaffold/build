@@ -9,9 +9,12 @@ else
   IMAGE_NAME="registry.minikube/build-container:latest"
 fi
 
+# get the first word from this string
+COMPONENT=`echo $1 | cut -d" " -f1`
+
 docker run --rm -v $REPO_ROOT:/carbide \
-  -e CARGO_TARGET_DIR=/target/$1 \
-  -e CARGO_HOME=/cache/cargo/$1 \
+  -e CARGO_TARGET_DIR=/target/$COMPONENT \
+  -e CARGO_HOME=/cache/cargo/$COMPONENT \
   -e SCCACHE_DIR=/cache/sccache \
   -v $REPO_ROOT/.skaffold/target:/target \
   -v $REPO_ROOT/.skaffold/cache:/cache \
