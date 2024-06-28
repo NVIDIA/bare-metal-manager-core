@@ -76,9 +76,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
         // If the Tenant provides an instance ID use this one
         // Otherwise create a random ID
         let instance_id = match request.instance_id {
-            Some(id) => id
-                .try_into()
-                .map_err(|_| RpcDataConversionError::InvalidUuid("instance_id"))?,
+            Some(id) => id.try_into()?,
             None => InstanceId::from(uuid::Uuid::new_v4()),
         };
 

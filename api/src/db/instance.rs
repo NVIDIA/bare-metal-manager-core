@@ -71,7 +71,7 @@ impl FromStr for InstanceId {
     type Err = RpcDataConversionError;
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("InstanceId")
+            RpcDataConversionError::InvalidUuid("InstanceId", input.to_string())
         })?))
     }
 }
@@ -101,7 +101,11 @@ impl TryFrom<Option<rpc::Uuid>> for InstanceId {
     type Error = Box<dyn std::error::Error>;
     fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
-            return Err(CarbideError::MissingArgument("InstanceId").into());
+            // TODO(chet): Maybe this isn't the right place for this, since
+            // depending on the proto message, the field name can differ (which
+            // should actually probably be standardized anyway), or we can just
+            // take a similar approach to ::InvalidUuid can say "field of type"?
+            return Err(CarbideError::MissingArgument("instance_id").into());
         };
         Ok(Self::try_from(input_uuid)?)
     }

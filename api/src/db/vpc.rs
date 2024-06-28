@@ -55,7 +55,7 @@ impl FromStr for VpcId {
     type Err = RpcDataConversionError;
     fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
         Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
-            RpcDataConversionError::InvalidUuid("VpcId")
+            RpcDataConversionError::InvalidUuid("VpcId", input.to_string())
         })?))
     }
 }
