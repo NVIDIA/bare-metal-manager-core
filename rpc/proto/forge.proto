@@ -191,6 +191,8 @@ service Forge {
   // List DPUs waiting for reprovisioning
   rpc ListDpuWaitingForReprovisioning(DpuReprovisioningListRequest) returns (DpuReprovisioningListResponse);
 
+  rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
+
   // Trigger DPU reset. It works only if DPU is in DPU Not Ready state.
   // This is temporary command added to support MC team. It must be removed once site-explorere
   // is enabled on all the envs. This command modifies state directly, which can cause conflicts
@@ -2363,6 +2365,20 @@ message DpuReprovisioningListResponse {
   }
   repeated DpuReprovisioningListItem dpus = 1;
 }
+
+message DpuInfo {
+  string id = 1;
+  string loopback_ip = 2;
+}
+
+message GetDpuInfoListRequest {
+
+}
+
+message GetDpuInfoListResponse {
+  repeated DpuInfo dpu_list = 1;
+}
+
 
 message IpAddressMatch {
   IpType ip_type = 1;

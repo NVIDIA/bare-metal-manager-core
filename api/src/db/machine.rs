@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, DpuInfo};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
@@ -1669,6 +1669,34 @@ SELECT m.id FROM
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(())
+    }
+
+    /// Find a list of dpu information
+    ///
+    /// Returns: `Vec<DpuInfo>` - A list of DPU information of DPU id and loopback Ip addresses
+    ///
+    /// Arguments
+    ///
+    /// * `txn` - A reference to currently open database transaction
+    ///
+    pub async fn find_dpu_ids_and_loopback_ips(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<DpuInfo>, DatabaseError> {
+        // Get all DPU IP addresses except the requester DPU machine
+        let query = "
+        SELECT id, network_config->>'loopback_ip' AS loopback_ip
+        FROM machines
+        WHERE network_config->>'loopback_ip' IS NOT NULL";
+
+        let dpu_infos: Vec<DpuInfo> = sqlx::query_as(query)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+            .into_iter()
+            .map(|(id, loopback_ip)| DpuInfo { id, loopback_ip })
+            .collect();
+
+        Ok(dpu_infos)
     }
 }
 
