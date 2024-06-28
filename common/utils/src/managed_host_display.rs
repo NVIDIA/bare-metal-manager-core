@@ -15,6 +15,9 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use tracing::warn;
+
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     ConnectedDevice, GetSiteExplorationRequest, MachineIdList, MachineType, NetworkDevice,
@@ -22,9 +25,7 @@ use rpc::forge::{
 };
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::ExploredManagedHost;
-use rpc::{Machine, MachineId, Timestamp};
-use serde::{Deserialize, Serialize};
-use tracing::warn;
+use rpc::{DiscoveryInfo, Machine, MachineId, Timestamp};
 
 macro_rules! get_dmi_data_from_machine {
     ($m:ident, $d:ident) => {
@@ -126,6 +127,7 @@ impl ManagedHostMetadata {
 
 #[derive(Default, Serialize, Deserialize, PartialEq)]
 pub struct ManagedHostOutput {
+    pub discovery_info: DiscoveryInfo,
     pub hostname: Option<String>,
     pub machine_id: Option<String>,
     pub state: String,
@@ -157,6 +159,7 @@ impl From<&Machine> for ManagedHostOutput {
         let primary_interface = machine.interfaces.iter().find(|i| i.primary_interface);
 
         ManagedHostOutput {
+            discovery_info: machine.discovery_info.clone().unwrap_or_default(),
             hostname: primary_interface
                 .as_ref()
                 .map(|i| i.hostname.clone())
@@ -213,6 +216,7 @@ impl From<&Machine> for ManagedHostOutput {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ManagedHostAttachedDpu {
+    pub discovery_info: DiscoveryInfo,
     pub machine_id: Option<String>,
     pub serial_number: Option<String>,
     pub bios_version: Option<String>,
@@ -269,8 +273,9 @@ impl ManagedHostAttachedDpu {
         };
 
         let result = ManagedHostAttachedDpu {
+            discovery_info: dpu_machine.discovery_info.clone().unwrap_or_default(),
             machine_id: Some(dpu_machine_id.to_string()),
-            serial_number: get_dmi_data_from_machine!(dpu_machine, chassis_serial),
+            serial_number: get_dmi_data_from_machine!(dpu_machine, product_serial),
             bios_version: get_dmi_data_from_machine!(dpu_machine, bios_version),
             bmc_ip: get_bmc_info_from_machine!(dpu_machine, ip),
             bmc_mac: get_bmc_info_from_machine!(dpu_machine, mac),
