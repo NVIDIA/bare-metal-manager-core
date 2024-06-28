@@ -727,7 +727,11 @@ async fn initiate_update(
         endpoint_clone.address
     );
     let task = match redfish_client
-        .update_firmware_multipart(to_install.get_filename().as_path(), true)
+        .update_firmware_multipart(
+            to_install.get_filename().as_path(),
+            true,
+            Duration::from_secs(120),
+        )
         .await
     {
         Ok(task) => task,

@@ -21,7 +21,7 @@ use libredfish::{
     RedfishError, RoleId, SystemPowerControl,
 };
 use prettytable::{row, Table};
-use std::path::Path;
+use std::{path::Path, time::Duration};
 use tracing::warn;
 
 use super::cfg::carbide_options::RedfishCommand;
@@ -264,7 +264,11 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         UpdateFirmwareMultipart(details) => {
             let taskid = redfish
-                .update_firmware_multipart(Path::new(&details.filename), true)
+                .update_firmware_multipart(
+                    Path::new(&details.filename),
+                    true,
+                    Duration::from_secs(120),
+                )
                 .await?;
             loop {
                 let task = redfish.get_task(&taskid).await?;

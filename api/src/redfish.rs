@@ -912,6 +912,7 @@ impl Redfish for RedfishSimClient {
         &self,
         _filename: &Path,
         _reboot: bool,
+        _timeout: Duration,
     ) -> Result<String, RedfishError> {
         // Simulate it taking a bit of time to upload
         time::sleep(Duration::from_secs(4)).await;
