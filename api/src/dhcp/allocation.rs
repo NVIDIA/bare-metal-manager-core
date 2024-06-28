@@ -17,8 +17,8 @@ use sqlx::{Postgres, Transaction};
 
 use crate::{
     db::{
-        address_selection_strategy::AddressSelectionStrategy, network_segment::NetworkSegment,
-        DatabaseError,
+        address_selection_strategy::AddressSelectionStrategy, instance::InstanceId,
+        network_segment::NetworkSegment, DatabaseError,
     },
     CarbideError, CarbideResult,
 };
@@ -35,16 +35,16 @@ pub trait UsedIpResolver {
 #[derive(thiserror::Error, Debug)]
 pub enum DhcpError {
     #[error("Missing circuit id received for instance id: {0}")]
-    MissingCircuitId(uuid::Uuid),
+    MissingCircuitId(InstanceId),
 
     #[error("Missing circuit id received for machine id: {0}")]
     MissingCircuitIdForMachine(String),
 
     #[error("Invalid circuit id received for instance id: {0}, circuit_id: {1}")]
-    InvalidCircuitId(uuid::Uuid, String),
+    InvalidCircuitId(InstanceId, String),
 
     #[error("DHCP request received for invalid or non-configured interface for instance id: {0}, circuit_id: {1}")]
-    InvalidInterface(uuid::Uuid, String),
+    InvalidInterface(InstanceId, String),
 
     #[error("Prefix: {0} has exhausted all address space")]
     PrefixExhausted(IpAddr),

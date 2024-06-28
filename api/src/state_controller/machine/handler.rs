@@ -28,7 +28,7 @@ use crate::{
     cfg::{DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel},
     db::{
         ib_partition,
-        instance::{DeleteInstance, Instance},
+        instance::{DeleteInstance, Instance, InstanceId},
         machine::Machine,
         machine_topology::MachineTopology,
     },
@@ -2880,7 +2880,7 @@ async fn record_infiniband_status_observation(
 async fn bind_ib_ports(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    instance_id: uuid::Uuid,
+    instance_id: InstanceId,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
@@ -2932,7 +2932,7 @@ async fn bind_ib_ports(
 async fn unbind_ib_ports(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    instance_id: uuid::Uuid,
+    instance_id: InstanceId,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
     let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();

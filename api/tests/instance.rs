@@ -20,7 +20,7 @@ use carbide::{
     cfg::default_dpu_models,
     db::{
         dhcp_record::InstanceDhcpRecord,
-        instance::Instance,
+        instance::{Instance, InstanceId},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
         ObjectFilter,
@@ -576,7 +576,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
         rpc::TenantState::Provisioning
     );
 
-    let instance_id: uuid::Uuid = instance
+    let instance_id: InstanceId = instance
         .id
         .expect("Missing instance ID")
         .try_into()
@@ -1086,7 +1086,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_sim.config).await;
 
     let request = InstanceAllocationRequest {
-        instance_id: uuid::Uuid::new_v4(),
+        instance_id: InstanceId::from(uuid::Uuid::new_v4()),
         machine_id: try_parse_machine_id(&dpu_machine_id).unwrap(),
         config: InstanceConfig {
             os: default_os_config().try_into().unwrap(),

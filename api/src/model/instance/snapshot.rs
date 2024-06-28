@@ -12,6 +12,7 @@
 
 use config_version::{ConfigVersion, Versioned};
 
+use crate::db::instance::InstanceId;
 use crate::model::{
     instance::{
         config::InstanceConfig,
@@ -29,7 +30,7 @@ use crate::model::{
 #[derive(Debug, Clone)]
 pub struct InstanceSnapshot {
     /// Instance ID
-    pub instance_id: uuid::Uuid,
+    pub instance_id: InstanceId,
     /// Machine ID
     pub machine_id: MachineId,
 

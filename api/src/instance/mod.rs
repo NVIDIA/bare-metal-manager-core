@@ -16,7 +16,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use crate::{
     db::{
         ib_partition::{self, IBPartition, IBPartitionSearchConfig},
-        instance::{Instance, NewInstance},
+        instance::{Instance, InstanceId, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
         network_segment::NetworkSegment,
@@ -50,7 +50,7 @@ pub struct InstanceAllocationRequest {
     // The Machine on top of which we create an Instance
     pub machine_id: MachineId,
     // Desired ID for the new instance
-    pub instance_id: uuid::Uuid,
+    pub instance_id: InstanceId,
 
     // Desired configuration of the instance
     pub config: InstanceConfig,
@@ -79,7 +79,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             Some(id) => id
                 .try_into()
                 .map_err(|_| RpcDataConversionError::InvalidUuid("instance_id"))?,
-            None => uuid::Uuid::new_v4(),
+            None => InstanceId::from(uuid::Uuid::new_v4()),
         };
 
         let metadata = match request.metadata {
@@ -253,7 +253,7 @@ pub async fn allocate_instance(
 
 pub async fn circuit_id_to_function_id(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    instance_id: uuid::Uuid,
+    instance_id: InstanceId,
     network_config: &InstanceNetworkConfig,
     circuit_id: String,
 ) -> CarbideResult<InterfaceFunctionId> {

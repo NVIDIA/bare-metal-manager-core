@@ -12,9 +12,11 @@
 
 use crate::api::{log_machine_id, log_request_data, Api};
 use crate::db::bmc_metadata::UserRoles;
-use crate::db::instance::{DeleteInstance, FindInstanceTypeFilter, Instance};
+use crate::db::instance::{
+    DeleteInstance, FindInstanceTypeFilter, Instance, InstanceId, InstanceIdKeyedObjectFilter,
+};
 use crate::db::machine::Machine;
-use crate::db::{DatabaseError, UuidKeyedObjectFilter};
+use crate::db::DatabaseError;
 use crate::instance::{allocate_instance, InstanceAllocationRequest};
 use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
@@ -27,6 +29,7 @@ use crate::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSna
 use crate::CarbideError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::CredentialKey;
+use std::str::FromStr;
 use tonic::{Request, Response, Status};
 
 pub(crate) async fn allocate(
@@ -87,12 +90,12 @@ pub(crate) async fn find_by_ids(
         ))
     })?;
 
-    let instance_ids: Result<Vec<uuid::Uuid>, CarbideError> = request
+    let instance_ids: Result<Vec<InstanceId>, CarbideError> = request
         .into_inner()
         .instance_ids
         .iter()
         .map(|id| {
-            uuid::Uuid::try_from(id.value.as_str()).map_err(|_| {
+            InstanceId::from_str(id.value.as_str()).map_err(|_| {
                 CarbideError::from(RpcDataConversionError::InvalidInstanceId(
                     id.value.to_string(),
                 ))
@@ -115,7 +118,7 @@ pub(crate) async fn find_by_ids(
 
     let db_instances = Instance::find(
         &mut txn,
-        FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::List(&instance_ids)),
+        FindInstanceTypeFilter::Id(&InstanceIdKeyedObjectFilter::List(&instance_ids)),
     )
     .await?;
 
@@ -159,8 +162,8 @@ pub(crate) async fn find(
     // and InstanceSnapshotLoader do redundant jobs
     let raw_instances = match (id, label) {
         (Some(id), None) => {
-            let uuid = match uuid::Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+            let uuid = match InstanceId::try_from(id) {
+                Ok(uuid) => InstanceIdKeyedObjectFilter::One(uuid),
                 Err(_err) => {
                     return Err(CarbideError::InvalidArgument("id".to_string()).into());
                 }
@@ -171,7 +174,7 @@ pub(crate) async fn find(
         }
         (None, None) => Instance::find(
             &mut txn,
-            FindInstanceTypeFilter::Id(&UuidKeyedObjectFilter::All),
+            FindInstanceTypeFilter::Id(&InstanceIdKeyedObjectFilter::All),
         )
         .await
         .map_err(CarbideError::from),
@@ -308,13 +311,7 @@ pub(crate) async fn record_observed_network_status(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let instance_id = uuid::Uuid::try_from(
-        request
-            .instance_id
-            .clone()
-            .ok_or(CarbideError::MissingArgument("instance_id"))?,
-    )
-    .map_err(CarbideError::from)?;
+    let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
 
     let observation =
         InstanceNetworkStatusObservation::try_from(request).map_err(CarbideError::from)?;
@@ -352,12 +349,7 @@ pub(crate) async fn update_phone_home_last_contact(
     request: Request<rpc::InstancePhoneHomeLastContactRequest>,
 ) -> Result<Response<rpc::InstancePhoneHomeLastContactResponse>, Status> {
     let request = request.into_inner();
-    let instance_id = match request.instance_id {
-        Some(id) => uuid::Uuid::try_from(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("instance_id").into());
-        }
-    };
+    let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -560,12 +552,8 @@ pub(crate) async fn update_operating_system(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let instance_id = match request.instance_id {
-        Some(id) => uuid::Uuid::try_from(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("instance_id").into());
-        }
-    };
+    let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
+
     let os: OperatingSystem = match request.os {
         None => return Err(CarbideError::MissingArgument("os").into()),
         Some(os) => os.try_into().map_err(CarbideError::from)?,
@@ -629,12 +617,8 @@ pub(crate) async fn update_instance_config(
     request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
 ) -> Result<tonic::Response<rpc::Instance>, Status> {
     let request = request.into_inner();
-    let instance_id = match request.instance_id {
-        Some(id) => uuid::Uuid::try_from(id).map_err(CarbideError::from)?,
-        None => {
-            return Err(CarbideError::MissingArgument("instance_id").into());
-        }
-    };
+    let instance_id = InstanceId::from_grpc(request.instance_id.clone())?;
+
     let config: InstanceConfig = match request.config {
         None => return Err(CarbideError::MissingArgument("config").into()),
         Some(config) => config.try_into().map_err(CarbideError::from)?,

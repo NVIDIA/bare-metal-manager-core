@@ -20,6 +20,7 @@ use tonic::Status;
 use crate::{
     db::{
         domain::Domain,
+        instance::InstanceId,
         machine_interface::MachineInterface,
         machine_interface_address::MachineInterfaceAddress,
         network_prefix::NetworkPrefix,
@@ -143,7 +144,7 @@ pub async fn admin_network(
 
 pub async fn tenant_network(
     txn: &mut Transaction<'_, Postgres>,
-    instance_id: uuid::Uuid,
+    instance_id: InstanceId,
     iface: &InstanceInterfaceConfig,
     physical_ip: IpAddr,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {

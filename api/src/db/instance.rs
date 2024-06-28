@@ -11,17 +11,21 @@
  */
 
 use std::collections::HashMap;
+use std::fmt;
 use std::net::IpAddr;
+use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
+use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
-use super::{DatabaseError, UuidKeyedObjectFilter};
+use super::DatabaseError;
 use crate::model::instance::config::InstanceConfig;
 use crate::model::os::{IpxeOperatingSystem, OperatingSystemVariant};
+use crate::model::RpcDataConversionError;
 use crate::{
     db::{instance_address::InstanceAddress, machine::DbMachineId},
     model::{
@@ -40,10 +44,104 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
+use tonic::Status;
+
+/// InstanceId is a strongly typed UUID specific to an instance ID,
+/// with trait implementations allowing it to be passed around as
+/// a UUID, an RPC UUID, bound to sqlx queries, etc. This is similar
+/// to what we do for MachineId, VpcId, and basically all of the IDs
+/// in measured boot.
+#[derive(Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[sqlx(type_name = "UUID")]
+pub struct InstanceId(pub uuid::Uuid);
+
+impl From<InstanceId> for uuid::Uuid {
+    fn from(id: InstanceId) -> Self {
+        id.0
+    }
+}
+
+impl From<uuid::Uuid> for InstanceId {
+    fn from(uuid: uuid::Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl FromStr for InstanceId {
+    type Err = RpcDataConversionError;
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("InstanceId")
+        })?))
+    }
+}
+
+impl fmt::Display for InstanceId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<InstanceId> for rpc::Uuid {
+    fn from(val: InstanceId) -> Self {
+        Self {
+            value: val.to_string(),
+        }
+    }
+}
+
+impl TryFrom<rpc::Uuid> for InstanceId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<Option<rpc::Uuid>> for InstanceId {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+        let Some(input_uuid) = msg else {
+            return Err(CarbideError::MissingArgument("InstanceId").into());
+        };
+        Ok(Self::try_from(input_uuid)?)
+    }
+}
+
+impl InstanceId {
+    pub fn from_grpc(msg: Option<rpc::Uuid>) -> Result<Self, Status> {
+        Self::try_from(msg)
+            .map_err(|e| Status::invalid_argument(format!("bad grpc instance ID: {}", e)))
+    }
+}
+
+impl PgHasArrayType for InstanceId {
+    fn array_type_info() -> PgTypeInfo {
+        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    }
+}
+
+///
+/// A parameter to find() to filter resources by InstanceId;
+///
+#[derive(Clone)]
+pub enum InstanceIdKeyedObjectFilter<'a> {
+    /// Don't filter by InstanceId
+    All,
+
+    /// Filter by a list of InstanceIds
+    List(&'a [InstanceId]),
+
+    /// Retrieve a single resource
+    One(InstanceId),
+}
 
 #[derive(Debug, Clone)]
 pub struct Instance {
-    pub id: uuid::Uuid,
+    pub id: InstanceId,
     pub machine_id: MachineId,
     pub requested: DateTime<Utc>,
     pub started: DateTime<Utc>,
@@ -66,8 +164,8 @@ pub struct InstanceList {
 }
 
 pub struct NewInstance<'a> {
+    pub instance_id: InstanceId,
     pub machine_id: MachineId,
-    pub instance_id: uuid::Uuid,
     pub config: &'a InstanceConfig,
     pub metadata: Metadata,
     pub config_version: ConfigVersion,
@@ -76,11 +174,11 @@ pub struct NewInstance<'a> {
 }
 
 pub struct DeleteInstance {
-    pub instance_id: uuid::Uuid,
+    pub instance_id: InstanceId,
 }
 
 pub enum FindInstanceTypeFilter<'a> {
-    Id(&'a UuidKeyedObjectFilter<'a>),
+    Id(&'a InstanceIdKeyedObjectFilter<'a>),
     Label(&'a rpc::Label),
 }
 
@@ -188,12 +286,8 @@ impl Instance {
     pub async fn find_ids(
         txn: &mut Transaction<'_, Postgres>,
         filter: rpc::InstanceSearchFilter,
-    ) -> Result<Vec<uuid::Uuid>, CarbideError> {
+    ) -> Result<Vec<InstanceId>, CarbideError> {
         let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances ");
-
-        #[derive(Debug, Clone, Copy, FromRow)]
-        pub struct InstanceId(uuid::Uuid);
-
         let mut has_filter = false;
         if let Some(label) = filter.label {
             if label.key.is_empty() && label.value.is_some() {
@@ -239,7 +333,7 @@ impl Instance {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "instance::find_ids", e))?;
 
-        Ok(ids.into_iter().map(|id| id.0).collect())
+        Ok(ids)
     }
 
     pub async fn find(
@@ -250,20 +344,20 @@ impl Instance {
 
         let all_instances: Vec<Instance> = match filter {
             FindInstanceTypeFilter::Id(id) => match id {
-                UuidKeyedObjectFilter::All => {
+                InstanceIdKeyedObjectFilter::All => {
                     sqlx::query_as::<_, Instance>(&base_query_for_id.replace("{where}", ""))
                         .fetch_all(&mut **txn)
                         .await
                         .map_err(|e| DatabaseError::new(file!(), line!(), "instances All", e))?
                 }
-                UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, Instance>(
+                InstanceIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, Instance>(
                     &base_query_for_id.replace("{where}", "WHERE m.id=$1"),
                 )
                 .bind(uuid)
                 .fetch_all(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "instances One", e))?,
-                UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, Instance>(
+                InstanceIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, Instance>(
                     &base_query_for_id.replace("{where}", "WHERE m.id=ANY($1)"),
                 )
                 .bind(list)
@@ -314,7 +408,7 @@ impl Instance {
 
     pub async fn find_by_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        id: uuid::Uuid,
+        id: InstanceId,
     ) -> Result<Option<Self>, DatabaseError> {
         let query = "SELECT * from instances WHERE id = $1";
         let instance = sqlx::query_as::<_, Instance>(query)
@@ -326,17 +420,14 @@ impl Instance {
         Ok(instance)
     }
 
-    pub fn id(&self) -> &uuid::Uuid {
+    pub fn id(&self) -> &InstanceId {
         &self.id
     }
 
     pub async fn find_id_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: &MachineId,
-    ) -> Result<Option<uuid::Uuid>, DatabaseError> {
-        #[derive(Debug, Clone, Copy, FromRow)]
-        pub struct InstanceId(uuid::Uuid);
-
+    ) -> Result<Option<InstanceId>, DatabaseError> {
         let query = "SELECT id from instances WHERE machine_id = $1";
         let instance_id = sqlx::query_as::<_, InstanceId>(query)
             .bind(machine_id.to_string())
@@ -344,7 +435,7 @@ impl Instance {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(instance_id.map(|id| id.0))
+        Ok(instance_id)
     }
 
     pub async fn find_by_machine_id(
@@ -400,7 +491,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
     /// Updates the desired network configuration for an instance
     pub async fn update_network_config(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         expected_version: ConfigVersion,
         new_state: &InstanceNetworkConfig,
         increment_version: bool,
@@ -416,7 +507,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         let query = "UPDATE instances SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4
             RETURNING id";
-        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+        let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
             .bind(&next_version_str)
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
@@ -432,7 +523,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
 
     pub async fn update_phone_home_last_contact(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
     ) -> Result<DateTime<Utc>, DatabaseError> {
         let query = "UPDATE instances SET phone_home_last_contact=now() WHERE id=$1 RETURNING phone_home_last_contact";
 
@@ -462,7 +553,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
     /// A previous `Instance::find` call should fulfill this purpose.
     pub async fn update_config(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         expected_version: ConfigVersion,
         config: InstanceConfig,
         metadata: Metadata,
@@ -488,7 +579,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             name=$7, description=$8, labels=$9::json
             WHERE id=$10 AND config_version=$11
             RETURNING id";
-        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+        let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
             .bind(&next_version_str)
             .bind(os_ipxe_script)
             .bind(os_user_data)
@@ -520,7 +611,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
     /// A previous `Instance::find` call should fulfill this purpose.
     pub async fn update_os(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         expected_version: ConfigVersion,
         os: OperatingSystem,
     ) -> Result<(), CarbideError> {
@@ -543,7 +634,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5
             WHERE id=$6 AND config_version=$7
             RETURNING id";
-        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+        let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
             .bind(&next_version_str)
             .bind(os_ipxe_script)
             .bind(os_user_data)
@@ -568,7 +659,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
     /// Updates the desired infiniband configuration for an instance
     pub async fn update_ib_config(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         expected_version: ConfigVersion,
         new_state: &InstanceInfinibandConfig,
         increment_version: bool,
@@ -584,7 +675,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         let query = "UPDATE instances SET ib_config_version=$1, ib_config=$2::json
             WHERE id=$3 AND ib_config_version=$4
             RETURNING id";
-        let query_result: Result<(uuid::Uuid,), _> = sqlx::query_as(query)
+        let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
             .bind(&next_version_str)
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
@@ -601,7 +692,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
     /// Updates the latest network status observation for an instance
     pub async fn update_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         status: &InstanceNetworkStatusObservation,
     ) -> Result<(), DatabaseError> {
         // TODO: This might rather belong into the API layer
@@ -620,7 +711,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
 
         let query =
             "UPDATE instances SET network_status_observation=$1::json where id = $2::uuid returning id";
-        let (_,): (uuid::Uuid,) = sqlx::query_as(query)
+        let (_,): (InstanceId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(status))
             .bind(instance_id)
             .fetch_one(&mut **txn)
@@ -633,7 +724,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
     /// Updates the latest infiniband status observation for an instance
     pub async fn update_infiniband_status_observation(
         txn: &mut Transaction<'_, Postgres>,
-        instance_id: uuid::Uuid,
+        instance_id: InstanceId,
         status: &InstanceInfinibandStatusObservation,
     ) -> Result<(), DatabaseError> {
         // TODO: This might rather belong into the API layer
@@ -652,7 +743,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
 
         let query =
             "UPDATE instances SET ib_status_observation=$1::json where id = $2::uuid returning id";
-        let (_,): (uuid::Uuid,) = sqlx::query_as(query)
+        let (_,): (InstanceId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(status))
             .bind(instance_id)
             .fetch_one(&mut **txn)
