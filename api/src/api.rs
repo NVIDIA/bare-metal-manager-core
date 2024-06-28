@@ -2996,6 +2996,43 @@ impl Forge for Api {
         Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
     }
 
+    /// Retrieves all DPU information including id and loopback IP
+    async fn get_dpu_info_list(
+        &self,
+        request: Request<rpc::GetDpuInfoListRequest>,
+    ) -> Result<Response<rpc::GetDpuInfoListResponse>, Status> {
+        log_request_data(&request);
+
+        let _request: rpc::GetDpuInfoListRequest = request.into_inner();
+
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin get_all_dpu_ip",
+                e,
+            ))
+        })?;
+
+        let dpu_list = Machine::find_dpu_ids_and_loopback_ips(&mut txn)
+            .await
+            .map_err(CarbideError::from)?;
+
+        // Commit database transaction
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "commit get_managed_host_network_config",
+                e,
+            ))
+        })?;
+
+        let response = rpc::GetDpuInfoListResponse { dpu_list };
+
+        Ok(Response::new(response))
+    }
+
     async fn get_machine_boot_override(
         &self,
         request: tonic::Request<rpc::Uuid>,
