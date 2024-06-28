@@ -10,8 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide::db::vpc::{UpdateVpc, Vpc, VpcVirtualizationType};
-use carbide::db::UuidKeyedObjectFilter;
+use carbide::db::vpc::{UpdateVpc, Vpc, VpcId, VpcIdKeyedObjectFilter, VpcVirtualizationType};
 use carbide::CarbideError;
 use common::api_fixtures::create_test_env;
 use config_version::ConfigVersion;
@@ -75,7 +74,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .await
         .expect("Unable to create transaction on database pool");
 
-    let no_org_vpc_id: uuid::Uuid = no_org_vpc.id.expect("should have id").try_into()?;
+    let no_org_vpc_id: VpcId = no_org_vpc.id.expect("should have id").try_into()?;
     let updated_vpc = UpdateVpc {
         id: no_org_vpc_id,
         name: "new name".to_string(),
@@ -104,7 +103,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     ));
 
     // Check that the data was indeed not touched
-    let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc_id)).await?;
+    let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.name, "new name");
     assert_eq!(&first.tenant_organization_id, "new org");
@@ -123,7 +122,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(&updated_vpc.tenant_organization_id, "yet another new org");
     assert_eq!(updated_vpc.version.version_nr(), 3);
 
-    let mut vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(no_org_vpc_id)).await?;
+    let mut vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(no_org_vpc_id)).await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.name, "yet another new name");
     assert_eq!(&first.tenant_organization_id, "yet another new org");
@@ -133,16 +132,16 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     assert!(vpc.deleted.is_some());
 
-    let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(vpc.id)).await?;
+    let vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::One(vpc.id)).await?;
 
     txn.commit().await?;
 
     assert!(vpcs.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    let vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::All).await?;
     assert_eq!(vpcs.len(), 1);
-    let forge_vpc_id: uuid::Uuid = forge_vpc.id.expect("should have id").try_into()?;
+    let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id").try_into()?;
     assert_eq!(vpcs[0].id, forge_vpc_id);
 
     let vpc = Vpc::try_delete(&mut txn, forge_vpc_id).await?.unwrap();
@@ -150,7 +149,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let vpcs = Vpc::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    let vpcs = Vpc::find(&mut txn, VpcIdKeyedObjectFilter::All).await?;
     assert!(vpcs.is_empty());
     txn.commit().await?;
 
@@ -215,11 +214,15 @@ async fn prevent_duplicate_vni(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let some_vpc = Vpc::find(&mut txn, UuidKeyedObjectFilter::One(FIXTURE_CREATED_VPC_ID)).await?;
+    let some_vpc = Vpc::find(
+        &mut txn,
+        VpcIdKeyedObjectFilter::One(VpcId::from(FIXTURE_CREATED_VPC_ID)),
+    )
+    .await?;
     assert_eq!(1, some_vpc.len());
 
     let first = some_vpc.first();
-    assert!(matches!(first, Some(x) if x.id == FIXTURE_CREATED_VPC_ID));
+    assert!(matches!(first, Some(x) if x.id == VpcId::from(FIXTURE_CREATED_VPC_ID)));
 
     Ok(())
 }
@@ -234,7 +237,7 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
     let first = some_vpc.first();
 
-    assert!(matches!(first, Some(x) if x.id == FIXTURE_CREATED_VPC_ID));
+    assert!(matches!(first, Some(x) if x.id == VpcId::from(FIXTURE_CREATED_VPC_ID)));
 
     Ok(())
 }

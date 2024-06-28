@@ -18,7 +18,7 @@ use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::machine_interface::MachineInterface;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use carbide::db::network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment};
-use carbide::db::vpc::Vpc;
+use carbide::db::vpc::{Vpc, VpcId, VpcIdKeyedObjectFilter};
 use carbide::db::UuidKeyedObjectFilter;
 use carbide::model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegmentControllerState,
@@ -47,7 +47,7 @@ async fn test_advance_network_prefix_state(
 
     let vpc = Vpc::find(
         &mut txn,
-        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_CREATED_VPC_UUID),
+        VpcIdKeyedObjectFilter::One(VpcId::from(FIXTURE_CREATED_VPC_UUID)),
     )
     .await?
     .pop()
