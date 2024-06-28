@@ -95,7 +95,7 @@ tower-http = { version = "0.4", features = [
 tower-layer = "0.3"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
-tss-esapi = "7.5.0"
+tss-esapi = {version = "7.5.0", optional = true}
 uuid = { version = "1.0", features = ["v4", "serde"] }
 vaultrs = "0.7"
 version-compare = "0.1.1"

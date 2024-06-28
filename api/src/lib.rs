@@ -37,6 +37,7 @@ use crate::logging::{
 };
 
 pub mod api;
+#[cfg(feature = "tss-esapi")]
 pub mod attestation;
 pub mod auth;
 pub mod cfg;

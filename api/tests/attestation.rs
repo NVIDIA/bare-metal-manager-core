@@ -358,6 +358,7 @@ async fn test_verify_quote_cannot_unmarshall_signature_returns_error(pool: sqlx:
     }
 }
 
+#[cfg(feature = "tss-esapi")]
 #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
 async fn test_verify_quote_cannot_verify_signature_fails_returns_error(pool: sqlx::PgPool) {
     use tss_esapi::structures::Signature;

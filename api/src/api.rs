@@ -32,12 +32,18 @@ use sqlx::{Postgres, Transaction};
 use tokio::net::lookup_host;
 use tokio::time::{sleep, Instant};
 use tonic::{Request, Response, Status};
-use tss_esapi::structures::{Attest, Public as TssPublic, Signature};
-use tss_esapi::traits::UnMarshall;
 use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
-use crate::attestation as attest;
+
+#[cfg(feature = "tss-esapi")]
+use crate::{attestation as attest, db::attestation::SecretAkPub};
+#[cfg(feature = "tss-esapi")]
+use tss_esapi::{
+    structures::{Attest, Public as TssPublic, Signature},
+    traits::UnMarshall,
+};
+
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -72,10 +78,10 @@ use crate::redfish::{host_power_control, poll_redfish_job};
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
+
 use crate::{
     auth,
     db::{
-        attestation::SecretAkPub,
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         domain::Domain,
         explored_managed_host::DbExploredManagedHost,
@@ -3994,6 +4000,18 @@ impl Forge for Api {
         }))
     }
 
+    #[cfg(not(feature = "tss-esapi"))]
+    async fn bind_attest_key(
+        &self,
+        _request: tonic::Request<rpc::BindRequest>,
+    ) -> std::result::Result<tonic::Response<rpc::BindResponse>, tonic::Status> {
+        Err(CarbideError::AttestationBindKeyError(
+            "bind_attest_key is feature-disabled".to_string(),
+        )
+        .into())
+    }
+
+    #[cfg(feature = "tss-esapi")]
     async fn bind_attest_key(
         &self,
         request: tonic::Request<rpc::BindRequest>,
@@ -4005,8 +4023,6 @@ impl Forge for Api {
                 log_machine_id(&id)
             }
         }
-
-        // TODO: fetch ek cert from the db - something like CREATE TABLE public.machines (
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -4050,6 +4066,18 @@ impl Forge for Api {
         }))
     }
 
+    #[cfg(not(feature = "tss-esapi"))]
+    async fn verify_quote(
+        &self,
+        _request: tonic::Request<rpc::VerifyQuoteRequest>,
+    ) -> std::result::Result<tonic::Response<rpc::VerifyQuoteResponse>, tonic::Status> {
+        Err(CarbideError::AttestationVerifyQuoteError(
+            "verify_quote is feature-disabled".to_string(),
+        )
+        .into())
+    }
+
+    #[cfg(feature = "tss-esapi")]
     async fn verify_quote(
         &self,
         request: tonic::Request<rpc::VerifyQuoteRequest>,
