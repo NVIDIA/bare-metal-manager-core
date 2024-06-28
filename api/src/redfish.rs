@@ -107,14 +107,16 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     ) -> Result<Option<String>, RedfishClientCreationError>;
 }
 
-#[derive(Debug)]
-pub struct RedfishClientPoolImpl<C> {
+pub struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
-    credential_provider: Arc<C>,
+    credential_provider: Arc<dyn CredentialProvider>,
 }
 
-impl<C: CredentialProvider + 'static> RedfishClientPoolImpl<C> {
-    pub fn new(credential_provider: Arc<C>, pool: libredfish::RedfishClientPool) -> Self {
+impl RedfishClientPoolImpl {
+    pub fn new(
+        credential_provider: Arc<dyn CredentialProvider>,
+        pool: libredfish::RedfishClientPool,
+    ) -> Self {
         RedfishClientPoolImpl {
             credential_provider,
             pool,
@@ -176,7 +178,7 @@ impl<C: CredentialProvider + 'static> RedfishClientPoolImpl<C> {
 }
 
 #[async_trait]
-impl<C: CredentialProvider + 'static> RedfishClientPool for RedfishClientPoolImpl<C> {
+impl RedfishClientPool for RedfishClientPoolImpl {
     async fn create_client(
         &self,
         host: &str,

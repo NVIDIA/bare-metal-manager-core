@@ -150,8 +150,8 @@ pub async fn create_vault_client(meter: Meter) -> eyre::Result<Arc<ForgeVaultCli
     Ok(Arc::new(forge_vault_client))
 }
 
-pub fn create_ipmi_tool<C: CredentialProvider + 'static>(
-    credential_provider: Arc<C>,
+pub fn create_ipmi_tool(
+    credential_provider: Arc<dyn CredentialProvider>,
     carbide_config: &CarbideConfig,
 ) -> Arc<dyn IPMITool> {
     if carbide_config

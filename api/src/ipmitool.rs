@@ -29,16 +29,16 @@ pub trait IPMITool: Send + Sync + 'static {
     ) -> Result<(), eyre::Report>;
 }
 
-pub struct IPMIToolImpl<C: CredentialProvider> {
-    credential_provider: Arc<C>,
+pub struct IPMIToolImpl {
+    credential_provider: Arc<dyn CredentialProvider>,
     attempts: u32,
 }
 
-impl<C: CredentialProvider> IPMIToolImpl<C> {
+impl IPMIToolImpl {
     const IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 chassis power reset";
     const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
 
-    pub fn new(credential_provider: Arc<C>, attempts: &Option<u32>) -> Self {
+    pub fn new(credential_provider: Arc<dyn CredentialProvider>, attempts: &Option<u32>) -> Self {
         IPMIToolImpl {
             credential_provider,
             attempts: attempts.unwrap_or(3),
@@ -47,7 +47,7 @@ impl<C: CredentialProvider> IPMIToolImpl<C> {
 }
 
 #[async_trait]
-impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
+impl IPMITool for IPMIToolImpl {
     async fn restart(
         &self,
         machine_id: &MachineId,
@@ -109,7 +109,7 @@ impl<C: CredentialProvider + 'static> IPMITool for IPMIToolImpl<C> {
     }
 }
 
-impl<C: CredentialProvider + 'static> IPMIToolImpl<C> {
+impl IPMIToolImpl {
     async fn execute_ipmitool_command(
         &self,
         command: &str,
