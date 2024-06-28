@@ -13,7 +13,10 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
+};
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction};
@@ -44,25 +47,6 @@ impl Display for UserRoles {
 
         write!(f, "{}", string)
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct BmcMetaDataGetRequest {
-    pub machine_id: MachineId,
-    pub role: UserRoles,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BmcMetadataItem {
-    pub username: String,
-    pub password: String,
-    pub role: UserRoles,
-}
-
-pub struct BmcMetaDataUpdateRequest {
-    pub machine_id: MachineId,
-    pub data: Vec<BmcMetadataItem>,
-    pub bmc_info: BmcInfo,
 }
 
 impl From<rpc::UserRoles> for UserRoles {
@@ -104,6 +88,11 @@ impl FromStr for UserRoles {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BmcMetaDataGetRequest {
+    pub machine_id: MachineId,
+}
+
 impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
     type Error = CarbideError;
 
@@ -113,29 +102,19 @@ impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
             .ok_or_else(|| CarbideError::GenericError("Machine id is null".to_string()))?;
         Ok(BmcMetaDataGetRequest {
             machine_id: try_parse_machine_id(&machine_id)?,
-            role: UserRoles::from(match rpc::UserRoles::try_from(value.role) {
-                Ok(x) => x,
-                Err(err) => {
-                    return Err(CarbideError::GenericError(format!(
-                        "Invalid role found: {err}."
-                    )));
-                }
-            }),
         })
     }
 }
 
 impl BmcMetaDataGetRequest {
-    pub async fn get_bmc_meta_data(
+    async fn get_bmc_credentials(
         &self,
-        txn: &mut Transaction<'_, Postgres>,
+        bmc_mac_address: MacAddress,
         credential_provider: &dyn CredentialProvider,
-    ) -> CarbideResult<rpc::BmcMetaDataGetResponse> {
-        let bmc_info = self.get_bmc_information(txn).await?;
+    ) -> CarbideResult<(String, String)> {
         let credentials = credential_provider
-            .get_credentials(CredentialKey::Bmc {
-                machine_id: self.machine_id.to_string(),
-                user_role: self.role.to_string(),
+            .get_credentials(CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             })
             .await
             .map_err(|err| {
@@ -146,10 +125,30 @@ impl BmcMetaDataGetRequest {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
+        Ok((username, password))
+    }
+
+    pub async fn get_bmc_meta_data(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        credential_provider: &dyn CredentialProvider,
+    ) -> CarbideResult<rpc::BmcMetaDataGetResponse> {
+        let bmc_info = self.get_bmc_information(txn).await?;
+        let bmc_mac_str = bmc_info.mac.ok_or(CarbideError::GenericError(format!(
+            "BMC Info in machine_topologies does not have a MAC address for machine {}",
+            self.machine_id
+        )))?;
+        let bmc_mac_address = bmc_mac_str
+            .parse::<MacAddress>()
+            .map_err(CarbideError::from)?;
+        let (username, password) = self
+            .get_bmc_credentials(bmc_mac_address, credential_provider)
+            .await?;
+
         Ok(rpc::BmcMetaDataGetResponse {
             ip: bmc_info.ip.unwrap_or_default(),
             port: bmc_info.port.map(|p| p as u32),
-            mac: bmc_info.mac.unwrap_or_default(),
+            mac: bmc_mac_str,
             user: username,
             password,
         })
@@ -170,21 +169,14 @@ impl BmcMetaDataGetRequest {
     }
 }
 
+pub struct BmcMetaDataUpdateRequest {
+    pub machine_id: MachineId,
+    pub bmc_info: BmcInfo,
+}
+
 impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
     type Error = CarbideError;
     fn try_from(request: rpc::BmcMetaDataUpdateRequest) -> CarbideResult<Self> {
-        let mut data: Vec<BmcMetadataItem> = Vec::new();
-        for v in request.data {
-            let role = UserRoles::from(rpc::UserRoles::try_from(v.role).map_err(|err| {
-                CarbideError::GenericError(format!("Can't convert role: {:?}: {err}", v.role))
-            })?);
-            data.push(BmcMetadataItem {
-                username: v.user.clone(),
-                password: v.password.clone(),
-                role,
-            });
-        }
-
         Ok(BmcMetaDataUpdateRequest {
             machine_id: match request.machine_id {
                 Some(id) => try_parse_machine_id(&id)?,
@@ -192,41 +184,12 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
                     return Err(CarbideError::GenericError("Machine id is null".to_string()));
                 }
             },
-            data,
             bmc_info: request.bmc_info.unwrap_or_default().into(),
         })
     }
 }
 
 impl BmcMetaDataUpdateRequest {
-    async fn insert_into_credentials_store(
-        &self,
-        credential_provider: &dyn CredentialProvider,
-    ) -> CarbideResult<()> {
-        for data in self.data.iter() {
-            credential_provider
-                .set_credentials(
-                    CredentialKey::Bmc {
-                        machine_id: self.machine_id.to_string(),
-                        user_role: data.role.to_string(),
-                    },
-                    Credentials::UsernamePassword {
-                        username: data.username.clone(),
-                        password: data.password.clone(),
-                    },
-                )
-                .await
-                .map_err(|err| {
-                    CarbideError::GenericError(format!(
-                        "Error setting credential for BMC: {:?}",
-                        err
-                    ))
-                })?;
-        }
-
-        Ok(())
-    }
-
     pub async fn update_bmc_network_into_topologies(
         &self,
         txn: &mut Transaction<'_, Postgres>,
@@ -250,11 +213,8 @@ impl BmcMetaDataUpdateRequest {
     pub async fn update_bmc_meta_data(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        credential_provider: &dyn CredentialProvider,
     ) -> CarbideResult<rpc::BmcMetaDataUpdateResponse> {
         self.update_bmc_network_into_topologies(txn).await?;
-        self.insert_into_credentials_store(credential_provider)
-            .await?;
         Ok(rpc::BmcMetaDataUpdateResponse {})
     }
 }

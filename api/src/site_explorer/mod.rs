@@ -482,7 +482,6 @@ impl SiteExplorer {
             let bmc_metadata = BmcMetaDataUpdateRequest {
                 machine_id: stable_machine_id.clone(),
                 bmc_info,
-                data: Vec::new(),
             };
 
             bmc_metadata
@@ -555,7 +554,6 @@ impl SiteExplorer {
                 let host_bmc_metadata = BmcMetaDataUpdateRequest {
                     machine_id: predicted_machine_id.clone(),
                     bmc_info: host_bmc_info,
-                    data: Vec::new(),
                 };
 
                 host_bmc_metadata

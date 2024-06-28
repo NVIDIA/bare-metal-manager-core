@@ -1790,7 +1790,7 @@ impl Forge for Api {
         })?;
 
         let response = Ok(request
-            .update_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
+            .update_bmc_meta_data(&mut txn)
             .await
             .map(Response::new)?);
 

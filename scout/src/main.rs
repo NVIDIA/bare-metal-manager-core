@@ -27,10 +27,9 @@ mod cfg;
 mod client;
 mod deprovision;
 mod discovery;
-mod ipmi;
 mod machine_validation;
 mod register;
-mod users;
+
 struct DevEnv {
     in_qemu: bool,
 }

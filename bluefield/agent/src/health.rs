@@ -9,8 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-use std::ops::Add;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 
@@ -36,13 +34,12 @@ const EXPECTED_FILES: [&str; 5] = [
 const EXPECTED_SERVICES: [&str; 3] = ["frr", "nl2doca", "rsyslog"];
 const DHCP_RELAY_SERVICE: &str = "isc-dhcp-relay-default";
 const DHCP_SERVER_SERVICE: &str = "forge-dhcp-server-default";
-const FORGE_ADMIN_USER: &str = "forge_admin";
 
 /// Check the health of HBN
 pub async fn health_check(
     hbn_root: &Path,
     host_routes: &[&str],
-    process_started_at: Instant,
+    _process_started_at: Instant,
 ) -> HealthReport {
     let mut hr = HealthReport::new();
 
@@ -59,8 +56,6 @@ pub async fn health_check(
 
     // We want these checks whether HBN is up or not
     check_restricted_mode(&mut hr).await;
-    check_ipmi_device(&mut hr, process_started_at);
-    check_forge_admin_user(&mut hr).await;
 
     // We only want these checks if HBN is up
     if !hr.is_up() {
@@ -432,109 +427,6 @@ async fn check_restricted_mode(hr: &mut HealthReport) {
     }
 }
 
-fn check_ipmi_device(hr: &mut HealthReport, process_started_at: Instant) {
-    // It can take up to 5 minutes after boot for the ipmi device to appear
-    let ipmi_dev_should_be_up_by_now = process_started_at.add(Duration::from_secs(60 * 6));
-    if Instant::now() < ipmi_dev_should_be_up_by_now {
-        hr.passed(HealthCheck::IpmiDeviceExists);
-        return;
-    }
-
-    let possible_devices = ["/dev/ipmi0", "/dev/ipmi/0", "/dev/ipmidev/0"];
-    for d in possible_devices {
-        if Path::new(d).exists() {
-            hr.passed(HealthCheck::IpmiDeviceExists);
-            return;
-        }
-    }
-    hr.failed(
-        HealthCheck::IpmiDeviceExists,
-        format!("IPMI device does not exist. Tried: {possible_devices:?}"),
-    );
-}
-
-// An ipmitool user called 'forge_admin' should exist
-async fn check_forge_admin_user(hr: &mut HealthReport) {
-    let mut cmd = TokioCommand::new("ipmitool");
-    cmd.args(["user", "list", "1", "-c"]); // -c says CSV output
-    cmd.kill_on_drop(true);
-    let cmd_str = super::pretty_cmd(cmd.as_std());
-    let Ok(cmd_res) = timeout(Duration::from_secs(15), cmd.output()).await else {
-        tracing::info!("check_forge_admin_user: Timeout running '{cmd_str}', will retry.");
-        // ipmitool times out often (~hourly) so we don't record it as either passed or failed
-        return;
-    };
-    let out = match cmd_res {
-        Ok(out) => out,
-        Err(err) => {
-            hr.failed(
-                HealthCheck::ForgeAdminUser(IpmiUserCheck::Error),
-                format!("Error running '{cmd_str}'. {err}"),
-            );
-            return;
-        }
-    };
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        // The ipmi device takes ~5 mins to appear, we don't want to go unhealthy because of that.
-        if stderr.contains("Could not open device")
-            || stderr.contains("No such file or directory")
-            || stderr.contains("No data available")
-        {
-            tracing::trace!("No ipmi device, could not check for missing user yet.");
-            hr.passed(HealthCheck::ForgeAdminUser(IpmiUserCheck::Exists));
-            return;
-        }
-        tracing::debug!("STDERR {}: {stderr}", super::pretty_cmd(cmd.as_std()));
-        hr.failed(
-            HealthCheck::ForgeAdminUser(IpmiUserCheck::Error),
-            format!(
-                "{} for cmd '{}'",
-                out.status,
-                super::pretty_cmd(cmd.as_std())
-            ),
-        );
-        return;
-    }
-    let s = String::from_utf8_lossy(&out.stdout);
-    match has_forge_admin_user(&s) {
-        Ok(true) => {
-            hr.passed(HealthCheck::ForgeAdminUser(IpmiUserCheck::Exists));
-        }
-        Ok(false) => {
-            hr.failed(
-                HealthCheck::ForgeAdminUser(IpmiUserCheck::Missing),
-                format!("{FORGE_ADMIN_USER} does not exist"),
-            );
-        }
-        Err(err) => {
-            hr.failed(
-                HealthCheck::ForgeAdminUser(IpmiUserCheck::Error),
-                format!("Failed parsing ipmitool output. {err}. {s}"),
-            );
-        }
-    }
-}
-
-// See unit test for example valid 's'
-fn has_forge_admin_user(s: &str) -> eyre::Result<bool> {
-    for parts in s.lines().map(|l| l.split(',').collect::<Vec<&str>>()) {
-        if parts.len() != 6 {
-            eyre::bail!("Invalid 'ipmitool user list 1'. Line should have length 6 not {}: {parts:?}. Full output: {s}", parts.len());
-        }
-        if parts[1] == FORGE_ADMIN_USER {
-            if parts[5] != "ADMINISTRATOR" {
-                tracing::warn!(
-                    "ipmi user {FORGE_ADMIN_USER} needs privilege ADMINISTRATOR, has '{:?}'",
-                    parts[5]
-                );
-            }
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 fn parse_mlxprivhost(s: &str) -> eyre::Result<String> {
     let Some(level_line) = s.lines().find(|line| line.contains("level")) else {
         eyre::bail!("Invalid mlxprivhost output, missing 'level' line:\n{s}");
@@ -616,13 +508,6 @@ impl HealthReport {
     pub fn is_healthy(&self) -> bool {
         !self.checks_passed.is_empty() && self.checks_failed.is_empty()
     }
-
-    /// Is ipmi user forge_admin missing?
-    pub fn is_missing_ipmi_user(&self) -> bool {
-        self.checks_failed
-            .iter()
-            .any(|f| matches!(f, HealthCheck::ForgeAdminUser(IpmiUserCheck::Missing)))
-    }
 }
 
 // The things we check on an HBN to ensure it's in good health
@@ -639,8 +524,6 @@ pub enum HealthCheck {
     FileIsValid(String),
     BgpDaemonEnabled,
     RestrictedMode,
-    ForgeAdminUser(IpmiUserCheck),
-    IpmiDeviceExists,
 }
 
 impl fmt::Display for HealthReport {
@@ -681,17 +564,8 @@ impl fmt::Display for HealthCheck {
             Self::FileIsValid(file_name) => write!(f, "FileIsValid({file_name})"),
             Self::BgpDaemonEnabled => write!(f, "BgpDaemonEnabled"),
             Self::RestrictedMode => write!(f, "RestrictedMode"),
-            Self::ForgeAdminUser(res) => write!(f, "ForgeAdminUser({res:?})"),
-            Self::IpmiDeviceExists => write!(f, "IpmiDeviceExists"),
         }
     }
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize)]
-pub enum IpmiUserCheck {
-    Exists,
-    Missing,
-    Error,
 }
 
 fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
@@ -813,28 +687,6 @@ disable_counter_rd            : TRUE
 
 "#;
 
-    const IPMITOOL_USERS_OUT_SUCCESS: &str = r#"1,root,false,true,true,ADMINISTRATOR
-2,forge_admin,true,true,true,ADMINISTRATOR
-3,,true,false,false,NO ACCESS
-4,,true,false,false,NO ACCESS
-5,,true,false,false,NO ACCESS
-6,,true,false,false,NO ACCESS
-7,,true,false,false,NO ACCESS
-8,,true,false,false,NO ACCESS
-9,,true,false,false,NO ACCESS
-10,,true,false,false,NO ACCESS
-11,,true,false,false,NO ACCESS
-12,,true,false,false,NO ACCESS
-13,,true,false,false,NO ACCESS
-14,,true,false,false,NO ACCESS
-15,,true,false,false,NO ACCESS
-"#;
-
-    const IPMITOOL_USERS_OUT_FAIL: &str = r#"1,root,false,true,true,ADMINISTRATOR
-2,,true,false,false,NO ACCESS
-3,,true,false,false,NO ACCESS
-"#;
-
     const BGP_SUMMARY_JSON_SUCCESS: &str = include_str!("hbn_bgp_summary.json");
     const BGP_SUMMARY_JSON_FAIL: &str = include_str!("hbn_bgp_summary_fail.json");
     const BGP_SUMMARY_JSON_WITH_IGNORE: &str = include_str!("hbn_bgp_summary_with_ignore.json");
@@ -878,12 +730,5 @@ disable_counter_rd            : TRUE
             super::parse_mlxprivhost(MLXPRIVHOST_OUT).unwrap(),
             "RESTRICTED"
         );
-    }
-
-    #[test]
-    fn test_has_forge_admin_user() {
-        assert!(super::has_forge_admin_user(IPMITOOL_USERS_OUT_SUCCESS).unwrap());
-        assert!(!super::has_forge_admin_user(IPMITOOL_USERS_OUT_FAIL).unwrap());
-        assert!(super::has_forge_admin_user("invalid output").is_err());
     }
 }
