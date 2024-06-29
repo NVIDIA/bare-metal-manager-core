@@ -16,8 +16,9 @@ use std::sync::Arc;
 
 use crate::{
     db::{
-        instance_address::InstanceAddress, machine_interface::MachineInterface,
-        network_segment::NetworkSegment,
+        instance_address::InstanceAddress,
+        machine_interface::MachineInterface,
+        network_segment::{NetworkSegment, NetworkSegmentId},
     },
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     resource_pool::DbResourcePool,
@@ -57,14 +58,14 @@ impl NetworkSegmentStateHandler {
 
 #[async_trait::async_trait]
 impl StateHandler for NetworkSegmentStateHandler {
-    type ObjectId = uuid::Uuid;
+    type ObjectId = NetworkSegmentId;
     type State = NetworkSegment;
     type ControllerState = NetworkSegmentControllerState;
     type ContextObjects = NetworkSegmentStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
-        segment_id: &uuid::Uuid,
+        segment_id: &NetworkSegmentId,
         state: &mut NetworkSegment,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,

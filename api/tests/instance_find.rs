@@ -40,7 +40,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 &env,
                 &dpu_machine_id,
                 &host_machine_id,
-                Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
                 None,
                 vec![],
             )
@@ -50,7 +50,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 &env,
                 &dpu_machine_id,
                 &host_machine_id,
-                Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
                 None,
                 vec![],
                 rpc::Metadata {
@@ -209,7 +209,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
                 &env,
                 &dpu_machine_id,
                 &host_machine_id,
-                Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
                 None,
                 vec![],
             )
@@ -219,7 +219,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
                 &env,
                 &dpu_machine_id,
                 &host_machine_id,
-                Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+                Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
                 None,
                 vec![],
                 rpc::Metadata {

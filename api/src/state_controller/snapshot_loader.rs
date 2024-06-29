@@ -16,8 +16,10 @@ use crate::{
         machine::Machine,
         machine_interface::MachineInterface,
         machine_interface_address::MachineInterfaceAddress,
-        network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
-        DatabaseError, UuidKeyedObjectFilter,
+        network_segment::{
+            NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
+        },
+        DatabaseError,
     },
     model::{
         instance::{snapshot::InstanceSnapshot, status::InstanceStatusObservations},
@@ -120,7 +122,7 @@ pub async fn interface_to_snapshot(
     for iface in interfaces {
         let segments = NetworkSegment::find(
             txn,
-            UuidKeyedObjectFilter::One(iface.segment_id()),
+            NetworkSegmentIdKeyedObjectFilter::One(iface.segment_id()),
             NetworkSegmentSearchConfig::default(),
         )
         .await?;

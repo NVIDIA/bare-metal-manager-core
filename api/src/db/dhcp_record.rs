@@ -16,7 +16,9 @@ use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::net::IpAddr;
 
 use crate::{
-    db::{instance::Instance, machine::DbMachineId, DatabaseError},
+    db::{
+        instance::Instance, machine::DbMachineId, network_segment::NetworkSegmentId, DatabaseError,
+    },
     dhcp::allocation::DhcpError,
     model::{instance::config::network::InterfaceFunctionId, machine::machine_id::MachineId},
     CarbideError, CarbideResult,
@@ -30,7 +32,7 @@ use crate::{
 #[derive(Debug)]
 pub struct DhcpRecord {
     machine_id: Option<MachineId>,
-    segment_id: uuid::Uuid,
+    segment_id: NetworkSegmentId,
     machine_interface_id: uuid::Uuid,
     subdomain_id: Option<uuid::Uuid>,
 
@@ -85,7 +87,7 @@ impl DhcpRecord {
     pub async fn find_by_mac_address(
         txn: &mut Transaction<'_, Postgres>,
         mac_address: &MacAddress,
-        segment_id: &uuid::Uuid,
+        segment_id: &NetworkSegmentId,
     ) -> Result<DhcpRecord, DatabaseError> {
         let query = "SELECT * FROM machine_dhcp_records WHERE mac_address = $1::macaddr AND segment_id = $2::uuid";
         sqlx::query_as(query)
@@ -104,7 +106,7 @@ impl DhcpRecord {
 #[derive(Debug)]
 pub struct InstanceDhcpRecord {
     machine_id: Option<MachineId>,
-    segment_id: uuid::Uuid,
+    segment_id: NetworkSegmentId,
     machine_interface_id: uuid::Uuid,
     subdomain_id: Option<uuid::Uuid>,
 

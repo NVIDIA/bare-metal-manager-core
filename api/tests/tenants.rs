@@ -535,7 +535,7 @@ async fn test_tenant_validate_keyset(pool: sqlx::PgPool) {
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
     )
@@ -619,7 +619,7 @@ async fn test_keyset_in_instance(pool: sqlx::PgPool) {
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec!["keyset1".to_string(), "keyset2".to_string()],
     )

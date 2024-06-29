@@ -19,8 +19,7 @@ use ::rpc::forge::{
 use rpc::forge::forge_server::Forge;
 
 pub mod common;
-use common::api_fixtures::{self, dpu, instance, network_segment};
-
+use common::api_fixtures::{self, dpu, instance, network_segment::FIXTURE_NETWORK_SEGMENT_ID};
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
@@ -64,7 +63,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let instance_network = Some(rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: physical,
-            network_segment_id: Some(network_segment::FIXTURE_NETWORK_SEGMENT_ID.into()),
+            network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
         }],
     });
     let (instance_id, instance) = instance::create_instance(

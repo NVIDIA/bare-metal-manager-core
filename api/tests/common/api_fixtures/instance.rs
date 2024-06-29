@@ -14,6 +14,7 @@ use carbide::{
     cfg::default_dpu_models,
     db::instance::InstanceId,
     db::machine::Machine,
+    db::network_segment::NetworkSegmentId,
     model::{
         machine::machine_id::MachineId, machine::CleanupState, machine::MachineState,
         machine::ManagedHostState,
@@ -89,7 +90,7 @@ pub async fn create_instance_with_ib_config(
     create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
 }
 
-pub fn single_interface_network_config(segment_id: uuid::Uuid) -> rpc::InstanceNetworkConfig {
+pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::InstanceNetworkConfig {
     rpc::InstanceNetworkConfig {
         interfaces: vec![rpc::InstanceInterfaceConfig {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -128,7 +129,7 @@ pub fn config_for_ib_config(
     rpc::forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: Some(ib_config),
     }
 }

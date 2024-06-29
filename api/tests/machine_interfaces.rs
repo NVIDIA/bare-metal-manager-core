@@ -14,9 +14,13 @@ use std::{collections::HashSet, str::FromStr};
 
 use carbide::{
     db::{
-        address_selection_strategy::AddressSelectionStrategy, dhcp_entry::DhcpEntry,
-        domain::Domain, machine::Machine, machine_interface::MachineInterface,
-        network_segment::NetworkSegment, UuidKeyedObjectFilter,
+        address_selection_strategy::AddressSelectionStrategy,
+        dhcp_entry::DhcpEntry,
+        domain::Domain,
+        machine::Machine,
+        machine_interface::MachineInterface,
+        network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter},
+        UuidKeyedObjectFilter,
     },
     model::machine::machine_id::{try_parse_machine_id, MachineId},
     CarbideError,
@@ -46,7 +50,7 @@ async fn get_fixture_network_segment(
 ) -> Result<NetworkSegment, Box<dyn std::error::Error>> {
     carbide::db::network_segment::NetworkSegment::find(
         txn,
-        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        NetworkSegmentIdKeyedObjectFilter::One(*FIXTURE_NETWORK_SEGMENT_ID),
         carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?
@@ -54,7 +58,7 @@ async fn get_fixture_network_segment(
     .ok_or_else(|| {
         format!(
             "Can't find the Network Segment by well-known-uuid: {}",
-            FIXTURE_NETWORK_SEGMENT_ID
+            *FIXTURE_NETWORK_SEGMENT_ID
         )
         .into()
     })
@@ -326,8 +330,8 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let mut txn = pool.begin().await?;
     let network = NetworkSegment::find(
         &mut txn,
-        UuidKeyedObjectFilter::One(
-            uuid::Uuid::from_str("91609f10-c91d-470d-a260-6293ea0c1200").unwrap(),
+        NetworkSegmentIdKeyedObjectFilter::One(
+            NetworkSegmentId::from_str("91609f10-c91d-470d-a260-6293ea0c1200").unwrap(),
         ),
         carbide::db::network_segment::NetworkSegmentSearchConfig {
             include_history: false,

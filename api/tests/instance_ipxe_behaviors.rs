@@ -184,7 +184,7 @@ pub async fn create_instance(
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(os),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 

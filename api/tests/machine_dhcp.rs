@@ -123,7 +123,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     assert_eq!(
         response.segment_id.unwrap(),
-        FIXTURE_NETWORK_SEGMENT_ID.into()
+        (*FIXTURE_NETWORK_SEGMENT_ID).into()
     );
 
     assert_eq!(response.mac_address, mac_address);
@@ -185,7 +185,7 @@ async fn test_multiple_machines_dhcp_with_api(
 
         assert_eq!(
             response.segment_id.unwrap(),
-            common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID.into()
+            (*FIXTURE_NETWORK_SEGMENT_ID).into()
         );
 
         assert_eq!(response.mac_address, mac);
@@ -227,11 +227,11 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
+                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
             },
         ],
     });
@@ -261,7 +261,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
 
     assert_eq!(
         response.segment_id.unwrap(),
-        FIXTURE_NETWORK_SEGMENT_ID.into()
+        (*FIXTURE_NETWORK_SEGMENT_ID).into()
     );
 
     assert_eq!(response.mac_address, mac_address);
@@ -289,7 +289,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
 
     assert_eq!(
         response.segment_id.unwrap(),
-        FIXTURE_NETWORK_SEGMENT_ID_1.into()
+        (*FIXTURE_NETWORK_SEGMENT_ID_1).into()
     );
 
     assert!(response.machine_interface_id.is_none());

@@ -23,6 +23,7 @@ use super::{
     UuidKeyedObjectFilter,
 };
 use crate::db::instance::InstanceId;
+use crate::db::network_segment::NetworkSegmentId;
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::instance::config::network::InstanceNetworkConfig;
 use crate::model::network_segment::NetworkSegmentControllerState;
@@ -154,7 +155,7 @@ impl InstanceAddress {
     /// Counts the amount of addresses that have been allocated for a given segment
     pub async fn count_by_segment_id(
         txn: &mut Transaction<'_, Postgres>,
-        segment_id: uuid::Uuid,
+        segment_id: NetworkSegmentId,
     ) -> Result<usize, DatabaseError> {
         let query = "
 SELECT count(*)
@@ -188,7 +189,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
 
         let segments = NetworkSegment::find(
             &mut inner_txn,
-            crate::db::UuidKeyedObjectFilter::List(
+            crate::db::network_segment::NetworkSegmentIdKeyedObjectFilter::List(
                 &updated_config
                     .interfaces
                     .iter()
@@ -216,7 +217,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
                 Some(x) => x,
                 None => {
                     return Err(CarbideError::FindOneReturnedNoResultsError(
-                        iface.network_segment_id,
+                        iface.network_segment_id.into(),
                     ));
                 }
             };
@@ -238,9 +239,13 @@ WHERE network_prefixes.segment_id = $1::uuid";
                     segment_id = %segment.id,
                     "Circuit id is not yet updated for segment",
                 );
-                return Err(CarbideError::FindOneReturnedNoResultsError(segment.id));
+                return Err(CarbideError::FindOneReturnedNoResultsError(
+                    segment.id.into(),
+                ));
             } else if circuit_id.len() > 1 {
-                return Err(CarbideError::FindOneReturnedManyResultsError(segment.id));
+                return Err(CarbideError::FindOneReturnedManyResultsError(
+                    segment.id.into(),
+                ));
             }
             let circuit_id = circuit_id.remove(0);
 
@@ -283,7 +288,7 @@ WHERE network_prefixes.segment_id = $1::uuid";
 }
 
 pub struct UsedOverlayNetworkIpResolver {
-    pub segment_id: uuid::Uuid,
+    pub segment_id: NetworkSegmentId,
 }
 
 #[async_trait::async_trait]
@@ -325,7 +330,7 @@ mod tests {
                 let id = format!("91609f10-c91d-470d-a260-6293ea0c00{:02}", idx);
                 let version = ConfigVersion::initial();
                 NetworkSegment {
-                    id: uuid::Uuid::parse_str(&id).unwrap(),
+                    id: NetworkSegmentId::from_str(&id).unwrap(),
                     version,
                     name: id,
                     subdomain_id: None,
@@ -356,7 +361,8 @@ mod tests {
         let interfaces: Vec<InstanceInterfaceConfig> = InterfaceFunctionId::iter_all()
             .enumerate()
             .map(|(idx, function_id)| {
-                let network_segment_id = Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + idx as u128);
+                let network_segment_id: NetworkSegmentId =
+                    Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + idx as u128).into();
                 InstanceInterfaceConfig {
                     function_id,
                     network_segment_id,

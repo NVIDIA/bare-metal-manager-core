@@ -20,6 +20,7 @@ use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
 use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use super::DatabaseError;
+use crate::db::network_segment::NetworkSegmentId;
 use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
 
@@ -345,7 +346,7 @@ impl Vpc {
 
     pub async fn find_by_segment(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        segment_id: uuid::Uuid,
+        segment_id: NetworkSegmentId,
     ) -> Result<Vpc, DatabaseError> {
         let query = "SELECT * from vpcs v
             INNER JOIN network_segments s ON v.id = s.vpc_id

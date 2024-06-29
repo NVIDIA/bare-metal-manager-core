@@ -15,10 +15,9 @@ use std::{
     net::IpAddr,
 };
 
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
+use crate::db::network_segment::NetworkSegmentId;
 use crate::model::{ConfigValidationError, RpcDataConversionError};
+use serde::{Deserialize, Serialize};
 
 // Specifies whether a network interface is physical network function (PF)
 // or a virtual network function
@@ -118,7 +117,7 @@ pub struct InstanceNetworkConfig {
 
 impl InstanceNetworkConfig {
     /// Returns a network configuration for a single physical interface
-    pub fn for_segment_id(network_segment_id: Uuid) -> Self {
+    pub fn for_segment_id(network_segment_id: NetworkSegmentId) -> Self {
         Self {
             interfaces: vec![InstanceInterfaceConfig {
                 function_id: InterfaceFunctionId::Physical {},
@@ -200,19 +199,11 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 }
             };
 
-            let network_segment_id =
-                iface
-                    .network_segment_id
-                    .ok_or(RpcDataConversionError::MissingArgument(
-                        "InstanceInterfaceConfig::network_segment_id",
-                    ))?;
-            let network_segment_id =
-                uuid::Uuid::try_from(network_segment_id.clone()).map_err(|_| {
-                    RpcDataConversionError::InvalidUuid(
-                        "InstanceInterfaceConfig::network_segment_id",
-                        network_segment_id.value,
-                    )
-                })?;
+            let network_segment_id = NetworkSegmentId::try_from(iface.network_segment_id.ok_or(
+                RpcDataConversionError::MissingArgument(
+                    "InstanceInterfaceConfig::network_segment_id",
+                ),
+            )?)?;
 
             interfaces.push(InstanceInterfaceConfig {
                 function_id,
@@ -309,7 +300,7 @@ pub struct InstanceInterfaceConfig {
     /// Uniquely identifies the interface on the instance
     pub function_id: InterfaceFunctionId,
     /// The network segment this interface is attached to
-    pub network_segment_id: Uuid,
+    pub network_segment_id: NetworkSegmentId,
     /// The IP address we allocated for each network prefix for this interface
     /// This is not populated if we have not allocated IP addresses yet.
     pub ip_addrs: HashMap<uuid::Uuid, IpAddr>,
@@ -363,7 +354,8 @@ mod tests {
     #[test]
     fn serialize_interface_config() {
         let function_id = InterfaceFunctionId::Physical {};
-        let network_segment_id = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let network_segment_id: NetworkSegmentId =
+            uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let network_prefix_1 = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1201");
         let mut ip_addrs = HashMap::new();
         ip_addrs.insert(network_prefix_1, "192.168.1.2".parse().unwrap());
@@ -386,8 +378,8 @@ mod tests {
     /// Creates a valid instance network configuration using the maximum
     /// amount of interface
     const BASE_SEGMENT_ID: uuid::Uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c0000");
-    fn offset_segment_id(offset: usize) -> uuid::Uuid {
-        Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + offset as u128)
+    fn offset_segment_id(offset: usize) -> NetworkSegmentId {
+        uuid::Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + offset as u128).into()
     }
 
     fn create_valid_network_config() -> InstanceNetworkConfig {
@@ -411,7 +403,7 @@ mod tests {
         let config = rpc::InstanceNetworkConfig {
             interfaces: vec![rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as _,
-                network_segment_id: Some(BASE_SEGMENT_ID.into()),
+                network_segment_id: Some(NetworkSegmentId::from(BASE_SEGMENT_ID).into()),
             }],
         };
 
@@ -420,7 +412,7 @@ mod tests {
             netconfig.interfaces,
             &[InstanceInterfaceConfig {
                 function_id: InterfaceFunctionId::Physical {},
-                network_segment_id: BASE_SEGMENT_ID,
+                network_segment_id: BASE_SEGMENT_ID.into(),
                 ip_addrs: HashMap::new(),
             }]
         );
@@ -444,7 +436,7 @@ mod tests {
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
         let mut expected_interfaces = vec![InstanceInterfaceConfig {
             function_id: InterfaceFunctionId::Physical {},
-            network_segment_id: BASE_SEGMENT_ID,
+            network_segment_id: BASE_SEGMENT_ID.into(),
             ip_addrs: HashMap::new(),
         }];
 
@@ -493,8 +485,8 @@ mod tests {
         const DUPLICATE_SEGMENT_ID: uuid::Uuid =
             uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000");
         let mut config = create_valid_network_config();
-        config.interfaces[0].network_segment_id = DUPLICATE_SEGMENT_ID;
-        config.interfaces[1].network_segment_id = DUPLICATE_SEGMENT_ID;
+        config.interfaces[0].network_segment_id = DUPLICATE_SEGMENT_ID.into();
+        config.interfaces[1].network_segment_id = DUPLICATE_SEGMENT_ID.into();
         assert!(config.validate().is_err());
     }
 }

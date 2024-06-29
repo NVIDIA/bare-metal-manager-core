@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use carbide::{
-    db::network_segment::NetworkSegment,
+    db::network_segment::{NetworkSegment, NetworkSegmentId},
     state_controller::network_segment::handler::NetworkSegmentStateHandler,
 };
 
@@ -53,7 +53,7 @@ async fn test_network_segment_lifecycle_impl(
     assert!(segment.deleted.is_none());
     assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);
     assert_eq!(segment.segment_type, seg_type);
-    let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
+    let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
     let _: uuid::Uuid = segment
         .prefixes
         .first()
@@ -247,7 +247,7 @@ async fn test_admin_network_exists(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let segments = NetworkSegment::admin(&mut txn).await?;
 
-    assert_eq!(segments.id, FIXTURE_NETWORK_SEGMENT_ID);
+    assert_eq!(segments.id, *FIXTURE_NETWORK_SEGMENT_ID);
 
     Ok(())
 }

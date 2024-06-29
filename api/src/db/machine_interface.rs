@@ -25,7 +25,7 @@ use super::{ColumnInfo, DatabaseError, ObjectColumnFilter, UuidKeyedObjectFilter
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
-use crate::db::network_segment::NetworkSegment;
+use crate::db::network_segment::{NetworkSegment, NetworkSegmentId};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
@@ -40,7 +40,7 @@ pub struct MachineInterface {
     attached_dpu_machine_id: Option<MachineId>,
     pub domain_id: Option<uuid::Uuid>,
     pub machine_id: Option<MachineId>,
-    segment_id: uuid::Uuid,
+    segment_id: NetworkSegmentId,
     pub mac_address: MacAddress,
     hostname: String,
     primary_interface: bool,
@@ -57,7 +57,7 @@ impl MachineInterface {
             attached_dpu_machine_id: None,
             domain_id: None,
             machine_id: None,
-            segment_id: Uuid::nil(),
+            segment_id: Uuid::nil().into(),
             mac_address,
             hostname: String::new(),
             primary_interface: true,
@@ -70,7 +70,7 @@ impl MachineInterface {
 }
 
 pub struct UsedAdminNetworkIpResolver {
-    pub segment_id: uuid::Uuid,
+    pub segment_id: NetworkSegmentId,
 }
 
 #[derive(Clone)]
@@ -298,7 +298,7 @@ impl MachineInterface {
 
     pub async fn count_by_segment_id(
         txn: &mut Transaction<'_, Postgres>,
-        segment_id: &uuid::Uuid,
+        segment_id: &NetworkSegmentId,
     ) -> Result<usize, DatabaseError> {
         let query = "SELECT count(*) FROM machine_interfaces WHERE segment_id = $1";
         let (address_count,): (i64,) = sqlx::query_as(query)
@@ -512,7 +512,7 @@ impl MachineInterface {
     }
 
     /// Get a reference to the machine interface's segment id.
-    pub fn segment_id(&self) -> Uuid {
+    pub fn segment_id(&self) -> NetworkSegmentId {
         self.segment_id
     }
 
@@ -730,7 +730,7 @@ impl MachineInterface {
     pub async fn find_by_machine_and_segment(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
-        segment_id: uuid::Uuid,
+        segment_id: NetworkSegmentId,
     ) -> Result<Self, DatabaseError> {
         let query =
             "SELECT * FROM machine_interfaces WHERE machine_id = $1 AND segment_id = $2::uuid";

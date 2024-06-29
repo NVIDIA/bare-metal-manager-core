@@ -15,7 +15,10 @@
 use config_version::{ConfigVersion, Versioned};
 
 use crate::{
-    db::{network_segment::NetworkSegment, DatabaseError, UuidKeyedObjectFilter},
+    db::{
+        network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter},
+        DatabaseError,
+    },
     model::controller_outcome::PersistentStateHandlerOutcome,
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
     state_controller::{
@@ -31,7 +34,7 @@ pub struct NetworkSegmentStateControllerIO {}
 
 #[async_trait::async_trait]
 impl StateControllerIO for NetworkSegmentStateControllerIO {
-    type ObjectId = uuid::Uuid;
+    type ObjectId = NetworkSegmentId;
     type State = NetworkSegment;
     type ControllerState = NetworkSegmentControllerState;
     type MetricsEmitter = NoopMetricsEmitter;
@@ -58,7 +61,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     ) -> Result<Self::State, SnapshotLoaderError> {
         let mut segments = NetworkSegment::find(
             txn,
-            UuidKeyedObjectFilter::One(*segment_id),
+            NetworkSegmentIdKeyedObjectFilter::One(*segment_id),
             crate::db::network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await?;

@@ -207,7 +207,7 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         0

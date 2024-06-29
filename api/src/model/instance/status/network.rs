@@ -323,6 +323,7 @@ mod tests {
     use std::{collections::HashMap, fmt::Write};
 
     use super::*;
+    use crate::db::network_segment::NetworkSegmentId;
     use crate::model::instance::config::network::InstanceInterfaceConfig;
 
     #[test]
@@ -389,7 +390,8 @@ mod tests {
     }
 
     fn network_config() -> InstanceNetworkConfig {
-        let base_uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+        let base_uuid: NetworkSegmentId =
+            uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
         let prefix_uuid = uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1400");
 
         InstanceNetworkConfig {
@@ -401,7 +403,7 @@ mod tests {
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 1 },
-                    network_segment_id: uuid::Uuid::from_u128(base_uuid.as_u128() + 1),
+                    network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 1).into(),
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.as_u128() + 1),
                         "127.0.0.2".parse().unwrap(),
@@ -409,7 +411,7 @@ mod tests {
                 },
                 InstanceInterfaceConfig {
                     function_id: InterfaceFunctionId::Virtual { id: 2 },
-                    network_segment_id: uuid::Uuid::from_u128(base_uuid.as_u128() + 2),
+                    network_segment_id: uuid::Uuid::from_u128(base_uuid.0.as_u128() + 2).into(),
                     ip_addrs: HashMap::from([(
                         uuid::Uuid::from_u128(prefix_uuid.as_u128() + 2),
                         "127.0.0.3".parse().unwrap(),

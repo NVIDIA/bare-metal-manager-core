@@ -17,6 +17,7 @@ use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use super::DatabaseError;
+use crate::db::network_segment::NetworkSegmentId;
 use crate::model::network_segment::NetworkSegmentControllerState;
 
 /// A record of a past state of a NetworkSegment
@@ -28,7 +29,7 @@ pub struct NetworkSegmentStateHistory {
     _id: i64,
 
     /// The UUID of the network segment that experienced the state change
-    segment_id: uuid::Uuid,
+    segment_id: NetworkSegmentId,
 
     /// The state that was entered
     pub state: String,
@@ -78,12 +79,12 @@ impl NetworkSegmentStateHistory {
     ///
     pub async fn find_by_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
-        ids: &[uuid::Uuid],
-    ) -> Result<HashMap<uuid::Uuid, Vec<Self>>, DatabaseError> {
+        segment_ids: &[NetworkSegmentId],
+    ) -> Result<HashMap<NetworkSegmentId, Vec<Self>>, DatabaseError> {
         let query =
             "SELECT id, segment_id, state::TEXT, state_version, timestamp FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
         Ok(sqlx::query_as::<_, Self>(query)
-            .bind(ids)
+            .bind(segment_ids)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
@@ -93,14 +94,14 @@ impl NetworkSegmentStateHistory {
 
     pub async fn for_segment(
         txn: &mut Transaction<'_, Postgres>,
-        id: &uuid::Uuid,
+        segment_id: &NetworkSegmentId,
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
             FROM network_segment_state_history
-            WHERE segment_id=$1::uuid
+            WHERE segment_id=$1
             ORDER BY ID asc";
         sqlx::query_as::<_, Self>(query)
-            .bind(id)
+            .bind(segment_id)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
@@ -109,7 +110,7 @@ impl NetworkSegmentStateHistory {
     /// Store each state for debugging purpose.
     pub async fn persist(
         txn: &mut Transaction<'_, Postgres>,
-        segment_id: uuid::Uuid,
+        segment_id: NetworkSegmentId,
         state: &NetworkSegmentControllerState,
         state_version: ConfigVersion,
     ) -> Result<(), DatabaseError> {
