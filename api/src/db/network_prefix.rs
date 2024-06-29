@@ -15,17 +15,16 @@ use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
 use sqlx::postgres::PgRow;
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction};
-use uuid::Uuid;
 
 use super::DatabaseError;
+use crate::db::network_segment::{NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter};
 use crate::db::vpc::VpcId;
-use crate::db::UuidKeyedObjectFilter;
 use crate::CarbideError;
 
 #[derive(Debug, Clone)]
 pub struct NetworkPrefix {
     pub id: uuid::Uuid,
-    pub segment_id: Uuid,
+    pub segment_id: NetworkSegmentId,
     pub prefix: IpNetwork,
     pub gateway: Option<IpAddr>,
     pub num_reserved: i32,
@@ -130,25 +129,25 @@ impl NetworkPrefix {
      */
     pub async fn find_by_segment(
         txn: &mut Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
+        filter: NetworkSegmentIdKeyedObjectFilter<'_>,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
         let base_query = "SELECT * FROM network_prefixes {where}".to_owned();
 
         Ok(match filter {
-            UuidKeyedObjectFilter::All => {
+            NetworkSegmentIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, NetworkPrefix>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes All", e))?
             }
-            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, NetworkPrefix>(
+            NetworkSegmentIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, NetworkPrefix>(
                 &base_query.replace("{where}", "WHERE segment_id=$1"),
             )
             .bind(uuid)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes One", e))?,
-            UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, NetworkPrefix>(
+            NetworkSegmentIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, NetworkPrefix>(
                 &base_query.replace("{where}", "WHERE segment_id=ANY($1)"),
             )
             .bind(list)
@@ -190,7 +189,7 @@ impl NetworkPrefix {
      */
     pub async fn create_for(
         txn: &mut Transaction<'_, Postgres>,
-        segment: &uuid::Uuid,
+        segment_id: &NetworkSegmentId,
         vlan_id: Option<i16>,
         prefixes: &[NewNetworkPrefix],
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
@@ -211,7 +210,7 @@ impl NetworkPrefix {
             RETURNING *";
         for prefix in prefixes {
             let new_prefix: NetworkPrefix = sqlx::query_as(query)
-                .bind(segment)
+                .bind(segment_id)
                 .bind(prefix.prefix)
                 .bind(prefix.gateway)
                 .bind(prefix.num_reserved)
@@ -232,7 +231,7 @@ impl NetworkPrefix {
     }
 
     pub async fn delete_for_segment(
-        segment_id: uuid::Uuid,
+        segment_id: NetworkSegmentId,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query = "DELETE FROM network_prefixes WHERE segment_id=$1::uuid RETURNING id";

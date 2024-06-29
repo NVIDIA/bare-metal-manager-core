@@ -11,6 +11,7 @@
  */
 
 use carbide::api::Api;
+use carbide::db::network_segment::NetworkSegmentId;
 use carbide::db::network_segment_state_history::NetworkSegmentStateHistory;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -101,7 +102,7 @@ pub async fn create_network_segment_with_api(
         .into_inner()
 }
 
-pub async fn get_segment_state(api: &Api, segment_id: uuid::Uuid) -> rpc::forge::TenantState {
+pub async fn get_segment_state(api: &Api, segment_id: NetworkSegmentId) -> rpc::forge::TenantState {
     let segment = api
         .find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
             id: Some(segment_id.into()),
@@ -120,7 +121,7 @@ pub async fn get_segment_state(api: &Api, segment_id: uuid::Uuid) -> rpc::forge:
 
 pub async fn get_segments(
     api: &Api,
-    segment_id: uuid::Uuid,
+    segment_id: NetworkSegmentId,
     search_config: Option<NetworkSegmentSearchConfig>,
 ) -> rpc::forge::NetworkSegmentList {
     api.find_network_segments(Request::new(rpc::forge::NetworkSegmentQuery {
@@ -134,7 +135,7 @@ pub async fn get_segments(
 
 pub async fn text_history(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    segment_id: uuid::Uuid,
+    segment_id: NetworkSegmentId,
 ) -> Vec<String> {
     let entries = NetworkSegmentStateHistory::for_segment(txn, &segment_id)
         .await

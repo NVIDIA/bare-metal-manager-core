@@ -24,8 +24,9 @@ use crate::{
         machine_interface::MachineInterface,
         machine_interface_address::MachineInterfaceAddress,
         network_prefix::NetworkPrefix,
-        network_segment::{NetworkSegment, NetworkSegmentSearchConfig},
-        UuidKeyedObjectFilter,
+        network_segment::{
+            NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
+        },
     },
     model::{
         instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId},
@@ -150,7 +151,7 @@ pub async fn tenant_network(
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     let segments = &NetworkSegment::find(
         txn,
-        UuidKeyedObjectFilter::One(iface.network_segment_id),
+        NetworkSegmentIdKeyedObjectFilter::One(iface.network_segment_id),
         NetworkSegmentSearchConfig::default(),
     )
     .await

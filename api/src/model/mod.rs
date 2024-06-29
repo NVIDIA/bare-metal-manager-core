@@ -22,6 +22,7 @@
 
 use std::ops::{Deref, DerefMut};
 
+use crate::db::network_segment::NetworkSegmentId;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
@@ -106,16 +107,16 @@ pub enum ConfigValidationError {
     UnknownSegments,
 
     #[error("No Vpc is attached to segment {0}.")]
-    VpcNotAttachedToSegment(uuid::Uuid),
+    VpcNotAttachedToSegment(NetworkSegmentId),
 
     #[error("Found segments attached to multiple VPCs.")]
     MultipleVpcFound,
 
     #[error("Segment {0} is not yet ready. Current state: {1}")]
-    NetworkSegmentNotReady(uuid::Uuid, String),
+    NetworkSegmentNotReady(NetworkSegmentId, String),
 
     #[error("Segment {0} is requested to be deleted.")]
-    NetworkSegmentToBeDeleted(uuid::Uuid),
+    NetworkSegmentToBeDeleted(NetworkSegmentId),
 
     #[error("Configuation value can not be modified: {0}")]
     ConfigCanNotBeModified(String),

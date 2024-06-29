@@ -52,7 +52,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let instance_config = rpcf::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 
@@ -172,7 +172,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
 
     let instance_config = rpcf::InstanceConfig {
         tenant: Some(default_tenant_config()),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         os: Some(default_os_config()),
         infiniband: None,
     };

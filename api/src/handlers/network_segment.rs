@@ -19,8 +19,8 @@ use crate::db::network_segment::NetworkSegment;
 use crate::db::network_segment::NetworkSegmentSearchConfig;
 use crate::db::network_segment::NetworkSegmentType;
 use crate::db::network_segment::NewNetworkSegment;
+use crate::db::network_segment::{NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter};
 use crate::db::DatabaseError;
-use crate::db::UuidKeyedObjectFilter;
 use crate::model::network_segment::NetworkSegmentControllerState;
 use crate::model::RpcDataConversionError;
 use crate::CarbideError;
@@ -75,10 +75,10 @@ pub(crate) async fn find_by_ids(
         ..
     } = request.into_inner();
 
-    let network_segments_ids: Result<Vec<uuid::Uuid>, CarbideError> = network_segments_ids
+    let network_segments_ids: Result<Vec<NetworkSegmentId>, CarbideError> = network_segments_ids
         .iter()
         .map(|id| {
-            uuid::Uuid::try_from(id.value.as_str()).map_err(|_| {
+            NetworkSegmentId::try_from(id).map_err(|_| {
                 CarbideError::from(RpcDataConversionError::InvalidNetworkSegmentId(
                     id.value.to_string(),
                 ))
@@ -101,7 +101,7 @@ pub(crate) async fn find_by_ids(
 
     let segments = NetworkSegment::find(
         &mut txn,
-        UuidKeyedObjectFilter::List(&network_segments_ids),
+        NetworkSegmentIdKeyedObjectFilter::List(&network_segments_ids),
         NetworkSegmentSearchConfig {
             include_history,
             include_num_free_ips,
@@ -139,9 +139,9 @@ pub(crate) async fn find(
         id, search_config, ..
     } = request.into_inner();
 
-    let uuid_filter = match id {
-        Some(id) => match uuid::Uuid::try_from(id) {
-            Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+    let segment_id_filter = match id {
+        Some(id) => match NetworkSegmentId::try_from(id) {
+            Ok(uuid) => NetworkSegmentIdKeyedObjectFilter::One(uuid),
             Err(err) => {
                 return Err(Status::invalid_argument(format!(
                     "Supplied invalid UUID: {}",
@@ -149,13 +149,13 @@ pub(crate) async fn find(
                 )));
             }
         },
-        None => UuidKeyedObjectFilter::All,
+        None => NetworkSegmentIdKeyedObjectFilter::All,
     };
 
     let search_config = search_config
         .map(NetworkSegmentSearchConfig::from)
         .unwrap_or(NetworkSegmentSearchConfig::default());
-    let results = NetworkSegment::find(&mut txn, uuid_filter, search_config)
+    let results = NetworkSegment::find(&mut txn, segment_id_filter, search_config)
         .await
         .map_err(CarbideError::from)?;
     let mut network_segments = Vec::with_capacity(results.len());
@@ -243,21 +243,11 @@ pub(crate) async fn delete(
 
     let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
-    let uuid = match id {
-        Some(id) => match uuid::Uuid::try_from(id) {
-            Ok(uuid) => uuid,
-            Err(_err) => {
-                return Err(CarbideError::InvalidArgument("id".to_string()).into());
-            }
-        },
-        None => {
-            return Err(CarbideError::MissingArgument("id").into());
-        }
-    };
+    let segment_id = NetworkSegmentId::from_grpc(id)?;
 
     let mut segments = NetworkSegment::find(
         &mut txn,
-        UuidKeyedObjectFilter::One(uuid),
+        NetworkSegmentIdKeyedObjectFilter::One(segment_id),
         NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -268,7 +258,7 @@ pub(crate) async fn delete(
         _ => {
             return Err(CarbideError::NotFoundError {
                 kind: "network segment",
-                id: uuid.to_string(),
+                id: segment_id.to_string(),
             }
             .into());
         }

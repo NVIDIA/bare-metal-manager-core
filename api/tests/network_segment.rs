@@ -17,9 +17,11 @@ use std::time::Duration;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::machine_interface::MachineInterface;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
-use carbide::db::network_segment::{NetworkSegment, NetworkSegmentType, NewNetworkSegment};
+use carbide::db::network_segment::{
+    NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentType,
+    NewNetworkSegment,
+};
 use carbide::db::vpc::{Vpc, VpcId, VpcIdKeyedObjectFilter};
-use carbide::db::UuidKeyedObjectFilter;
 use carbide::model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegmentControllerState,
     NetworkSegmentDeletionState,
@@ -53,7 +55,7 @@ async fn test_advance_network_prefix_state(
     .pop()
     .unwrap();
 
-    let id = uuid::Uuid::new_v4();
+    let id: NetworkSegmentId = uuid::Uuid::new_v4().into();
     let segment: NetworkSegment = NewNetworkSegment {
         id,
         name: "integration_test".to_string(),
@@ -115,7 +117,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     let mut txn = env.pool.begin().await?;
     let db_segment = NetworkSegment::find(
         &mut txn,
-        UuidKeyedObjectFilter::One(segment.id.clone().unwrap().try_into().unwrap()),
+        NetworkSegmentIdKeyedObjectFilter::One(segment.id.clone().unwrap().try_into().unwrap()),
         carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -211,7 +213,7 @@ async fn test_network_segment_max_history_length(
         1,
     )
     .await;
-    let segment_id: uuid::Uuid = segment.id.clone().unwrap().try_into().unwrap();
+    let segment_id: NetworkSegmentId = segment.id.clone().unwrap().try_into().unwrap();
 
     let state_handler = NetworkSegmentStateHandler::new(
         chrono::Duration::milliseconds(500),
@@ -260,7 +262,7 @@ async fn test_network_segment_max_history_length(
     let mut txn = env.pool.begin().await.unwrap();
     let mut version = NetworkSegment::find(
         &mut txn,
-        UuidKeyedObjectFilter::One(segment_id),
+        NetworkSegmentIdKeyedObjectFilter::One(segment_id),
         carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -283,7 +285,7 @@ async fn test_network_segment_max_history_length(
         .unwrap());
         version = NetworkSegment::find(
             &mut txn,
-            UuidKeyedObjectFilter::One(segment_id),
+            NetworkSegmentIdKeyedObjectFilter::One(segment_id),
             carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -448,15 +450,17 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     use carbide::db::network_segment::NetworkSegmentSearchConfig; // override global rpc one
     let search_cfg = NetworkSegmentSearchConfig::default();
     let mut txn = db_pool.begin().await?;
-    let num_before = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::All, search_cfg)
-        .await?
-        .len();
+    let num_before =
+        NetworkSegment::find(&mut txn, NetworkSegmentIdKeyedObjectFilter::All, search_cfg)
+            .await?
+            .len();
     txn.commit().await?;
     carbide::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
     let mut txn = db_pool.begin().await?;
-    let num_after = NetworkSegment::find(&mut txn, UuidKeyedObjectFilter::All, search_cfg)
-        .await?
-        .len();
+    let num_after =
+        NetworkSegment::find(&mut txn, NetworkSegmentIdKeyedObjectFilter::All, search_cfg)
+            .await?
+            .len();
     txn.commit().await?;
     assert_eq!(
         num_before, num_after,
@@ -478,7 +482,7 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         1,
     )
     .await;
-    let segment_id: uuid::Uuid = segment.id.unwrap().try_into().unwrap();
+    let segment_id: NetworkSegmentId = segment.id.unwrap().try_into().unwrap();
 
     let mut txn = env.pool.begin().await?;
     let mut segments = NetworkSegment::list_segment_ids(&mut txn, None).await?;

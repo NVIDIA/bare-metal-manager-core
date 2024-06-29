@@ -602,7 +602,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -875,7 +875,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )

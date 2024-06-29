@@ -14,11 +14,11 @@
 
 use carbide::db::machine::Machine;
 use carbide::db::network_prefix::NetworkPrefix;
-use carbide::db::UuidKeyedObjectFilter;
 use carbide::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use carbide::{
     cfg::default_dpu_models,
     db::machine_interface::MachineInterface,
+    db::network_segment::NetworkSegmentIdKeyedObjectFilter,
     model::{
         hardware_info::HardwareInfo,
         machine::{
@@ -106,7 +106,7 @@ pub async fn host_discover_dhcp(
 
     let prefix = NetworkPrefix::find_by_segment(
         &mut txn,
-        UuidKeyedObjectFilter::One(predicted_host.interfaces()[0].segment_id()),
+        NetworkSegmentIdKeyedObjectFilter::One(predicted_host.interfaces()[0].segment_id()),
     )
     .await
     .unwrap()

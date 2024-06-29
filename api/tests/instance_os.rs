@@ -67,7 +67,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(initial_os.clone()),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 
@@ -256,7 +256,7 @@ async fn test_instance_creation_with_os_in_tenantconfig(
     let config = rpc::InstanceConfig {
         tenant: Some(tenant_config.clone()),
         os: None,
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 

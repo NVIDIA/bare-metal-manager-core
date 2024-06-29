@@ -243,7 +243,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )

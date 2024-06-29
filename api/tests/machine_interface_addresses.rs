@@ -47,7 +47,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         vlan_id: None,
         vni: None,
         segment_type: NetworkSegmentType::Underlay,
-        id: uuid::uuid!("f9860f19-37d5-44f6-b637-84de4648cd39"),
+        id: uuid::uuid!("f9860f19-37d5-44f6-b637-84de4648cd39").into(),
     };
     let network_segment = new_ns
         .persist(&mut txn, NetworkSegmentControllerState::Ready)

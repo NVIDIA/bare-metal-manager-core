@@ -26,6 +26,7 @@ use carbide::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
+        network_segment::NetworkSegmentId,
         DatabaseError,
     },
     model::{
@@ -66,7 +67,7 @@ fn setup() {
 struct FakeMachine {
     pub mac: String,
     pub dhcp_vendor: String,
-    pub segment: uuid::Uuid,
+    pub segment: NetworkSegmentId,
     pub ip: String,
 }
 

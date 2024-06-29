@@ -16,7 +16,7 @@ use carbide::{
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
-        network_segment::NetworkSegment,
+        network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
     },
     model::{hardware_info::HardwareInfo, machine::machine_id::MachineId},
 };
@@ -46,7 +46,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let segment = NetworkSegment::find(
         &mut txn,
-        carbide::db::UuidKeyedObjectFilter::One(FIXTURE_NETWORK_SEGMENT_ID),
+        NetworkSegmentIdKeyedObjectFilter::One(*FIXTURE_NETWORK_SEGMENT_ID),
         carbide::db::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await

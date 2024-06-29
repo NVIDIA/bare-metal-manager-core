@@ -91,7 +91,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         .unwrap()
         .is_none());
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         0
@@ -110,7 +110,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -165,7 +165,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         });
     assert_eq!(fetched_instance.machine_id, host_machine_id);
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         1
@@ -180,7 +180,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
     }
     assert_eq!(
         network_config_no_addresses,
-        InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID)
     );
 
     assert!(fetched_instance.network_status_observation.is_some());
@@ -255,7 +255,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         ManagedHostState::Ready
     ));
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         0
@@ -295,7 +295,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
         instance_metadata.clone(),
@@ -392,7 +392,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
             &env,
             &dpu_machine_id,
             &host_machine_id,
-            Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+            Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
             None,
             vec![],
             rpc::forge::Metadata {
@@ -495,7 +495,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
         tenant: Some(default_tenant_config()),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 
@@ -543,7 +543,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
     let config = rpc::InstanceConfig {
         os: Some(default_os_config()),
         tenant: Some(default_tenant_config()),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: Default::default(),
     };
 
@@ -641,7 +641,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -704,7 +704,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 
@@ -786,7 +786,7 @@ async fn test_instance_cloud_init_metadata(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -820,7 +820,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -1039,7 +1039,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -1067,7 +1067,7 @@ async fn test_instance_snapshot_is_included_in_machine_snapshot(
     network_config.interfaces[0].ip_addrs.clear();
     assert_eq!(
         network_config,
-        InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID)
     );
 
     assert_eq!(
@@ -1091,7 +1091,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
         config: InstanceConfig {
             os: default_os_config().try_into().unwrap(),
             tenant: default_tenant_config().try_into().unwrap(),
-            network: InstanceNetworkConfig::for_segment_id(FIXTURE_NETWORK_SEGMENT_ID),
+            network: InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID),
             infiniband: InstanceInfinibandConfig::default(),
         },
         metadata: Metadata {
@@ -1127,13 +1127,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         0
     );
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID_1)
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID_1)
             .await
             .unwrap(),
         0
@@ -1144,11 +1144,11 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
+                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
             },
         ],
     });
@@ -1170,13 +1170,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .expect("Unable to create transaction on database pool");
 
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID)
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         1
     );
     assert_eq!(
-        InstanceAddress::count_by_segment_id(&mut txn, FIXTURE_NETWORK_SEGMENT_ID_1)
+        InstanceAddress::count_by_segment_id(&mut txn, *FIXTURE_NETWORK_SEGMENT_ID_1)
             .await
             .unwrap(),
         1
@@ -1319,7 +1319,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
             config: Some(rpc::InstanceConfig {
                 os: Some(default_os_config()),
                 tenant: Some(default_tenant_config()),
-                network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+                network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
                 infiniband: None,
             }),
             metadata: Some(rpc::Metadata {
@@ -1349,7 +1349,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     let instance_config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(os),
-        network: Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
     };
 
@@ -1402,7 +1402,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &env,
         &dpu_machine_id,
         &host_machine_id,
-        Some(single_interface_network_config(FIXTURE_NETWORK_SEGMENT_ID)),
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         None,
         vec![],
     )
@@ -1507,11 +1507,11 @@ async fn test_instance_hostname(db_pool: sqlx::PgPool) {
         interfaces: vec![
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID.into()),
+                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some(FIXTURE_NETWORK_SEGMENT_ID_1.into()),
+                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
             },
         ],
     });

@@ -25,9 +25,9 @@ use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Transaction};
-use sqlx::{Postgres, Row};
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
+use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -38,14 +38,121 @@ use crate::{
         machine_interface::MachineInterface,
         network_prefix::{NetworkPrefix, NewNetworkPrefix},
         network_segment_state_history::NetworkSegmentStateHistory,
-        DatabaseError, UuidKeyedObjectFilter,
+        DatabaseError,
     },
     model::network_segment::NetworkSegmentControllerState,
 };
 use crate::{CarbideError, CarbideResult};
+use tonic::Status;
 
 const DEFAULT_MTU_TENANT: i32 = 9000;
 const DEFAULT_MTU_OTHER: i32 = 1500;
+
+/// NetworkSegmentId is a strongly typed UUID specific to a network
+/// segment ID, with trait implementations allowing it to be passed
+/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
+/// is similar to what we do for MachineId, VpcId, InstanceId, and
+/// basically all of the IDs in measured boot.
+#[derive(
+    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
+)]
+#[sqlx(type_name = "UUID")]
+pub struct NetworkSegmentId(pub uuid::Uuid);
+
+impl From<NetworkSegmentId> for uuid::Uuid {
+    fn from(id: NetworkSegmentId) -> Self {
+        id.0
+    }
+}
+
+impl From<uuid::Uuid> for NetworkSegmentId {
+    fn from(uuid: uuid::Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl FromStr for NetworkSegmentId {
+    type Err = RpcDataConversionError;
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("NetworkSegmentId", input.to_string())
+        })?))
+    }
+}
+
+impl fmt::Display for NetworkSegmentId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<NetworkSegmentId> for rpc::Uuid {
+    fn from(val: NetworkSegmentId) -> Self {
+        Self {
+            value: val.to_string(),
+        }
+    }
+}
+
+impl TryFrom<rpc::Uuid> for NetworkSegmentId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<&rpc::Uuid> for NetworkSegmentId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: &rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<Option<rpc::Uuid>> for NetworkSegmentId {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+        let Some(input_uuid) = msg else {
+            // TODO(chet): Maybe this isn't the right place for this, since
+            // depending on the proto message, the field name can differ (which
+            // should actually probably be standardized anyway), or we can just
+            // take a similar approach to ::InvalidUuid can say "field of type"?
+            return Err(CarbideError::MissingArgument("segment_id").into());
+        };
+        Ok(Self::try_from(input_uuid)?)
+    }
+}
+
+impl NetworkSegmentId {
+    pub fn from_grpc(msg: Option<rpc::Uuid>) -> Result<Self, Status> {
+        Self::try_from(msg)
+            .map_err(|e| Status::invalid_argument(format!("bad grpc network segment ID: {}", e)))
+    }
+}
+
+impl PgHasArrayType for NetworkSegmentId {
+    fn array_type_info() -> PgTypeInfo {
+        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    }
+}
+
+///
+/// A parameter to find() to filter resources by NetworkSegmentId;
+///
+#[derive(Clone)]
+pub enum NetworkSegmentIdKeyedObjectFilter<'a> {
+    /// Don't filter by NetworkSegmentId
+    All,
+
+    /// Filter by a list of NetworkSegmentIds
+    List(&'a [NetworkSegmentId]),
+
+    /// Retrieve a single resource
+    One(NetworkSegmentId),
+}
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct NetworkSegmentSearchConfig {
@@ -64,7 +171,7 @@ impl From<rpc::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
 
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
-    pub id: uuid::Uuid,
+    pub id: NetworkSegmentId,
     pub version: ConfigVersion,
     pub name: String,
     pub subdomain_id: Option<uuid::Uuid>,
@@ -108,6 +215,7 @@ pub enum NetworkSegmentType {
 
 #[derive(Debug)]
 pub struct NewNetworkSegment {
+    pub id: NetworkSegmentId,
     pub name: String,
     pub subdomain_id: Option<uuid::Uuid>,
     pub vpc_id: Option<VpcId>,
@@ -116,7 +224,6 @@ pub struct NewNetworkSegment {
     pub vlan_id: Option<i16>,
     pub vni: Option<i32>,
     pub segment_type: NetworkSegmentType,
-    pub id: uuid::Uuid,
 }
 
 impl TryFrom<i32> for NetworkSegmentType {
@@ -228,8 +335,8 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
         }
 
         let id = match value.id {
-            Some(v) => uuid::Uuid::try_from(v)?,
-            None => uuid::Uuid::new_v4(),
+            Some(v) => NetworkSegmentId::try_from(v)?,
+            None => uuid::Uuid::new_v4().into(),
         };
 
         let segment_type: NetworkSegmentType = value.segment_type.try_into()?;
@@ -329,7 +436,7 @@ impl NewNetworkSegment {
             num_reserved: value.reserve_first,
         };
         Ok(NewNetworkSegment {
-            id: uuid::Uuid::new_v4(),
+            id: uuid::Uuid::new_v4().into(),
             name: name.to_string(), // Set by the caller later
             subdomain_id: Some(domain_id),
             vpc_id: None,
@@ -446,7 +553,7 @@ impl NetworkSegment {
     pub async fn list_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
         segment_type: Option<NetworkSegmentType>,
-    ) -> Result<Vec<uuid::Uuid>, DatabaseError> {
+    ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
         let (query, mut segment_id_stream) = if let Some(segment_type) = segment_type {
             let query = "SELECT id FROM network_segments where network_segment_type=$1";
             let stream = sqlx::query_as::<_, NetworkSegmentId>(query)
@@ -462,7 +569,7 @@ impl NetworkSegment {
         let mut results = Vec::new();
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-            results.push(id.into());
+            results.push(id);
         }
 
         Ok(results)
@@ -471,10 +578,7 @@ impl NetworkSegment {
     pub async fn find_ids(
         txn: &mut Transaction<'_, Postgres>,
         filter: rpc::NetworkSegmentSearchFilter,
-    ) -> Result<Vec<uuid::Uuid>, CarbideError> {
-        #[derive(Debug, Clone, Copy, FromRow)]
-        pub struct NetworkSegmentId(uuid::Uuid);
-
+    ) -> Result<Vec<NetworkSegmentId>, CarbideError> {
         // build query
         let mut builder = sqlx::QueryBuilder::new("SELECT s.id FROM network_segments AS s");
         let mut has_filter = false;
@@ -498,32 +602,32 @@ impl NetworkSegment {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_segment::find_ids", e))?;
 
-        Ok(ids.into_iter().map(|id| id.0).collect())
+        Ok(ids)
     }
 
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
+        filter: NetworkSegmentIdKeyedObjectFilter<'_>,
         search_config: NetworkSegmentSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
         let base_query = "SELECT * FROM network_segments {where}".to_owned();
 
         let mut all_records: Vec<NetworkSegment> = match filter {
-            UuidKeyedObjectFilter::All => {
+            NetworkSegmentIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, NetworkSegment>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments All", e))?
             }
 
-            UuidKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, NetworkSegment>(
+            NetworkSegmentIdKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, NetworkSegment>(
                 &base_query.replace("{where}", "WHERE network_segments.id=ANY($1)"),
             )
             .bind(uuids)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_segments List", e))?,
-            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, NetworkSegment>(
+            NetworkSegmentIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, NetworkSegment>(
                 &base_query.replace("{where}", "WHERE network_segments.id=$1"),
             )
             .bind(uuid)
@@ -544,15 +648,17 @@ impl NetworkSegment {
         let all_uuids = all_records
             .iter()
             .map(|record| record.id)
-            .collect::<Vec<uuid::Uuid>>();
+            .collect::<Vec<NetworkSegmentId>>();
 
         // TODO(ajf): N+1 query alert.  Optimize later.
 
-        let mut grouped_prefixes =
-            NetworkPrefix::find_by_segment(&mut *txn, UuidKeyedObjectFilter::List(&all_uuids))
-                .await?
-                .into_iter()
-                .into_group_map_by(|prefix| prefix.segment_id);
+        let mut grouped_prefixes = NetworkPrefix::find_by_segment(
+            &mut *txn,
+            NetworkSegmentIdKeyedObjectFilter::List(&all_uuids),
+        )
+        .await?
+        .into_iter()
+        .into_group_map_by(|prefix| prefix.segment_id);
 
         let mut state_history = if search_config.include_history {
             NetworkSegmentStateHistory::find_by_segment_ids(&mut *txn, &all_uuids).await?
@@ -654,7 +760,7 @@ impl NetworkSegment {
     /// either doesn't exist anymore or is at a different version.
     pub async fn try_update_controller_state(
         txn: &mut Transaction<'_, Postgres>,
-        segment_id: uuid::Uuid,
+        segment_id: NetworkSegmentId,
         expected_version: ConfigVersion,
         new_state: &NetworkSegmentControllerState,
     ) -> Result<bool, DatabaseError> {
@@ -684,14 +790,13 @@ impl NetworkSegment {
 
     pub async fn update_controller_state_outcome(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        segment_id: uuid::Uuid,
+        segment_id: NetworkSegmentId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        let query =
-            "UPDATE network_segments SET controller_state_outcome=$1::json WHERE id=$2::uuid";
+        let query = "UPDATE network_segments SET controller_state_outcome=$1::json WHERE id=$2";
         sqlx::query(query)
             .bind(sqlx::types::Json(outcome))
-            .bind(segment_id.to_string())
+            .bind(segment_id)
             .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -702,7 +807,7 @@ impl NetworkSegment {
         self.subdomain_id.as_ref()
     }
 
-    pub fn id(&self) -> &uuid::Uuid {
+    pub fn id(&self) -> &NetworkSegmentId {
         &self.id
     }
 
@@ -739,9 +844,9 @@ impl NetworkSegment {
     }
 
     pub async fn final_delete(
-        segment_id: uuid::Uuid,
+        segment_id: NetworkSegmentId,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<uuid::Uuid, DatabaseError> {
+    ) -> Result<NetworkSegmentId, DatabaseError> {
         NetworkPrefix::delete_for_segment(segment_id, txn).await?;
 
         let query = "DELETE FROM network_segments WHERE id=$1::uuid RETURNING id";
@@ -751,7 +856,7 @@ impl NetworkSegment {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(segment.0)
+        Ok(segment)
     }
 
     pub async fn find_by_circuit_id(
@@ -812,14 +917,5 @@ WHERE network_prefixes.circuit_id=$1";
     /// The result of the last state controller iteration, if any
     pub fn current_state_iteration_outcome(&self) -> Option<PersistentStateHandlerOutcome> {
         self.controller_state_outcome.clone()
-    }
-}
-
-#[derive(Debug, Clone, Copy, FromRow)]
-pub struct NetworkSegmentId(uuid::Uuid);
-
-impl From<NetworkSegmentId> for uuid::Uuid {
-    fn from(id: NetworkSegmentId) -> Self {
-        id.0
     }
 }

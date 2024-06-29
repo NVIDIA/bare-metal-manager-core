@@ -14,6 +14,7 @@
 // in the fixtures folder. This file just contains the UUID references
 // for those.
 
+use carbide::db::network_segment::NetworkSegmentId;
 use carbide::state_controller::network_segment::handler::NetworkSegmentStateHandler;
 
 use crate::common::network_segment::FIXTURE_CREATED_DOMAIN_UUID;
@@ -22,13 +23,19 @@ use super::TestEnv;
 
 use rpc::forge::forge_server::Forge;
 
-pub const FIXTURE_NETWORK_SEGMENT_ID: uuid::Uuid =
-    uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200");
+use lazy_static::lazy_static;
 
-pub const FIXTURE_NETWORK_SEGMENT_ID_1: uuid::Uuid =
-    uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe9");
+lazy_static! {
+    pub static ref FIXTURE_NETWORK_SEGMENT_ID: NetworkSegmentId =
+        uuid::uuid!("91609f10-c91d-470d-a260-6293ea0c1200").into();
+}
 
-pub async fn create_underlay_network_segment(env: &TestEnv) -> uuid::Uuid {
+lazy_static! {
+    pub static ref FIXTURE_NETWORK_SEGMENT_ID_1: NetworkSegmentId =
+        uuid::uuid!("4de5bdd6-1f28-4ed4-aba7-f52e292f0fe9").into();
+}
+
+pub async fn create_underlay_network_segment(env: &TestEnv) -> NetworkSegmentId {
     create_network_segment(
         env,
         "UNDERLAY",
@@ -40,7 +47,7 @@ pub async fn create_underlay_network_segment(env: &TestEnv) -> uuid::Uuid {
     .await
 }
 
-pub async fn create_admin_network_segment(env: &TestEnv) -> uuid::Uuid {
+pub async fn create_admin_network_segment(env: &TestEnv) -> NetworkSegmentId {
     create_network_segment(
         env,
         "ADMIN",
@@ -59,7 +66,7 @@ pub async fn create_network_segment(
     gateway: &str,
     segment_type: rpc::forge::NetworkSegmentType,
     vpc_id: Option<rpc::Uuid>,
-) -> uuid::Uuid {
+) -> NetworkSegmentId {
     let request = rpc::forge::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
@@ -85,7 +92,7 @@ pub async fn create_network_segment(
         .await
         .expect("Unable to create network segment")
         .into_inner();
-    let segment_id: uuid::Uuid = response.id.unwrap().try_into().unwrap();
+    let segment_id: NetworkSegmentId = response.id.unwrap().try_into().unwrap();
 
     // Get the segment into ready state
     let handler = NetworkSegmentStateHandler::new(
