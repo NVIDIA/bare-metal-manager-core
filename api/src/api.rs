@@ -43,7 +43,6 @@ use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
-use crate::db::expected_machine::ExpectedMachine;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::{IBPartition, IBPartitionId};
 use crate::db::instance::InstanceId;
@@ -359,6 +358,20 @@ impl Forge for Api {
         request: Request<InstancePhoneHomeLastContactRequest>,
     ) -> Result<Response<InstancePhoneHomeLastContactResponse>, Status> {
         crate::handlers::instance::update_phone_home_last_contact(self, request).await
+    }
+
+    async fn update_instance_operating_system(
+        &self,
+        request: tonic::Request<rpc::InstanceOperatingSystemUpdateRequest>,
+    ) -> Result<tonic::Response<rpc::Instance>, Status> {
+        crate::handlers::instance::update_operating_system(self, request).await
+    }
+
+    async fn update_instance_config(
+        &self,
+        request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
+    ) -> Result<tonic::Response<rpc::Instance>, Status> {
+        crate::handlers::instance::update_instance_config(self, request).await
     }
 
     async fn get_managed_host_network_config(
@@ -2076,7 +2089,8 @@ impl Forge for Api {
             self.redfish_pool.clone(),
             self.credential_provider.clone(),
         );
-        let expected_machine = self.query_expected_machine(bmc_mac_address).await?;
+        let expected_machine =
+            crate::handlers::expected_machine::query(self, bmc_mac_address).await?;
         let machine_interface = MachineInterface::mock_with_mac(bmc_mac_address);
 
         let report = explorer
@@ -3537,295 +3551,49 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::ExpectedMachineRequest>,
     ) -> Result<Response<rpc::ExpectedMachine>, tonic::Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_expected_machine",
-                e,
-            ))
-        })?;
-
-        let request = request.into_inner();
-
-        let parsed_mac: MacAddress = request
-            .bmc_mac_address
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-
-        match ExpectedMachine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
-            Some(expected_machine) => {
-                if expected_machine.bmc_mac_address != parsed_mac {
-                    return Err(Status::invalid_argument(format!(
-                    "find_by_bmc_mac_address returned {expected_machine:#?} which differs from the queried mac address {parsed_mac}")));
-                }
-
-                let rpc_expected_machine = rpc::ExpectedMachine {
-                    bmc_mac_address: expected_machine.bmc_mac_address.to_string(),
-                    bmc_username: expected_machine.bmc_username,
-                    bmc_password: expected_machine.bmc_password,
-                    chassis_serial_number: expected_machine.serial_number,
-                };
-
-                Ok(Response::new(rpc_expected_machine))
-            }
-            None => Err(CarbideError::NotFoundError {
-                kind: "expected_machine",
-                id: parsed_mac.to_string(),
-            }
-            .into()),
-        }
+        crate::handlers::expected_machine::get(self, request).await
     }
 
     async fn add_expected_machine(
         &self,
         request: tonic::Request<rpc::ExpectedMachine>,
     ) -> Result<Response<()>, tonic::Status> {
-        log_request_data(&request);
-
-        let request = request.into_inner();
-
-        let parsed_mac: MacAddress = request
-            .bmc_mac_address
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin add_expected_machines",
-                e,
-            ))
-        })?;
-
-        ExpectedMachine::create(
-            &mut txn,
-            parsed_mac,
-            request.bmc_username,
-            request.bmc_password,
-            request.chassis_serial_number,
-        )
-        .await?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit add_expected_machines",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(()))
-    }
-
-    async fn update_instance_operating_system(
-        &self,
-        request: tonic::Request<rpc::InstanceOperatingSystemUpdateRequest>,
-    ) -> Result<tonic::Response<rpc::Instance>, Status> {
-        crate::handlers::instance::update_operating_system(self, request).await
-    }
-
-    async fn update_instance_config(
-        &self,
-        request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
-    ) -> Result<tonic::Response<rpc::Instance>, Status> {
-        crate::handlers::instance::update_instance_config(self, request).await
+        crate::handlers::expected_machine::add(self, request).await
     }
 
     async fn delete_expected_machine(
         &self,
         request: tonic::Request<rpc::ExpectedMachineRequest>,
     ) -> Result<Response<()>, tonic::Status> {
-        log_request_data(&request);
-
-        let rpc_expected_machine = self.get_expected_machine(request).await?.into_inner();
-
-        let parsed_mac: MacAddress = rpc_expected_machine
-            .bmc_mac_address
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-
-        let expected_machine = ExpectedMachine {
-            bmc_mac_address: parsed_mac,
-            bmc_username: rpc_expected_machine.bmc_username,
-            serial_number: rpc_expected_machine.chassis_serial_number,
-            bmc_password: rpc_expected_machine.bmc_password,
-        };
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin delete_expected_machines",
-                e,
-            ))
-        })?;
-
-        expected_machine
-            .delete(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit delete_expected_machines",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(()))
+        crate::handlers::expected_machine::delete(self, request).await
     }
 
     async fn update_expected_machine(
         &self,
         request: tonic::Request<rpc::ExpectedMachine>,
     ) -> Result<Response<()>, tonic::Status> {
-        log_request_data(&request);
-
-        let request = request.into_inner();
-
-        let parsed_mac: MacAddress = request
-            .bmc_mac_address
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-
-        let mut expected_machine = ExpectedMachine {
-            bmc_mac_address: parsed_mac,
-            bmc_username: request.bmc_username.clone(),
-            serial_number: request.chassis_serial_number,
-            bmc_password: request.bmc_password.clone(),
-        };
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin update_bmc_credentials",
-                e,
-            ))
-        })?;
-
-        expected_machine
-            .update_bmc_credentials(&mut txn, request.bmc_username, request.bmc_password)
-            .await?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit update_bmc_credentials",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(()))
+        crate::handlers::expected_machine::update(self, request).await
     }
 
     async fn replace_all_expected_machines(
         &self,
         request: tonic::Request<rpc::ExpectedMachineList>,
     ) -> Result<Response<()>, tonic::Status> {
-        log_request_data(&request);
-        let request = request.into_inner();
-
-        let mut txn: Transaction<'_, Postgres> =
-            self.database_connection.begin().await.map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin replace_all_expected_machines",
-                    e,
-                ))
-            })?;
-
-        ExpectedMachine::clear(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit replace_all_expected_machines",
-                e,
-            ))
-        })?;
-
-        for expected_machine in request.expected_machines {
-            self.add_expected_machine(Request::new(expected_machine))
-                .await?;
-        }
-        Ok(Response::new(()))
+        crate::handlers::expected_machine::replace_all(self, request).await
     }
 
     async fn get_all_expected_machines(
         &self,
         request: tonic::Request<()>,
     ) -> Result<Response<rpc::ExpectedMachineList>, tonic::Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_all_expected_machines",
-                e,
-            ))
-        })?;
-
-        let expected_machine_list: Vec<ExpectedMachine> = ExpectedMachine::find_all(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        Ok(tonic::Response::new(rpc::ExpectedMachineList {
-            expected_machines: expected_machine_list
-                .into_iter()
-                .map(|machine| rpc::ExpectedMachine {
-                    bmc_mac_address: machine.bmc_mac_address.to_string(),
-                    bmc_username: machine.bmc_username,
-                    bmc_password: machine.bmc_password,
-                    chassis_serial_number: machine.serial_number,
-                })
-                .collect(),
-        }))
+        crate::handlers::expected_machine::get_all(self, request).await
     }
 
     async fn delete_all_expected_machines(
         &self,
         request: tonic::Request<()>,
     ) -> Result<Response<()>, tonic::Status> {
-        log_request_data(&request);
-
-        let mut txn: Transaction<'_, Postgres> =
-            self.database_connection.begin().await.map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin replace_all_expected_machines",
-                    e,
-                ))
-            })?;
-
-        ExpectedMachine::clear(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit replace_all_expected_machines",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(()))
+        crate::handlers::expected_machine::delete_all(self, request).await
     }
 
     async fn find_connected_devices_by_dpu_machine_ids(
@@ -4917,33 +4685,6 @@ impl Api {
             }
         }
         Ok(None)
-    }
-
-    async fn query_expected_machine(
-        &self,
-        mac: MacAddress,
-    ) -> Result<Option<ExpectedMachine>, CarbideError> {
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin find_many_by_bmc_mac_address",
-                e,
-            ))
-        })?;
-
-        let mut expected = ExpectedMachine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit find_many_by_bmc_mac_address",
-                e,
-            ))
-        })?;
-
-        Ok(expected.remove(&mac))
     }
 }
 
