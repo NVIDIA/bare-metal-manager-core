@@ -18,6 +18,7 @@ pub mod instance;
 pub mod machine_validation;
 pub mod network_segment;
 pub mod resource_pool;
+pub mod route_server;
 pub mod tenant;
 pub mod tenant_keyset;
 pub mod vpc;
