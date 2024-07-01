@@ -1,5 +1,8 @@
 syntax = "proto3";
 
+// Don't forget to update build.rs to add the Serialize annotation for any new
+// message types!
+
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
