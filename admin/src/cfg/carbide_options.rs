@@ -874,15 +874,6 @@ pub enum Instance {
 #[derive(Parser, Debug)]
 pub struct ShowInstance {
     #[clap(
-        short,
-        long,
-        action,
-        conflicts_with = "id",
-        help = "Show all instances (DEPRECATED)"
-    )]
-    pub all: bool,
-
-    #[clap(
         default_value(""),
         help = "The instance ID to query, leave empty for all (default)"
     )]
