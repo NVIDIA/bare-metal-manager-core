@@ -14,7 +14,7 @@ use carbide::{
     api::rpc::{IbPartitionConfig, IbPartitionSearchConfig},
     api::Api,
     cfg::IBFabricConfig,
-    db::ib_partition::{IBPartitionConfig, IBPartitionStatus, NewIBPartition},
+    db::ib_partition::{IBPartitionConfig, IBPartitionId, IBPartitionStatus, NewIBPartition},
     ib::{
         types::{IBNetwork, IBPortMembership},
         IBFabricManagerConfig, IBFabricManagerType,
@@ -45,7 +45,7 @@ async fn create_ib_partition_with_api(
     api.create_ib_partition(Request::new(request)).await
 }
 
-async fn get_partition_state(api: &Api, ib_partition_id: uuid::Uuid) -> TenantState {
+async fn get_partition_state(api: &Api, ib_partition_id: IBPartitionId) -> TenantState {
     let segment = api
         .find_ib_partitions(Request::new(rpc::forge::IbPartitionQuery {
             id: Some(ib_partition_id.into()),
@@ -74,10 +74,10 @@ async fn test_ib_partition_lifecycle_impl(
             .unwrap()
             .into_inner();
 
-    let segment_id: uuid::Uuid = partition.id.clone().unwrap().try_into().unwrap();
+    let partition_id: IBPartitionId = partition.id.clone().unwrap().try_into().unwrap();
     // The TenantState only switches after the state controller recognized the update
     assert_eq!(
-        get_partition_state(&env.api, segment_id).await,
+        get_partition_state(&env.api, partition_id).await,
         TenantState::Provisioning
     );
 
@@ -88,7 +88,7 @@ async fn test_ib_partition_lifecycle_impl(
 
     // After 1 controller iterations, the partition should be ready
     assert_eq!(
-        get_partition_state(&env.api, segment_id).await,
+        get_partition_state(&env.api, partition_id).await,
         TenantState::Ready
     );
 
@@ -97,7 +97,7 @@ async fn test_ib_partition_lifecycle_impl(
     // After another controller iterations, the partition should still be ready even the
     // controller can not find the partition.
     assert_eq!(
-        get_partition_state(&env.api, segment_id).await,
+        get_partition_state(&env.api, partition_id).await,
         TenantState::Ready
     );
 
@@ -110,7 +110,7 @@ async fn test_ib_partition_lifecycle_impl(
 
     // After the API request, the partition should show up as deleting
     assert_eq!(
-        get_partition_state(&env.api, segment_id).await,
+        get_partition_state(&env.api, partition_id).await,
         TenantState::Terminating
     );
 
@@ -174,7 +174,7 @@ async fn test_find_ib_partition_for_tenant(
             .await
             .unwrap()
             .into_inner();
-    let created_ib_partition_id: uuid::Uuid =
+    let created_ib_partition_id: IBPartitionId =
         created_ib_partition.id.clone().unwrap().try_into().unwrap();
 
     let find_ib_partition = env
@@ -187,7 +187,7 @@ async fn test_find_ib_partition_for_tenant(
         .into_inner()
         .ib_partitions
         .remove(0);
-    let find_ib_partition_id: uuid::Uuid =
+    let find_ib_partition_id: IBPartitionId =
         find_ib_partition.id.clone().unwrap().try_into().unwrap();
 
     assert_eq!(created_ib_partition_id, find_ib_partition_id);
@@ -227,7 +227,7 @@ async fn create_ib_partition_with_api_with_id(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let id = uuid::Uuid::new_v4();
+    let id = IBPartitionId::from(uuid::Uuid::new_v4());
     let request = rpc::forge::IbPartitionCreationRequest {
         id: Some(::rpc::Uuid {
             value: id.to_string(),
@@ -251,7 +251,7 @@ async fn create_ib_partition_with_api_with_id(
 
 #[sqlx::test]
 async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let id = uuid::Uuid::new_v4();
+    let id = IBPartitionId::from(uuid::Uuid::new_v4());
     let new_partition = NewIBPartition {
         id,
         config: IBPartitionConfig {

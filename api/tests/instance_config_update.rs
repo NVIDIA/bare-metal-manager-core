@@ -20,6 +20,8 @@ use common::api_fixtures::{
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
+use carbide::db::ib_partition::IBPartitionId;
+use carbide::db::network_segment::NetworkSegmentId;
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -358,7 +360,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .interfaces
         .push(rpc::forge::InstanceInterfaceConfig {
             function_type: rpc::forge::InterfaceFunctionType::Virtual as _,
-            network_segment_id: Some(uuid::Uuid::new_v4().into()),
+            network_segment_id: Some(NetworkSegmentId::from(uuid::Uuid::new_v4()).into()),
         });
     let err = env
         .api
@@ -385,7 +387,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             vendor: None,
             device: "MT2910 Family [ConnectX-7]".to_string(),
             device_instance: 0,
-            ib_partition_id: Some(uuid::Uuid::new_v4().into()),
+            ib_partition_id: Some(IBPartitionId::from(uuid::Uuid::new_v4()).into()),
             function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
             virtual_function_id: None,
         }],

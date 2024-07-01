@@ -49,7 +49,7 @@ use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::expected_machine::ExpectedMachine;
 use crate::db::explored_endpoints::DbExploredEndpoint;
-use crate::db::ib_partition::IBPartition;
+use crate::db::ib_partition::{IBPartition, IBPartitionId};
 use crate::db::instance::InstanceId;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
@@ -2391,7 +2391,7 @@ impl Forge for Api {
                 .await?;
 
             // Collect the ib partition and ib ports information about this machine
-            let mut ib_config_map: HashMap<Uuid, Vec<String>> = HashMap::new();
+            let mut ib_config_map: HashMap<IBPartitionId, Vec<String>> = HashMap::new();
             let infiniband = instance.config.infiniband.ib_interfaces;
             for ib in &infiniband {
                 let ib_partition_id = ib.ib_partition_id;

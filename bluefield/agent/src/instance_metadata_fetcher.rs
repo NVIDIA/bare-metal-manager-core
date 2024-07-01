@@ -42,6 +42,10 @@ pub struct IBDeviceConfig {
 
 #[derive(Clone, Debug)]
 pub struct IBInstanceConfig {
+    // TODO(chet): This should become an IBPartitionId, but
+    // doing so would bring in all of `api/` as a dependency,
+    // which I don't think we want (since it's not one yet).
+    // Soooo, TBD on that.
     pub ib_partition_id: Option<uuid>,
     pub ib_guid: Option<String>,
     pub lid: u32,

@@ -16,8 +16,10 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     db::{
-        ib_partition::{IBPartition, IBPartitionSearchConfig},
-        DatabaseError, UuidKeyedObjectFilter,
+        ib_partition::{
+            IBPartition, IBPartitionId, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig,
+        },
+        DatabaseError,
     },
     model::controller_outcome::PersistentStateHandlerOutcome,
     model::ib_partition::IBPartitionControllerState,
@@ -33,7 +35,7 @@ pub struct IBPartitionStateControllerIO {}
 
 #[async_trait::async_trait]
 impl StateControllerIO for IBPartitionStateControllerIO {
-    type ObjectId = uuid::Uuid;
+    type ObjectId = IBPartitionId;
     type State = IBPartition;
     type ControllerState = IBPartitionControllerState;
     type MetricsEmitter = NoopMetricsEmitter;
@@ -56,22 +58,22 @@ impl StateControllerIO for IBPartitionStateControllerIO {
     async fn load_object_state(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        segment_id: &Self::ObjectId,
+        partition_id: &Self::ObjectId,
     ) -> Result<Self::State, SnapshotLoaderError> {
-        let mut segments = IBPartition::find(
+        let mut partitions = IBPartition::find(
             txn,
-            UuidKeyedObjectFilter::One(*segment_id),
+            IBPartitionIdKeyedObjectFilter::One(*partition_id),
             IBPartitionSearchConfig::default(),
         )
         .await?;
-        if segments.len() != 1 {
+        if partitions.len() != 1 {
             return Err(SnapshotLoaderError::InvalidResult(format!(
                 "Searching for IBPartition {} returned zero or multiple results",
-                segment_id
+                partition_id
             )));
         }
-        let segment = segments.swap_remove(0);
-        Ok(segment)
+        let partition = partitions.swap_remove(0);
+        Ok(partition)
     }
 
     async fn load_controller_state(
