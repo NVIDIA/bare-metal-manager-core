@@ -17,7 +17,10 @@ use carbide::measured_boot::dto::records::MeasurementBundleState;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
 use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
-use carbide::state_controller::machine::handler::MachineStateHandler;
+use carbide::state_controller::machine::handler::{
+    handler_host_power_control, MachineStateHandler,
+};
+use carbide::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader};
 use common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
 use rpc::forge::forge_server::Forge;
@@ -739,4 +742,115 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
         .unwrap();
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
+    let mut env = create_test_env(pool).await;
+    env.attestation_enabled = true;
+
+    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+
+    let snapshot_loader = DbSnapshotLoader;
+    let mut txn = env.pool.begin().await.unwrap();
+    let snapshot = snapshot_loader
+        .load_machine_snapshot(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    handler_host_power_control(
+        &snapshot,
+        &env.state_handler_services(),
+        libredfish::SystemPowerControl::ForceOff,
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+
+    let snapshot1 = snapshot_loader
+        .load_machine_snapshot(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    for i in 0..snapshot.dpu_snapshots.len() {
+        assert_ne!(
+            snapshot.dpu_snapshots[i]
+                .clone()
+                .last_reboot_requested
+                .map(|x| x.time)
+                .unwrap_or_default(),
+            snapshot1.dpu_snapshots[i]
+                .clone()
+                .last_reboot_requested
+                .unwrap()
+                .time
+        );
+    }
+
+    let mut txn = env.pool.begin().await.unwrap();
+    handler_host_power_control(
+        &snapshot,
+        &env.state_handler_services(),
+        libredfish::SystemPowerControl::On,
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let snapshot2 = snapshot_loader
+        .load_machine_snapshot(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    for i in 0..snapshot.dpu_snapshots.len() {
+        assert_ne!(
+            snapshot1.dpu_snapshots[i]
+                .clone()
+                .last_reboot_requested
+                .map(|x| x.time)
+                .unwrap_or_default(),
+            snapshot2.dpu_snapshots[i]
+                .clone()
+                .last_reboot_requested
+                .unwrap()
+                .time
+        );
+    }
+
+    let mut txn = env.pool.begin().await.unwrap();
+    handler_host_power_control(
+        &snapshot,
+        &env.state_handler_services(),
+        libredfish::SystemPowerControl::ForceRestart,
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let snapshot3 = snapshot_loader
+        .load_machine_snapshot(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    for i in 0..snapshot.dpu_snapshots.len() {
+        assert_eq!(
+            snapshot2.dpu_snapshots[i]
+                .clone()
+                .last_reboot_requested
+                .map(|x| x.time)
+                .unwrap_or_default(),
+            snapshot3.dpu_snapshots[i]
+                .clone()
+                .last_reboot_requested
+                .unwrap()
+                .time
+        );
+    }
 }
