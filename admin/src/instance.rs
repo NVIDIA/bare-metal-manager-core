@@ -14,7 +14,6 @@ use std::fmt::Write;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge_tls_client::ApiConfig;
 use prettytable::{row, Table};
-use tracing::warn;
 
 use super::cfg::carbide_options::ShowInstance;
 use super::{default_uuid, invalid_machine_id, rpc, CarbideCliResult};
@@ -247,8 +246,48 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
     table.into()
 }
 
-async fn show_all_instances(json: bool, api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
-    let instances = rpc::get_instances(api_config, None, None, None).await?;
+async fn show_instances(
+    json: bool,
+    api_config: &ApiConfig<'_>,
+    label_key: Option<String>,
+    label_value: Option<String>,
+    page_size: usize,
+) -> CarbideCliResult<()> {
+    let all_instance_ids =
+        match rpc::get_instance_ids(api_config, None, label_key.clone(), label_value.clone()).await
+        {
+            Ok(all_instance_ids) => all_instance_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                return show_all_instances_deprecated(json, api_config, label_key, label_value)
+                    .await;
+            }
+            Err(e) => return Err(e),
+        };
+    let mut all_instances = forgerpc::InstanceList {
+        instances: Vec::with_capacity(all_instance_ids.instance_ids.len()),
+    };
+    for instance_ids in all_instance_ids.instance_ids.chunks(page_size) {
+        let instances = rpc::get_instances_by_ids(api_config, instance_ids).await?;
+        all_instances.instances.extend(instances.instances);
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&all_instances).unwrap());
+    } else {
+        convert_instances_to_nice_table(all_instances).printstd();
+    }
+    Ok(())
+}
+
+// TODO: remove when all sites updated to carbide-api with get_instance_ids and get_instances_by_ids implemented
+async fn show_all_instances_deprecated(
+    json: bool,
+    api_config: &ApiConfig<'_>,
+    label_key: Option<String>,
+    label_value: Option<String>,
+) -> CarbideCliResult<()> {
+    let instances = rpc::get_instances(api_config, None, label_key, label_value).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&instances).unwrap());
     } else {
@@ -259,24 +298,28 @@ async fn show_all_instances(json: bool, api_config: &ApiConfig<'_>) -> CarbideCl
 
 async fn show_instance_details(
     id: String,
-    label_key: Option<String>,
-    label_value: Option<String>,
     json: bool,
     api_config: &ApiConfig<'_>,
     extrainfo: bool,
 ) -> CarbideCliResult<()> {
     let instance = if id.starts_with("fm100") {
         rpc::get_instances_by_machine_id(api_config, id).await?
-    } else if id.is_empty() {
-        rpc::get_instances(api_config, None, label_key, label_value).await?
     } else {
-        rpc::get_instances(api_config, Some(id), None, None).await?
+        let instance_id = forgerpc::Uuid { value: id.clone() };
+        match rpc::get_instances_by_ids(api_config, &[instance_id]).await {
+            Ok(instances) => instances,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                rpc::get_instances(api_config, Some(id), None, None).await?
+            }
+            Err(e) => return Err(e),
+        }
     };
 
     if instance.instances.len() != 1 {
-        println!("Unknown UUID or label.");
         return Err(CarbideCliError::GenericError(
-            "Unknow UUID or label".to_string(),
+            "Unknown Instance ID".to_string(),
         ));
     }
 
@@ -297,28 +340,21 @@ pub async fn handle_show(
     args: ShowInstance,
     output_format: OutputFormat,
     api_config: &ApiConfig<'_>,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.all || (args.id.is_empty() && args.label_key.is_none() && args.label_value.is_none()) {
-        show_all_instances(is_json, api_config).await?;
-        // TODO(chet): Remove this ~March 2024.
-        // Use tracing::warn for this so its both a little more
-        // noticeable, and a little more annoying/naggy. If people
-        // complain, it means its working.
-        if args.all && output_format == OutputFormat::AsciiTable {
-            warn!("redundant `--all` with basic `show` is deprecated. just do `instance show`")
-        }
+    if args.id.is_empty() {
+        show_instances(
+            is_json,
+            api_config,
+            args.label_key,
+            args.label_value,
+            page_size,
+        )
+        .await?;
         return Ok(());
     }
-    show_instance_details(
-        args.id,
-        args.label_key,
-        args.label_value,
-        is_json,
-        api_config,
-        args.extrainfo,
-    )
-    .await?;
+    show_instance_details(args.id, is_json, api_config, args.extrainfo).await?;
     Ok(())
 }
 

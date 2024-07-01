@@ -16,11 +16,10 @@ use std::path::Path;
 use std::str::FromStr;
 
 use ::rpc::forge::{
-    self as rpc, DpuResetResponse, MachineBootOverride, MachineIdList, MachineSearchConfig,
-    MachineType, NetworkDeviceIdList, NetworkSegmentSearchConfig,
+    self as rpc, DpuResetResponse, MachineBootOverride, MachineSearchConfig, MachineType,
+    NetworkDeviceIdList, NetworkSegmentSearchConfig,
 };
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
-use ::rpc::{MachineId, Uuid};
 
 use super::{CarbideCliError, CarbideCliResult};
 use crate::cfg::carbide_options::{self, ForceDeleteMachineQuery, MachineQuery};
@@ -175,7 +174,7 @@ pub async fn get_all_machines(
 
 pub async fn reboot_instance(
     api_config: &ApiConfig<'_>,
-    machine_id: MachineId,
+    machine_id: rpc::MachineId,
     boot_with_custom_ipxe: bool,
     apply_updates_on_reboot: bool,
 ) -> CarbideCliResult<()> {
@@ -241,6 +240,53 @@ pub async fn get_instances(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(instance_details)
+    })
+    .await
+}
+
+pub async fn get_instance_ids(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<uuid::Uuid>,
+    label_key: Option<String>,
+    label_value: Option<String>,
+) -> CarbideCliResult<rpc::InstanceIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::InstanceSearchFilter {
+            tenant_org_id: tenant_org_id.map(|u| u.to_string()),
+            label: if label_key.is_none() && label_value.is_none() {
+                None
+            } else {
+                Some(rpc::Label {
+                    key: label_key.unwrap_or_default().to_string(),
+                    value: label_value,
+                })
+            },
+        });
+        let instance_ids = client
+            .find_instance_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(instance_ids)
+    })
+    .await
+}
+
+pub async fn get_instances_by_ids(
+    api_config: &ApiConfig<'_>,
+    instance_ids: &[rpc::Uuid],
+) -> CarbideCliResult<rpc::InstanceList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::InstancesByIdsRequest {
+            instance_ids: Vec::from(instance_ids),
+        });
+        let instances = client
+            .find_instances_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(instances)
     })
     .await
 }
@@ -559,7 +605,7 @@ pub async fn list_dpu_pending_for_reprovisioning(
 
 pub async fn get_boot_override(
     api_config: &ApiConfig<'_>,
-    machine_interface_id: Uuid,
+    machine_interface_id: rpc::Uuid,
 ) -> CarbideCliResult<MachineBootOverride> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(machine_interface_id);
@@ -575,7 +621,7 @@ pub async fn get_boot_override(
 
 pub async fn set_boot_override(
     api_config: &ApiConfig<'_>,
-    machine_interface_id: Uuid,
+    machine_interface_id: rpc::Uuid,
     custom_pxe_path: Option<&Path>,
     custom_user_data_path: Option<&Path>,
 ) -> CarbideCliResult<()> {
@@ -607,7 +653,7 @@ pub async fn set_boot_override(
 
 pub async fn clear_boot_override(
     api_config: &ApiConfig<'_>,
-    machine_interface_id: Uuid,
+    machine_interface_id: rpc::Uuid,
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(machine_interface_id);
@@ -773,7 +819,7 @@ pub async fn remove_route_server(
 
 pub async fn get_all_machines_interfaces(
     api_config: &ApiConfig<'_>,
-    id: Option<Uuid>,
+    id: Option<rpc::Uuid>,
 ) -> CarbideCliResult<rpc::InterfaceList> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::InterfaceSearchQuery { id, ip: None });
@@ -790,7 +836,7 @@ pub async fn get_all_machines_interfaces(
 
 pub async fn delete_machine_interface(
     api_config: &ApiConfig<'_>,
-    id: Option<Uuid>,
+    id: Option<rpc::Uuid>,
 ) -> CarbideCliResult<()> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::InterfaceDeleteQuery { id });
@@ -946,7 +992,7 @@ pub async fn find_connected_devices_by_dpu_machine_ids(
     machine_ids: Vec<rpc::MachineId>,
 ) -> CarbideCliResult<rpc::ConnectedDeviceList> {
     with_forge_client(api_config, |mut client| async move {
-        let machine_id_list = MachineIdList { machine_ids };
+        let machine_id_list = rpc::MachineIdList { machine_ids };
         client
             .find_connected_devices_by_dpu_machine_ids(machine_id_list)
             .await

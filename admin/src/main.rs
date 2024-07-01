@@ -289,7 +289,13 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::Instance(instance) => match instance {
             Instance::Show(instance) => {
-                instance::handle_show(instance, config.format, api_config).await?
+                instance::handle_show(
+                    instance,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?
             }
             Instance::Reboot(reboot_request) => {
                 instance::handle_reboot(reboot_request, api_config).await?
