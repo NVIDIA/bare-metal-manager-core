@@ -32,18 +32,14 @@ use sqlx::{Postgres, Transaction};
 use tokio::net::lookup_host;
 use tokio::time::{sleep, Instant};
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
-use self::rpc::forge_server::Forge;
-
-#[cfg(feature = "tss-esapi")]
-use crate::{attestation as attest, db::attestation::SecretAkPub};
 #[cfg(feature = "tss-esapi")]
 use tss_esapi::{
     structures::{Attest, Public as TssPublic, Signature},
     traits::UnMarshall,
 };
+use uuid::Uuid;
 
+use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
@@ -79,7 +75,8 @@ use crate::redfish::{host_power_control, poll_redfish_job};
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::snapshot_loader::{MachineStateSnapshotLoader, SnapshotLoaderError};
-
+#[cfg(feature = "tss-esapi")]
+use crate::{attestation as attest, db::attestation::SecretAkPub};
 use crate::{
     auth,
     db::{
@@ -91,7 +88,6 @@ use crate::{
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
         resource_record::DnsQuestion,
-        route_servers::RouteServer,
         vpc::Vpc,
         DatabaseError, ObjectFilter, UuidKeyedObjectFilter,
     },
@@ -820,7 +816,6 @@ impl Forge for Api {
         Ok(Response::new(reply))
     }
 
-    /// Tenant-related actions
     async fn create_tenant(
         &self,
         request: Request<rpc::CreateTenantRequest>,
@@ -3308,30 +3303,7 @@ impl Forge for Api {
         &self,
         request: tonic::Request<()>,
     ) -> Result<tonic::Response<rpc::RouteServers>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin get_route_servers",
-                    e,
-                ))
-            })
-            .map_err(CarbideError::from)?;
-
-        let route_servers = RouteServer::get(&mut txn).await?;
-
-        Ok(tonic::Response::new(rpc::RouteServers {
-            route_servers: route_servers
-                .into_iter()
-                .map(|rs| rs.address.to_string())
-                .collect(),
-        }))
+        crate::handlers::route_server::get(self, request).await
     }
 
     /// Overwrites all existing route server entries with the provided list
@@ -3339,95 +3311,14 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::RouteServers>,
     ) -> Result<tonic::Response<()>, Status> {
-        log_request_data(&request);
-
-        if !self.eth_data.route_servers_enabled {
-            return Err(
-                CarbideError::InvalidArgument("Route servers are disabled".to_string()).into(),
-            );
-        }
-        let route_servers: Vec<IpAddr> = request
-            .into_inner()
-            .route_servers
-            .iter()
-            .map(|rs| IpAddr::from_str(rs))
-            .collect::<Result<Vec<IpAddr>, _>>()
-            .map_err(CarbideError::AddressParseError)?;
-
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin get_route_servers",
-                    e,
-                ))
-            })
-            .map_err(CarbideError::from)?;
-
-        RouteServer::add(&mut txn, &route_servers).await?;
-
-        txn.commit()
-            .await
-            .map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "commit get_route_servers",
-                    e,
-                ))
-            })
-            .map_err(CarbideError::from)?;
-
-        Ok(tonic::Response::new(()))
+        crate::handlers::route_server::add(self, request).await
     }
 
     async fn remove_route_servers(
         &self,
         request: tonic::Request<rpc::RouteServers>,
     ) -> Result<tonic::Response<()>, Status> {
-        log_request_data(&request);
-
-        let route_servers: Vec<IpAddr> = request
-            .into_inner()
-            .route_servers
-            .iter()
-            .map(|rs| IpAddr::from_str(rs))
-            .collect::<Result<Vec<IpAddr>, _>>()
-            .map_err(CarbideError::AddressParseError)?;
-
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin get_route_servers",
-                    e,
-                ))
-            })
-            .map_err(CarbideError::from)?;
-
-        RouteServer::remove(&mut txn, &route_servers).await?;
-
-        txn.commit()
-            .await
-            .map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "commit get_route_servers",
-                    e,
-                ))
-            })
-            .map_err(CarbideError::from)?;
-
-        Ok(tonic::Response::new(()))
+        crate::handlers::route_server::remove(self, request).await
     }
 
     /// Overwrites all existing route server entries with the provided list
@@ -3435,45 +3326,7 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::RouteServers>,
     ) -> Result<tonic::Response<()>, Status> {
-        log_request_data(&request);
-
-        let route_servers: Vec<IpAddr> = request
-            .into_inner()
-            .route_servers
-            .iter()
-            .map(|rs| IpAddr::from_str(rs))
-            .collect::<Result<Vec<IpAddr>, _>>()
-            .map_err(CarbideError::AddressParseError)?;
-
-        let mut txn = self
-            .database_connection
-            .begin()
-            .await
-            .map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "begin get_route_servers",
-                    e,
-                ))
-            })
-            .map_err(CarbideError::from)?;
-
-        RouteServer::replace(&mut txn, &route_servers).await?;
-
-        txn.commit()
-            .await
-            .map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "commit get_route_servers",
-                    e,
-                ))
-            })
-            .map_err(CarbideError::from)?;
-
-        Ok(tonic::Response::new(()))
+        crate::handlers::route_server::replace(self, request).await
     }
 
     // Override RUST_LOG or site-explorer create_machines
