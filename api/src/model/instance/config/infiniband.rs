@@ -14,10 +14,10 @@ use std::collections::HashSet;
 
 use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 // TODO(k82cn): It's better to move FunctionId/FunctionType to a standalone model.
 use super::network::{InterfaceFunctionId, InterfaceFunctionType};
+use crate::db::ib_partition::IBPartitionId;
 use crate::model::{ConfigValidationError, RpcDataConversionError};
 
 /// Desired infiniband configuration for an instance
@@ -29,7 +29,7 @@ pub struct InstanceInfinibandConfig {
 
 impl InstanceInfinibandConfig {
     /// Returns a infiniband configuration for a single physical interface
-    pub fn for_ib_partition_id(ib_partition_id: Uuid) -> Self {
+    pub fn for_ib_partition_id(ib_partition_id: IBPartitionId) -> Self {
         Self {
             ib_interfaces: vec![InstanceIbInterfaceConfig {
                 function_id: InterfaceFunctionId::Physical {},
@@ -117,12 +117,7 @@ impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
                     .ok_or(RpcDataConversionError::MissingArgument(
                         "InstanceIbInterfaceConfig::ib_partition_id",
                     ))?;
-            let ib_partition_id = uuid::Uuid::try_from(ib_partition_id.clone()).map_err(|_| {
-                RpcDataConversionError::InvalidUuid(
-                    "InstanceIbInterfaceConfig::ib_partition_id",
-                    ib_partition_id.value,
-                )
-            })?;
+            let ib_partition_id = IBPartitionId::try_from(ib_partition_id.clone())?;
 
             ib_interfaces.push(InstanceIbInterfaceConfig {
                 function_id,
@@ -169,7 +164,7 @@ pub struct InstanceIbInterfaceConfig {
     // Uniquely identifies the ib interface on the instance
     pub function_id: InterfaceFunctionId,
     /// The IB partition this ib interface is attached to
-    pub ib_partition_id: Uuid,
+    pub ib_partition_id: IBPartitionId,
     /// The GUID of the hardware device that this interface is attached to
     pub pf_guid: Option<String>,
     /// The GUID which has been assigned to this interface

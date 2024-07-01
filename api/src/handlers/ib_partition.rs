@@ -14,8 +14,11 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
-use crate::db::ib_partition::{IBPartition, IBPartitionSearchConfig, NewIBPartition};
-use crate::db::{DatabaseError, UuidKeyedObjectFilter};
+use crate::db::ib_partition::{
+    IBPartition, IBPartitionId, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig,
+    NewIBPartition,
+};
+use crate::db::DatabaseError;
 use crate::model::RpcDataConversionError;
 use crate::CarbideError;
 
@@ -110,10 +113,10 @@ pub(crate) async fn find_by_ids(
         ..
     } = request.into_inner();
 
-    let partition_ids: Result<Vec<uuid::Uuid>, CarbideError> = ib_partition_ids
+    let partition_ids: Result<Vec<IBPartitionId>, CarbideError> = ib_partition_ids
         .iter()
         .map(|id| {
-            uuid::Uuid::try_from(id.value.as_str()).map_err(|_| {
+            IBPartitionId::try_from(id.clone()).map_err(|_| {
                 CarbideError::from(RpcDataConversionError::InvalidIbPartitionId(
                     id.value.to_string(),
                 ))
@@ -136,7 +139,7 @@ pub(crate) async fn find_by_ids(
 
     let partitions = IBPartition::find(
         &mut txn,
-        UuidKeyedObjectFilter::List(&partition_ids),
+        IBPartitionIdKeyedObjectFilter::List(&partition_ids),
         IBPartitionSearchConfig { include_history },
     )
     .await
@@ -172,8 +175,8 @@ pub(crate) async fn find(
     } = request.into_inner();
 
     let uuid_filter = match id {
-        Some(id) => match uuid::Uuid::try_from(id) {
-            Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+        Some(id) => match IBPartitionId::try_from(id) {
+            Ok(uuid) => IBPartitionIdKeyedObjectFilter::One(uuid),
             Err(err) => {
                 return Err(Status::invalid_argument(format!(
                     "Supplied invalid UUID: {}",
@@ -181,7 +184,7 @@ pub(crate) async fn find(
                 )));
             }
         },
-        None => UuidKeyedObjectFilter::All,
+        None => IBPartitionIdKeyedObjectFilter::All,
     };
 
     let search_config = search_config
@@ -215,21 +218,11 @@ pub(crate) async fn delete(
 
     let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
-    let uuid = match id {
-        Some(id) => match uuid::Uuid::try_from(id) {
-            Ok(uuid) => uuid,
-            Err(_err) => {
-                return Err(CarbideError::InvalidArgument("id".to_string()).into());
-            }
-        },
-        None => {
-            return Err(CarbideError::MissingArgument("id").into());
-        }
-    };
+    let uuid = IBPartitionId::from_grpc(id)?;
 
     let mut segments = IBPartition::find(
         &mut txn,
-        UuidKeyedObjectFilter::One(uuid),
+        IBPartitionIdKeyedObjectFilter::One(uuid),
         IBPartitionSearchConfig::default(),
     )
     .await

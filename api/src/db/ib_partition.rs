@@ -12,14 +12,16 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
+use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Postgres, Row, Transaction};
+use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
+use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
 use super::machine::Machine;
 use crate::ib::IBFabricManagerConfig;
@@ -28,9 +30,10 @@ use crate::model::hardware_info::InfinibandInterface;
 use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
+use crate::model::RpcDataConversionError;
 use crate::{
     db::instance::InstanceId,
-    db::{DatabaseError, UuidKeyedObjectFilter},
+    db::DatabaseError,
     model::ib_partition::{
         IBPartitionControllerState, IB_DEFAULT_MTU, IB_DEFAULT_RATE_LIMIT,
         IB_DEFAULT_SERVICE_LEVEL, IB_MTU_ENV, IB_RATE_LIMIT_ENV, IB_SERVICE_LEVEL_ENV,
@@ -38,14 +41,112 @@ use crate::{
     model::tenant::TenantOrganizationId,
     CarbideError, CarbideResult,
 };
+use tonic::Status;
 
-#[derive(Debug, Clone, Copy, FromRow)]
-pub struct IBPartitionId(uuid::Uuid);
+/// IBPartitionId is a strongly typed UUID specific to an Infiniband
+/// segment ID, with trait implementations allowing it to be passed
+/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
+/// is similar to what we do for MachineId, VpcId, InstanceId,
+/// NetworkSegmentId, and basically all of the IDs in measured boot.
+#[derive(
+    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
+)]
+#[sqlx(type_name = "UUID")]
+pub struct IBPartitionId(pub uuid::Uuid);
 
 impl From<IBPartitionId> for uuid::Uuid {
     fn from(id: IBPartitionId) -> Self {
         id.0
     }
+}
+
+impl From<uuid::Uuid> for IBPartitionId {
+    fn from(uuid: uuid::Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl FromStr for IBPartitionId {
+    type Err = RpcDataConversionError;
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("IBPartitionId", input.to_string())
+        })?))
+    }
+}
+
+impl fmt::Display for IBPartitionId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<IBPartitionId> for rpc::Uuid {
+    fn from(val: IBPartitionId) -> Self {
+        Self {
+            value: val.to_string(),
+        }
+    }
+}
+
+impl TryFrom<rpc::Uuid> for IBPartitionId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<&rpc::Uuid> for IBPartitionId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: &rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<Option<rpc::Uuid>> for IBPartitionId {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+        let Some(input_uuid) = msg else {
+            // TODO(chet): Maybe this isn't the right place for this, since
+            // depending on the proto message, the field name can differ (which
+            // should actually probably be standardized anyway), or we can just
+            // take a similar approach to ::InvalidUuid can say "field of type"?
+            return Err(CarbideError::MissingArgument("ib_partition_id").into());
+        };
+        Ok(Self::try_from(input_uuid)?)
+    }
+}
+
+impl IBPartitionId {
+    pub fn from_grpc(msg: Option<rpc::Uuid>) -> Result<Self, Status> {
+        Self::try_from(msg)
+            .map_err(|e| Status::invalid_argument(format!("bad grpc IB partition ID: {}", e)))
+    }
+}
+
+impl PgHasArrayType for IBPartitionId {
+    fn array_type_info() -> PgTypeInfo {
+        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    }
+}
+
+///
+/// A parameter to find() to filter resources by IBPartitionId;
+///
+#[derive(Clone)]
+pub enum IBPartitionIdKeyedObjectFilter<'a> {
+    /// Don't filter by IBPartitionId
+    All,
+
+    /// Filter by a list of IBPartitionIds
+    List(&'a [IBPartitionId]),
+
+    /// Retrieve a single resource
+    One(IBPartitionId),
 }
 
 impl From<rpc::IbPartitionSearchConfig> for IBPartitionSearchConfig {
@@ -63,7 +164,7 @@ pub struct IBPartitionSearchConfig {
 
 #[derive(Debug, Clone)]
 pub struct NewIBPartition {
-    pub id: uuid::Uuid,
+    pub id: IBPartitionId,
 
     pub config: IBPartitionConfig,
 }
@@ -81,8 +182,8 @@ impl TryFrom<rpc::IbPartitionCreationRequest> for NewIBPartition {
         };
 
         let id = match value.id {
-            Some(v) => uuid::Uuid::try_from(v)?,
-            None => uuid::Uuid::new_v4(),
+            Some(v) => IBPartitionId::try_from(v)?,
+            None => uuid::Uuid::new_v4().into(),
         };
 
         Ok(NewIBPartition {
@@ -112,7 +213,7 @@ pub struct IBPartitionStatus {
 
 #[derive(Debug, Clone)]
 pub struct IBPartition {
-    pub id: uuid::Uuid,
+    pub id: IBPartitionId,
     pub version: ConfigVersion,
 
     pub config: IBPartitionConfig,
@@ -316,7 +417,7 @@ impl NewIBPartition {
 }
 
 impl IBPartition {
-    pub fn id(&self) -> &uuid::Uuid {
+    pub fn id(&self) -> &IBPartitionId {
         &self.id
     }
 
@@ -326,13 +427,13 @@ impl IBPartition {
     ///
     pub async fn list_segment_ids(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<uuid::Uuid>, DatabaseError> {
+    ) -> Result<Vec<IBPartitionId>, DatabaseError> {
         let query = "SELECT id FROM ib_partitions";
         let mut results = Vec::new();
         let mut segment_id_stream = sqlx::query_as::<_, IBPartitionId>(query).fetch(&mut **txn);
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-            results.push(id.into());
+            results.push(id);
         }
 
         Ok(results)
@@ -357,10 +458,7 @@ impl IBPartition {
     pub async fn find_ids(
         txn: &mut Transaction<'_, Postgres>,
         filter: rpc::IbPartitionSearchFilter,
-    ) -> Result<Vec<uuid::Uuid>, CarbideError> {
-        #[derive(Debug, Clone, Copy, FromRow)]
-        pub struct IbPartitionId(uuid::Uuid);
-
+    ) -> Result<Vec<IBPartitionId>, CarbideError> {
         // build query
         let mut builder = sqlx::QueryBuilder::new("SELECT id FROM ib_partitions");
         let mut has_filter = false;
@@ -379,30 +477,30 @@ impl IBPartition {
         }
 
         let query = builder.build_query_as();
-        let ids: Vec<IbPartitionId> = query
+        let ids: Vec<IBPartitionId> = query
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partition::find_ids", e))?;
 
-        Ok(ids.into_iter().map(|id| id.0).collect())
+        Ok(ids)
     }
 
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
+        filter: IBPartitionIdKeyedObjectFilter<'_>,
         _search_config: IBPartitionSearchConfig,
     ) -> Result<Vec<Self>, DatabaseError> {
         let base_query = "SELECT * FROM ib_partitions {where}".to_owned();
 
         let all_records: Vec<IBPartition> = match filter {
-            UuidKeyedObjectFilter::All => {
+            IBPartitionIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, IBPartition>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions All", e))?
             }
 
-            UuidKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, IBPartition>(
+            IBPartitionIdKeyedObjectFilter::List(uuids) => sqlx::query_as::<_, IBPartition>(
                 &base_query.replace("{where}", "WHERE ib_partitions.id=ANY($1)"),
             )
             .bind(uuids)
@@ -410,7 +508,7 @@ impl IBPartition {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions List", e))?,
 
-            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, IBPartition>(
+            IBPartitionIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, IBPartition>(
                 &base_query.replace("{where}", "WHERE ib_partitions.id=$1"),
             )
             .bind(uuid)
@@ -424,7 +522,7 @@ impl IBPartition {
 
     pub async fn find_pkey_by_partition_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        id: uuid::Uuid,
+        id: IBPartitionId,
     ) -> Result<Option<u16>, DatabaseError> {
         #[derive(Debug, Clone, Copy, FromRow)]
         pub struct Pkey(i32);
@@ -444,7 +542,7 @@ impl IBPartition {
     /// under the premise that the curren controller state version didn't change.
     pub async fn try_update_controller_state(
         txn: &mut Transaction<'_, Postgres>,
-        partition_id: uuid::Uuid,
+        partition_id: IBPartitionId,
         expected_version: ConfigVersion,
         new_state: &IBPartitionControllerState,
     ) -> Result<bool, DatabaseError> {
@@ -470,13 +568,13 @@ impl IBPartition {
 
     pub async fn update_controller_state_outcome(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        partition_id: uuid::Uuid,
+        partition_id: IBPartitionId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE ib_partitions SET controller_state_outcome=$1::json WHERE id=$2::uuid";
         sqlx::query(query)
             .bind(sqlx::types::Json(outcome))
-            .bind(partition_id.to_string())
+            .bind(partition_id)
             .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -503,17 +601,17 @@ impl IBPartition {
     }
 
     pub async fn final_delete(
-        segment_id: uuid::Uuid,
+        partition_id: IBPartitionId,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<uuid::Uuid, DatabaseError> {
+    ) -> Result<IBPartitionId, DatabaseError> {
         let query = "DELETE FROM ib_partitions WHERE id=$1::uuid RETURNING id";
-        let segment: IBPartitionId = sqlx::query_as(query)
-            .bind(segment_id)
+        let partition: IBPartitionId = sqlx::query_as(query)
+            .bind(partition_id)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(segment.0)
+        Ok(partition)
     }
 
     pub async fn update(

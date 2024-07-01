@@ -11,7 +11,7 @@
  */
 
 use crate::{
-    db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus},
+    db::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionId, IBPartitionStatus},
     ib::{types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
@@ -30,14 +30,14 @@ pub struct IBPartitionStateHandler {}
 
 #[async_trait::async_trait]
 impl StateHandler for IBPartitionStateHandler {
-    type ObjectId = uuid::Uuid;
+    type ObjectId = IBPartitionId;
     type State = IBPartition;
     type ControllerState = IBPartitionControllerState;
     type ContextObjects = IBPartitionStateHandlerContextObjects;
 
     async fn handle_object_state(
         &self,
-        partition_id: &uuid::Uuid,
+        partition_id: &IBPartitionId,
         state: &mut IBPartition,
         controller_state: &mut ControllerStateReader<Self::ControllerState>,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,

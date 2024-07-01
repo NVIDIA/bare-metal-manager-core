@@ -15,12 +15,14 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     db::{
-        ib_partition::{self, IBPartition, IBPartitionSearchConfig},
+        ib_partition::{
+            self, IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig,
+        },
         instance::{Instance, InstanceId, NewInstance},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
         network_segment::NetworkSegment,
-        DatabaseError, UuidKeyedObjectFilter,
+        DatabaseError,
     },
     dhcp::allocation::DhcpError,
     model::{
@@ -280,7 +282,7 @@ pub async fn tenant_consistent_check(
     for ib_instance_config in ib_config.ib_interfaces.iter() {
         let ib_partitions = IBPartition::find(
             txn,
-            UuidKeyedObjectFilter::One(ib_instance_config.ib_partition_id),
+            IBPartitionIdKeyedObjectFilter::One(ib_instance_config.ib_partition_id),
             IBPartitionSearchConfig::default(),
         )
         .await?;

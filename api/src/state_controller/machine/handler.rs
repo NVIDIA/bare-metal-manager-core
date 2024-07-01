@@ -2828,7 +2828,7 @@ async fn record_infiniband_status_observation(
     instance: &InstanceSnapshot,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
-    let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
+    let mut ibconf = HashMap::<ib_partition::IBPartitionId, Vec<String>>::new();
 
     for ib in &ib_interfaces {
         let guid = ib.guid.clone().ok_or(StateHandlerError::MissingData {
@@ -2864,7 +2864,7 @@ async fn record_infiniband_status_observation(
     for (k, v) in ibconf {
         let ib_partitions = ib_partition::IBPartition::find(
             txn,
-            crate::db::UuidKeyedObjectFilter::One(k),
+            ib_partition::IBPartitionIdKeyedObjectFilter::One(k),
             ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },
@@ -2920,7 +2920,7 @@ async fn bind_ib_ports(
     instance_id: InstanceId,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
-    let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
+    let mut ibconf = HashMap::<ib_partition::IBPartitionId, Vec<String>>::new();
     for ib in ib_interfaces {
         let guid = ib.guid.ok_or(StateHandlerError::MissingData {
             object_id: instance_id.to_string(),
@@ -2943,7 +2943,7 @@ async fn bind_ib_ports(
     for (k, v) in ibconf {
         let ib_partitions = ib_partition::IBPartition::find(
             txn,
-            crate::db::UuidKeyedObjectFilter::One(k),
+            ib_partition::IBPartitionIdKeyedObjectFilter::One(k),
             ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },
@@ -2972,7 +2972,7 @@ async fn unbind_ib_ports(
     instance_id: InstanceId,
     ib_interfaces: Vec<InstanceIbInterfaceConfig>,
 ) -> Result<(), StateHandlerError> {
-    let mut ibconf = HashMap::<uuid::Uuid, Vec<String>>::new();
+    let mut ibconf = HashMap::<ib_partition::IBPartitionId, Vec<String>>::new();
 
     for ib in ib_interfaces {
         let guid = ib.guid.ok_or(StateHandlerError::MissingData {
@@ -2995,7 +2995,7 @@ async fn unbind_ib_ports(
     for (k, v) in ibconf {
         let ib_partitions = ib_partition::IBPartition::find(
             txn,
-            crate::db::UuidKeyedObjectFilter::One(k),
+            ib_partition::IBPartitionIdKeyedObjectFilter::One(k),
             ib_partition::IBPartitionSearchConfig {
                 include_history: false,
             },
