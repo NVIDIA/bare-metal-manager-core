@@ -614,7 +614,10 @@ impl FromStr for SctlState {
             "STOPPING" => Self::Stopping,
             "EXITED" => Self::Exited,
             "FATAL" => Self::Fatal,
-            _ => Self::Unknown,
+            _ => {
+                tracing::warn!("Unknown supervisorctl status '{s}'");
+                Self::Unknown
+            }
         })
     }
 }
