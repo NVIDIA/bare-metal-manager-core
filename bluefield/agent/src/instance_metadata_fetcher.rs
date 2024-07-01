@@ -30,6 +30,7 @@ use crate::util::{create_forge_client, get_instance};
 pub struct InstanceMetadata {
     pub address: String,
     pub hostname: String,
+    pub instance_id: Option<uuid>,
     pub user_data: String,
     pub ib_devices: Option<Vec<IBDeviceConfig>>,
 }
@@ -169,6 +170,8 @@ async fn fetch_latest_ip_addresses(
         None => return Err(eyre::eyre!("host name is not present in tenant config")),
     };
 
+    let instance_id = instance.id.clone();
+
     let pf_address = instance
         .status
         .as_ref()
@@ -199,6 +202,7 @@ async fn fetch_latest_ip_addresses(
     Ok(Some(InstanceMetadata {
         address: pf_address,
         hostname,
+        instance_id,
         user_data,
         ib_devices: devices,
     }))
