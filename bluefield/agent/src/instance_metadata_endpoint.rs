@@ -124,6 +124,7 @@ pub fn get_instance_metadata_router(
     Router::new()
         .nest("/infiniband", ib_router)
         .route("/phone_home", post(post_phone_home))
+        .route("/instance-id", get(get_instance_id))
         .route("/:category", get(get_metadata_parameter))
         .with_state(metadata_router_state)
 }
@@ -146,6 +147,30 @@ async fn get_metadata_parameter(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "metadata currently unavailable".to_string(),
+        )
+    }
+}
+
+async fn get_instance_id(
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
+) -> (StatusCode, String) {
+    let read_guard: Arc<Option<InstanceMetadata>> = state.read();
+    let metadata = match read_guard.as_ref() {
+        Some(metadata) => metadata,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "metadata currently unavailable".to_string(),
+            );
+        }
+    };
+
+    if let Some(instance_id) = &metadata.instance_id {
+        (StatusCode::OK, instance_id.to_string())
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            "instance id not available".to_string(),
         )
     }
 }
@@ -399,6 +424,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_metadata_parameter_public_ipv4_category() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -419,6 +445,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_metadata_parameter_hostname_category() {
         let metadata = InstanceMetadata {
+            instance_id: None,
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -439,6 +466,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_metadata_parameter_user_data_category() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -472,6 +500,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_devices() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -509,6 +538,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_incorrect_ib_device() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -536,6 +566,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instances() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -570,6 +601,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instance() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -599,6 +631,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instance_not_all_attributes() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -626,6 +659,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_incorrect_ib_instance() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -653,6 +687,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instance_attribute() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -680,6 +715,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_ib_instance_nonexistent_attribute() {
         let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -699,6 +735,27 @@ mod tests {
             "infiniband/devices/0/instances/0/partition",
             "ib partition not found at index: 0",
             StatusCode::NOT_FOUND,
+        )
+        .await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_get_instance_id() {
+        let metadata = InstanceMetadata {
+            instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            address: "127.0.0.1".to_string(),
+            hostname: "localhost".to_string(),
+            user_data: "\"userData\": {\"data\": 0}".to_string(),
+            ib_devices: None,
+        };
+
+        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        send_request_and_check_response(
+            server_port,
+            "instance-id",
+            "67e55044-10b1-426f-9247-bb680e5fe0c8",
+            StatusCode::OK,
         )
         .await;
         server.abort();
