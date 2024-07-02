@@ -211,6 +211,10 @@ pub async fn update_nvue(
     // Cleanup any left over non-NVUE temp files
     let _ = paths(hbn_root);
 
+    // Cleanup non-NVUE ACL files
+    // We can remove this once az01 is upgraded
+    cleanup_old_acls(hbn_root);
+
     // Write the extra ACL config
     let path_acl = FPath(hbn_root.join(nvue::PATH_ACL));
     path_acl.cleanup();
@@ -1161,6 +1165,35 @@ impl Drop for FPath {
 impl fmt::Display for FPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.display())
+    }
+}
+
+/// Delete the non-NVUE ACL rules so that they don't interfere with NVUE.
+/// Also delete the very old VPC migration ACL rules, which used a non-standard naming convention
+fn cleanup_old_acls(hbn_root: &Path) {
+    let old_acls = hbn_root.join(acl_rules::PATH);
+
+    let mut old_acls_test = old_acls.clone();
+    old_acls_test.as_mut_os_string().push(".TEST");
+
+    let mut old_acls_tmp = old_acls.clone();
+    old_acls_tmp.as_mut_os_string().push(".TMP");
+
+    // not see in the wild, but just in case
+    let mut old_acls_bak = old_acls.clone();
+    old_acls_bak.as_mut_os_string().push(".BAK");
+
+    for p in [&old_acls, &old_acls_test, &old_acls_tmp, &old_acls_bak] {
+        if p.exists() {
+            match fs::remove_file(p) {
+                Ok(_) => {
+                    tracing::info!("Cleaned up old ACL file {}", p.display());
+                }
+                Err(err) => {
+                    tracing::warn!("Failed removing old ACL file {}: {err}.", p.display());
+                }
+            }
+        }
     }
 }
 
