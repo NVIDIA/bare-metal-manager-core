@@ -14,7 +14,6 @@ use std::fmt::Write;
 use ::rpc::forge as forgerpc;
 use prettytable::{row, Table};
 use serde::Deserialize;
-use tracing::warn;
 
 use super::cfg::carbide_options::{OutputFormat, ShowNetwork};
 use super::{default_uuid, rpc, CarbideCliError, CarbideCliResult};
@@ -208,7 +207,45 @@ async fn convert_network_to_nice_table(
     table.into()
 }
 
-async fn show_all_segments(json: bool, api_config: &ApiConfig<'_>) -> CarbideCliResult<()> {
+async fn show_all_segments(
+    json: bool,
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    name: Option<String>,
+    page_size: usize,
+) -> CarbideCliResult<()> {
+    let all_segment_ids = match rpc::get_segment_ids(api_config, tenant_org_id, name).await {
+        Ok(all_segment_ids) => all_segment_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return show_all_segments_deprecated(json, api_config).await;
+        }
+        Err(e) => return Err(e),
+    };
+    let mut all_segments = forgerpc::NetworkSegmentList {
+        network_segments: Vec::with_capacity(all_segment_ids.network_segments_ids.len()),
+    };
+    for segment_ids in all_segment_ids.network_segments_ids.chunks(page_size) {
+        let segments = rpc::get_segments_by_ids(api_config, segment_ids).await?;
+        all_segments
+            .network_segments
+            .extend(segments.network_segments);
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&all_segments).unwrap());
+    } else {
+        convert_network_to_nice_table(all_segments, api_config)
+            .await
+            .printstd();
+    }
+    Ok(())
+}
+
+async fn show_all_segments_deprecated(
+    json: bool,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
     let segments = rpc::get_segments(None, api_config).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&segments).unwrap());
@@ -225,15 +262,19 @@ async fn show_network_information(
     json: bool,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
-    let segment = rpc::get_segments(
-        Some(
-            uuid::Uuid::parse_str(&id)
-                .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
-                .into(),
-        ),
-        api_config,
-    )
-    .await?;
+    let segment_id: forgerpc::Uuid = uuid::Uuid::parse_str(&id)
+        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
+        .into();
+    let segment = match rpc::get_segments_by_ids(api_config, &[segment_id.clone()]).await {
+        Ok(instances) => instances,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            rpc::get_segments(Some(segment_id), api_config).await?
+        }
+        Err(e) => return Err(e),
+    };
+
     if segment.network_segments.is_empty() {
         return Err(CarbideCliError::SegmentNotFound);
     }
@@ -256,19 +297,11 @@ pub async fn handle_show(
     args: ShowNetwork,
     output_format: OutputFormat,
     api_config: &ApiConfig<'_>,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    if args.all || args.network.is_empty() {
-        show_all_segments(is_json, api_config).await?;
-        // TODO(chet): Remove this ~March 2024.
-        // Use tracing::warn for this so its both a little more
-        // noticeable, and a little more annoying/naggy. If people
-        // complain, it means its working.
-        if args.all && output_format == OutputFormat::AsciiTable {
-            warn!(
-                "redundant `--all` with basic `show` is deprecated. just do `network-segment show`"
-            )
-        }
+    if args.network.is_empty() {
+        show_all_segments(is_json, api_config, None, None, page_size).await?;
         return Ok(());
     }
     show_network_information(args.network, is_json, api_config).await?;

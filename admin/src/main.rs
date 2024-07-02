@@ -318,7 +318,13 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::NetworkSegment(network) => match network {
             NetworkSegment::Show(network) => {
-                network::handle_show(network, config.format, api_config).await?
+                network::handle_show(
+                    network,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?
             }
         },
         CarbideCommand::Domain(domain) => match domain {

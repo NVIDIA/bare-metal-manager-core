@@ -246,13 +246,13 @@ pub async fn get_instances(
 
 pub async fn get_instance_ids(
     api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<uuid::Uuid>,
+    tenant_org_id: Option<String>,
     label_key: Option<String>,
     label_value: Option<String>,
 ) -> CarbideCliResult<rpc::InstanceIdList> {
     with_forge_client(api_config, |mut client| async move {
         let request = tonic::Request::new(rpc::InstanceSearchFilter {
-            tenant_org_id: tenant_org_id.map(|u| u.to_string()),
+            tenant_org_id,
             label: if label_key.is_none() && label_value.is_none() {
                 None
             } else {
@@ -304,6 +304,47 @@ pub async fn get_instances_by_machine_id(
             .map_err(CarbideCliError::ApiInvocationError)?;
 
         Ok(instance_details)
+    })
+    .await
+}
+
+pub async fn get_segment_ids(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    name: Option<String>,
+) -> CarbideCliResult<rpc::NetworkSegmentIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+            tenant_org_id,
+            name,
+        });
+        let segment_ids = client
+            .find_network_segment_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(segment_ids)
+    })
+    .await
+}
+
+pub async fn get_segments_by_ids(
+    api_config: &ApiConfig<'_>,
+    segment_ids: &[rpc::Uuid],
+) -> CarbideCliResult<rpc::NetworkSegmentList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
+            network_segments_ids: Vec::from(segment_ids),
+            include_history: segment_ids.len() == 1, // only request it when getting data for single resource
+            include_num_free_ips: segment_ids.len() == 1, // only request it when getting data for single resource
+        });
+        let segments = client
+            .find_network_segments_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(segments)
     })
     .await
 }
