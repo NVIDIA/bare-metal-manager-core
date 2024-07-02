@@ -311,6 +311,11 @@ pub async fn record_dpu_network_status(
     with_forge_client(app_context, |mut client| async move {
         client
             .record_dpu_network_status(tonic::Request::new(rpc::forge::DpuNetworkStatus {
+                dpu_health: Some(rpc::health::HealthReport {
+                    source: "forge-dpu-agent".to_string(),
+                    successes: Vec::new(),
+                    alerts: Vec::new(),
+                }),
                 dpu_machine_id,
                 observed_at: None,
                 health: Some(rpc::forge::NetworkHealth {

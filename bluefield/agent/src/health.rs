@@ -40,6 +40,7 @@ pub async fn health_check(
     hbn_root: &Path,
     host_routes: &[&str],
     _process_started_at: Instant,
+    has_changed_configs: bool,
 ) -> HealthReport {
     let mut hr = HealthReport::new();
 
@@ -67,6 +68,13 @@ pub async fn health_check(
     check_bgp_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
     check_network_stats(&mut hr, &container_id, host_routes).await;
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
+
+    if has_changed_configs {
+        hr.failed(
+            HealthCheck::PostConfigCheckWait,
+            "Post-config waiting period".to_string(),
+        );
+    }
 
     hr
 }
@@ -471,7 +479,7 @@ struct BgpPeer {
 #[derive(Debug, Default, Serialize)]
 pub struct HealthReport {
     pub checks_passed: Vec<HealthCheck>,
-    pub checks_failed: Vec<HealthCheck>,
+    pub checks_failed: Vec<(HealthCheck, String)>,
     pub message: Option<String>,
 }
 
@@ -484,8 +492,8 @@ impl HealthReport {
         self.checks_passed.push(hc);
     }
 
-    fn failed(&mut self, hc: HealthCheck, msg: String) {
-        self.checks_failed.push(hc);
+    pub fn failed(&mut self, hc: HealthCheck, msg: String) {
+        self.checks_failed.push((hc, msg.clone()));
         if self.message.is_none() {
             self.message = Some(msg);
         }
@@ -496,7 +504,7 @@ impl HealthReport {
         let has_failed_services = self
             .checks_failed
             .iter()
-            .any(|c| matches!(c, HealthCheck::ServiceRunning(_)));
+            .any(|c| matches!(c.0, HealthCheck::ServiceRunning(_)));
         self.checks_passed.contains(&HealthCheck::ContainerExists)
             && self
                 .checks_passed
@@ -507,6 +515,39 @@ impl HealthReport {
     /// Is networking in the expected healthy normal connected state?
     pub fn is_healthy(&self) -> bool {
         !self.checks_passed.is_empty() && self.checks_failed.is_empty()
+    }
+}
+
+impl TryFrom<&HealthReport> for health_report::HealthReport {
+    type Error = health_report::HealthReportConversionError;
+
+    /// Transform NetworkHealth into the new Health Report structure
+    /// TODO: Directly use new format after carbide does no longer expect
+    /// the legacy format
+    fn try_from(r: &HealthReport) -> Result<Self, Self::Error> {
+        let mut report = health_report::HealthReport {
+            source: "forge-dpu-agent".to_string(),
+            successes: Vec::new(),
+            alerts: Vec::new(),
+        };
+        for passed in r.checks_passed.iter() {
+            report.successes.push(health_report::HealthProbeSuccess {
+                id: passed.to_string().parse().unwrap(),
+            })
+        }
+        for failed in r.checks_failed.iter() {
+            report.alerts.push(health_report::HealthProbeAlert {
+                id: failed.0.to_string().parse().unwrap(),
+                in_alert_since: None,
+                message: failed.1.clone(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_host_state_changes(),
+                ],
+            })
+        }
+
+        Ok(report)
     }
 }
 
@@ -524,6 +565,7 @@ pub enum HealthCheck {
     FileIsValid(String),
     BgpDaemonEnabled,
     RestrictedMode,
+    PostConfigCheckWait,
 }
 
 impl fmt::Display for HealthReport {
@@ -541,7 +583,7 @@ impl fmt::Display for HealthReport {
                     .join(","),
                 self.checks_failed
                     .iter()
-                    .map(|hc| hc.to_string())
+                    .map(|hc| hc.0.to_string())
                     .collect::<Vec<String>>()
                     .join(","),
                 self.message.as_deref().unwrap_or_default()
@@ -564,6 +606,7 @@ impl fmt::Display for HealthCheck {
             Self::FileIsValid(file_name) => write!(f, "FileIsValid({file_name})"),
             Self::BgpDaemonEnabled => write!(f, "BgpDaemonEnabled"),
             Self::RestrictedMode => write!(f, "RestrictedMode"),
+            Self::PostConfigCheckWait => write!(f, "PostConfigCheckWait"),
         }
     }
 }

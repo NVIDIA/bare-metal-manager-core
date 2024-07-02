@@ -84,11 +84,24 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         failed: vec!["".to_string()],
         message: None,
     };
+    let dpu_health = rpc::health::HealthReport {
+        source: "forge-dpu-agent".to_string(),
+        successes: vec![
+            rpc::health::HealthProbeSuccess {
+                id: "ContainerExists".to_string(),
+            },
+            rpc::health::HealthProbeSuccess {
+                id: "checkTwo".to_string(),
+            },
+        ],
+        alerts: vec![],
+    };
     env.api
         .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
             dpu_machine_id: Some(dpu_machine_id.to_string().into()),
             dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
             observed_at: Some(SystemTime::now().into()),
+            dpu_health: Some(dpu_health),
             health: Some(hs),
             network_config_version: Some(network_config_version.clone()),
             instance_id: Some(instance_id.into()),

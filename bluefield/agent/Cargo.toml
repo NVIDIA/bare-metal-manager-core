@@ -58,6 +58,7 @@ forge-host-support = { path = "../../common/host-support" }
 forge-http-connector = { path = "../../common/http-connector/" }
 forge-tls = { path = "../../common/tls" }
 forge-version = { path = "../../common/version" }
+health-report = { path = "../../common/health-report" }
 rpc = { path = "../../rpc" }
 utils = { path = "../../common/utils" }
 

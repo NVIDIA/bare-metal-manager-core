@@ -767,6 +767,11 @@ pub async fn network_configured(
             is_healthy: true,
             ..Default::default()
         }),
+        dpu_health: Some(rpc::health::HealthReport {
+            source: "forge-dpu-agent".to_string(),
+            successes: vec![],
+            alerts: vec![],
+        }),
         network_config_version: Some(network_config.managed_host_config_version.clone()),
         instance_id: network_config.instance_id.clone(),
         instance_config_version: instance_cv.clone(),

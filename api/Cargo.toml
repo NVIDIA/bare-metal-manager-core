@@ -107,6 +107,7 @@ config-version = { path = "../common/config-version" }
 forge-tls = { path = "../common/tls" }
 forge_secrets = { path = "../common/secrets" }
 forge-version = { path = "../common/version" }
+health-report = { path = "../common/health-report" }
 logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }

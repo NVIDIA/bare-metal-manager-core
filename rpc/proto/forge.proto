@@ -3,6 +3,7 @@ syntax = "proto3";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
+import "health.proto";
 import "machine_discovery.proto";
 import "measured_boot.proto";
 import "site_explorer.proto";
@@ -2043,6 +2044,8 @@ enum InterfaceFunctionType {
 message DpuNetworkStatus {
   MachineId dpu_machine_id = 1;
   google.protobuf.Timestamp observed_at = 2;
+  // Legacy mechanism to indicate DPU health.
+  // Replaced by the `dpu_health` field
   NetworkHealth health = 3;
   optional string network_config_version = 4;
   optional string instance_config_version = 5;
@@ -2051,6 +2054,7 @@ message DpuNetworkStatus {
   optional UUID instance_id = 8;
   optional string dpu_agent_version = 9;
   optional int64 client_certificate_expiry_unix_epoch_secs = 10;
+  health.HealthReport dpu_health = 11;
 }
 
 // Observed status of the networking subsystem of an instance

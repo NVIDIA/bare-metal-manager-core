@@ -1288,6 +1288,20 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
     let netstat_req = tonic::Request::new(rpc::forge::DpuNetworkStatus {
         dpu_machine_id: Some(dpu_machine_id.to_string().into()),
         observed_at: None, // server sets it
+        dpu_health: Some(rpc::health::HealthReport {
+            source: "forge-dpu-agent".to_string(),
+            successes: vec![],
+            alerts: vec![rpc::health::HealthProbeAlert {
+                id: "everything".to_string(),
+                in_alert_since: None,
+                message: "test_cannot_create_instance_on_unhealthy_dpu".to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_host_state_changes()
+                        .to_string(),
+                ],
+            }],
+        }),
         health: Some(rpc::forge::NetworkHealth {
             is_healthy: false,
             passed: vec![],

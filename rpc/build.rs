@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .file_descriptor_set_path(reflection)
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .include_file("common.rs")
+        .type_attribute(".health", "#[derive(serde::Serialize)]")
         .type_attribute(
             ".machine_discovery",
             "#[derive(serde::Deserialize, serde::Serialize)]",
