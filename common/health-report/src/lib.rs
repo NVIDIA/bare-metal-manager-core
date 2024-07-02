@@ -46,7 +46,7 @@ pub struct HealthProbeAlert {
 
 /// A successful health probe (reported no alerts)
 pub struct HealthProbeSuccess {
-    /// Stable ID of the health probe that raised an alert
+    /// Stable ID of the health probe that succeeded
     pub id: HealthProbeId,
 }
 
