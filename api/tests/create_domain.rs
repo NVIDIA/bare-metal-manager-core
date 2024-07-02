@@ -9,9 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::db::domain::{Domain, NewDomain};
+use carbide::db::domain::{Domain, DomainId, DomainIdKeyedObjectFilter, NewDomain};
 use carbide::{CarbideError, CarbideResult};
-use uuid::Uuid;
 
 #[sqlx::test]
 async fn create_delete_valid_domain(pool: sqlx::PgPool) {
@@ -30,7 +29,7 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
 
     assert!(delete_result.is_ok());
 
-    let domains = Domain::find(&mut txn, carbide::db::UuidKeyedObjectFilter::All)
+    let domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All)
         .await
         .unwrap();
 
@@ -93,7 +92,7 @@ async fn find_domain(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let domains = Domain::find(&mut txn, carbide::db::UuidKeyedObjectFilter::All)
+    let domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All)
         .await
         .unwrap();
 
@@ -102,16 +101,16 @@ async fn find_domain(pool: sqlx::PgPool) {
     // find ALL should give us the one we created
     assert_eq!(domains.len(), 1);
 
-    let domains = Domain::find(&mut txn, carbide::db::UuidKeyedObjectFilter::One(uuid))
+    let domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(uuid))
         .await
         .unwrap();
 
     // find one, using the id returned in the created domain object
     assert_eq!(domains.len(), 1);
 
-    let bad_uuid = Uuid::new_v4();
+    let bad_uuid = DomainId::from(uuid::Uuid::new_v4());
 
-    let domains = Domain::find(&mut txn, carbide::db::UuidKeyedObjectFilter::One(bad_uuid))
+    let domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(bad_uuid))
         .await
         .unwrap();
 

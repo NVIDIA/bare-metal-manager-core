@@ -13,6 +13,7 @@
 use std::str::FromStr;
 
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
+use carbide::db::domain::DomainId;
 use carbide::db::machine_interface::MachineInterface;
 use carbide::db::machine_interface_address::MachineInterfaceAddress;
 use carbide::db::network_prefix::NewNetworkPrefix;
@@ -36,7 +37,9 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     let new_ns = NewNetworkSegment {
         name: "PDX01-M01-H14-IPMITOR-01".to_string(),
         // domain id from tests/fixtures/create_domain.sql
-        subdomain_id: Some(uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e")),
+        subdomain_id: Some(DomainId::from(uuid::uuid!(
+            "1ebec7c1-114f-4793-a9e4-63f3d22b5b5e"
+        ))),
         vpc_id: None,
         mtu: 1490,
         prefixes: vec![NewNetworkPrefix {
@@ -57,7 +60,9 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         &mut txn,
         &network_segment,
         &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        Some(uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e")),
+        Some(DomainId::from(uuid::uuid!(
+            "1ebec7c1-114f-4793-a9e4-63f3d22b5b5e"
+        ))),
         true,
         AddressSelectionStrategy::Automatic,
     )

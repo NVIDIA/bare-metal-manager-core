@@ -13,6 +13,7 @@ use std::str::FromStr;
  */
 use carbide::{
     db::{
+        domain::DomainId,
         machine::{Machine, MachineSearchConfig},
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
@@ -26,6 +27,7 @@ use common::api_fixtures::{
     create_test_env, dpu::create_dpu_machine, host::create_host_hardware_info,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
+use lazy_static::lazy_static;
 use sqlx::PgPool;
 
 #[ctor::ctor]
@@ -33,7 +35,10 @@ fn setup() {
     common::test_logging::init();
 }
 
-const FIXTURE_CREATED_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
+lazy_static! {
+    pub static ref FIXTURE_CREATED_DOMAIN_ID: DomainId =
+        uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").into();
+}
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -57,7 +62,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &mut txn,
         &segment,
         &host_sim.config.host_mac_address,
-        Some(FIXTURE_CREATED_DOMAIN_ID),
+        Some(*FIXTURE_CREATED_DOMAIN_ID),
         true,
         carbide::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
     )

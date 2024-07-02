@@ -18,11 +18,11 @@ use crate::{
     api::Api,
     cfg::{AgentUpgradePolicyChoice, CarbideConfig},
     db::{
-        domain::{Domain, NewDomain},
+        domain::{Domain, DomainIdKeyedObjectFilter, NewDomain},
         dpu_agent_upgrade_policy::DpuAgentUpgradePolicy,
         network_segment::{NetworkSegment, NewNetworkSegment},
         route_servers::RouteServer,
-        DatabaseError, UuidKeyedObjectFilter,
+        DatabaseError,
     },
     model::{machine::upgrade_policy::AgentUpgradePolicy, network_segment::NetworkDefinition},
     CarbideError,
@@ -38,7 +38,7 @@ pub async fn create_initial_domain(
         .begin()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin create_initial_domain", e))?;
-    let domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    let domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await?;
     if domains.is_empty() {
         let domain = NewDomain::new(domain_name);
         domain.persist_first(&mut txn).await?;
@@ -68,7 +68,7 @@ pub async fn create_initial_networks(
         .begin()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin create_initial_networks", e))?;
-    let all_domains = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    let all_domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await?;
     if all_domains.len() != 1 {
         // We only create initial networks if we only have a single domain - usually created
         // as initial_domain_name in config file.

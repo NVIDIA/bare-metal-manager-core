@@ -10,17 +10,128 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::model::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
-use sqlx::{FromRow, Postgres, Transaction};
-use uuid::Uuid;
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
+use sqlx::{FromRow, Postgres, Transaction, Type};
+use std::fmt;
+use std::str::FromStr;
+use tonic::Status;
 
 use super::DatabaseError;
-use crate::db::UuidKeyedObjectFilter;
+use crate::db::vpc::VpcId;
 use crate::{CarbideError, CarbideResult};
 
 const SQL_VIOLATION_INVALID_DOMAIN_NAME_REGEX: &str = "valid_domain_name_regex";
 const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
+
+/// DomainId is a strongly typed UUID specific to an Infiniband
+/// segment ID, with trait implementations allowing it to be passed
+/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
+/// is similar to what we do for MachineId, VpcId, InstanceId,
+/// NetworkSegmentId, and basically all of the IDs in measured boot.
+#[derive(
+    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
+)]
+#[sqlx(type_name = "UUID")]
+pub struct DomainId(pub uuid::Uuid);
+
+impl From<DomainId> for uuid::Uuid {
+    fn from(id: DomainId) -> Self {
+        id.0
+    }
+}
+
+impl From<uuid::Uuid> for DomainId {
+    fn from(uuid: uuid::Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl FromStr for DomainId {
+    type Err = RpcDataConversionError;
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("DomainId", input.to_string())
+        })?))
+    }
+}
+
+impl fmt::Display for DomainId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<DomainId> for rpc::Uuid {
+    fn from(val: DomainId) -> Self {
+        Self {
+            value: val.to_string(),
+        }
+    }
+}
+
+impl TryFrom<rpc::Uuid> for DomainId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<&rpc::Uuid> for DomainId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: &rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<Option<rpc::Uuid>> for DomainId {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+        let Some(input_uuid) = msg else {
+            // TODO(chet): Maybe this isn't the right place for this, since
+            // depending on the proto message, the field name can differ (which
+            // should actually probably be standardized anyway), or we can just
+            // take a similar approach to ::InvalidUuid can say "field of type"?
+            return Err(CarbideError::MissingArgument("domain_id").into());
+        };
+        Ok(Self::try_from(input_uuid)?)
+    }
+}
+
+impl DomainId {
+    pub fn from_grpc(msg: Option<rpc::Uuid>) -> Result<Self, Status> {
+        Self::try_from(msg)
+            .map_err(|e| Status::invalid_argument(format!("bad grpc domain ID: {}", e)))
+    }
+}
+
+impl PgHasArrayType for DomainId {
+    fn array_type_info() -> PgTypeInfo {
+        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    }
+}
+
+///
+/// A parameter to find() to filter resources by DomainId;
+///
+#[derive(Clone)]
+pub enum DomainIdKeyedObjectFilter<'a> {
+    /// Don't filter by DomainId
+    All,
+
+    /// Filter by a list of DomainIds
+    List(&'a [DomainId]),
+
+    /// Retrieve a single resource
+    One(DomainId),
+}
 
 /// A DNS domain. Used by carbide-dns for resolving FQDNs.
 /// We create an initial one startup. Each segment can have a different domain,
@@ -31,8 +142,9 @@ const SQL_VIOLATION_DOMAIN_NAME_LOWER_CASE: &str = "domain_name_lower_case";
 /// [`sqlx::Row::try_get`] using the name from each struct field
 #[derive(Clone, Debug, FromRow)]
 pub struct Domain {
-    /// Uuid is use
-    pub id: Uuid,
+    /// id is the unique ID of the domain entry
+    pub id: DomainId,
+
     /// domain name e.g. mycompany.com, subdomain.mycompany.com
     pub name: String,
 
@@ -153,18 +265,18 @@ impl Domain {
     ///
     pub async fn find(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
+        filter: DomainIdKeyedObjectFilter<'_>,
     ) -> Result<Vec<Domain>, DatabaseError> {
         // TODO(jdg):  Add a deleted option to find
         let results: Vec<Domain> = match filter {
-            UuidKeyedObjectFilter::All => {
+            DomainIdKeyedObjectFilter::All => {
                 let query = "SELECT * FROM domains WHERE deleted is NULL";
                 sqlx::query_as(query)
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
-            UuidKeyedObjectFilter::One(uuid) => {
+            DomainIdKeyedObjectFilter::One(uuid) => {
                 let query = "SELECT * FROM domains WHERE id = $1 AND deleted is NULL";
                 sqlx::query_as(query)
                     .bind(uuid)
@@ -172,7 +284,7 @@ impl Domain {
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
-            UuidKeyedObjectFilter::List(list) => {
+            DomainIdKeyedObjectFilter::List(list) => {
                 let query = "select * from domains WHERE id = ANY($1) AND deleted is NULL";
                 sqlx::query_as(query)
                     .bind(list)
@@ -187,7 +299,7 @@ impl Domain {
 
     pub fn new(name: &str) -> Domain {
         Self {
-            id: Uuid::new_v4(),
+            id: DomainId::from(uuid::Uuid::new_v4()),
             name: name.to_string(),
             created: Utc::now(),
             updated: Utc::now(),
@@ -212,7 +324,7 @@ impl Domain {
 
     pub async fn find_by_vpc(
         txn: &mut Transaction<'_, Postgres>,
-        vpc_id: uuid::Uuid, // aka projects for now 4/7/2022
+        vpc_id: VpcId, // aka projects for now 4/7/2022
     ) -> Result<Vec<Self>, DatabaseError> {
         let query = "SELECT * FROM domains where project_id = $1";
         let results: Vec<Self> = sqlx::query_as(query)
@@ -236,7 +348,7 @@ impl Domain {
     }
     pub async fn find_by_uuid(
         txn: &mut Transaction<'_, Postgres>,
-        uuid: Uuid,
+        uuid: DomainId,
     ) -> Result<Option<Self>, DatabaseError> {
         let query = "SELECT * FROM domains WHERE id = $1::uuid";
         sqlx::query_as(query)
@@ -271,7 +383,7 @@ impl Domain {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub fn id(&self) -> &uuid::Uuid {
+    pub fn id(&self) -> &DomainId {
         &self.id
     }
 
