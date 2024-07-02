@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use tracing::{error, info, trace};
 
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
@@ -18,7 +17,7 @@ pub struct MachineInventoryUpdaterConfig {
 }
 
 pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<()> {
-    trace!(
+    tracing::trace!(
         "Updating machine inventory for machine: {}",
         config.machine_id
     );
@@ -27,7 +26,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
     let images = container::Images::list().await?;
 
-    trace!("Containers: {:?}", containers);
+    tracing::trace!("Containers: {:?}", containers);
 
     let machine_id = config.machine_id.clone();
 
@@ -78,12 +77,12 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
     )
     .await
     {
-        error!(
+        tracing::error!(
             "Error while executing update_agent_reported_inventory: {:#}",
             e
         );
     } else {
-        info!("Successfully updated machine inventory");
+        tracing::debug!("Successfully updated machine inventory");
     }
 
     Ok(())
@@ -109,12 +108,12 @@ async fn update_agent_reported_inventory(
         }
     };
 
-    trace!("update_machine_inventory: {:?}", inventory_report);
+    tracing::trace!("update_machine_inventory: {:?}", inventory_report);
 
     let request = tonic::Request::new(inventory_report);
     match client.update_agent_reported_inventory(request).await {
         Ok(response) => {
-            trace!("update_agent_reported_inventory response: {:?}", response);
+            tracing::trace!("update_agent_reported_inventory response: {:?}", response);
             Ok(())
         }
         Err(err) => Err(eyre::eyre!(
