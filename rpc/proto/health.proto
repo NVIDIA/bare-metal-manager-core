@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+package health;
+
+// Reports the aggregate health of a system or subsystem
+message HealthReport {
+    // Identifies the source of the health report
+    // This could e.g. be `forge-dpu-agent`, `forge-host-validation`,
+    // or an override (e.g. `overrides.sre-team`)
+    string source = 1;
+    // List of all successful health probes
+    repeated HealthProbeSuccess successes = 2;
+    // List of all alerts that have been raised by health probes
+    repeated HealthProbeAlert alerts = 3;
+}
+
+// An alert that has been raised by a health-probe
+message HealthProbeAlert {
+    // Stable ID of the health probe that raised an alert
+    string id = 1;
+    // The first time the probe raised an alert
+    // If this field is empty while the HealthReport is sent to carbide-api
+    // the behavior is as follows:
+    // - If an alert of the same `id` was reported before, the timestamp of the
+    // previous alert will be retained.
+    // - If this is a new alert, the timestamp will be set to "now".
+    optional google.protobuf.Timestamp in_alert_since = 2;
+    // A message that describes the alert
+    string message = 3;
+    // An optional message that will be relayed to tenants
+    optional string tenant_message = 4;
+    // Classifications for this alert
+    // A string is used here to maintain flexibility
+    repeated string classifications = 5;
+}
+
+// A successful health probe (reported no alerts)
+message HealthProbeSuccess {
+    // Stable ID of the health probe that raised an alert
+    string id = 1;
+}

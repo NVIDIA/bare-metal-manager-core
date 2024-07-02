@@ -41,6 +41,7 @@ pub use crate::protos::forge::{
     IbPartitionList, IbPartitionQuery, InstanceIbInterfaceConfig, InstanceIbInterfaceStatus,
     InstanceInfinibandConfig, InstanceInfinibandStatus,
 };
+pub use crate::protos::health;
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
@@ -270,6 +271,100 @@ impl<'de> serde::Deserialize<'de> for forge::MachineId {
 impl MachineInterface {
     pub fn parsed_mac_address(&self) -> Result<Option<MacAddress>, MacParseError> {
         Ok(Some(MacAddress::from_str(&self.mac_address)?))
+    }
+}
+
+impl From<health_report::HealthProbeSuccess> for health::HealthProbeSuccess {
+    fn from(success: health_report::HealthProbeSuccess) -> Self {
+        Self {
+            id: success.id.to_string(),
+        }
+    }
+}
+
+impl TryFrom<health::HealthProbeSuccess> for health_report::HealthProbeSuccess {
+    type Error = health_report::HealthReportConversionError;
+    fn try_from(success: health::HealthProbeSuccess) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: success.id.parse()?,
+        })
+    }
+}
+
+impl From<health_report::HealthProbeAlert> for health::HealthProbeAlert {
+    fn from(alert: health_report::HealthProbeAlert) -> Self {
+        Self {
+            id: alert.id.to_string(),
+            in_alert_since: alert.in_alert_since.map(Timestamp::from),
+            message: alert.message,
+            tenant_message: alert.tenant_message,
+            classifications: alert
+                .classifications
+                .into_iter()
+                .map(|c| c.to_string())
+                .collect(),
+        }
+    }
+}
+
+impl TryFrom<health::HealthProbeAlert> for health_report::HealthProbeAlert {
+    type Error = health_report::HealthReportConversionError;
+    fn try_from(alert: health::HealthProbeAlert) -> Result<Self, Self::Error> {
+        let mut classifications = Vec::new();
+        for c in alert.classifications {
+            classifications.push(c.parse()?);
+        }
+
+        Ok(Self {
+            id: alert.id.parse()?,
+            in_alert_since: alert
+                .in_alert_since
+                .map(TryInto::try_into)
+                .transpose()
+                .map_err(|_| health_report::HealthReportConversionError {})?,
+            message: alert.message,
+            tenant_message: alert.tenant_message,
+            classifications,
+        })
+    }
+}
+
+impl From<health_report::HealthReport> for health::HealthReport {
+    fn from(report: health_report::HealthReport) -> Self {
+        let mut successes = Vec::new();
+        let mut alerts = Vec::new();
+        for success in report.successes {
+            successes.push(success.into());
+        }
+        for alert in report.alerts {
+            alerts.push(alert.into());
+        }
+
+        Self {
+            source: report.source,
+            successes,
+            alerts,
+        }
+    }
+}
+
+impl TryFrom<health::HealthReport> for health_report::HealthReport {
+    type Error = health_report::HealthReportConversionError;
+    fn try_from(report: health::HealthReport) -> Result<Self, Self::Error> {
+        let mut successes = Vec::new();
+        let mut alerts = Vec::new();
+        for success in report.successes {
+            successes.push(success.try_into()?);
+        }
+        for alert in report.alerts {
+            alerts.push(alert.try_into()?);
+        }
+
+        Ok(Self {
+            source: report.source,
+            successes,
+            alerts,
+        })
     }
 }
 

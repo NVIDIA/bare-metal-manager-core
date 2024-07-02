@@ -71,6 +71,7 @@ dependencies = [
  "gtmpl",
  "gtmpl_derive",
  "gtmpl_value",
+ "health-report",
  "hickory-proto",
  "hickory-resolver",
  "http-body 0.4.6",
@@ -713,6 +714,7 @@ dependencies = [
  "forge_secrets",
  "futures",
  "futures-util",
+ "health-report",
  "hex",
  "http 0.2.12",
  "hyper 0.14.28",
@@ -2571,6 +2573,14 @@ dependencies = [
  "tokio",
  "tonic 0.10.2",
  "tracing",
+]
+
+[[package]]
+name = "health-report"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "thiserror",
 ]
 
 [[package]]
@@ -4985,6 +4995,7 @@ dependencies = [
  "forge-http-connector",
  "forge-tls",
  "futures-util",
+ "health-report",
  "hickory-resolver",
  "hyper 0.14.28",
  "hyper-rustls",

@@ -199,6 +199,7 @@ pub async fn run(
 
         let mut status_out = rpc::DpuNetworkStatus {
             dpu_machine_id: Some(machine_id.to_string().into()),
+            dpu_health: None,
             dpu_agent_version: Some(build_version.clone()),
             observed_at: None, // None makes carbide-api set it on receipt
             health: None,
@@ -356,8 +357,13 @@ pub async fn run(
                     }
                 }
 
-                let health_report =
-                    health::health_check(&agent.hbn.root_dir, &tenant_peers, started_at).await;
+                let health_report = health::health_check(
+                    &agent.hbn.root_dir,
+                    &tenant_peers,
+                    started_at,
+                    has_changed_configs,
+                )
+                .await;
                 is_healthy = health_report.is_healthy();
                 is_hbn_up = health_report.is_up();
                 // subset of is_healthy
@@ -365,7 +371,7 @@ pub async fn run(
                 // If we just applied a new network config report network as unhealthy.
                 // This gives HBN / BGP time to act on the config.
                 let hs = rpc::NetworkHealth {
-                    is_healthy: is_healthy && !has_changed_configs,
+                    is_healthy,
                     passed: health_report
                         .checks_passed
                         .iter()
@@ -374,17 +380,17 @@ pub async fn run(
                     failed: health_report
                         .checks_failed
                         .iter()
-                        .map(|hc| hc.to_string())
+                        .map(|hc| hc.0.to_string())
                         .collect(),
-                    message: health_report.message.clone().or_else(|| {
-                        if has_changed_configs {
-                            Some("Post-config waiting period".to_string())
-                        } else {
-                            None
-                        }
-                    }),
+                    message: health_report.message.clone(),
                 };
+                // TODO: Convert the health-report while we still have the old data format around
+                let dpu_health: health_report::HealthReport = (&health_report)
+                    .try_into()
+                    .expect("Can not convert health report");
+
                 status_out.health = Some(hs);
+                status_out.dpu_health = Some(dpu_health.into());
                 current_health_report = Some(health_report);
                 current_config_error = status_out.network_config_error.clone();
 

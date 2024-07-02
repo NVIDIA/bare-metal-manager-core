@@ -40,6 +40,7 @@ tryhard = "0.5.1"
 # [local-dependencies]
 forge-http-connector = { path = "../common/http-connector" }
 forge-tls = { path = "../common/tls" }
+health-report = { path = "../common/health-report" }
 
 [build-dependencies]
 tonic-build = "0.10.2"

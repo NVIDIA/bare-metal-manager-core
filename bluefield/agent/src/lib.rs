@@ -145,7 +145,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // succeed.
         Some(AgentCommand::Health) => {
             let health_report =
-                health::health_check(&agent.hbn.root_dir, &[], Instant::now()).await;
+                health::health_check(&agent.hbn.root_dir, &[], Instant::now(), false).await;
             println!("{health_report}");
         }
 

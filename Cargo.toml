@@ -8,6 +8,7 @@ members = [
   "common/bmc-vendor",
   "common/config-version",
   "common/dsocket",
+  "common/health-report",
   "common/host-support",
   "common/http-connector",
   "common/logfmt",
