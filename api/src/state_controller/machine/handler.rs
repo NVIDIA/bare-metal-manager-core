@@ -24,12 +24,15 @@ use libredfish::{
 };
 use tokio::fs::File;
 
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+
 use crate::{
     cfg::{DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel},
     db::{
         ib_partition,
         instance::{DeleteInstance, Instance, InstanceId},
         machine::Machine,
+        machine_interface::MachineInterface,
         machine_topology::MachineTopology,
     },
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
@@ -3031,7 +3034,8 @@ async fn handler_restart_dpu(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    restart_dpu(machine_snapshot, services).await?;
+    restart_dpu(machine_snapshot, services, txn).await?;
+
     Machine::update_reboot_requested_time(
         &machine_snapshot.machine_id,
         txn,
@@ -3103,8 +3107,9 @@ pub async fn handler_host_power_control(
 async fn restart_dpu(
     machine_snapshot: &MachineSnapshot,
     services: &StateHandlerServices,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    let bmc_ip =
+    let maybe_ip =
         machine_snapshot
             .bmc_info
             .ip
@@ -3114,9 +3119,32 @@ async fn restart_dpu(
                 missing: "bmc_info.ip",
             })?;
 
+    let ip = maybe_ip
+        .parse()
+        .map_err(|_| StateHandlerError::MissingData {
+            object_id: machine_snapshot.machine_id.to_string(),
+            missing: "bmc_info.ip is not an ip address",
+        })?;
+
+    let machine_interface_target =
+        MachineInterface::find_by_ip(txn, ip)
+            .await?
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: machine_snapshot.machine_id.to_string(),
+                missing: "machine interface for bmc_info.ip",
+            })?;
+
+    let credential_key = CredentialKey::BmcCredentials {
+        // TODO(ajf): Change this to Forge Admin user once site explorer
+        // ensures it exist, credentials are done by mac address
+        credential_type: BmcCredentialType::BmcRoot {
+            bmc_mac_address: machine_interface_target.mac_address,
+        },
+    };
+
     services
         .ipmi_tool
-        .restart(&machine_snapshot.machine_id, bmc_ip, true)
+        .restart(&machine_snapshot.machine_id, ip, true, credential_key)
         .await
         .map_err(|e: eyre::ErrReport| {
             StateHandlerError::GenericError(eyre!("IPMI failed to restart machine: {}", e))

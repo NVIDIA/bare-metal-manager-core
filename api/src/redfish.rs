@@ -1024,14 +1024,38 @@ pub async fn host_power_control(
 
     // vikings reboot their DPU's if redfish reset is used. \
     // ipmitool is verified to not cause it to reset, so we use it, hackily, here.
+    //
+    // TODO(ajf) none of this IPMI code should be in the redfish module, we've already constructed
+    // a redfish client and aren't going to use it, and constructing an IPMI requires duplicate
+    // work that we did in the calling function.
+    //
     if is_reboot && machine_snapshot.bmc_vendor.is_nvidia() {
-        let bmc_ip = machine_snapshot
-            .bmc_info
-            .ip
-            .as_ref()
-            .ok_or_else(|| CarbideError::MissingArgument("MachineState.bmc_info.ip: {e}"))?;
+        let machine_id = &machine_snapshot.machine_id;
+
+        let maybe_ip = machine_snapshot.bmc_info.ip.as_ref().ok_or_else(|| {
+            CarbideError::GenericError(format!("IP address is missing for {}", machine_id))
+        })?;
+
+        let ip = maybe_ip.parse().map_err(|_| {
+            CarbideError::GenericError(format!("Invalid IP address for {}", machine_id))
+        })?;
+
+        let machine_interface_target =
+            MachineInterface::find_by_ip(txn, ip)
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "MachineInterface by IP",
+                    id: ip.to_string(),
+                })?;
+
+        let credential_key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot {
+                bmc_mac_address: machine_interface_target.mac_address,
+            },
+        };
+
         ipmi_tool
-            .restart(&machine_snapshot.machine_id, bmc_ip.clone(), false)
+            .restart(&machine_snapshot.machine_id, ip, false, credential_key)
             .await
             .map_err(|e: eyre::ErrReport| {
                 CarbideError::GenericError(format!("Failed to restart machine: {}", e))

@@ -15,17 +15,19 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use eyre::eyre;
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use std::net::IpAddr;
 use utils::cmd::{CmdError, CmdResult, TokioCmd};
 
-use crate::{db::bmc_metadata::UserRoles, model::machine::machine_id::MachineId};
+use crate::model::machine::machine_id::MachineId;
 
 #[async_trait]
 pub trait IPMITool: Send + Sync + 'static {
     async fn restart(
         &self,
         machine_id: &MachineId,
-        bmc_ip: String,
+        bmc_ip: IpAddr,
         legacy_boot: bool,
+        credential_key: CredentialKey,
     ) -> Result<(), eyre::Report>;
 }
 
@@ -51,15 +53,13 @@ impl IPMITool for IPMIToolImpl {
     async fn restart(
         &self,
         machine_id: &MachineId,
-        bmc_ip: String,
+        bmc_ip: IpAddr,
         legacy_boot: bool,
+        credential_key: CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials = self
             .credential_provider
-            .get_credentials(CredentialKey::Bmc {
-                machine_id: machine_id.to_string(),
-                user_role: UserRoles::Administrator.to_string(),
-            })
+            .get_credentials(credential_key)
             .await
             .map_err(|e| {
                 eyre!(
@@ -75,7 +75,7 @@ impl IPMITool for IPMIToolImpl {
             match self
                 .execute_ipmitool_command(
                     Self::DPU_LEGACY_IPMITOOL_COMMAND_ARGS,
-                    &bmc_ip,
+                    bmc_ip,
                     &credentials,
                 )
                 .await
@@ -85,7 +85,7 @@ impl IPMITool for IPMIToolImpl {
             }
         }
         match self
-            .execute_ipmitool_command(Self::IPMITOOL_COMMAND_ARGS, &bmc_ip, &credentials)
+            .execute_ipmitool_command(Self::IPMITOOL_COMMAND_ARGS, bmc_ip, &credentials)
             .await
         {
             Ok(_) => return Ok(()),   // return early if we get a successful response
@@ -113,7 +113,7 @@ impl IPMIToolImpl {
     async fn execute_ipmitool_command(
         &self,
         command: &str,
-        bmc_ip: &str,
+        bmc_ip: IpAddr,
         credentials: &Credentials,
     ) -> CmdResult<String> {
         let (username, password) = match credentials {
@@ -121,10 +121,11 @@ impl IPMIToolImpl {
         };
 
         // cmd line args that are filled in from the db
-        let prefix_args: Vec<String> = vec!["-H", bmc_ip, "-U", username, "-E"]
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        let prefix_args: Vec<String> =
+            vec!["-H", bmc_ip.to_string().as_str(), "-U", username, "-E"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
 
         let mut args = prefix_args.to_owned();
         args.extend(command.split(' ').map(str::to_owned));
@@ -144,8 +145,9 @@ impl IPMITool for IPMIToolTestImpl {
     async fn restart(
         &self,
         _machine_id: &MachineId,
-        _bmc_ip: String,
+        _bmc_ip: IpAddr,
         _legacy_boot: bool,
+        _credential_key: CredentialKey,
     ) -> Result<(), eyre::Report> {
         Ok(())
     }

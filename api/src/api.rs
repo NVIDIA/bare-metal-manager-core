@@ -24,7 +24,9 @@ use ::rpc::protos::forge::{
 };
 use ::rpc::protos::measured_boot as measured_boot_pb;
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
+};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
@@ -2826,9 +2828,24 @@ impl Forge for Api {
                     .await
                     .map_err(CarbideError::from)?;
 
-                if let Some(ip) = dpu.bmc_info().ip.as_ref() {
+                if let Some(maybe_bmc_ip) = dpu.bmc_info().ip.as_ref() {
+                    let ip = maybe_bmc_ip.parse().map_err(CarbideError::from)?;
+
+                    let machine_interface_target = MachineInterface::find_by_ip(&mut txn, ip)
+                        .await
+                        .map_err(CarbideError::from)?
+                        .ok_or_else(|| {
+                            Status::failed_precondition("Found no BMC Mac address for DPU IP")
+                        })?;
+
+                    let credential_key = CredentialKey::BmcCredentials {
+                        credential_type: BmcCredentialType::BmcRoot {
+                            bmc_mac_address: machine_interface_target.mac_address,
+                        },
+                    };
+
                     self.ipmi_tool
-                        .restart(&dpu_id, ip.to_string(), true)
+                        .restart(&dpu_id, ip, true, credential_key)
                         .await
                         .map_err(|e: eyre::ErrReport| {
                             CarbideError::GenericError(format!("Failed to restart DPU: {}", e))
