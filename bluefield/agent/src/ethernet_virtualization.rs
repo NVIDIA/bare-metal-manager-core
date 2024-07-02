@@ -275,6 +275,8 @@ pub async fn update_files(
     // Cleanup old NVUE files
     FPath(hbn_root.join(nvue::PATH_ACL)).cleanup();
     FPath(hbn_root.join(nvue::PATH)).cleanup();
+    // In case we switch from NVUE back to ETV, delete NVUE ACLs
+    cleanup_new_acls(hbn_root);
 
     let paths = paths(hbn_root);
 
@@ -1191,6 +1193,26 @@ fn cleanup_old_acls(hbn_root: &Path) {
                 }
                 Err(err) => {
                     tracing::warn!("Failed removing old ACL file {}: {err}.", p.display());
+                }
+            }
+        }
+    }
+}
+
+fn cleanup_new_acls(hbn_root: &Path) {
+    // NVUE creates these
+    let nvue_default_acls = hbn_root.join("etc/cumulus/acl/policy.d/50_nvue.rules");
+    // We create these
+    let nvue_extra_acls = hbn_root.join(nvue::PATH_ACL);
+
+    for p in [&nvue_default_acls, &nvue_extra_acls] {
+        if p.exists() {
+            match fs::remove_file(p) {
+                Ok(_) => {
+                    tracing::info!("Cleaned up NVUE ACL file {}", p.display());
+                }
+                Err(err) => {
+                    tracing::warn!("Failed removing NVUE ACL file {}: {err}.", p.display());
                 }
             }
         }
