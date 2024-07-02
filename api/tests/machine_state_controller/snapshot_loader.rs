@@ -12,8 +12,8 @@
 
 use carbide::{
     db::{
-        machine::Machine, machine_interface::MachineInterface, machine_topology::MachineTopology,
-        network_segment::NetworkSegment, DatabaseError,
+        domain::DomainId, machine::Machine, machine_interface::MachineInterface,
+        machine_topology::MachineTopology, network_segment::NetworkSegment, DatabaseError,
     },
     model::machine::machine_id::MachineId,
     state_controller::snapshot_loader::{
@@ -21,6 +21,7 @@ use carbide::{
     },
     CarbideError,
 };
+use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use sqlx::Executor;
 use std::str::FromStr;
@@ -29,7 +30,10 @@ use crate::common::api_fixtures::{
     create_test_env, dpu::create_dpu_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
-const FIXTURE_CREATED_DOMAIN_ID: uuid::Uuid = uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
+lazy_static! {
+    pub static ref FIXTURE_CREATED_DOMAIN_ID: DomainId =
+        uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").into();
+}
 
 const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
@@ -64,7 +68,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
         &mut txn,
         &segment,
         &MacAddress::new([0xa, 0xb, 0xc, 0xd, 0xe, 0xf]),
-        Some(FIXTURE_CREATED_DOMAIN_ID),
+        Some(*FIXTURE_CREATED_DOMAIN_ID),
         true,
         carbide::db::address_selection_strategy::AddressSelectionStrategy::Automatic,
     )

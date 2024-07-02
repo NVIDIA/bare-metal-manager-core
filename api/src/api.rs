@@ -42,6 +42,7 @@ use uuid::Uuid;
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
+use crate::db::domain::DomainIdKeyedObjectFilter;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::{IBPartition, IBPartitionId};
@@ -88,7 +89,7 @@ use crate::{
         machine_topology::MachineTopology,
         resource_record::DnsQuestion,
         vpc::Vpc,
-        DatabaseError, ObjectFilter, UuidKeyedObjectFilter,
+        DatabaseError, ObjectFilter,
     },
     ethernet_virtualization,
     model::{
@@ -1916,7 +1917,7 @@ impl Forge for Api {
                     ))
                 })?;
 
-                let domain = Domain::find(&mut txn, UuidKeyedObjectFilter::One(domain_id))
+                let domain = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(domain_id))
                     .await
                     .map_err(CarbideError::from)?
                     .first()

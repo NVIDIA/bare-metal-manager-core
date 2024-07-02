@@ -16,11 +16,10 @@ use carbide::{
     db::{
         address_selection_strategy::AddressSelectionStrategy,
         dhcp_entry::DhcpEntry,
-        domain::Domain,
+        domain::{Domain, DomainId, DomainIdKeyedObjectFilter},
         machine::Machine,
         machine_interface::MachineInterface,
         network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter},
-        UuidKeyedObjectFilter,
     },
     model::machine::machine_id::{try_parse_machine_id, MachineId},
     CarbideError,
@@ -195,7 +194,7 @@ async fn find_all_interfaces_test_cases(
     let mut txn = env.pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
-    let domain_ids = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    let domain_ids = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await?;
     let domain_id = domain_ids[0].id;
     let mut interfaces: Vec<MachineInterface> = Vec::new();
     for i in 0..2 {
@@ -267,7 +266,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = env.pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
-    let domain_ids = Domain::find(&mut txn, UuidKeyedObjectFilter::All).await?;
+    let domain_ids = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await?;
     let domain_id = domain_ids[0].id;
     let new_interface = MachineInterface::create(
         &mut txn,
@@ -359,7 +358,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 &mut txn,
                 &n,
                 &MacAddress::from_str(&mac).unwrap(),
-                Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+                Some(DomainId::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
                 true,
                 AddressSelectionStrategy::Automatic,
             )
@@ -402,7 +401,7 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        Some(DomainId::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -433,7 +432,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        Some(DomainId::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
         true,
         AddressSelectionStrategy::Automatic,
     )
@@ -566,7 +565,7 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
-        Some(uuid::Uuid::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
+        Some(DomainId::from_str("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e").unwrap()),
         true,
         AddressSelectionStrategy::Automatic,
     )

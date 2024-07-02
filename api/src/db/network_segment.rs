@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
+use crate::db::domain::DomainId;
 use crate::db::machine_interface::UsedAdminNetworkIpResolver;
 use crate::db::vpc::VpcId;
 use crate::dhcp::allocation::IpAllocator;
@@ -174,7 +175,7 @@ pub struct NetworkSegment {
     pub id: NetworkSegmentId,
     pub version: ConfigVersion,
     pub name: String,
-    pub subdomain_id: Option<uuid::Uuid>,
+    pub subdomain_id: Option<DomainId>,
     pub vpc_id: Option<VpcId>,
     pub mtu: i32,
 
@@ -217,7 +218,7 @@ pub enum NetworkSegmentType {
 pub struct NewNetworkSegment {
     pub id: NetworkSegmentId,
     pub name: String,
-    pub subdomain_id: Option<uuid::Uuid>,
+    pub subdomain_id: Option<DomainId>,
     pub vpc_id: Option<VpcId>,
     pub mtu: i32,
     pub prefixes: Vec<NewNetworkPrefix>,
@@ -352,7 +353,7 @@ impl TryFrom<rpc::NetworkSegmentCreationRequest> for NewNetworkSegment {
             id,
             name: value.name,
             subdomain_id: match value.subdomain_id {
-                Some(v) => Some(uuid::Uuid::try_from(v)?),
+                Some(v) => Some(DomainId::try_from(v)?),
                 None => None,
             },
             vpc_id: match value.vpc_id {
@@ -427,7 +428,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
 impl NewNetworkSegment {
     pub fn build_from(
         name: &str,
-        domain_id: uuid::Uuid,
+        domain_id: DomainId,
         value: &NetworkDefinition,
     ) -> Result<Self, CarbideError> {
         let prefix = NewNetworkPrefix {
@@ -803,7 +804,7 @@ impl NetworkSegment {
         Ok(())
     }
 
-    pub fn subdomain_id(&self) -> Option<&uuid::Uuid> {
+    pub fn subdomain_id(&self) -> Option<&DomainId> {
         self.subdomain_id.as_ref()
     }
 

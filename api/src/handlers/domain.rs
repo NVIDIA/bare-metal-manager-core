@@ -12,13 +12,10 @@
 
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 use crate::api::Api;
-use crate::db::domain::Domain;
-use crate::db::domain::NewDomain;
+use crate::db::domain::{Domain, DomainId, DomainIdKeyedObjectFilter, NewDomain};
 use crate::db::DatabaseError;
-use crate::db::UuidKeyedObjectFilter;
 use crate::CarbideError;
 
 pub(crate) async fn create(
@@ -72,7 +69,7 @@ pub(crate) async fn update(
 
     // TODO(jdg): Move this out into a function and share it with delete
     let uuid = match id {
-        Some(id) => match Uuid::try_from(id) {
+        Some(id) => match DomainId::try_from(id) {
             Ok(uuid) => uuid,
             Err(_err) => {
                 return Err(CarbideError::InvalidArgument("id".to_string()).into());
@@ -83,7 +80,7 @@ pub(crate) async fn update(
         }
     };
 
-    let mut domains = Domain::find(&mut txn, UuidKeyedObjectFilter::One(uuid))
+    let mut domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(uuid))
         .await
         .map_err(CarbideError::from)?;
 
@@ -142,7 +139,7 @@ pub(crate) async fn delete(
 
     // load from find from domain.rs
     let uuid = match id {
-        Some(id) => match Uuid::try_from(id) {
+        Some(id) => match DomainId::try_from(id) {
             Ok(uuid) => uuid,
             Err(_err) => {
                 return Err(CarbideError::InvalidArgument("id".to_string()).into());
@@ -153,7 +150,7 @@ pub(crate) async fn delete(
         }
     };
 
-    let mut domains = Domain::find(&mut txn, UuidKeyedObjectFilter::One(uuid))
+    let mut domains = Domain::find(&mut txn, DomainIdKeyedObjectFilter::One(uuid))
         .await
         .map_err(CarbideError::from)?;
 
@@ -207,8 +204,8 @@ pub(crate) async fn find(
     let rpc::DomainSearchQuery { id, name, .. } = request.into_inner();
     let domains = match (id, name) {
         (Some(id), _) => {
-            let uuid = match Uuid::try_from(id) {
-                Ok(uuid) => UuidKeyedObjectFilter::One(uuid),
+            let uuid = match DomainId::try_from(id) {
+                Ok(uuid) => DomainIdKeyedObjectFilter::One(uuid),
                 Err(err) => {
                     return Err(Status::invalid_argument(format!(
                         "Invalid UUID supplied: {}",
@@ -219,7 +216,7 @@ pub(crate) async fn find(
             Domain::find(&mut txn, uuid).await
         }
         (None, Some(name)) => Domain::find_by_name(&mut txn, &name).await,
-        (None, None) => Domain::find(&mut txn, UuidKeyedObjectFilter::All).await,
+        (None, None) => Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await,
     };
 
     let result = domains

@@ -23,6 +23,7 @@ use super::dhcp_entry::DhcpEntry;
 use super::machine::{DbMachineId, MachineSearchConfig};
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter, UuidKeyedObjectFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
+use crate::db::domain::DomainId;
 use crate::db::machine::Machine;
 use crate::db::machine_interface_address::MachineInterfaceAddress;
 use crate::db::network_segment::{NetworkSegment, NetworkSegmentId};
@@ -38,7 +39,7 @@ const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_mac
 pub struct MachineInterface {
     pub id: uuid::Uuid,
     attached_dpu_machine_id: Option<MachineId>,
-    pub domain_id: Option<uuid::Uuid>,
+    pub domain_id: Option<DomainId>,
     pub machine_id: Option<MachineId>,
     segment_id: NetworkSegmentId,
     pub mac_address: MacAddress,
@@ -430,7 +431,7 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         segment: &NetworkSegment,
         macaddr: &MacAddress,
-        domain_id: Option<uuid::Uuid>,
+        domain_id: Option<DomainId>,
         primary_interface: bool,
         addresses: AddressSelectionStrategy<'_>,
     ) -> CarbideResult<Self> {
