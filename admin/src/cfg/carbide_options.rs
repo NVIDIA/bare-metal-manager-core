@@ -947,15 +947,6 @@ pub enum NetworkSegment {
 #[derive(Parser, Debug)]
 pub struct ShowNetwork {
     #[clap(
-        short,
-        long,
-        action,
-        conflicts_with = "network",
-        help = "Show all network segments (DEPRECATED)"
-    )]
-    pub all: bool,
-
-    #[clap(
         default_value(""),
         help = "The network segment to query, leave empty for all (default)"
     )]
