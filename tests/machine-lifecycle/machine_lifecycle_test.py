@@ -86,25 +86,6 @@ machine_under_test_predicted_host = machine_under_test_dpu[0:5] + "p" + machine_
 print(f"Force deleting {machine_under_test}...")
 admin_cli.force_delete_machine(machine_under_test)
 
-# Reset the DPUs
-# TODO: This step may become unnecessary once site-explorer is auto-creating machines
-for dpu in machine["dpus"]:
-    print(f"Resetting DPU {dpu['machine_id']}...")
-    with paramiko.SSHClient() as ssh_client:
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_client.connect(dpu["bmc_ip"], username=dpu_bmc_username, password=dpu_bmc_password)
-
-        command = "echo 'SW_RESET 1' > /dev/rshim0/misc"
-        print(f"Executing command: {command}")
-        i, o, e = ssh_client.exec_command(command)
-        stdout = o.readlines()
-        stderr = e.readlines()
-        exit_status = o.channel.recv_exit_status()
-        if exit_status != 0:
-            print(f"{command!r} stdout: {stdout}")
-            print(f"{command!r} stderr: {stderr}")
-            print(f"{command!r} exited with status {exit_status}", file=sys.stderr)
-
 # Discovery portion.
 # If there is a failure anywhere here attempt to put the machine into maintenance mode
 # for investigation (this will prevent future runs affecting the machine).
@@ -112,12 +93,6 @@ try:
     # Wait up to 1 hour for Host/WaitingForDiscovery
     print(f"Wait for DPU {machine_under_test_dpu} to report state 'Host/WaitingForDiscovery'")
     admin_cli.wait_for_machine_waitingforhostdiscovery(machine_under_test_dpu, timeout=60 * 60)
-
-    # Power cycle host
-    print(f"Power host off for a minute and then turn it back on")
-    admin_cli.power_off_host(host_bmc_ip, host_bmc_username, host_bmc_password)
-    time.sleep(60)
-    admin_cli.power_on_host(host_bmc_ip, host_bmc_username, host_bmc_password)
 
     # Wait for Ready state
     print(f"Wait for DPU {machine_under_test_dpu} to report state 'Ready'")
