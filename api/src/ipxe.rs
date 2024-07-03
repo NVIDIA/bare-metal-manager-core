@@ -234,7 +234,12 @@ exit ||
 
                     match instance.config.os.variant {
                         crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
-                            if ipxe.always_boot_with_ipxe || instance.use_custom_pxe_on_boot {
+                            if instance
+                                .config
+                                .os
+                                .run_provisioning_instructions_on_every_boot
+                                || instance.use_custom_pxe_on_boot
+                            {
                                 ipxe.ipxe_script
                             } else {
                                 "exit".to_string()

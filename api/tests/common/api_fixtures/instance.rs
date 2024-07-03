@@ -102,11 +102,11 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
 pub fn default_os_config() -> rpc::forge::OperatingSystem {
     rpc::forge::OperatingSystem {
         phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe".to_string(),
                 user_data: Some("SomeRandomData".to_string()),
-                always_boot_with_ipxe: false,
             },
         )),
     }

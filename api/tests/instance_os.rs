@@ -39,10 +39,11 @@ fn verify_os_in_tenant_config(
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
             expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
             expected_tenant_config.user_data = ipxe.user_data.clone();
-            expected_tenant_config.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
         }
         _ => panic!("Unexpected OS type"),
     }
+    expected_tenant_config.always_boot_with_custom_ipxe =
+        expected_os.run_provisioning_instructions_on_every_boot;
     expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
     assert_eq!(tenant_config, &expected_tenant_config);
 }
@@ -55,11 +56,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
 
     let initial_os = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
-                always_boot_with_ipxe: false,
             },
         )),
     };
@@ -99,11 +100,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
 
     let updated_os_1 = rpc::forge::OperatingSystem {
         phone_home_enabled: true,
+        run_provisioning_instructions_on_every_boot: true,
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe2".to_string(),
                 user_data: Some("SomeRandomData2".to_string()),
-                always_boot_with_ipxe: true,
             },
         )),
     };
@@ -129,11 +130,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
 
     let updated_os_2 = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "SomeRandomiPxe3".to_string(),
                 user_data: Some("SomeRandomData3".to_string()),
-                always_boot_with_ipxe: false,
             },
         )),
     };
@@ -201,11 +202,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     // Try to update to an invalid OS
     let invalid_os = rpc::forge::OperatingSystem {
         phone_home_enabled: true,
+        run_provisioning_instructions_on_every_boot: false,
         variant: Some(rpc::forge::operating_system::Variant::Ipxe(
             rpc::forge::IpxeOperatingSystem {
                 ipxe_script: "".to_string(),
                 user_data: Some("SomeRandomData2".to_string()),
-                always_boot_with_ipxe: false,
             },
         )),
     };
@@ -247,7 +248,8 @@ async fn test_instance_creation_with_os_in_tenantconfig(
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
             tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
             tenant_config.user_data = ipxe.user_data.clone();
-            tenant_config.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
+            tenant_config.always_boot_with_custom_ipxe =
+                os_config.run_provisioning_instructions_on_every_boot;
             tenant_config.phone_home_enabled = os_config.phone_home_enabled;
         }
         _ => panic!("Unsupported OS"),

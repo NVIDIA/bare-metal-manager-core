@@ -174,7 +174,7 @@ struct InstanceDetail {
 struct InstanceOs {
     ipxe_script: String,
     userdata: String,
-    always_boot_with_ipxe: bool,
+    run_provisioning_instructions_on_every_boot: bool,
     phone_home_enabled: bool,
 }
 
@@ -288,7 +288,8 @@ impl From<forgerpc::Instance> for InstanceDetail {
                     forgerpc::operating_system::Variant::Ipxe(ipxe) => InstanceOs {
                         ipxe_script: ipxe.ipxe_script.clone(),
                         userdata: ipxe.user_data.clone().unwrap_or_default(),
-                        always_boot_with_ipxe: ipxe.always_boot_with_ipxe,
+                        run_provisioning_instructions_on_every_boot: os
+                            .run_provisioning_instructions_on_every_boot,
                         phone_home_enabled: os.phone_home_enabled,
                     },
                 },

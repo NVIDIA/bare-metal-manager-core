@@ -61,8 +61,9 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
                         variant: OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
                             ipxe_script: tenant.custom_ipxe.clone(),
                             user_data: tenant.user_data.clone(),
-                            always_boot_with_ipxe: tenant.always_boot_with_custom_ipxe,
                         }),
+                        run_provisioning_instructions_on_every_boot: tenant
+                            .always_boot_with_custom_ipxe,
                         phone_home_enabled: tenant.phone_home_enabled,
                     },
                     None => {
@@ -106,11 +107,11 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
         // TODO: Deprecated this once nobody excepts OS details in TenantConfig anymore
         match &config.os.variant {
             crate::model::os::OperatingSystemVariant::Ipxe(ipxe) => {
-                tenant.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
                 tenant.custom_ipxe = ipxe.ipxe_script.clone();
                 tenant.user_data = ipxe.user_data.clone();
             }
         };
+        tenant.always_boot_with_custom_ipxe = config.os.run_provisioning_instructions_on_every_boot;
         tenant.phone_home_enabled = config.os.phone_home_enabled;
 
         let os = rpc::OperatingSystem::try_from(config.os)?;

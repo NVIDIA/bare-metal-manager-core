@@ -144,10 +144,11 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
             expected_tenant_config.custom_ipxe = ipxe.ipxe_script.clone();
             expected_tenant_config.user_data = ipxe.user_data.clone();
-            expected_tenant_config.always_boot_with_custom_ipxe = ipxe.always_boot_with_ipxe;
         }
         _ => panic!("Unexpected OS"),
     }
+    expected_tenant_config.always_boot_with_custom_ipxe =
+        expected_os.run_provisioning_instructions_on_every_boot;
     expected_tenant_config.phone_home_enabled = expected_os.phone_home_enabled;
     assert_eq!(tenant_config, &expected_tenant_config);
 

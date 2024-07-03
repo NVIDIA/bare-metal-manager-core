@@ -23,22 +23,6 @@ pub struct IpxeOperatingSystem {
     /// This can be a cloud-init script
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_data: Option<String>,
-
-    /// If this flag is set to `true`, the instance will receive the `ipxe_script` instructions
-    /// on every reboot attempts. Depending on the type of iPXE instructions, this might
-    /// lead the instance to reinstall itself on every reboot.
-    ///
-    /// If the flag is set to `false` or not specified, Forge will only provide the
-    /// `ipxe_script` script on the first boot attempt. For every subsequent boot,
-    /// the instance will use the default boot action - which is usually to boot from
-    /// the hard drive.
-    ///
-    /// If the `ipxe_script` instructions should only be used for specific reboots
-    /// in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
-    /// API to reboot instances with the `boot_with_custom_ipxe` parameter set to
-    /// `true`.
-    #[serde(default)]
-    pub always_boot_with_ipxe: bool,
 }
 
 impl TryFrom<rpc::forge::IpxeOperatingSystem> for IpxeOperatingSystem {
@@ -48,7 +32,6 @@ impl TryFrom<rpc::forge::IpxeOperatingSystem> for IpxeOperatingSystem {
         Ok(Self {
             ipxe_script: config.ipxe_script,
             user_data: config.user_data,
-            always_boot_with_ipxe: config.always_boot_with_ipxe,
         })
     }
 }
@@ -62,7 +45,6 @@ impl TryFrom<IpxeOperatingSystem> for rpc::forge::IpxeOperatingSystem {
         Ok(Self {
             ipxe_script: config.ipxe_script,
             user_data: config.user_data,
-            always_boot_with_ipxe: config.always_boot_with_ipxe,
         })
     }
 }
@@ -95,6 +77,27 @@ pub struct OperatingSystem {
     /// InstancePhoneHomeLastContact is updated
     #[serde(default)]
     pub phone_home_enabled: bool,
+
+    /// If this flag is set to `true`, the instance will run the provisioning instructions
+    /// that are specified by the OS on every reboot attempt.
+    /// Depending on the type of provisioning instructions, this might
+    /// lead the instance to reinstall itself on every reboot.
+    ///
+    /// E.g. if the instance uses an iPXE script as OS and the iPXE scripts contains
+    /// instructions for installing on a local disk, the installation would be repeated
+    /// on the reboot.
+    ///
+    /// If the flag is set to `false` or not specified, Forge will only provide
+    /// iPXE instructions that are defined by the OS definition on the first boot attempt.
+    /// For every subsequent boot, the instance will use the default boot action - which
+    /// is usually to boot from the hard drive.
+    ///
+    /// If the provisioning instructions should only be used on specific reboots
+    /// in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
+    /// API to reboot instances with the `boot_with_custom_ipxe` parameter set to
+    /// `true`.
+    #[serde(default)]
+    pub run_provisioning_instructions_on_every_boot: bool,
 }
 
 impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
@@ -116,6 +119,8 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
         Ok(Self {
             variant,
             phone_home_enabled: config.phone_home_enabled,
+            run_provisioning_instructions_on_every_boot: config
+                .run_provisioning_instructions_on_every_boot,
         })
     }
 }
@@ -133,6 +138,8 @@ impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
         Ok(Self {
             variant: Some(variant),
             phone_home_enabled: config.phone_home_enabled,
+            run_provisioning_instructions_on_every_boot: config
+                .run_provisioning_instructions_on_every_boot,
         })
     }
 }
