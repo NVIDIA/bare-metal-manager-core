@@ -448,7 +448,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let mut txn = pool.begin().await?;
     let _interface = MachineInterface::find_one(&mut txn, interface.id).await;
     assert!(matches!(
-        CarbideError::FindOneReturnedNoResultsError(interface.id),
+        CarbideError::FindOneReturnedNoResultsError(interface.id.0),
         _interface
     ));
 

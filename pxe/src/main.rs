@@ -41,6 +41,10 @@ pub struct Machine {
 #[derive(Debug, Serialize)]
 pub struct MachineInterface {
     architecture: Option<forge::MachineArchitecture>,
+    // TODO(chet): This should probably also become a
+    // MachineInterfaceId, but it would end up pulling
+    // carbide-api as a dependency. Will propose in
+    // another MR.
     interface_id: rocket::serde::uuid::Uuid,
 }
 

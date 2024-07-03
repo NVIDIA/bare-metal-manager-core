@@ -25,6 +25,7 @@ use super::{
     bmc_info::BmcInfo, hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
 };
 use crate::cfg::DpuComponent;
+use crate::db::machine_interface::MachineInterfaceId;
 use crate::model::hardware_info::HardwareInfo;
 
 pub mod machine_id;
@@ -549,7 +550,7 @@ impl Display for ManagedHostState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineInterfaceSnapshot {
-    pub id: uuid::Uuid,
+    pub id: MachineInterfaceId,
     pub hostname: String,
     pub is_primary: bool,
     pub mac_address: String,

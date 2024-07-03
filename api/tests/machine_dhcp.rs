@@ -13,7 +13,10 @@
 use std::str::FromStr;
 
 use carbide::db::{
-    dhcp_entry::DhcpEntry, machine_interface::MachineInterface, UuidKeyedObjectFilter,
+    dhcp_entry::DhcpEntry,
+    machine_interface::{
+        MachineInterface, MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter,
+    },
 };
 use carbide::CarbideError;
 use mac_address::MacAddress;
@@ -308,14 +311,16 @@ async fn machine_interface_discovery_persists_vendor_strings(
 ) -> Result<(), Box<dyn std::error::Error>> {
     async fn assert_vendor_strings_equal(
         pool: &sqlx::PgPool,
-        interface_id: &uuid::Uuid,
+        interface_id: &MachineInterfaceId,
         expected: &[&str],
     ) {
         let mut txn = pool.clone().begin().await.unwrap();
-        let entry =
-            DhcpEntry::find_for_interfaces(&mut txn, UuidKeyedObjectFilter::One(*interface_id))
-                .await
-                .unwrap();
+        let entry = DhcpEntry::find_for_interfaces(
+            &mut txn,
+            MachineInterfaceIdKeyedObjectFilter::One(*interface_id),
+        )
+        .await
+        .unwrap();
         assert_eq!(
             entry
                 .iter()
@@ -356,7 +361,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
     let mac_address = MacAddress::from_str("ab:cd:ff:ff:ff:ff").unwrap();
 
     let response = dhcp_with_vendor(&env, mac_address, Some("vendor1".to_string())).await;
-    let interface_id: uuid::Uuid = response
+    let interface_id: MachineInterfaceId = response
         .machine_interface_id
         .expect("machine_interface_id must be set")
         .try_into()

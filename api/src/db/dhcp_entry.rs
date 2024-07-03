@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use sqlx::{FromRow, Postgres, Transaction};
-use uuid::Uuid;
 
-use super::{DatabaseError, UuidKeyedObjectFilter};
+use super::DatabaseError;
+use crate::db::machine_interface::{MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter};
 
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
@@ -21,32 +21,32 @@ use super::{DatabaseError, UuidKeyedObjectFilter};
 ///
 #[derive(Debug, FromRow)]
 pub struct DhcpEntry {
-    pub machine_interface_id: uuid::Uuid,
+    pub machine_interface_id: MachineInterfaceId,
     pub vendor_string: String,
 }
 
 impl DhcpEntry {
     pub async fn find_for_interfaces(
         txn: &mut Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
+        filter: MachineInterfaceIdKeyedObjectFilter<'_>,
     ) -> Result<Vec<DhcpEntry>, DatabaseError> {
         let base_query = "SELECT * FROM dhcp_entries {where}".to_owned();
 
         Ok(match filter {
-            UuidKeyedObjectFilter::All => {
+            MachineInterfaceIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, DhcpEntry>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries All", e))?
             }
-            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, DhcpEntry>(
+            MachineInterfaceIdKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, DhcpEntry>(
                 &base_query.replace("{where}", "WHERE machine_interface_id=$1"),
             )
             .bind(uuid)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries One", e))?,
-            UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, DhcpEntry>(
+            MachineInterfaceIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, DhcpEntry>(
                 &base_query.replace("{where}", "WHERE machine_interface_id=ANY($1)"),
             )
             .bind(list)
@@ -76,7 +76,7 @@ ON CONFLICT DO NOTHING";
 
     pub async fn delete(
         txn: &mut sqlx::Transaction<'_, Postgres>,
-        machine_interface_id: &Uuid,
+        machine_interface_id: &MachineInterfaceId,
     ) -> Result<(), DatabaseError> {
         let query = "
 DELETE FROM dhcp_entries WHERE machine_interface_id=$1::uuid";

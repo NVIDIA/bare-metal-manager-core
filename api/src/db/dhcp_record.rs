@@ -17,7 +17,8 @@ use std::net::IpAddr;
 
 use crate::{
     db::{
-        instance::Instance, machine::DbMachineId, network_segment::NetworkSegmentId, DatabaseError,
+        domain::DomainId, instance::Instance, machine::DbMachineId,
+        machine_interface::MachineInterfaceId, network_segment::NetworkSegmentId, DatabaseError,
     },
     dhcp::allocation::DhcpError,
     model::{instance::config::network::InterfaceFunctionId, machine::machine_id::MachineId},
@@ -27,14 +28,16 @@ use crate::{
 ///
 /// A machine dhcp response is a representation of some booting interface by Mac Address or DUID
 /// (not implemented) that returns the network information for that interface on that node, and
-/// contains everything necessary to return a DHCP response
+/// contains everything necessary to return a DHCP response.
+///
+/// A DhcpRecord is populated by a database view (named machine_dhcp_records).
 ///
 #[derive(Debug)]
 pub struct DhcpRecord {
     machine_id: Option<MachineId>,
     segment_id: NetworkSegmentId,
-    machine_interface_id: uuid::Uuid,
-    subdomain_id: Option<uuid::Uuid>,
+    machine_interface_id: MachineInterfaceId,
+    subdomain_id: Option<DomainId>,
 
     fqdn: String,
 
@@ -103,12 +106,13 @@ impl DhcpRecord {
     }
 }
 
+/// An InstanceDhcpRecord is populated by a database view (named instance_dhcp_records).
 #[derive(Debug)]
 pub struct InstanceDhcpRecord {
     machine_id: Option<MachineId>,
     segment_id: NetworkSegmentId,
-    machine_interface_id: uuid::Uuid,
-    subdomain_id: Option<uuid::Uuid>,
+    machine_interface_id: MachineInterfaceId,
+    subdomain_id: Option<DomainId>,
 
     fqdn: String,
 

@@ -1,5 +1,8 @@
 use carbide::{
-    db::{machine::Machine, machine_interface::MachineInterface},
+    db::{
+        machine::Machine,
+        machine_interface::{MachineInterface, MachineInterfaceId},
+    },
     model::machine::{machine_id::MachineId, MachineState, ManagedHostState},
 };
 use common::api_fixtures::create_test_env;
@@ -45,15 +48,13 @@ async fn move_machine_to_needed_state(
 
 async fn get_pxe_instructions(
     env: &TestEnv,
-    interface_id: String,
+    interface_id: MachineInterfaceId,
     arch: rpc::forge::MachineArchitecture,
 ) -> rpc::forge::PxeInstructions {
     env.api
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: arch as i32,
-            interface_id: Some(rpc::Uuid {
-                value: interface_id,
-            }),
+            interface_id: Some(interface_id.into()),
         }))
         .await
         .unwrap()
@@ -77,12 +78,8 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
         .id;
     txn.commit().await.unwrap();
 
-    let instructions = get_pxe_instructions(
-        &env,
-        dpu_interface_id.to_string(),
-        rpc::forge::MachineArchitecture::Arm,
-    )
-    .await;
+    let instructions =
+        get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
     assert_eq!(instructions.pxe_script, "exit".to_string());
 }
 
@@ -117,7 +114,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 
     let instructions = get_pxe_instructions(
         &env,
-        machine.interfaces().first().unwrap().id().to_string(),
+        *machine.interfaces().first().unwrap().id(),
         rpc::forge::MachineArchitecture::Arm,
     )
     .await;
@@ -129,29 +126,23 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 async fn test_pxe_when_machine_is_not_created(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let dpu_interface_id = common::api_fixtures::dpu::dpu_discover_dhcp(
+    let dpu_interface_id: MachineInterfaceId = common::api_fixtures::dpu::dpu_discover_dhcp(
         &env,
         &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string(),
     )
-    .await;
+    .await
+    .try_into()
+    .unwrap();
 
-    let instructions = get_pxe_instructions(
-        &env,
-        dpu_interface_id.to_string(),
-        rpc::forge::MachineArchitecture::Arm,
-    )
-    .await;
+    let instructions =
+        get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::Arm).await;
 
     assert_ne!(instructions.pxe_script, "exit".to_string());
     assert!(instructions.pxe_script.contains("aarch64/carbide.efi"));
 
     // API doesn't know about MachineArchitecture yet. Let's check instructions for X86.
-    let instructions = get_pxe_instructions(
-        &env,
-        dpu_interface_id.to_string(),
-        rpc::forge::MachineArchitecture::X86,
-    )
-    .await;
+    let instructions =
+        get_pxe_instructions(&env, dpu_interface_id, rpc::forge::MachineArchitecture::X86).await;
     assert_ne!(instructions.pxe_script, "exit".to_string());
     assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
 }
@@ -181,7 +172,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
     let instructions = get_pxe_instructions(
         &env,
-        host_interface_id.to_string(),
+        host_interface_id,
         rpc::forge::MachineArchitecture::X86,
     )
     .await;
@@ -198,7 +189,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
     let instructions = get_pxe_instructions(
         &env,
-        host_interface_id.to_string(),
+        host_interface_id,
         rpc::forge::MachineArchitecture::X86,
     )
     .await;
@@ -215,7 +206,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
     let instructions = get_pxe_instructions(
         &env,
-        host_interface_id.to_string(),
+        host_interface_id,
         rpc::forge::MachineArchitecture::X86,
     )
     .await;
@@ -251,7 +242,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
 
     let instructions = get_pxe_instructions(
         &env,
-        host_interface_id.to_string(),
+        host_interface_id,
         rpc::forge::MachineArchitecture::X86,
     )
     .await;

@@ -9,19 +9,25 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+
 use std::collections::HashMap;
+use std::fmt;
 use std::net::IpAddr;
+use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use mac_address::MacAddress;
-use sqlx::{postgres::PgRow, Acquire, FromRow, Postgres, Row, Transaction};
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
+use sqlx::{Acquire, FromRow, Postgres, Row, Transaction, Type};
+use tonic::Status;
 use uuid::Uuid;
 
 use super::dhcp_entry::DhcpEntry;
 use super::machine::{DbMachineId, MachineSearchConfig};
-use super::{ColumnInfo, DatabaseError, ObjectColumnFilter, UuidKeyedObjectFilter};
+use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::domain::DomainId;
 use crate::db::machine::Machine;
@@ -30,14 +36,121 @@ use crate::db::network_segment::{NetworkSegment, NetworkSegmentId};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
+use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "machine_interfaces_segment_id_mac_address_key";
 const SQL_VIOLATION_ONE_PRIMARY_INTERFACE: &str = "one_primary_interface_per_machine";
 
+/// MachineInterfaceId is a strongly typed UUID specific to an Infiniband
+/// segment ID, with trait implementations allowing it to be passed
+/// around as a UUID, an RPC UUID, bound to sqlx queries, etc. This
+/// is similar to what we do for MachineId, VpcId, InstanceId,
+/// NetworkSegmentId, and basically all of the IDs in measured boot.
+#[derive(
+    Debug, Clone, Copy, FromRow, Type, Serialize, Deserialize, PartialEq, Eq, Hash, Default,
+)]
+#[sqlx(type_name = "UUID")]
+pub struct MachineInterfaceId(pub uuid::Uuid);
+
+impl From<MachineInterfaceId> for uuid::Uuid {
+    fn from(id: MachineInterfaceId) -> Self {
+        id.0
+    }
+}
+
+impl From<uuid::Uuid> for MachineInterfaceId {
+    fn from(uuid: uuid::Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl FromStr for MachineInterfaceId {
+    type Err = RpcDataConversionError;
+    fn from_str(input: &str) -> Result<Self, RpcDataConversionError> {
+        Ok(Self(uuid::Uuid::parse_str(input).map_err(|_| {
+            RpcDataConversionError::InvalidUuid("MachineInterfaceId", input.to_string())
+        })?))
+    }
+}
+
+impl fmt::Display for MachineInterfaceId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<MachineInterfaceId> for rpc::Uuid {
+    fn from(val: MachineInterfaceId) -> Self {
+        Self {
+            value: val.to_string(),
+        }
+    }
+}
+
+impl TryFrom<rpc::Uuid> for MachineInterfaceId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<&rpc::Uuid> for MachineInterfaceId {
+    type Error = RpcDataConversionError;
+    fn try_from(msg: &rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+        Self::from_str(msg.value.as_str())
+    }
+}
+
+impl TryFrom<Option<rpc::Uuid>> for MachineInterfaceId {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+        let Some(input_uuid) = msg else {
+            // TODO(chet): Maybe this isn't the right place for this, since
+            // depending on the proto message, the field name can differ (which
+            // should actually probably be standardized anyway), or we can just
+            // take a similar approach to ::InvalidUuid can say "field of type"?
+            return Err(CarbideError::MissingArgument("interface_id").into());
+        };
+        Ok(Self::try_from(input_uuid)?)
+    }
+}
+
+impl MachineInterfaceId {
+    pub fn from_grpc(msg: Option<rpc::Uuid>) -> Result<Self, Status> {
+        Self::try_from(msg)
+            .map_err(|e| Status::invalid_argument(format!("bad grpc interface ID: {}", e)))
+    }
+}
+
+impl PgHasArrayType for MachineInterfaceId {
+    fn array_type_info() -> PgTypeInfo {
+        <sqlx::types::Uuid as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <sqlx::types::Uuid as PgHasArrayType>::array_compatible(ty)
+    }
+}
+
+///
+/// A parameter to find() to filter resources by MachineInterfaceId;
+///
+#[derive(Clone)]
+pub enum MachineInterfaceIdKeyedObjectFilter<'a> {
+    /// Don't filter by MachineInterfaceId
+    All,
+
+    /// Filter by a list of MachineInterfaceIds
+    List(&'a [MachineInterfaceId]),
+
+    /// Retrieve a single resource
+    One(MachineInterfaceId),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MachineInterface {
-    pub id: uuid::Uuid,
+    pub id: MachineInterfaceId,
     attached_dpu_machine_id: Option<MachineId>,
     pub domain_id: Option<DomainId>,
     pub machine_id: Option<MachineId>,
@@ -54,7 +167,7 @@ pub struct MachineInterface {
 impl MachineInterface {
     pub fn mock_with_mac(mac_address: MacAddress) -> MachineInterface {
         MachineInterface {
-            id: Uuid::nil(),
+            id: MachineInterfaceId::from(Uuid::nil()),
             attached_dpu_machine_id: None,
             domain_id: None,
             machine_id: None,
@@ -77,7 +190,7 @@ pub struct UsedAdminNetworkIpResolver {
 #[derive(Clone)]
 pub struct IdColumn;
 impl ColumnInfo for IdColumn {
-    type ColumnType = uuid::Uuid;
+    type ColumnType = MachineInterfaceId;
     fn column_name(&self) -> String {
         "id".to_string()
     }
@@ -203,7 +316,7 @@ impl MachineInterface {
     }
 
     /// Returns the ID of the MachineInterface object
-    pub fn id(&self) -> &uuid::Uuid {
+    pub fn id(&self) -> &MachineInterfaceId {
         &self.id
     }
 
@@ -242,7 +355,7 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<Vec<MachineInterface>> {
         let interfaces =
-            MachineInterface::find_by(txn, ObjectColumnFilter::All::<IdColumn, uuid::Uuid>)
+            MachineInterface::find_by(txn, ObjectColumnFilter::All::<IdColumn, MachineInterfaceId>)
                 .await
                 .map_err(CarbideError::from)?;
 
@@ -280,7 +393,7 @@ impl MachineInterface {
 
         let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
             &mut *txn,
-            UuidKeyedObjectFilter::List(&[machine_interface.id]),
+            MachineInterfaceIdKeyedObjectFilter::List(&[machine_interface.id]),
         )
         .await?;
 
@@ -313,16 +426,18 @@ impl MachineInterface {
 
     pub async fn find_one(
         txn: &mut Transaction<'_, Postgres>,
-        interface_id: uuid::Uuid,
+        interface_id: MachineInterfaceId,
     ) -> CarbideResult<MachineInterface> {
         let mut interfaces =
             MachineInterface::find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
                 .await
                 .map_err(CarbideError::from)?;
         match interfaces.len() {
-            0 => Err(CarbideError::FindOneReturnedNoResultsError(interface_id)),
+            0 => Err(CarbideError::FindOneReturnedNoResultsError(interface_id.0)),
             1 => Ok(interfaces.remove(0)),
-            _ => Err(CarbideError::FindOneReturnedManyResultsError(interface_id)),
+            _ => Err(CarbideError::FindOneReturnedManyResultsError(
+                interface_id.0,
+            )),
         }
     }
 
@@ -470,7 +585,7 @@ impl MachineInterface {
             (segment_id, mac_address, hostname, domain_id, primary_interface)
             VALUES
             ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id";
-        let (interface_id,): (Uuid,) = sqlx::query_as(query)
+        let (interface_id,): (MachineInterfaceId,) = sqlx::query_as(query)
             .bind(segment.id())
             .bind(macaddr)
             .bind(hostname)
@@ -547,7 +662,7 @@ impl MachineInterface {
     pub async fn find_by_ip_or_id(
         txn: &mut Transaction<'_, Postgres>,
         remote_ip: Option<IpAddr>,
-        interface_id: Option<uuid::Uuid>,
+        interface_id: Option<MachineInterfaceId>,
     ) -> Result<MachineInterface, CarbideError> {
         if let Some(remote_ip) = remote_ip {
             if let Some(interface) = MachineInterface::find_by_ip(txn, remote_ip)
@@ -620,13 +735,13 @@ impl MachineInterface {
 
         let interface_ids;
         let component_filter = match filter {
-            ObjectColumnFilter::All => UuidKeyedObjectFilter::All,
+            ObjectColumnFilter::All => MachineInterfaceIdKeyedObjectFilter::All,
             _ => {
                 interface_ids = interfaces
                     .iter()
                     .map(|interface| interface.id)
-                    .collect::<Vec<Uuid>>();
-                UuidKeyedObjectFilter::List(interface_ids.as_slice())
+                    .collect::<Vec<MachineInterfaceId>>();
+                MachineInterfaceIdKeyedObjectFilter::List(interface_ids.as_slice())
             }
         };
 
@@ -636,7 +751,7 @@ impl MachineInterface {
 
         let dhcp_entries: Vec<DhcpEntry> =
             DhcpEntry::find_for_interfaces(&mut *txn, component_filter).await?;
-        let mut vendors_by_interface_id = HashMap::<Uuid, Vec<String>>::new();
+        let mut vendors_by_interface_id = HashMap::<MachineInterfaceId, Vec<String>>::new();
         for entry in dhcp_entries.into_iter() {
             let vendors = vendors_by_interface_id
                 .entry(entry.machine_interface_id)
@@ -774,7 +889,7 @@ impl MachineInterface {
     /// Record that this interface just DHCPed, so it must still exist
     pub async fn update_last_dhcp(
         txn: &mut Transaction<'_, Postgres>,
-        interface_id: uuid::Uuid,
+        interface_id: MachineInterfaceId,
     ) -> Result<(), DatabaseError> {
         let query = "UPDATE machine_interfaces SET last_dhcp = NOW() WHERE id=$1::uuid";
         sqlx::query(query)

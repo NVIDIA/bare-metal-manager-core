@@ -14,9 +14,10 @@ use ::rpc::forge as rpc;
 
 use crate::api::Api;
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::db::machine_interface::MachineInterface;
+use crate::db::machine_interface::{MachineInterface, MachineInterfaceId};
 use crate::db::DatabaseError;
 use crate::CarbideError;
+use tonic::Status;
 
 pub(crate) async fn get(
     api: &Api,
@@ -24,10 +25,9 @@ pub(crate) async fn get(
 ) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    let machine_interface_id_str = &request.into_inner().value;
-
-    let machine_interface_id = uuid::Uuid::parse_str(machine_interface_id_str)
-        .map_err(CarbideError::UuidConversionError)?;
+    let request = request.into_inner();
+    let machine_interface_id = MachineInterfaceId::try_from(request.clone())
+        .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {}", request)))?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -109,10 +109,9 @@ pub(crate) async fn clear(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     crate::api::log_request_data(&request);
 
-    let machine_interface_id_str = &request.into_inner().value;
-
-    let machine_interface_id = uuid::Uuid::parse_str(machine_interface_id_str)
-        .map_err(CarbideError::UuidConversionError)?;
+    let request = request.into_inner();
+    let machine_interface_id = MachineInterfaceId::try_from(request.clone())
+        .map_err(|_e| Status::invalid_argument(format!("bad input uuid: {}", request)))?;
 
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -131,14 +130,14 @@ pub(crate) async fn clear(
         Some(machine_id) => {
             crate::api::log_machine_id(&machine_id);
             tracing::info!(
-                machine_interface_id = machine_interface_id_str,
+                machine_interface_id = machine_interface_id.to_string(),
                 machine_id = machine_id.to_string(),
                 "Boot override for machine_interface_id disabled."
             );
         }
 
         None => tracing::info!(
-            machine_interface_id = machine_interface_id_str,
+            machine_interface_id = machine_interface_id.to_string(),
             "Boot override for machine_interface_id disabled"
         ),
     }
