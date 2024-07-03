@@ -87,7 +87,7 @@ async fn test_snapshot_loader(pool: sqlx::PgPool) -> eyre::Result<()> {
         .begin()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
-    let (machine, _is_new) = Machine::get_or_create(&mut txn, &stable_machine_id, &iface)
+    let machine = Machine::get_or_create(&mut txn, &stable_machine_id, &iface)
         .await
         .unwrap();
     iface

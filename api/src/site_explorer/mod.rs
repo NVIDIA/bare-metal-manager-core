@@ -46,6 +46,7 @@ use crate::{
             ExploredManagedHost, NicMode, Service,
         },
     },
+    resource_pool::common::CommonPools,
     CarbideError, CarbideResult,
 };
 
@@ -106,6 +107,7 @@ pub struct SiteExplorer {
     dpu_models: HashMap<DpuModel, DpuDesc>,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
+    common_pools: Arc<CommonPools>,
 }
 
 impl SiteExplorer {
@@ -119,6 +121,7 @@ impl SiteExplorer {
         dpu_models: &HashMap<DpuModel, DpuDesc>,
         meter: opentelemetry::metrics::Meter,
         endpoint_explorer: Arc<dyn EndpointExplorer>,
+        common_pools: Arc<CommonPools>,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -137,6 +140,7 @@ impl SiteExplorer {
             dpu_models: dpu_models.clone(),
             metric_holder,
             endpoint_explorer,
+            common_pools,
         }
     }
 
@@ -398,6 +402,26 @@ impl SiteExplorer {
             if !is_new {
                 return Ok(false);
             }
+
+            let (mut network_config, version) = dpu_machine.network_config().clone().take();
+            if network_config.loopback_ip.is_none() {
+                let loopback_ip = Machine::allocate_loopback_ip(
+                    &self.common_pools,
+                    &mut txn,
+                    &stable_machine_id.to_string(),
+                )
+                .await?;
+                network_config.loopback_ip = Some(loopback_ip);
+            }
+            network_config.use_admin_network = Some(true);
+            Machine::try_update_network_config(
+                &mut txn,
+                stable_machine_id,
+                version,
+                &network_config,
+            )
+            .await
+            .map_err(CarbideError::from)?;
 
             let serial_number = dpu_report
                 .report

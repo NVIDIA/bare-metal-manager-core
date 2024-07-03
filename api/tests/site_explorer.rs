@@ -37,6 +37,7 @@ use carbide::{
             ExploredManagedHost, Inventory, Manager, NetworkAdapter, NicMode, Service,
         },
     },
+    resource_pool::ResourcePoolStats,
     site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
     state_controller::machine::handler::MachineStateHandler,
 };
@@ -271,6 +272,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        env.common_pools.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -610,6 +612,7 @@ async fn test_site_explorer_creates_managed_host(
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        env.common_pools.clone(),
     );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
@@ -946,9 +949,17 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        env.common_pools.clone(),
     );
     let mut txn = env.pool.begin().await.unwrap();
     const NUM_DPUS: usize = 2;
+    let initial_loopback_pool_stats = env
+        .common_pools
+        .ethernet
+        .pool_loopback_ip
+        .stats(&mut *txn)
+        .await
+        .expect("failed to get inital pool stats");
     let mut oob_interfaces = Vec::new();
     let mut explored_dpus = Vec::new();
 
@@ -1072,6 +1083,26 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .await?
     );
 
+    // a second create attempt on the same machine should return false.
+    assert!(
+        !explorer
+            .create_managed_host(&exploration_report, &env.pool)
+            .await?
+    );
+
+    let expected_loopback_count = NUM_DPUS;
+    assert_eq!(
+        env.common_pools
+            .ethernet
+            .pool_loopback_ip
+            .stats(&mut *txn)
+            .await?,
+        ResourcePoolStats {
+            used: expected_loopback_count,
+            free: initial_loopback_pool_stats.free - expected_loopback_count
+        }
+    );
+
     let mut host_machine_id: Option<MachineId> = None;
     let mut dpu_machines = Vec::new();
 
@@ -1093,6 +1124,8 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                 discovering_state: DpuDiscoveringState::Initializing,
             }
         );
+
+        assert!(dpu_machine.network_config().loopback_ip.is_some());
 
         let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())
             .await?
