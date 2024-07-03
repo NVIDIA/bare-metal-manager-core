@@ -659,19 +659,29 @@ impl SiteExplorer {
 
         let mut managed_hosts = Vec::new();
         for ep in explored_hosts.values() {
-            let mut attached_dpus: Vec<ExploredDpu> = Vec::new();
-            let mut num_all_dpus = 0;
-            let mut num_dpus_in_nic_mode = 0;
+            // the list of DPUs that the site-explorer has explored for this host
+            let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
+            // the number of DPUs that the host reports are attached to it
+            let mut expected_num_dpus_attached_to_host = 0;
             for chassis in ep.report.chassis.iter() {
                 for net_adapter in chassis.network_adapters.iter() {
+                    if net_adapter.is_bluefield() {
+                        // is_bluefield currently returns true if a network adapter is BF2 DPU, BF3 DPU, or BF3 Super NIC
+                        expected_num_dpus_attached_to_host += 1;
+                    }
+
                     if net_adapter.serial_number.is_some() {
-                        if net_adapter.is_bluefield() {
-                            num_all_dpus += 1;
-                        }
                         let sn = net_adapter.serial_number.as_ref().unwrap();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
+                            // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                             if dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic) {
-                                num_dpus_in_nic_mode += 1;
+                                expected_num_dpus_attached_to_host -= 1;
+                                tracing::info!(
+                                    address = %dpu_ep.address,
+                                    exploration_report = ?dpu_ep.report,
+                                    "discovered bluefield in NIC mode attached to host {}",
+                                    ep.address
+                                );
                                 continue;
                             }
                             let host_pf_mac_address = match find_host_pf_mac_address(dpu_ep) {
@@ -681,7 +691,7 @@ impl SiteExplorer {
                                     None
                                 }
                             };
-                            attached_dpus.push(ExploredDpu {
+                            dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
                                 host_pf_mac_address,
                                 report: dpu_ep.report.clone(),
@@ -691,23 +701,34 @@ impl SiteExplorer {
                 }
             }
 
-            if (!attached_dpus.is_empty())
-                && (attached_dpus.len() + num_dpus_in_nic_mode == num_all_dpus)
+            // The site explorer should only create a managed host after exploring all of the DPUs attached to the host.
+            // If a host reports that it has two DPUs, the site explorer must wait until **both** DPUs have made the DHCP request.
+            // If only one of the two DPUs have made the DHCP request, the site explorer must wait until it has explored the latter DPU's BMC
+            // (ensuring that the second DPU has also made the DHCP request).
+            if dpus_explored_for_host.is_empty()
+                || dpus_explored_for_host.len() != expected_num_dpus_attached_to_host
             {
-                attached_dpus.sort_by_key(|d| {
-                    d.report.systems[0]
-                        .serial_number
-                        .clone()
-                        .unwrap_or("".to_string())
-                        .to_lowercase()
-                });
-                let explored_host = ExploredManagedHost {
-                    host_bmc_ip: ep.address,
-                    dpus: attached_dpus,
-                };
-                managed_hosts.push(explored_host.clone());
-                metrics.exploration_identified_managed_hosts += 1;
+                tracing::info!(
+                    address = %ep.address,
+                    exploration_report = ?ep,
+                    "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs:\n{:#?}",
+                    dpus_explored_for_host.len(), expected_num_dpus_attached_to_host, dpus_explored_for_host
+                );
+                continue;
             }
+
+            dpus_explored_for_host.sort_by_key(|d| {
+                d.report.systems[0]
+                    .serial_number
+                    .clone()
+                    .unwrap_or("".to_string())
+                    .to_lowercase()
+            });
+            managed_hosts.push(ExploredManagedHost {
+                host_bmc_ip: ep.address,
+                dpus: dpus_explored_for_host,
+            });
+            metrics.exploration_identified_managed_hosts += 1;
         }
 
         DbExploredManagedHost::update(&mut txn, &managed_hosts).await?;
