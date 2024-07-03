@@ -38,6 +38,10 @@ const GPU_PCI_CLASS: &str = "0x030200";
 const MEMORY_TYPE: &str = "MEMORY_DEVICE_0_MEMORY_TECHNOLOGY";
 const PCI_VENDOR_FROM_DB: &str = "ID_VENDOR_FROM_DATABASE";
 
+const BF2_PRODUCT_NAME: &str = "BlueField SoC";
+const BF3_PRODUCT_NAME: &str = "BlueField-3 SmartNIC Main Card";
+const BF3_CPU_PART: &str = "0xd42";
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CpuArchitecture {
     Aarch64,
@@ -317,6 +321,12 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     let cpu_info = procfs::CpuInfo::new()
         .map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
 
+    let cpu_part = cpu_info
+        .get_info(0)
+        .and_then(|info| info.get("CPU part").cloned())
+        .map(str::to_string)
+        .unwrap_or_default();
+
     let mut cpus: Vec<rpc_discovery::Cpu> = Vec::new();
     for cpu_num in 0..cpu_info.num_cores() {
         //tracing::debug!("CPU info: {:?}", cpu_info.get_info(cpu_num));
@@ -506,6 +516,14 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
             dmi.chassis_serial = convert_sysattr_to_string("chassis_serial", &device)?.to_string();
             dmi.product_serial = convert_sysattr_to_string("product_serial", &device)?.to_string();
             dmi.product_name = convert_sysattr_to_string("product_name", &device)?.to_string();
+            if cpu_part == BF3_CPU_PART && dmi.product_name == BF2_PRODUCT_NAME {
+                tracing::info!(
+                    "Overriding product name {} with {}",
+                    dmi.product_name,
+                    BF3_PRODUCT_NAME
+                );
+                dmi.product_name = BF3_PRODUCT_NAME.to_owned();
+            }
             dmi.sys_vendor = convert_sysattr_to_string("sys_vendor", &device)?.to_string();
         }
     }

@@ -653,7 +653,7 @@ impl SiteExplorer {
                 .first()
                 .and_then(|system| system.serial_number.as_ref())
             {
-                dpu_sn_to_endpoint.insert(sn, ep);
+                dpu_sn_to_endpoint.insert(sn.trim(), ep);
             }
         }
 
@@ -671,8 +671,8 @@ impl SiteExplorer {
                     }
 
                     if net_adapter.serial_number.is_some() {
-                        let sn = net_adapter.serial_number.as_ref().unwrap();
-                        if let Some(dpu_ep) = dpu_sn_to_endpoint.get(&sn) {
+                        let sn = net_adapter.serial_number.as_ref().unwrap().trim();
+                        if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn) {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                             if dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic) {
                                 expected_num_dpus_attached_to_host -= 1;
