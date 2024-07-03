@@ -338,9 +338,14 @@ dependencies = ["build-release"] # need to make sure the "wrong" forge-admin-cli
 
 [tasks.build-and-test-release-container-services]
 workspace = false
+# Important: We only build perform a single build task here since every additional
+# build has a high change to also rebuild all dependencies due to different feature
+# combinations.
+# No new build tasks for single binaries should be added for this task which is
+# called by CI. If necessary separate tasks can be defined for workflows which
+# do not require everything.
 dependencies = [
   "build-release", # Start with release builds, since some artifacts are used in integration tests
-  "build-release-forge-admin-cli",
   "check-measured-boot-endpoints-enabled",
   "test-flow", # Then run all tests
 ]
