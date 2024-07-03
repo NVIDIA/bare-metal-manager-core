@@ -39,7 +39,8 @@ use crate::model::machine::{
     FailureDetails, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineState,
     ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
-use crate::{CarbideError, CarbideResult};
+use crate::resource_pool::common::CommonPools;
+use crate::{resource_pool, CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
 #[derive(Default, Debug)]
@@ -468,7 +469,7 @@ impl Machine {
         txn: &mut Transaction<'_, Postgres>,
         stable_machine_id: &MachineId,
         interface: &MachineInterface,
-    ) -> CarbideResult<(Self, bool)> {
+    ) -> CarbideResult<Self> {
         let existing_machine = Machine::find_one(
             &mut *txn,
             stable_machine_id,
@@ -507,10 +508,8 @@ impl Machine {
             interface
                 .associate_interface_with_machine(txn, &machine.id)
                 .await?;
-            // Machine that is discovered via redfish, still considered as new for api to configure network.
-            let is_new = machine.network_config().loopback_ip.is_none();
 
-            Ok((machine, is_new))
+            Ok(machine)
         } else {
             // Old manual discovery path.
             // Host and DPU machines are created in same `discover_machine` call. Update same
@@ -522,7 +521,7 @@ impl Machine {
             interface
                 .associate_interface_with_machine(txn, &machine.id)
                 .await?;
-            Ok((machine, true))
+            Ok(machine)
         }
     }
 
@@ -1697,6 +1696,32 @@ SELECT m.id FROM
             .collect();
 
         Ok(dpu_infos)
+    }
+
+    /// Allocate a value from the loopback IP resource pool.
+    ///
+    /// If the pool exists but is empty or has en error, return that.
+    pub async fn allocate_loopback_ip(
+        common_pools: &CommonPools,
+        txn: &mut Transaction<'_, Postgres>,
+        owner_id: &str,
+    ) -> Result<Ipv4Addr, CarbideError> {
+        match common_pools
+            .ethernet
+            .pool_loopback_ip
+            .allocate(txn, resource_pool::OwnerType::Machine, owner_id)
+            .await
+        {
+            Ok(val) => Ok(val),
+            Err(resource_pool::ResourcePoolError::Empty) => {
+                tracing::error!(owner_id, pool = "lo-ip", "Pool exhausted, cannot allocate");
+                Err(CarbideError::ResourceExhausted("pool lo-ip".to_string()))
+            }
+            Err(err) => {
+                tracing::error!(owner_id, error = %err, pool = "lo-ip", "Error allocating from resource pool");
+                Err(err.into())
+            }
+        }
     }
 }
 

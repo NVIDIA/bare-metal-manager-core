@@ -73,6 +73,7 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        env.common_pools.clone(),
     );
 
     let mut dpu_report = EndpointExplorationReport {
@@ -183,6 +184,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        env.common_pools.clone(),
     );
 
     // Invalid DPU UEFI version scenario
@@ -373,6 +375,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        env.common_pools.clone(),
     );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;

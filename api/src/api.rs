@@ -1004,10 +1004,10 @@ impl Forge for Api {
         let interface =
             MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
-            let (db_machine, is_new) = if machine_discovery_info.create_machine {
+            let db_machine = if machine_discovery_info.create_machine {
                 Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?
             } else {
-                let machine = Machine::find_one(
+                Machine::find_one(
                     &mut txn,
                     &stable_machine_id,
                     MachineSearchConfig {
@@ -1019,18 +1019,23 @@ impl Forge for Api {
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| {
                     Status::invalid_argument(format!("Machine id {stable_machine_id} not found."))
-                })?;
-                (machine, false)
+                })?
             };
 
             interface
                 .associate_interface_with_dpu_machine(&mut txn, &stable_machine_id)
                 .await
                 .map_err(CarbideError::from)?;
-            if is_new {
-                let loopback_ip = self
-                    .allocate_loopback_ip(&mut txn, &stable_machine_id.to_string())
-                    .await?;
+
+            let (network_config, _version) = db_machine.network_config().clone().take();
+            if network_config.loopback_ip.is_none() {
+                let loopback_ip = Machine::allocate_loopback_ip(
+                    &self.common_pools,
+                    &mut txn,
+                    &stable_machine_id.to_string(),
+                )
+                .await?;
+
                 let (mut network_config, version) = db_machine.network_config().clone().take();
                 network_config.loopback_ip = Some(loopback_ip);
                 network_config.use_admin_network = Some(true);
@@ -1074,7 +1079,7 @@ impl Forge for Api {
                         CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
                     })?;
                 let mi_id = machine_interface.id;
-                let (proactive_machine, _) =
+                let proactive_machine =
                     Machine::get_or_create(&mut txn, &predicted_machine_id, &machine_interface)
                         .await?;
                 tracing::info!(
@@ -4587,33 +4592,6 @@ impl Api {
             Ok(Some(m)) => m,
         };
         Ok((machine, txn))
-    }
-
-    /// Allocate a value from the loopback IP resource pool.
-    ///
-    /// If the pool exists but is empty or has en error, return that.
-    async fn allocate_loopback_ip(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        owner_id: &str,
-    ) -> Result<Ipv4Addr, CarbideError> {
-        match self
-            .common_pools
-            .ethernet
-            .pool_loopback_ip
-            .allocate(txn, resource_pool::OwnerType::Machine, owner_id)
-            .await
-        {
-            Ok(val) => Ok(val),
-            Err(resource_pool::ResourcePoolError::Empty) => {
-                tracing::error!(owner_id, pool = "lo-ip", "Pool exhausted, cannot allocate");
-                Err(CarbideError::ResourceExhausted("pool lo-ip".to_string()))
-            }
-            Err(err) => {
-                tracing::error!(owner_id, error = %err, pool = "lo-ip", "Error allocating from resource pool");
-                Err(err.into())
-            }
-        }
     }
 
     /// Allocate a value from the vpc vni resource pool.

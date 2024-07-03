@@ -412,3 +412,33 @@ async fn test_parallel() -> Result<(), eyre::Report> {
     sqlx::Postgres::drop_database(&db_url).await?;
     Ok(())
 }
+
+#[sqlx::test]
+async fn test_allocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let pool = DbResourcePool::new("test_rollback".to_string(), ValueType::Integer);
+
+    let mut txn = db_pool.begin().await?;
+    pool.populate(&mut txn, vec![1, 2]).await?;
+    txn.commit().await?;
+
+    // allocate in one transaction
+    let mut txn1 = db_pool.begin().await?;
+    let v1 = pool
+        .allocate(&mut txn1, OwnerType::Machine, "my_id")
+        .await?;
+    assert_eq!(pool.stats(&mut *txn1).await?, St { used: 1, free: 1 });
+
+    // allocate in second transaction
+    let mut txn2 = db_pool.begin().await?;
+    let v2 = pool
+        .allocate(&mut txn2, OwnerType::Machine, "my_id")
+        .await?;
+    assert_eq!(pool.stats(&mut *txn2).await?, St { used: 1, free: 1 });
+    // commit second transaction
+    txn2.commit().await.expect("txn2 commit failed");
+    txn1.commit().await.expect("txn1 commit failed");
+
+    assert_eq!(pool.stats(&db_pool).await?, St { used: 2, free: 0 });
+    assert_ne!(v1, v2);
+    Ok(())
+}

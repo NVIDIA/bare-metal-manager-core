@@ -396,6 +396,7 @@ pub async fn start_api(
             shared_redfish_pool.clone(),
             vault_client.clone(),
         )),
+        common_pools.clone(),
     );
     let _site_explorer_stop_handle = site_explorer.start()?;
 
