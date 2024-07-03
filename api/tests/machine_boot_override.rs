@@ -11,6 +11,7 @@
  */
 
 use carbide::db::machine_boot_override::MachineBootOverride;
+use carbide::db::machine_interface::MachineInterfaceId;
 use carbide::CarbideError;
 
 pub mod common;
@@ -18,7 +19,6 @@ use common::api_fixtures::create_test_env;
 use common::api_fixtures::dpu::dpu_discover_dhcp;
 use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use rpc::protos::forge::forge_server::Forge;
-use uuid::Uuid;
 
 #[ctor::ctor]
 fn setup() {
@@ -30,7 +30,7 @@ async fn only_one_custom_pxe_per_interface(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let new_interface_id = Uuid::try_from(
+    let new_interface_id = MachineInterfaceId::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
@@ -78,7 +78,7 @@ async fn only_one_custom_pxe_per_interface(
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn confirm_null_fields(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let new_interface_id = Uuid::try_from(
+    let new_interface_id = MachineInterfaceId::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
@@ -108,7 +108,7 @@ async fn api_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_user_data = Some("custom user data".to_owned());
 
     let env = create_test_env(pool).await;
-    let new_interface_id = Uuid::try_from(
+    let new_interface_id = MachineInterfaceId::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
@@ -126,9 +126,7 @@ async fn api_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
 
     txn.commit().await.unwrap();
 
-    let req = tonic::Request::new(rpc::Uuid {
-        value: new_interface_id.to_string(),
-    });
+    let req = tonic::Request::new(new_interface_id.into());
     let machine_boot_override = env
         .api
         .get_machine_boot_override(req)
@@ -153,15 +151,13 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let expected_user_data = Some("custom user data".to_owned());
 
     let env = create_test_env(pool).await;
-    let machine_interface_id = Uuid::try_from(
+    let machine_interface_id = MachineInterfaceId::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
 
     let req = tonic::Request::new(rpc::forge::MachineBootOverride {
-        machine_interface_id: Some(rpc::forge::Uuid {
-            value: machine_interface_id.to_string(),
-        }),
+        machine_interface_id: Some(machine_interface_id.into()),
         custom_pxe: expected_pxe.clone(),
         custom_user_data: expected_user_data.clone(),
     });
@@ -191,7 +187,7 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
     let expected_user_data = Some("custom user data".to_owned());
 
     let env = create_test_env(pool).await;
-    let new_interface_id = Uuid::try_from(
+    let new_interface_id = MachineInterfaceId::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
@@ -209,9 +205,7 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
 
     txn.commit().await.unwrap();
 
-    let req = tonic::Request::new(rpc::Uuid {
-        value: new_interface_id.to_string(),
-    });
+    let req = tonic::Request::new(new_interface_id.into());
     env.api
         .clear_machine_boot_override(req)
         .await
@@ -234,15 +228,13 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let expected_user_data = Some("custom user data".to_owned());
 
     let env = create_test_env(pool).await;
-    let machine_interface_id = Uuid::try_from(
+    let machine_interface_id = MachineInterfaceId::try_from(
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await,
     )
     .unwrap();
 
     let req = tonic::Request::new(rpc::forge::MachineBootOverride {
-        machine_interface_id: Some(rpc::forge::Uuid {
-            value: machine_interface_id.to_string(),
-        }),
+        machine_interface_id: Some(machine_interface_id.into()),
         custom_pxe: expected_pxe.clone(),
         custom_user_data: None,
     });
@@ -254,9 +246,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .into_inner();
 
     let req = tonic::Request::new(rpc::forge::MachineBootOverride {
-        machine_interface_id: Some(rpc::forge::Uuid {
-            value: machine_interface_id.to_string(),
-        }),
+        machine_interface_id: Some(machine_interface_id.into()),
         custom_pxe: None,
         custom_user_data: expected_user_data.clone(),
     });

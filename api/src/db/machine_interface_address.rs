@@ -14,16 +14,18 @@ use std::net::IpAddr;
 
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
-use uuid::Uuid;
 
 use super::{
-    machine::DbMachineId, network_segment::NetworkSegmentType, DatabaseError, UuidKeyedObjectFilter,
+    machine::DbMachineId,
+    machine_interface::{MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter},
+    network_segment::NetworkSegmentType,
+    DatabaseError,
 };
 use crate::model::machine::machine_id::MachineId;
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
-    pub interface_id: Uuid,
+    pub interface_id: MachineInterfaceId,
     pub address: IpAddr,
 }
 
@@ -38,7 +40,7 @@ impl MachineInterfaceAddress {
 
     pub async fn find_ipv4_for_interface(
         txn: &mut Transaction<'_, Postgres>,
-        interface_id: Uuid,
+        interface_id: MachineInterfaceId,
     ) -> Result<MachineInterfaceAddress, DatabaseError> {
         let query = "SELECT * FROM machine_interface_addresses WHERE interface_id = $1 AND family(address) = 4";
         sqlx::query_as(query)
@@ -50,12 +52,12 @@ impl MachineInterfaceAddress {
 
     pub async fn find_for_interface(
         txn: &mut Transaction<'_, Postgres>,
-        filter: UuidKeyedObjectFilter<'_>,
-    ) -> Result<HashMap<Uuid, Vec<MachineInterfaceAddress>>, DatabaseError> {
+        filter: MachineInterfaceIdKeyedObjectFilter<'_>,
+    ) -> Result<HashMap<MachineInterfaceId, Vec<MachineInterfaceAddress>>, DatabaseError> {
         let base_query = "SELECT * FROM machine_interface_addresses mia {where}".to_owned();
 
         Ok(match filter {
-            UuidKeyedObjectFilter::All => {
+            MachineInterfaceIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, MachineInterfaceAddress>(&base_query.replace("{where}", ""))
                     .fetch_all(&mut **txn)
                     .await
@@ -63,24 +65,28 @@ impl MachineInterfaceAddress {
                         DatabaseError::new(file!(), line!(), "machine_interface_addresses All", e)
                     })?
             }
-            UuidKeyedObjectFilter::One(uuid) => sqlx::query_as::<_, MachineInterfaceAddress>(
-                &base_query.replace("{where}", "WHERE mia.interface_id=$1"),
-            )
-            .bind(uuid)
-            .fetch_all(&mut **txn)
-            .await
-            .map_err(|e| {
-                DatabaseError::new(file!(), line!(), "machine_interface_addresses One", e)
-            })?,
-            UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, MachineInterfaceAddress>(
-                &base_query.replace("{where}", "WHERE mia.interface_id=ANY($1)"),
-            )
-            .bind(list)
-            .fetch_all(&mut **txn)
-            .await
-            .map_err(|e| {
-                DatabaseError::new(file!(), line!(), "machine_interface_addresses List", e)
-            })?,
+            MachineInterfaceIdKeyedObjectFilter::One(uuid) => {
+                sqlx::query_as::<_, MachineInterfaceAddress>(
+                    &base_query.replace("{where}", "WHERE mia.interface_id=$1"),
+                )
+                .bind(uuid)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "machine_interface_addresses One", e)
+                })?
+            }
+            MachineInterfaceIdKeyedObjectFilter::List(list) => {
+                sqlx::query_as::<_, MachineInterfaceAddress>(
+                    &base_query.replace("{where}", "WHERE mia.interface_id=ANY($1)"),
+                )
+                .bind(list)
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "machine_interface_addresses List", e)
+                })?
+            }
         }
         .into_iter()
         .into_group_map_by(|address| address.interface_id))
@@ -105,7 +111,7 @@ impl MachineInterfaceAddress {
 
     pub async fn delete(
         txn: &mut Transaction<'_, Postgres>,
-        interface_id: Uuid,
+        interface_id: MachineInterfaceId,
     ) -> Result<(), DatabaseError> {
         let query = "DELETE FROM machine_interface_addresses WHERE interface_id = $1";
         sqlx::query(query)
@@ -119,7 +125,7 @@ impl MachineInterfaceAddress {
 
 #[derive(Debug)]
 pub struct MachineInterfaceSearchResult {
-    pub interface_id: Uuid,
+    pub interface_id: MachineInterfaceId,
     pub machine_id: Option<MachineId>,
     pub segment_name: String,
     pub segment_type: NetworkSegmentType,

@@ -18,10 +18,9 @@ use std::net::IpAddr;
 use mac_address::MacAddress;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
-use uuid::Uuid;
 
 use crate::{
-    db::{machine::DbMachineId, DatabaseError},
+    db::{machine::DbMachineId, machine_interface::MachineInterfaceId, DatabaseError},
     model::machine::machine_id::MachineId,
 };
 
@@ -31,7 +30,7 @@ use crate::{
 #[derive(Debug)]
 pub struct DpuMachine {
     machine_id: MachineId,
-    _machine_interface_id: uuid::Uuid,
+    _machine_interface_id: MachineInterfaceId,
     _mac_address: MacAddress,
     address: IpAddr,
     _hostname: String,
@@ -57,7 +56,7 @@ impl DpuMachine {
         &self.machine_id
     }
 
-    pub fn _machine_interface_id(&self) -> &Uuid {
+    pub fn _machine_interface_id(&self) -> &MachineInterfaceId {
         &self._machine_interface_id
     }
 

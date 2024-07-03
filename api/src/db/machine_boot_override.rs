@@ -10,8 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use std::str::FromStr;
 
 use crate::{
+    db::machine_interface::MachineInterfaceId,
     db::{ColumnInfo, DatabaseError, ObjectColumnFilter},
     CarbideError, CarbideResult,
 };
@@ -21,7 +23,7 @@ use crate::{
 ///
 #[derive(Debug, sqlx::Encode)]
 pub struct MachineBootOverride {
-    pub machine_interface_id: uuid::Uuid,
+    pub machine_interface_id: MachineInterfaceId,
     pub custom_pxe: Option<String>,
     pub custom_user_data: Option<String>,
 }
@@ -29,7 +31,7 @@ pub struct MachineBootOverride {
 #[derive(Clone)]
 struct MachineInterfaceIdColumn;
 impl ColumnInfo for MachineInterfaceIdColumn {
-    type ColumnType = uuid::Uuid;
+    type ColumnType = MachineInterfaceId;
     fn column_name(&self) -> String {
         "machine_interface_id".to_string()
     }
@@ -48,9 +50,7 @@ impl<'r> FromRow<'r, PgRow> for MachineBootOverride {
 impl From<MachineBootOverride> for rpc::forge::MachineBootOverride {
     fn from(value: MachineBootOverride) -> Self {
         rpc::forge::MachineBootOverride {
-            machine_interface_id: Some(rpc::forge::Uuid {
-                value: value.machine_interface_id.to_string(),
-            }),
+            machine_interface_id: Some(value.machine_interface_id.into()),
             custom_pxe: value.custom_pxe,
             custom_user_data: value.custom_user_data,
         }
@@ -61,7 +61,9 @@ impl TryFrom<rpc::forge::MachineBootOverride> for MachineBootOverride {
     type Error = CarbideError;
     fn try_from(value: rpc::forge::MachineBootOverride) -> CarbideResult<Self> {
         let machine_interface_id = match value.machine_interface_id {
-            Some(machine_interface_id) => uuid::Uuid::parse_str(&machine_interface_id.value)?,
+            Some(machine_interface_id) => {
+                MachineInterfaceId::from_str(&machine_interface_id.value)?
+            }
             None => return Err(CarbideError::MissingArgument("machine_interface_id")),
         };
         Ok(MachineBootOverride {
@@ -75,7 +77,7 @@ impl TryFrom<rpc::forge::MachineBootOverride> for MachineBootOverride {
 impl MachineBootOverride {
     pub async fn create(
         txn: &mut Transaction<'_, Postgres>,
-        machine_interface_id: uuid::Uuid,
+        machine_interface_id: MachineInterfaceId,
         custom_pxe: Option<String>,
         custom_user_data: Option<String>,
     ) -> CarbideResult<Option<Self>> {
@@ -133,7 +135,7 @@ impl MachineBootOverride {
 
     pub async fn clear(
         txn: &mut Transaction<'_, Postgres>,
-        machine_interface_id: uuid::Uuid,
+        machine_interface_id: MachineInterfaceId,
     ) -> CarbideResult<()> {
         let query = "DELETE FROM machine_boot_override WHERE machine_interface_id = $1";
 
@@ -148,7 +150,7 @@ impl MachineBootOverride {
 
     pub async fn find_optional(
         txn: &mut Transaction<'_, Postgres>,
-        machine_interface_id: uuid::Uuid,
+        machine_interface_id: MachineInterfaceId,
     ) -> CarbideResult<Option<MachineBootOverride>> {
         let mut interfaces = MachineBootOverride::find_by(
             txn,
@@ -160,7 +162,7 @@ impl MachineBootOverride {
             0 => Ok(None),
             1 => Ok(Some(interfaces.remove(0))),
             _ => Err(CarbideError::FindOneReturnedManyResultsError(
-                machine_interface_id,
+                machine_interface_id.0,
             )),
         }
     }

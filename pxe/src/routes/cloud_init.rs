@@ -72,6 +72,11 @@ fn user_data_handler(
 }
 
 /// Generates the content of the /etc/forge/config.toml file
+//
+// TODO(chet): This should take a MachineInterfaceId, but I think by doing that,
+// then agent_config (which is in host-support), would need to import forge-api,
+// which I think would then make it so scout + the agent start having a dep on
+// api/ -- I don't think it's a problem, but I'll propose it in a separate MR.
 fn generate_forge_agent_config(machine_interface_id: &rpc::Uuid) -> String {
     let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
     let config = agent_config::AgentConfigFromPxe {

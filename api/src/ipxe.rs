@@ -7,7 +7,7 @@ use crate::{
     db::{
         instance::Instance,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterface,
+        machine_interface::{MachineInterface, MachineInterfaceId},
     },
     model::machine::{InstanceState, MachineState, ManagedHostState},
     CarbideError,
@@ -66,7 +66,7 @@ boot ||
 impl PxeInstructions {
     fn get_pxe_instruction_for_arch(
         arch: rpc::MachineArchitecture,
-        machine_interface_id: uuid::Uuid,
+        machine_interface_id: MachineInterfaceId,
         mac_address: String,
         console: &str,
     ) -> String {
@@ -90,7 +90,7 @@ impl PxeInstructions {
 
     pub async fn get_pxe_instructions(
         txn: &mut Transaction<'_, Postgres>,
-        interface_id: uuid::Uuid,
+        interface_id: MachineInterfaceId,
         arch: rpc::MachineArchitecture,
     ) -> Result<String, CarbideError> {
         let error_instructions = |x: &ManagedHostState| -> String {

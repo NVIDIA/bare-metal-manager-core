@@ -39,7 +39,6 @@ use tss_esapi::{
     structures::{Attest, Public as TssPublic, Signature},
     traits::UnMarshall,
 };
-use uuid::Uuid;
 
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
@@ -52,6 +51,7 @@ use crate::db::instance::InstanceId;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_boot_override::MachineBootOverride;
+use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::dynamic_settings;
@@ -960,7 +960,7 @@ impl Forge for Api {
 
         let interface_id = machine_discovery_info
             .machine_interface_id
-            .and_then(|id| Uuid::try_from(id).ok());
+            .and_then(|id| MachineInterfaceId::try_from(id).ok());
 
         let discovery_data = machine_discovery_info
             .discovery_data
@@ -1485,7 +1485,8 @@ impl Forge for Api {
         let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
 
         let response = match (id, ip) {
-            (Some(id), _) if id.value.chars().count() > 0 => match Uuid::try_from(id) {
+            (Some(id), _) if id.value.chars().count() > 0 => match MachineInterfaceId::try_from(id)
+            {
                 Ok(uuid) => Ok(rpc::InterfaceList {
                     interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
                 }),
@@ -1559,7 +1560,7 @@ impl Forge for Api {
             return Err(CarbideError::MissingArgument("delete interface.interface_id").into());
         };
 
-        let interface = match Uuid::try_from(id) {
+        let interface = match MachineInterfaceId::try_from(id) {
             Ok(uuid) => MachineInterface::find_one(&mut txn, uuid).await?,
             Err(_) => {
                 return Err(CarbideError::GenericError(
@@ -1851,7 +1852,7 @@ impl Forge for Api {
             None => {
                 return Err(Status::invalid_argument("Interface ID is missing."));
             }
-            Some(interface_id) => Uuid::try_from(interface_id)
+            Some(interface_id) => MachineInterfaceId::try_from(interface_id)
                 .map_err(|e| Status::invalid_argument(format!("Interface ID is invalid: {}", e)))?,
         };
 
