@@ -1195,3 +1195,61 @@ pub async fn delete_all_expected_machines(
     })
     .await
 }
+
+pub async fn get_vpc_ids(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    name: Option<String>,
+) -> CarbideCliResult<rpc::VpcIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::VpcSearchFilter {
+            tenant_org_id,
+            name,
+        });
+        let ids = client
+            .find_vpc_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(ids)
+    })
+    .await
+}
+
+pub async fn get_vpcs_by_ids(
+    api_config: &ApiConfig<'_>,
+    ids: &[rpc::Uuid],
+) -> CarbideCliResult<rpc::VpcList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::VpcsByIdsRequest {
+            vpc_ids: Vec::from(ids),
+        });
+        let instances = client
+            .find_vpcs_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(instances)
+    })
+    .await
+}
+
+// TODO: remove when all sites have been upgraded to include find_ids and find_by_ids methods
+pub async fn get_vpcs_deprecated(
+    api_config: &ApiConfig<'_>,
+    id: Option<rpc::Uuid>,
+    name: Option<String>,
+) -> CarbideCliResult<rpc::VpcList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::VpcSearchQuery { id, name });
+        let details = client
+            .find_vpcs(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(details)
+    })
+    .await
+}

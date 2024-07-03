@@ -150,6 +150,8 @@ pub enum CarbideCommand {
     Set(SetAction),
     #[clap(about = "Expected machine handling", subcommand, visible_alias = "em")]
     ExpectedMachine(ExpectedMachineAction),
+    #[clap(about = "VPC related handling", subcommand)]
+    Vpc(VpcOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -1227,4 +1229,25 @@ pub struct LogFilterOptions {
 pub struct CreateMachinesOptions {
     #[clap(long, action = clap::ArgAction::Set, help = "Enable site-explorer create_machines?")]
     pub enabled: bool,
+}
+
+#[derive(Parser, Debug)]
+pub enum VpcOptions {
+    #[clap(about = "Display VPC information")]
+    Show(ShowVpc),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowVpc {
+    #[clap(
+        default_value(""),
+        help = "The VPC ID to query, leave empty for all (default)"
+    )]
+    pub id: String,
+
+    #[clap(short, long, help = "The Tenant Org ID to query")]
+    pub tenant_org_id: Option<String>,
+
+    #[clap(short, long, help = "The VPC name to query")]
+    pub name: Option<String>,
 }
