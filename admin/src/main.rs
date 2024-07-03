@@ -45,7 +45,7 @@ use cfg::carbide_options::Shell;
 use cfg::carbide_options::SiteExplorer;
 use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
-    NetworkCommand, NetworkSegment, OutputFormat, ResourcePool,
+    NetworkCommand, NetworkSegment, OutputFormat, ResourcePool, VpcOptions,
 };
 use clap::CommandFactory; // for CarbideOptions::command()
 use forge_secrets::credentials::Credentials;
@@ -75,6 +75,7 @@ mod redfish;
 mod resource_pool;
 mod rpc;
 mod version;
+mod vpc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideCliError {
@@ -817,6 +818,11 @@ async fn main() -> color_eyre::Result<()> {
             }
             cfg::carbide_options::ExpectedMachineAction::Erase => {
                 rpc::delete_all_expected_machines(api_config).await?;
+            }
+        },
+        CarbideCommand::Vpc(vpc) => match vpc {
+            VpcOptions::Show(vpc) => {
+                vpc::handle_show(vpc, config.format, api_config, config.internal_page_size).await?
             }
         },
     }
