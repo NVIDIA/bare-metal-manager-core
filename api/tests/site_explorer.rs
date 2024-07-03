@@ -1125,7 +1125,29 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             }
         );
 
-        assert!(dpu_machine.network_config().loopback_ip.is_some());
+        let expected_loopback_ip = dpu_machine
+            .network_config()
+            .loopback_ip
+            .unwrap()
+            .to_string();
+        let network_config_response = env
+            .api
+            .get_managed_host_network_config(Request::new(
+                rpc::forge::ManagedHostNetworkConfigRequest {
+                    dpu_machine_id: Some(rpc::forge::MachineId {
+                        id: dpu_machine.id().to_string(),
+                    }),
+                },
+            ))
+            .await?;
+        assert_eq!(
+            expected_loopback_ip,
+            network_config_response
+                .into_inner()
+                .managed_host_config
+                .unwrap()
+                .loopback_ip
+        );
 
         let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())
             .await?

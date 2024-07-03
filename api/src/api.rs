@@ -419,17 +419,30 @@ impl Forge for Api {
             }
         };
 
-        // TODO: multidpu: Fix it for multiple dpus.
-        let loopback_ip = match snapshot.dpu_snapshots[0].loopback_ip() {
+        let dpu_snapshot = match snapshot
+            .dpu_snapshots
+            .iter()
+            .find(|s| s.machine_id == dpu_machine_id)
+        {
+            Some(dpu_snapshot) => dpu_snapshot,
+            None => {
+                return Err(Status::failed_precondition(format!(
+                    "DPU {} needs discovery.  DPU snapshot not found for managed host",
+                    dpu_machine_id
+                )))
+            }
+        };
+
+        let loopback_ip = match dpu_snapshot.loopback_ip() {
             Some(ip) => ip,
             None => {
                 return Err(Status::failed_precondition(format!(
                     "DPU {} needs discovery. Does not have a loopback IP yet.",
-                    snapshot.dpu_snapshots[0].machine_id
+                    dpu_machine_id
                 )));
             }
         };
-        let use_admin_network = snapshot.dpu_snapshots[0].use_admin_network();
+        let use_admin_network = dpu_snapshot.use_admin_network();
 
         let admin_interface_rpc =
             ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
