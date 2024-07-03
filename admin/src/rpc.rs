@@ -568,6 +568,7 @@ pub async fn machine_admin_force_delete(
             host_query: query.machine,
             delete_interfaces: query.delete_interfaces,
             delete_bmc_interfaces: query.delete_bmc_interfaces,
+            delete_bmc_credentials: query.delete_bmc_credentials,
         });
         let response = client
             .admin_force_delete_machine(request)

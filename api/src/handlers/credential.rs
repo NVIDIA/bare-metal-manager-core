@@ -256,23 +256,20 @@ pub(crate) async fn delete_credential(
             // TODO: actually delete entry from vault instead of setting to empty string
             set_sitewide_bmc_root_credentials(api, "".to_string()).await?;
         }
-        rpc::CredentialType::RootBmcByMacAddress => {
-            match req.mac_address {
-                Some(mac_address) => {
-                    let parsed_mac: MacAddress = mac_address
-                        .parse::<MacAddress>()
-                        .map_err(CarbideError::from)?;
+        rpc::CredentialType::RootBmcByMacAddress => match req.mac_address {
+            Some(mac_address) => {
+                let parsed_mac: MacAddress = mac_address
+                    .parse::<MacAddress>()
+                    .map_err(CarbideError::from)?;
 
-                    // TODO: actually delete entry from vault instead of setting to empty string
-                    set_bmc_root_credentials_by_mac(api, parsed_mac, "".to_string()).await?;
-                }
-                None => {
-                    return Err(tonic::Status::invalid_argument(
-                        "request does not specify mac address",
-                    ));
-                }
+                delete_bmc_root_credentials_by_mac(api, parsed_mac).await?;
             }
-        }
+            None => {
+                return Err(tonic::Status::invalid_argument(
+                    "request does not specify mac address",
+                ));
+            }
+        },
         rpc::CredentialType::HostBmc
         | rpc::CredentialType::Dpubmc
         | rpc::CredentialType::DpuUefi
@@ -408,6 +405,14 @@ async fn set_sitewide_bmc_root_credentials(
     };
 
     set_bmc_credentials(api, credential_key, credentials).await
+}
+
+// TODO: actually delete entry from vault instead of setting to empty string
+pub(crate) async fn delete_bmc_root_credentials_by_mac(
+    api: &Api,
+    bmc_mac_address: MacAddress,
+) -> Result<(), CarbideError> {
+    set_bmc_root_credentials_by_mac(api, bmc_mac_address, "".to_string()).await
 }
 
 async fn set_bmc_root_credentials_by_mac(

@@ -392,6 +392,7 @@ pub async fn force_delete_machine(
                     host_query: machine_id,
                     delete_interfaces: true,
                     delete_bmc_interfaces: true,
+                    delete_bmc_credentials: false,
                 },
             ))
             .await

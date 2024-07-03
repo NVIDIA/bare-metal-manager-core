@@ -758,6 +758,14 @@ pub struct ForceDeleteMachineQuery {
         help = "Delete BMC interfaces. Redeploy kea after deleting machine interfaces."
     )]
     pub delete_bmc_interfaces: bool,
+
+    #[clap(
+        short = 'c',
+        long,
+        action,
+        help = "Delete BMC credentials. Only applicable if site explorer has configured credentials for the BMCs associated with this managed host."
+    )]
+    pub delete_bmc_credentials: bool,
 }
 
 #[derive(Parser, Debug, Clone)]

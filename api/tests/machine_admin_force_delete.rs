@@ -242,6 +242,7 @@ async fn force_delete(
             host_query: machine_id.to_string(),
             delete_interfaces: false,
             delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
         }))
         .await
         .unwrap()
