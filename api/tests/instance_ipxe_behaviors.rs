@@ -171,15 +171,10 @@ pub async fn create_instance(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
     host_machine_id: &MachineId,
-    always_boot_with_ipxe: bool,
+    run_provisioning_instructions_on_every_boot: bool,
 ) -> (InstanceId, rpc::Instance) {
     let mut os = default_os_config();
-    match &mut os.variant {
-        Some(rpc::forge::operating_system::Variant::Ipxe(ipxe)) => {
-            ipxe.always_boot_with_ipxe = always_boot_with_ipxe;
-        }
-        None => panic!("OS must be created"),
-    }
+    os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
 
     let config = rpc::InstanceConfig {
         tenant: Some(default_tenant_config()),

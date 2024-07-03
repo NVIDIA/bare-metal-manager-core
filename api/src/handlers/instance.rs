@@ -22,7 +22,7 @@ use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
 use crate::model::metadata::Metadata;
-use crate::model::os::{OperatingSystem, OperatingSystemVariant};
+use crate::model::os::OperatingSystem;
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
 use crate::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader};
@@ -434,14 +434,17 @@ pub(crate) async fn invoke_power(
                 id: machine_id.to_string(),
             })?;
 
-    let always_boot_with_ipxe = snapshot
+    let run_provisioning_instructions_on_every_boot = snapshot
         .instance
-        .map(|instance| match instance.config.os.variant {
-            OperatingSystemVariant::Ipxe(ipxe) => ipxe.always_boot_with_ipxe,
+        .map(|instance| {
+            instance
+                .config
+                .os
+                .run_provisioning_instructions_on_every_boot
         })
         .unwrap_or_default();
 
-    if !always_boot_with_ipxe {
+    if !run_provisioning_instructions_on_every_boot {
         Instance::use_custom_ipxe_on_next_boot(
             &machine_id,
             request.boot_with_custom_ipxe,

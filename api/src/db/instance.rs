@@ -208,8 +208,8 @@ impl<'r> FromRow<'r, PgRow> for Instance {
             variant: OperatingSystemVariant::Ipxe(IpxeOperatingSystem {
                 ipxe_script: os_ipxe_script,
                 user_data: os_user_data,
-                always_boot_with_ipxe: os_always_boot_with_ipxe,
             }),
+            run_provisioning_instructions_on_every_boot: os_always_boot_with_ipxe,
             phone_home_enabled: os_phone_home_enabled,
         };
 
@@ -568,12 +568,10 @@ WHERE s.network_config->>'loopback_ip'=$1";
 
         let os_ipxe_script;
         let os_user_data;
-        let os_always_boot_with_ipxe;
         match &config.os.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
                 os_ipxe_script = &ipxe.ipxe_script;
                 os_user_data = &ipxe.user_data;
-                os_always_boot_with_ipxe = ipxe.always_boot_with_ipxe;
             }
         }
 
@@ -587,7 +585,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(&next_version_str)
             .bind(os_ipxe_script)
             .bind(os_user_data)
-            .bind(os_always_boot_with_ipxe)
+            .bind(config.os.run_provisioning_instructions_on_every_boot)
             .bind(config.os.phone_home_enabled)
             .bind(config.tenant.tenant_keyset_ids)
             .bind(&metadata.name)
@@ -625,12 +623,10 @@ WHERE s.network_config->>'loopback_ip'=$1";
 
         let os_ipxe_script;
         let os_user_data;
-        let os_always_boot_with_ipxe;
         match &os.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
                 os_ipxe_script = &ipxe.ipxe_script;
                 os_user_data = &ipxe.user_data;
-                os_always_boot_with_ipxe = ipxe.always_boot_with_ipxe;
             }
         }
 
@@ -642,7 +638,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(&next_version_str)
             .bind(os_ipxe_script)
             .bind(os_user_data)
-            .bind(os_always_boot_with_ipxe)
+            .bind(os.run_provisioning_instructions_on_every_boot)
             .bind(os.phone_home_enabled)
             .bind(instance_id)
             .bind(&expected_version_str)
@@ -774,12 +770,10 @@ impl<'a> NewInstance<'a> {
 
         let os_ipxe_script;
         let os_user_data;
-        let os_always_boot_with_ipxe;
         match &self.config.os.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
                 os_ipxe_script = &ipxe.ipxe_script;
                 os_user_data = &ipxe.user_data;
-                os_always_boot_with_ipxe = ipxe.always_boot_with_ipxe;
             }
         }
 
@@ -811,7 +805,7 @@ impl<'a> NewInstance<'a> {
             .bind(self.machine_id.to_string())
             .bind(os_user_data)
             .bind(os_ipxe_script)
-            .bind(os_always_boot_with_ipxe)
+            .bind(self.config.os.run_provisioning_instructions_on_every_boot)
             .bind(self.config.tenant.tenant_organization_id.as_str())
             .bind(sqlx::types::Json(&self.config.network))
             .bind(&network_version_string)

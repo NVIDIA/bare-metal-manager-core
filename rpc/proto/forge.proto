@@ -969,6 +969,26 @@ message OperatingSystem {
   // If this flag is set to `true` the instance will not transition to a Ready state until
   // InstancePhoneHomeLastContact is updated
   bool phone_home_enabled = 11;
+
+  // If this flag is set to `true`, the instance will run the provisioning instructions
+  // that are specified by the OS on every reboot attempt.
+  // Depending on the type of provisioning instructions, this might
+  // lead the instance to reinstall itself on every reboot.
+  //
+  // E.g. if the instance uses an iPXE script as OS and the iPXE scripts contains
+  // instructions for installing on a local disk, the installation would be repeated
+  // on the reboot.
+  //
+  // If the flag is set to `false` or not specified, Forge will only provide
+  // iPXE instructions that are defined by the OS definition on the first boot attempt.
+  // For every subsequent boot, the instance will use the default boot action - which
+  // is usually to boot from the hard drive.
+  //
+  // If the provisioning instructions should only be used on specific reboots
+  // in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
+  // API to reboot instances with the `boot_with_custom_ipxe` parameter set to
+  // `true`.
+  bool run_provisioning_instructions_on_every_boot = 12;
 }
 
 message IpxeOperatingSystem {
@@ -977,21 +997,6 @@ message IpxeOperatingSystem {
   // Optional user-data that is associated with the iPXE script
   // This can be a cloud-init script
   optional string user_data = 2;
-
-  // If this flag is set to `true`, the instance will receive the `ipxe_script` instructions
-  // on every reboot attempts. Depending on the type of iPXE instructions, this might
-  // lead the instance to reinstall itself on every reboot.
-  //
-  // If the flag is set to `false` or not specified, Forge will only provide the
-  // `ipxe_script` script on the first boot attempt. For every subsequent boot,
-  // the instance will use the default boot action - which is usually to boot from
-  // the hard drive.
-  //
-  // If the `ipxe_script` instructions should only be used for specific reboots
-  // in order to trigger reinstallation, tenants can use the `InvokeInstancePower`
-  // API to reboot instances with the `boot_with_custom_ipxe` parameter set to
-  // `true`.
-  bool always_boot_with_ipxe = 3;
 }
 
 // Desired configuration for an instance

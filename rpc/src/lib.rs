@@ -408,15 +408,15 @@ mod tests {
     fn test_serialize_os() {
         let os = OperatingSystem {
             phone_home_enabled: true,
+            run_provisioning_instructions_on_every_boot: true,
             variant: Some(Variant::Ipxe(IpxeOperatingSystem {
                 ipxe_script: "abc".to_string(),
                 user_data: Some("def".to_string()),
-                always_boot_with_ipxe: true,
             })),
         };
 
         assert_eq!(
-            "{\"phone_home_enabled\":true,\"variant\":{\"Ipxe\":{\"ipxe_script\":\"abc\",\"user_data\":\"def\",\"always_boot_with_ipxe\":true}}}",
+            "{\"phone_home_enabled\":true,\"run_provisioning_instructions_on_every_boot\":true,\"variant\":{\"Ipxe\":{\"ipxe_script\":\"abc\",\"user_data\":\"def\"}}}",
             serde_json::to_string(&os).unwrap()
         );
     }
