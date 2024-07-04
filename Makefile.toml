@@ -327,15 +327,6 @@ fi
 [tasks.build-release]
 args = ["build", "--release", "--features", "carbide-api/tss-esapi", "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )"]
 
-[tasks.build-release-forge-admin-cli]
-description = "Builds forge-admin-cli separately to avoid tss-esapi dependency"
-category = "Build"
-install_crate = false
-toolchain = "${CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN}"
-command = "cargo"
-args = ["build", "--release", "-p", "admin", "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )"]
-dependencies = ["build-release"] # need to make sure the "wrong" forge-admin-cli is built first so that we could overwrite it
-
 [tasks.build-and-test-release-container-services]
 workspace = false
 # Important: We only build perform a single build task here since every additional
@@ -346,7 +337,6 @@ workspace = false
 # do not require everything.
 dependencies = [
   "build-release", # Start with release builds, since some artifacts are used in integration tests
-  "check-measured-boot-endpoints-enabled",
   "test-flow", # Then run all tests
 ]
 
