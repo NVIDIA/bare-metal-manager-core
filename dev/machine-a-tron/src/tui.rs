@@ -8,6 +8,7 @@ use crossterm::{
 
 use futures::StreamExt;
 
+#[allow(unused_imports)]
 use ratatui::{prelude::*, symbols::DOT, widgets::*};
 use tokio::{
     select,
@@ -16,7 +17,33 @@ use tokio::{
 
 use uuid::Uuid;
 
-use crate::{dpu_machine::DpuMachine, host_machine::HostMachine, machine_a_tron::AppEvent};
+use crate::{
+    dpu_machine::DpuMachine, host_machine::HostMachine, machine_a_tron::AppEvent, vpc::Vpc,
+};
+
+pub struct VpcDetails {
+    pub vpc_id: Uuid,
+    pub vpc_name: Option<String>,
+}
+
+impl From<&Vpc> for VpcDetails {
+    fn from(value: &Vpc) -> Self {
+        Self {
+            vpc_id: value.vpc_id,
+            vpc_name: Some(value.vpc_name.clone()),
+        }
+    }
+}
+
+impl VpcDetails {
+    fn header(&self) -> String {
+        format!(
+            "{}: {}",
+            self.vpc_name.clone().unwrap_or("Without name".to_string()),
+            self.vpc_id.clone(),
+        )
+    }
+}
 
 pub struct HostDetails {
     pub mat_id: Uuid,
@@ -129,6 +156,7 @@ impl HostDetails {
 
 pub enum UiEvent {
     MachineUpdate(HostDetails),
+    VpcUpdate(VpcDetails),
     Quit,
 }
 
@@ -138,8 +166,11 @@ pub struct Tui {
     event_rx: Receiver<UiEvent>,
     app_tx: Sender<AppEvent>,
     machine_cache: HashMap<Uuid, HostDetails>,
+    vpc_cache: HashMap<Uuid, VpcDetails>,
     machine_details: String,
     machine_logs: String,
+    selected_sub_tab: usize,
+    is_left: bool, // Determines if pressing left and right arrow keys moves the tabs on the left or right window
 }
 
 impl Tui {
@@ -150,8 +181,12 @@ impl Tui {
             event_rx,
             app_tx,
             machine_cache: HashMap::default(),
+            vpc_cache: HashMap::default(),
             machine_details: String::default(),
             machine_logs: String::default(),
+            //            items: vec!["create_new"],
+            selected_sub_tab: 0,
+            is_left: true,
         }
     }
     fn setup_terminal() -> Result<Terminal<CrosstermBackend<std::io::Stdout>>, std::io::Error> {
@@ -209,17 +244,29 @@ impl Tui {
                             true
                         }
                         KeyCode::Right => {
-                            if self.list_state.selected().is_some() {
+                            if self.is_left {
                                 self.selected_tab = self.selected_tab.saturating_add(1);
+                            } else {
+                                self.selected_sub_tab = self.selected_sub_tab.saturating_add(1);
                             }
                             false
                         }
                         KeyCode::Left => {
-                            self.selected_tab = self.selected_tab.saturating_sub(1);
+                            if self.is_left {
+                                self.selected_tab = self.selected_tab.saturating_sub(1);
+                            } else {
+                                self.selected_sub_tab = self.selected_sub_tab.saturating_sub(1);
+                            }
                             false
                         }
                         KeyCode::Esc => {
+                            self.is_left = true;
                             self.list_state.select(None);
+                            self.selected_sub_tab = 0;
+                            true
+                        }
+                        KeyCode::Enter => {
+                            self.is_left = false;
                             true
                         }
                         _ => false,
@@ -235,30 +282,17 @@ impl Tui {
         }
     }
 
-    fn draw_list(f: &mut Frame, list: &List, list_state: &mut ListState) {
-        let size = f.size();
-
-        let layout = Layout::new(Direction::Horizontal, [Constraint::Fill(1)]).split(size);
-        f.render_stateful_widget(list, layout[0], list_state);
-    }
-
-    fn draw_list_with_details(&mut self, f: &mut Frame, list: &List) {
-        let size = f.size();
+    fn draw_list_with_details(&mut self, f: &mut Frame, _list: &List, layout: &layout::Rect) {
+        //let size = f.size();
         let tab_titles = ["Machine Details", "Logs", "Metrics"];
 
-        let selected_tab = self.selected_tab % tab_titles.len();
-
-        let layout = Layout::new(
-            Direction::Horizontal,
-            [Constraint::Percentage(50), Constraint::Fill(1)],
-        )
-        .split(size);
+        let selected_tab = self.selected_sub_tab % tab_titles.len();
 
         let layout_right = Layout::new(
             Direction::Vertical,
             [Constraint::Length(3), Constraint::Fill(1)],
         )
-        .split(layout[1]);
+        .split(*layout);
 
         let tabs = Tabs::new(tab_titles)
             .block(Block::bordered())
@@ -267,13 +301,12 @@ impl Tui {
             .select(selected_tab)
             .divider(DOT);
 
-        let data = match self.selected_tab {
+        let data = match self.selected_sub_tab {
             0 => self.machine_details.as_str(),
             1 => self.machine_logs.as_str(),
             _ => "Not Implemented",
         };
         let p = Paragraph::new(data).block(Block::bordered().title(tab_titles[selected_tab]));
-        f.render_stateful_widget(list, layout[0], &mut self.list_state);
         f.render_widget(tabs, layout_right[0]);
         f.render_widget(p, layout_right[1]);
     }
@@ -283,6 +316,7 @@ impl Tui {
         let mut terminal = Tui::setup_terminal()?;
 
         let mut items: Vec<ListItem<'_>> = Vec::default();
+        let mut vpc_items: Vec<ListItem<'_>> = Vec::default();
         let mut event_stream = EventStream::new();
         let mut list_updated = true;
         while running {
@@ -309,7 +343,6 @@ impl Tui {
 
             let list = List::new(items.clone())
                 .block(Block::default()
-                .title("Machines")
                 .borders(Borders::ALL))
                 .style(Style::default()
                     //.fg(Color::Black)
@@ -319,11 +352,73 @@ impl Tui {
                 //.highlight_symbol(">>")
                 ;
 
+            vpc_items.clear();
+            for (_uuid, vpc) in self.vpc_cache.iter() {
+                vpc_items.push(ListItem::new(vpc.header()));
+            }
+            let vpc_list = List::new(vpc_items.clone())
+                .block(Block::default().borders(Borders::ALL))
+                .style(
+                    Style::default(), //.fg(Color::Black)
+                )
+                .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+
+            let tabs = ["Machines", "VPCs", "Subnets"];
+
             terminal.draw(|f| {
-                if self.machine_details.is_empty() {
-                    Tui::draw_list(f, &list, &mut self.list_state);
-                } else {
-                    self.draw_list_with_details(f, &list);
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                    .split(f.size());
+
+                let left_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
+                    .split(chunks[0]);
+
+                let titles = tabs
+                    .iter()
+                    .map(|t| {
+                        let (first, rest) = t.split_at(1);
+                        format!(
+                            "{}{}",
+                            first.to_string().bold().fg(Color::Yellow),
+                            rest.to_string().fg(Color::Green)
+                        )
+                    })
+                    .collect::<Vec<String>>();
+
+                let tabs = Tabs::new(titles)
+                    .block(Block::default().borders(Borders::ALL).title("Tabs"))
+                    .select(self.selected_tab)
+                    .highlight_style(Style::default().fg(Color::LightYellow));
+
+                f.render_widget(tabs.clone(), chunks[0]);
+
+                match self.selected_tab {
+                    0 => {
+                        f.render_stateful_widget(
+                            list.clone(),
+                            left_chunks[1],
+                            &mut self.list_state,
+                        );
+                        if !self.is_left {
+                            self.draw_list_with_details(f, &list, &chunks[1]);
+                        }
+                    }
+                    1 => {
+                        f.render_stateful_widget(vpc_list, left_chunks[1], &mut self.list_state);
+
+                        let paragraph = Paragraph::new("Not implemented yet")
+                            .block(Block::default().borders(Borders::ALL).title("Details"));
+                        f.render_widget(paragraph, chunks[1]);
+                    }
+                    2 => {
+                        let paragraph = Paragraph::new("Not implemented yet")
+                            .block(Block::default().borders(Borders::ALL).title("Details"));
+                        f.render_widget(paragraph, chunks[1]);
+                    }
+                    _ => {}
                 }
             })?;
 
@@ -346,6 +441,10 @@ impl Tui {
                         Some(UiEvent::MachineUpdate(m)) => {
                             list_updated = true;
                             self.machine_cache.insert(m.mat_id, m);
+                        }
+                        Some(UiEvent::VpcUpdate(m)) => {
+                            self.vpc_cache.insert(m.vpc_id, m);
+
                         }
                         None => {}
                     }

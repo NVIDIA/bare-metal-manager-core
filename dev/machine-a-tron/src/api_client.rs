@@ -6,6 +6,7 @@ use rpc::{
     forge::{MachineSearchConfig, MachineType},
     forge_tls_client::{self, ApiConfig, ForgeClientT},
 };
+use uuid::Uuid;
 
 use crate::config::MachineATronContext;
 
@@ -369,6 +370,46 @@ pub async fn force_delete_machine(
                     delete_bmc_interfaces: true,
                 },
             ))
+            .await
+            .map(|response| response.into_inner())
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+}
+
+static mut VPC_COUNTER: u16 = 0;
+
+pub async fn create_vpc(app_context: &MachineATronContext) -> ClientApiResult<rpc::forge::Vpc> {
+    unsafe {
+        VPC_COUNTER += 1;
+        with_forge_client(app_context, |mut client| async move {
+            client
+                .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+                    id: None,
+                    name: format!("vpc_{}", VPC_COUNTER),
+                    tenant_organization_id: String::new(),
+                    tenant_keyset_id: None,
+                    network_virtualization_type: None,
+                }))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientApiError::InvocationError)
+        })
+        .await
+    }
+}
+
+pub async fn delete_vpc(
+    app_context: &MachineATronContext,
+    vpc_id: &Uuid,
+) -> ClientApiResult<rpc::forge::VpcDeletionResult> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+                id: Some(rpc::Uuid {
+                    value: vpc_id.to_string(),
+                }),
+            }))
             .await
             .map(|response| response.into_inner())
             .map_err(ClientApiError::InvocationError)

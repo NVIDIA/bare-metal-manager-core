@@ -8,6 +8,7 @@ pub mod machine_a_tron;
 pub mod machine_utils;
 mod redfish_rewriter;
 pub mod tui;
+pub mod vpc;
 
 use std::error::Error;
 

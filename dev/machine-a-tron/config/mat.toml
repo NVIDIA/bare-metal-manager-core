@@ -24,6 +24,7 @@ bmc_mock_port = 2000
 
 [machines.config]
 host_count = 20
+vpc_count = 10
 dpu_per_host_count = 1
 boot_delay = 10
 dpu_reboot_delay = 20 # in units of seconds
@@ -31,5 +32,5 @@ host_reboot_delay = 20 # in units of seconds
 
 # assumes running from REPO_ROOT
 template_dir = "dev/machine-a-tron/templates"
-oob_dhcp_relay_address = "192.168.64.1"
-admin_dhcp_relay_address = "192.168.0.1"
+oob_dhcp_relay_address = "192.168.253.1"
+admin_dhcp_relay_address = "192.168.252.1"
