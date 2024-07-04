@@ -313,6 +313,7 @@ pub async fn record_dpu_network_status(
             .record_dpu_network_status(tonic::Request::new(rpc::forge::DpuNetworkStatus {
                 dpu_health: Some(rpc::health::HealthReport {
                     source: "forge-dpu-agent".to_string(),
+                    observed_at: None,
                     successes: Vec::new(),
                     alerts: Vec::new(),
                 }),

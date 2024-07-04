@@ -98,17 +98,29 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         client_certificate_expiry: None,
     };
 
+    let health_report = health_report::HealthReport {
+        source: "forge-dpu-agent".to_string(),
+        observed_at: Some(chrono::Utc::now()),
+        successes: vec![],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: "TestFailed".parse().unwrap(),
+            in_alert_since: Some(chrono::Utc::now()),
+            message: "Test Failed".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_host_state_changes(),
+            ],
+        }],
+    };
+
     let mut txn = env
         .pool
         .begin()
         .await
         .expect("Failed to create transaction");
-    Machine::update_network_status_observation(
-        &mut txn,
-        dpu_machine_ids.first().unwrap(),
-        &machine_obs,
-    )
-    .await?;
+    let dpu_machine_id = dpu_machine_ids.first().unwrap();
+    Machine::update_network_status_observation(&mut txn, dpu_machine_id, &machine_obs).await?;
+    Machine::update_dpu_agent_health_report(&mut txn, dpu_machine_id, &health_report).await?;
 
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await?;

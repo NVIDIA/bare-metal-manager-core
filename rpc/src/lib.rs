@@ -342,6 +342,7 @@ impl From<health_report::HealthReport> for health::HealthReport {
 
         Self {
             source: report.source,
+            observed_at: report.observed_at.map(Timestamp::from),
             successes,
             alerts,
         }
@@ -362,6 +363,11 @@ impl TryFrom<health::HealthReport> for health_report::HealthReport {
 
         Ok(Self {
             source: report.source,
+            observed_at: report
+                .observed_at
+                .map(TryInto::try_into)
+                .transpose()
+                .map_err(|_| health_report::HealthReportConversionError {})?,
             successes,
             alerts,
         })

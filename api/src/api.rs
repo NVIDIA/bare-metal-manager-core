@@ -687,6 +687,20 @@ impl Forge for Api {
             "Applied network configs",
         );
 
+        if let Some(health_report) = &request.dpu_health {
+            let mut health_report = health_report::HealthReport::try_from(health_report.clone())
+                .map_err(|e| {
+                    CarbideError::GenericError(format!("Can not convert health report: {e}"))
+                })?;
+            // We ignore what dpu-agent sends as timestamp and time, and replace
+            // it with more accurate information
+            health_report.source = "forge-dpu-agent".to_string();
+            health_report.observed_at = Some(chrono::Utc::now());
+            Machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+
         // We already persisted the machine parts of applied_config in
         // update_network_status_observation above. Now do the instance parts.
         if let Some(version_string) = request.instance_config_version {

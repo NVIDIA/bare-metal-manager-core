@@ -12,12 +12,23 @@
 
 use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
+
 /// Reports the aggregate health of a system or subsystem
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct HealthReport {
     /// Identifies the source of the health report
     /// This could e.g. be `forge-dpu-agent`, `forge-host-validation`,
     /// or an override (e.g. `overrides.sre-team`)
     pub source: String,
+    /// The time when this health status was observed.
+    ///
+    /// Clients submitting a health report can leave this field empty in order
+    /// to store the current time as timestamp.
+    ///
+    /// In case the HealthReport is derived by combining the reports of various
+    /// subsystems, the timestamp will relate to the oldest overall report.
+    pub observed_at: Option<chrono::DateTime<chrono::Utc>>,
     /// List of all successful health probes
     pub successes: Vec<HealthProbeSuccess>,
     /// List of all alerts that have been raised by health probes
@@ -25,6 +36,7 @@ pub struct HealthReport {
 }
 
 /// An alert that has been raised by a health-probe
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct HealthProbeAlert {
     /// Stable ID of the health probe that raised an alert
     pub id: HealthProbeId,
@@ -45,13 +57,14 @@ pub struct HealthProbeAlert {
 }
 
 /// A successful health probe (reported no alerts)
+#[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct HealthProbeSuccess {
     /// Stable ID of the health probe that succeeded
     pub id: HealthProbeId,
 }
 
 /// A well-known name of a probe that generated an alert
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct HealthProbeId(String);
 
 impl std::fmt::Debug for HealthProbeId {
@@ -82,7 +95,7 @@ impl HealthProbeId {
 }
 
 /// Classifies the impact of a health alert on the system
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct HealthAlertClassification(String);
 
 impl std::fmt::Debug for HealthAlertClassification {
@@ -141,6 +154,52 @@ mod tests {
         assert_eq!(
             format!("{:?} {}", classification, classification).as_str(),
             "\"PreventHostStateChanges\" PreventHostStateChanges"
+        );
+    }
+
+    #[test]
+    fn serialize_health_report() {
+        let report = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: Some("2024-01-01T19:00:01.100Z".parse().unwrap()),
+            successes: vec![
+                HealthProbeSuccess {
+                    id: HealthProbeId("Probe1".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("Probe2".to_string()),
+                },
+            ],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("Probe3".to_string()),
+                    in_alert_since: Some("2024-01-02T21:00:01.100Z".parse().unwrap()),
+                    message: "Probe3 failed".to_string(),
+                    tenant_message: Some("Internal Error".to_string()),
+                    classifications: vec![
+                        HealthAlertClassification("C1".to_string()),
+                        HealthAlertClassification("C2".to_string()),
+                    ],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("Probe4".to_string()),
+                    in_alert_since: None,
+                    message: "Probe4 failed".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        let serialized = serde_json::to_string(&report).unwrap();
+        assert_eq!(
+            serialized,
+            "{\"source\":\"Reporter\",\"observed_at\":\"2024-01-01T19:00:01.100Z\",\"successes\":[{\"id\":\"Probe1\"},{\"id\":\"Probe2\"}],\"alerts\":[{\"id\":\"Probe3\",\"in_alert_since\":\"2024-01-02T21:00:01.100Z\",\"message\":\"Probe3 failed\",\"tenant_message\":\"Internal Error\",\"classifications\":[\"C1\",\"C2\"]},{\"id\":\"Probe4\",\"in_alert_since\":null,\"message\":\"Probe4 failed\",\"tenant_message\":null,\"classifications\":[]}]}"
+        );
+
+        assert_eq!(
+            serde_json::from_str::<HealthReport>(&serialized).unwrap(),
+            report
         );
     }
 }
