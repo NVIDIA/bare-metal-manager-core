@@ -48,7 +48,6 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
 
-    // We have the initial status that moved DPU from WaitingForLeafCreation to WaitingForDiscovery
     let response = env
         .api
         .get_all_managed_host_network_status(tonic::Request::new(
@@ -179,5 +178,97 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     assert_eq!(
         instance.status.as_ref().unwrap().configs_synced,
         rpc::SyncState::Synced as i32
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::PgPool) {
+    let env = api_fixtures::create_test_env(pool).await;
+    let (_host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Tell API about latest network config and machine health
+    let hs = NetworkHealth {
+        is_healthy: false,
+        passed: vec!["Success2".to_string()],
+        failed: vec!["Fail1".to_string()],
+        message: None,
+    };
+
+    let admin_if = response.admin_interface.as_ref().unwrap();
+
+    // dpu-health is not updated here
+    // We still expect forge-api to write it
+    env.api
+        .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
+            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
+            observed_at: Some(SystemTime::now().into()),
+            dpu_health: None,
+            health: Some(hs),
+            network_config_version: Some(response.managed_host_config_version.clone()),
+            instance_id: None,
+            instance_config_version: None,
+            interfaces: vec![rpc::InstanceInterfaceStatusObservation {
+                function_type: admin_if.function_type,
+                virtual_function_id: None,
+                mac_address: None,
+                addresses: vec![admin_if.ip.clone()],
+            }],
+            network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
+        }))
+        .await
+        .unwrap();
+
+    // Query the new HealthReport format - this is at this time only stored in
+    // the database
+    let mut txn = env.pool.begin().await.unwrap();
+
+    let machine = carbide::db::machine::Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        MachineSearchConfig {
+            include_dpus: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    txn.commit().await.unwrap();
+    let mut health_report = machine.dpu_agent_health_report().unwrap().clone();
+    assert!(health_report.observed_at.is_some());
+    health_report.observed_at = None;
+    assert_eq!(health_report.alerts.len(), 1);
+    assert!(health_report.alerts[0].in_alert_since.is_some());
+    health_report.alerts[0].in_alert_since = None;
+    assert_eq!(
+        rpc::health::HealthReport::from(health_report),
+        rpc::health::HealthReport {
+            source: "forge-dpu-agent".to_string(),
+            observed_at: None,
+            successes: vec![rpc::health::HealthProbeSuccess {
+                id: "Success2".to_string()
+            }],
+            alerts: vec![rpc::health::HealthProbeAlert {
+                id: "Fail1".to_string(),
+                in_alert_since: None,
+                message: "Fail1".to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_host_state_changes()
+                        .to_string()
+                ]
+            }]
+        }
     );
 }
