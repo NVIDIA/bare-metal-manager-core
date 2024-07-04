@@ -687,19 +687,70 @@ impl Forge for Api {
             "Applied network configs",
         );
 
-        if let Some(health_report) = &request.dpu_health {
-            let mut health_report = health_report::HealthReport::try_from(health_report.clone())
-                .map_err(|e| {
-                    CarbideError::GenericError(format!("Can not convert health report: {e}"))
-                })?;
-            // We ignore what dpu-agent sends as timestamp and time, and replace
-            // it with more accurate information
-            health_report.source = "forge-dpu-agent".to_string();
-            health_report.observed_at = Some(chrono::Utc::now());
-            Machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
-                .await
-                .map_err(CarbideError::from)?;
-        }
+        // Generate and store a health-report
+        // In case forge-dpu-agent sends it in the new format - use directly that
+        // Otherwise convert the legacy format
+        let mut health_report = if let Some(health_report) = &request.dpu_health {
+            health_report::HealthReport::try_from(health_report.clone()).map_err(|e| {
+                CarbideError::GenericError(format!("Can not convert health report: {e}"))
+            })?
+        } else {
+            // Convert NetworkHealth into Health report
+            let mut report = health_report::HealthReport {
+                source: "forge-dpu-agent".to_string(),
+                observed_at: None,
+                successes: Vec::new(),
+                alerts: Vec::new(),
+            };
+            for passed in hs.passed.iter() {
+                report.successes.push(health_report::HealthProbeSuccess {
+                    id: passed.to_string().parse().unwrap(),
+                })
+            }
+            for failed in hs.failed.iter() {
+                report.alerts.push(health_report::HealthProbeAlert {
+                    id: failed.parse().map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Can not convert health probe alert id: {e}"
+                        ))
+                    })?,
+                    in_alert_since: Some(chrono::Utc::now()),
+                    // We don't really know the message. The legacy format doesn't associate it with a probe ID
+                    message: failed.clone(),
+                    tenant_message: None,
+                    classifications: vec![
+                        health_report::HealthAlertClassification::prevent_host_state_changes(),
+                    ],
+                })
+            }
+            // Mimic the old behavior of forge-dpu-agent which sets is_healthy to false
+            // but adds no failure in case configs change
+            if !hs.is_healthy && hs.failed.is_empty() {
+                report.alerts.push(health_report::HealthProbeAlert {
+                    id: "PostConfigCheckWait".parse().map_err(|e| {
+                        CarbideError::GenericError(format!(
+                            "Can not convert health probe alert id: {e}"
+                        ))
+                    })?,
+                    in_alert_since: Some(chrono::Utc::now()),
+                    message: "PostConfigCheckWait".to_string(),
+                    tenant_message: None,
+                    classifications: vec![
+                        health_report::HealthAlertClassification::prevent_host_state_changes(),
+                    ],
+                });
+            }
+
+            report
+        };
+        // We ignore what dpu-agent sends as timestamp and time, and replace
+        // it with more accurate information
+        health_report.source = "forge-dpu-agent".to_string();
+        health_report.observed_at = Some(chrono::Utc::now());
+        // TODO: Fix the in_alert times
+        Machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
+            .await
+            .map_err(CarbideError::from)?;
 
         // We already persisted the machine parts of applied_config in
         // update_network_status_observation above. Now do the instance parts.
