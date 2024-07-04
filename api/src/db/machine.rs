@@ -19,6 +19,7 @@ use std::str::FromStr;
 use ::rpc::forge::{self as rpc, DpuInfo};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
+use health_report::HealthReport;
 use mac_address::MacAddress;
 use serde::Serialize;
 use sqlx::postgres::PgRow;
@@ -140,6 +141,9 @@ pub struct Machine {
     /// Does the forge-dpu-agent on this DPU need upgrading?
     dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
+    /// Latest health report received by forge-dpu-agent
+    dpu_agent_health_report: Option<HealthReport>,
+
     // Other machine ids associated with this machine
     associated_host_machine_id: Option<MachineId>,
     associated_dpu_machine_ids: Vec<MachineId>,
@@ -194,6 +198,10 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let reprovision_req: Option<sqlx::types::Json<ReprovisionRequest>> =
             row.try_get("reprovisioning_requested")?;
 
+        let dpu_agent_health_report = row
+            .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("dpu_agent_health_report")?
+            .map(|j| j.0);
+
         let dpu_agent_upgrade_requested: Option<sqlx::types::Json<UpgradeDecision>> =
             row.try_get("dpu_agent_upgrade_requested")?;
         let last_reboot_requested: Option<sqlx::types::Json<MachineLastRebootRequested>> =
@@ -231,6 +239,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             last_discovery_time: row.try_get("last_discovery_time")?,
             failure_details: failure_details.0,
             reprovisioning_requested: reprovision_req.map(|x| x.0),
+            dpu_agent_health_report,
             dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
             associated_host_machine_id: None,
             associated_dpu_machine_ids: Vec::default(),
@@ -410,6 +419,11 @@ impl Machine {
     /// Returns failure cause of machine.
     pub fn failure_details(&self) -> FailureDetails {
         self.failure_details.clone()
+    }
+
+    /// Returns the HealthReport submitted by forge-dpu-agent
+    pub fn dpu_agent_health_report(&self) -> Option<&HealthReport> {
+        self.dpu_agent_health_report.as_ref()
     }
 
     /// Actual network info from machine
@@ -1122,6 +1136,32 @@ SELECT m.id FROM
 
         Ok(())
     }
+
+    pub async fn update_dpu_agent_health_report(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        health_report: &HealthReport,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE machines SET dpu_agent_health_report = $1::json WHERE id = $2 AND
+             (dpu_agent_health_report IS NULL
+                OR (dpu_agent_health_report ? 'observed_at' AND dpu_agent_health_report->>'observed_at' <= $3)
+            ) RETURNING id";
+        let observed_at = health_report
+            .observed_at
+            .map(|o| o.to_rfc3339())
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+        let _id: (DbMachineId,) = sqlx::query_as(query)
+            .bind(sqlx::types::Json(&health_report))
+            .bind(machine_id.to_string())
+            .bind(observed_at)
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
     pub async fn update_agent_reported_inventory(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,

@@ -182,11 +182,12 @@ impl MachineStateHandler {
                     let observed_at = observation.observed_at;
                     let since_last_seen = Utc::now().signed_duration_since(observed_at);
                     if since_last_seen > self.dpu_up_threshold {
+                        let message = format!("Last seen over {} ago", self.dpu_up_threshold);
                         observation.health_status = HealthStatus {
                             is_healthy: false,
                             passed: vec![],
                             failed: vec!["HeartbeatTimeout".to_string()],
-                            message: Some(format!("Last seen over {} ago", self.dpu_up_threshold)),
+                            message: Some(message.clone()),
                         };
                         observation.observed_at = Utc::now();
                         let dpu_machine_id = &dpu_snapshot.machine_id;
@@ -196,6 +197,26 @@ impl MachineStateHandler {
                             &observation,
                         )
                         .await?;
+
+                        let health_report = health_report::HealthReport {
+                            source: "forge-dpu-agent".to_string(),
+                            observed_at: Some(chrono::Utc::now()),
+                            successes: vec![],
+                            alerts: vec![health_report::HealthProbeAlert {
+                                id: "HeartbeatTimeout".parse().expect("Probe ID is valid"),
+                                in_alert_since: Some(chrono::Utc::now()),
+                                message,
+                                tenant_message: None,
+                                classifications: vec![health_report::HealthAlertClassification::prevent_host_state_changes()],
+                            }],
+                        };
+                        Machine::update_dpu_agent_health_report(
+                            txn,
+                            dpu_machine_id,
+                            &health_report,
+                        )
+                        .await?;
+
                         tracing::warn!(
                         host_machine_id = %host_machine_id,
                         dpu_machine_id = %dpu_machine_id,

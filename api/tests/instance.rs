@@ -1291,6 +1291,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
         observed_at: None, // server sets it
         dpu_health: Some(rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
+            observed_at: None,
             successes: vec![],
             alerts: vec![rpc::health::HealthProbeAlert {
                 id: "everything".to_string(),

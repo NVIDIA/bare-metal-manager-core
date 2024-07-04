@@ -769,6 +769,7 @@ pub async fn network_configured(
         }),
         dpu_health: Some(rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
+            observed_at: None,
             successes: vec![],
             alerts: vec![],
         }),

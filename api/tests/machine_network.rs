@@ -16,6 +16,7 @@ use ::rpc::forge::{
     DpuNetworkStatus, ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
     NetworkHealth,
 };
+use carbide::db::machine::MachineSearchConfig;
 use rpc::forge::forge_server::Forge;
 
 pub mod common;
@@ -85,7 +86,8 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         message: None,
     };
     let dpu_health = rpc::health::HealthReport {
-        source: "forge-dpu-agent".to_string(),
+        source: "should-get-updated".to_string(),
+        observed_at: None,
         successes: vec![
             rpc::health::HealthProbeSuccess {
                 id: "ContainerExists".to_string(),
@@ -101,7 +103,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             dpu_machine_id: Some(dpu_machine_id.to_string().into()),
             dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
             observed_at: Some(SystemTime::now().into()),
-            dpu_health: Some(dpu_health),
+            dpu_health: Some(dpu_health.clone()),
             health: Some(hs),
             network_config_version: Some(network_config_version.clone()),
             instance_id: Some(instance_id.into()),
@@ -137,6 +139,29 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         response.all[0].network_config_version,
         Some(network_config_version),
     );
+
+    // Query the new HealthReport format - this is at this time only stored in
+    // the database
+    let mut txn = env.pool.begin().await.unwrap();
+
+    let machine = carbide::db::machine::Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        MachineSearchConfig {
+            include_dpus: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    txn.commit().await.unwrap();
+    let mut health_report = machine.dpu_agent_health_report().unwrap().clone();
+    assert!(health_report.observed_at.is_some());
+    assert_eq!(health_report.source, "forge-dpu-agent");
+    health_report.source = "should-get-updated".to_string();
+    health_report.observed_at = None;
+    assert_eq!(rpc::health::HealthReport::from(health_report), dpu_health);
 
     // Now fetch the instance and check that knows it's configs have synced
     let response = env

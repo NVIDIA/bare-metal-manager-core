@@ -527,6 +527,7 @@ impl TryFrom<&HealthReport> for health_report::HealthReport {
     fn try_from(r: &HealthReport) -> Result<Self, Self::Error> {
         let mut report = health_report::HealthReport {
             source: "forge-dpu-agent".to_string(),
+            observed_at: None,
             successes: Vec::new(),
             alerts: Vec::new(),
         };
