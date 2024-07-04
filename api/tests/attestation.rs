@@ -13,40 +13,31 @@
 pub mod common;
 
 #[cfg(feature = "tss-esapi")]
-mod tests {
+pub mod tests {
 
     use super::*;
 
     use std::str::FromStr;
 
+    use carbide::attestation::cli_make_cred;
+    use carbide::attestation::do_compare_pub_key_against_cert;
+    //use carbide::attestation::extract_cred_secret;
+    use carbide::model::hardware_info::TpmEkCertificate;
+    use carbide::model::machine::machine_id::try_parse_machine_id;
     use carbide::model::machine::machine_id::MachineId;
     use common::api_fixtures::create_test_env;
+    use common::api_fixtures::dpu::create_dpu_machine;
+    use common::api_fixtures::host::create_host_machine;
+    use common::api_fixtures::tpm_attestation::{
+        AK_NAME, AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, AK_PUB_SERIALIZED_2, ATTEST_SERIALIZED,
+        ATTEST_SERIALIZED_2, ATTEST_SERIALIZED_SHORT, CRED_SERIALIZED, EK_CERT_SERIALIZED,
+        EK_PUB_SERIALIZED, PCR_VALUES, PCR_VALUES_SHORT, SESSION_KEY, SIGNATURE_SERIALIZED,
+        SIGNATURE_SERIALIZED_2, SIGNATURE_SERIALIZED_INVALID,
+    };
     use rpc::forge::forge_server::Forge;
     use rpc::forge::BindRequest;
     use rpc::forge::VerifyQuoteRequest;
     use tonic::Code;
-
-    const AK_PUB_SERIALIZED: [u8; 280] = [
-        0, 1, 0, 11, 0, 5, 0, 114, 0, 0, 0, 16, 0, 22, 0, 11, 8, 0, 0, 0, 0, 0, 1, 0, 197, 213,
-        201, 224, 218, 94, 188, 183, 101, 132, 200, 245, 5, 232, 37, 49, 46, 89, 171, 230, 112, 64,
-        108, 96, 58, 72, 174, 85, 166, 92, 183, 204, 143, 55, 133, 49, 77, 28, 39, 124, 70, 37, 8,
-        1, 193, 98, 160, 78, 38, 93, 164, 193, 58, 190, 52, 86, 9, 240, 67, 124, 143, 234, 210,
-        191, 94, 201, 101, 1, 173, 112, 22, 215, 193, 216, 13, 113, 66, 164, 145, 200, 243, 44, 54,
-        79, 127, 213, 172, 9, 171, 144, 79, 54, 204, 235, 64, 110, 214, 14, 18, 95, 236, 222, 224,
-        63, 64, 150, 70, 88, 197, 94, 148, 35, 53, 118, 59, 239, 177, 84, 76, 142, 243, 255, 208,
-        29, 117, 172, 108, 156, 103, 76, 54, 247, 179, 248, 187, 19, 223, 218, 24, 75, 106, 82,
-        213, 217, 181, 5, 9, 3, 83, 97, 235, 254, 66, 141, 160, 237, 76, 81, 101, 173, 220, 108,
-        243, 220, 95, 152, 6, 184, 58, 156, 46, 5, 150, 211, 190, 65, 208, 50, 210, 135, 189, 234,
-        232, 209, 87, 142, 91, 54, 237, 156, 31, 38, 132, 221, 228, 194, 197, 55, 25, 37, 214, 125,
-        186, 37, 46, 220, 98, 114, 69, 24, 83, 115, 178, 191, 226, 69, 35, 78, 29, 138, 255, 148,
-        61, 123, 87, 150, 134, 49, 203, 154, 98, 15, 6, 181, 8, 116, 186, 23, 89, 154, 163, 138,
-        191, 75, 137, 244, 46, 17, 161, 235, 34, 84, 236, 232, 87, 25,
-    ];
-
-    const AK_NAME_SERIALIZED: [u8; 34] = [
-        0, 11, 156, 103, 195, 162, 106, 182, 77, 69, 39, 156, 55, 160, 196, 165, 213, 65, 105, 238,
-        251, 75, 243, 144, 166, 24, 132, 177, 159, 77, 184, 23, 17, 253,
-    ];
 
     #[ctor::ctor]
     fn setup() {
@@ -62,31 +53,11 @@ mod tests {
             MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")
                 .unwrap();
 
-        let ek_pub = [
-            0, 1, 0, 11, 0, 3, 0, 178, 0, 32, 131, 113, 151, 103, 68, 132, 179, 248, 26, 144, 204,
-            141, 70, 165, 215, 36, 253, 82, 215, 110, 6, 82, 11, 100, 242, 161, 218, 27, 51, 20,
-            105, 170, 0, 6, 0, 128, 0, 67, 0, 16, 8, 0, 0, 0, 0, 0, 1, 0, 161, 6, 212, 135, 171,
-            109, 37, 41, 140, 162, 195, 208, 28, 179, 230, 10, 240, 68, 50, 63, 156, 87, 145, 116,
-            187, 226, 155, 98, 39, 45, 151, 92, 237, 12, 163, 23, 222, 219, 192, 54, 202, 86, 88,
-            126, 33, 221, 129, 226, 234, 88, 157, 181, 78, 232, 181, 248, 75, 150, 214, 90, 154,
-            231, 177, 168, 97, 214, 69, 237, 147, 77, 89, 191, 188, 209, 36, 87, 92, 145, 236, 231,
-            206, 100, 177, 159, 40, 65, 177, 177, 91, 116, 173, 114, 128, 82, 70, 2, 225, 214, 11,
-            241, 253, 134, 12, 160, 205, 34, 148, 77, 77, 114, 165, 237, 25, 36, 65, 183, 193, 35,
-            138, 64, 183, 59, 240, 142, 126, 67, 81, 15, 120, 9, 13, 94, 220, 12, 99, 225, 130, 91,
-            81, 223, 183, 122, 0, 224, 243, 84, 239, 188, 147, 44, 149, 78, 90, 246, 180, 255, 71,
-            44, 4, 20, 114, 46, 234, 213, 115, 123, 21, 3, 29, 161, 52, 203, 172, 186, 8, 84, 2,
-            127, 252, 152, 219, 56, 144, 177, 9, 125, 234, 93, 78, 118, 126, 101, 38, 59, 174, 103,
-            249, 86, 7, 2, 97, 246, 117, 79, 1, 222, 12, 64, 167, 15, 41, 67, 140, 66, 124, 100,
-            236, 245, 2, 227, 26, 68, 132, 104, 156, 96, 53, 225, 169, 180, 84, 182, 67, 143, 162,
-            63, 156, 13, 6, 118, 37, 35, 105, 163, 200, 56, 233, 254, 7, 165, 40, 33, 189, 226,
-            206, 145,
-        ];
-
         let bind_request = tonic::Request::new(BindRequest {
             machine_id: Some(host_id.to_string().into()),
             ak_pub: AK_PUB_SERIALIZED.to_vec(),
             ak_name: AK_NAME_SERIALIZED.to_vec(),
-            ek_pub: ek_pub.to_vec(),
+            ek_pub: EK_PUB_SERIALIZED.to_vec(),
         });
 
         let res = env.api.bind_attest_key(bind_request).await;
@@ -100,12 +71,18 @@ mod tests {
         }
     }
 
-    #[sqlx::test]
-    async fn test_bind_attest_key_make_cred_fails_returns_error(pool: sqlx::PgPool) {
+    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+    async fn test_bind_attest_key_ek_unmarshall_returns_error(pool: sqlx::PgPool) {
+        // add machine with a cert
         let env = create_test_env(pool).await;
-        let host_id =
-            MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")
-                .unwrap();
+        let mut host_sim = env.start_managed_host_sim();
+        let dpu_machine_id =
+            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+
+        host_sim.config.host_tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
+
+        let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
+        let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
 
         // ek_pub is corrupted on purpose
         let ek_pub_corrupted = [
@@ -128,7 +105,7 @@ mod tests {
         ];
 
         let bind_request = tonic::Request::new(BindRequest {
-            machine_id: Some(host_id.to_string().into()),
+            machine_id: Some(host_machine_id.to_string().into()),
             ak_pub: AK_PUB_SERIALIZED.to_vec(),
             ak_name: AK_NAME_SERIALIZED.to_vec(),
             ek_pub: ek_pub_corrupted.to_vec(),
@@ -147,112 +124,63 @@ mod tests {
             }
         }
     }
+
+    #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+    async fn test_bind_attest_key_pub_key_does_not_match_cert_returns_error(pool: sqlx::PgPool) {
+        // add machine with a cert
+        let env = create_test_env(pool).await;
+        let mut host_sim = env.start_managed_host_sim();
+        let dpu_machine_id =
+            try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+
+        host_sim.config.host_tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
+
+        let tmp_machine_id = create_host_machine(&env, &host_sim.config, &dpu_machine_id).await;
+        let host_machine_id = try_parse_machine_id(&tmp_machine_id).unwrap();
+
+        // ek_pub is corrupted on purpose
+        let ek_pub_different = [
+            0, 1, 0, 11, 0, 3, 0, 178, 0, 32, 131, 113, 151, 103, 68, 132, 179, 248, 26, 144, 204,
+            141, 70, 165, 215, 36, 253, 82, 215, 110, 6, 82, 11, 100, 242, 161, 218, 27, 51, 20,
+            105, 170, 0, 6, 0, 128, 0, 67, 0, 16, 8, 0, 0, 1, 0, 1, 1, 0, 135, 228, 64, 171, 148,
+            185, 68, 17, 77, 214, 165, 176, 125, 193, 241, 181, 132, 157, 253, 181, 98, 160, 38,
+            214, 165, 113, 149, 222, 176, 36, 56, 123, 88, 22, 152, 21, 177, 124, 128, 76, 104,
+            248, 33, 175, 221, 182, 76, 17, 65, 47, 221, 100, 177, 122, 55, 129, 126, 189, 43, 225,
+            152, 93, 47, 196, 77, 122, 180, 51, 80, 38, 54, 106, 87, 47, 155, 185, 110, 149, 85,
+            161, 139, 145, 103, 233, 206, 198, 212, 57, 42, 142, 96, 179, 179, 139, 162, 199, 45,
+            99, 52, 14, 181, 111, 96, 211, 166, 107, 22, 90, 149, 208, 240, 145, 94, 9, 186, 164,
+            93, 117, 223, 216, 196, 142, 247, 223, 214, 167, 219, 141, 165, 253, 78, 192, 69, 1,
+            108, 104, 99, 6, 104, 162, 63, 6, 190, 239, 217, 76, 86, 229, 135, 140, 145, 6, 216,
+            125, 16, 62, 233, 62, 224, 148, 40, 63, 86, 181, 247, 73, 3, 37, 202, 123, 19, 240,
+            125, 131, 116, 59, 113, 18, 31, 209, 21, 99, 216, 235, 105, 21, 23, 8, 69, 254, 114,
+            63, 57, 134, 83, 242, 153, 24, 198, 161, 135, 181, 251, 14, 145, 178, 52, 25, 14, 39,
+            254, 248, 180, 67, 208, 143, 134, 225, 142, 127, 207, 205, 150, 250, 174, 141, 195,
+            112, 114, 249, 229, 99, 103, 153, 190, 199, 253, 117, 29, 147, 19, 157, 8, 7, 158, 213,
+            231, 204, 186, 242, 24, 202, 209, 210, 121, 23,
+        ];
+
+        let bind_request = tonic::Request::new(BindRequest {
+            machine_id: Some(host_machine_id.to_string().into()),
+            ak_pub: AK_PUB_SERIALIZED.to_vec(),
+            ak_name: AK_NAME_SERIALIZED.to_vec(),
+            ek_pub: ek_pub_different.to_vec(),
+        });
+
+        let res = env.api.bind_attest_key(bind_request).await;
+
+        match res {
+            Ok(_) => panic!("Unexpected OK value returned"),
+            Err(e) => {
+                assert_eq!(e.code(), Code::Internal);
+                assert_eq!(
+                    e.message(),
+                    "Attestation Bind Key Error: Certificate's public key did not match EK Pub Key"
+                );
+            }
+        }
+    }
     //
     // TODO: test_bind_attest_key_get_insert_pubkey_fails_returns_error - not clear how to simulate db failure atm
-
-    // attestation as it is sent from scout to carbide
-    const ATTEST_SERIALIZED: [u8; 129] = [
-        255, 84, 67, 71, 128, 24, 0, 34, 0, 11, 86, 42, 234, 64, 215, 49, 217, 219, 109, 205, 122,
-        208, 153, 128, 198, 122, 187, 249, 193, 120, 148, 109, 228, 44, 171, 165, 86, 18, 16, 178,
-        17, 220, 0, 16, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 0, 0, 0, 1, 118, 32, 151, 182, 0, 0, 0, 63, 0, 0, 0, 0, 1, 0, 7, 0, 2, 0, 2, 0, 0, 0,
-        0, 0, 1, 0, 11, 3, 255, 15, 0, 0, 32, 69, 159, 141, 33, 201, 110, 233, 102, 224, 171, 155,
-        67, 115, 214, 128, 145, 55, 215, 242, 130, 251, 89, 92, 188, 251, 113, 20, 127, 251, 198,
-        74, 188,
-    ];
-
-    // signature as it is sent from scout to carbide
-    const SIGNATURE_SERIALIZED: [u8; 262] = [
-        0, 22, 0, 11, 1, 0, 81, 47, 118, 82, 6, 100, 40, 191, 204, 125, 109, 165, 201, 104, 63, 55,
-        190, 54, 157, 161, 149, 95, 179, 235, 130, 34, 255, 195, 134, 255, 28, 166, 232, 247, 140,
-        130, 213, 211, 99, 25, 25, 240, 112, 230, 100, 109, 68, 125, 145, 170, 105, 12, 15, 157,
-        32, 98, 220, 219, 166, 143, 22, 175, 150, 227, 155, 218, 150, 173, 252, 37, 225, 8, 88, 3,
-        250, 157, 46, 94, 228, 55, 56, 118, 144, 72, 17, 10, 105, 12, 36, 25, 192, 104, 38, 3, 171,
-        22, 125, 222, 96, 39, 56, 113, 218, 237, 205, 131, 201, 237, 212, 233, 188, 29, 1, 50, 75,
-        122, 147, 104, 251, 243, 75, 183, 104, 200, 150, 72, 237, 213, 2, 124, 53, 65, 94, 85, 241,
-        90, 10, 217, 90, 17, 142, 103, 208, 139, 205, 237, 240, 249, 23, 106, 187, 143, 17, 242,
-        205, 200, 6, 34, 128, 162, 77, 65, 128, 100, 135, 77, 242, 49, 0, 119, 248, 215, 85, 151,
-        245, 162, 227, 209, 200, 160, 255, 172, 79, 209, 183, 215, 77, 229, 87, 144, 73, 122, 170,
-        254, 109, 80, 16, 57, 98, 50, 139, 248, 70, 215, 91, 85, 7, 28, 201, 201, 201, 37, 6, 147,
-        211, 157, 130, 39, 37, 93, 86, 186, 88, 157, 8, 91, 101, 62, 69, 79, 36, 204, 224, 84, 67,
-        168, 149, 120, 67, 86, 26, 157, 233, 168, 30, 69, 134, 181, 227, 106, 220, 218, 166, 242,
-        45, 93,
-    ];
-
-    const SIGNATURE_SERIALIZED_INVALID: [u8; 262] = [
-        0, 22, 0, 11, 1, 0, 171, 33, 190, 68, 89, 71, 190, 125, 172, 120, 100, 63, 101, 236, 168,
-        171, 90, 209, 161, 89, 156, 193, 87, 74, 57, 203, 179, 84, 240, 213, 128, 158, 39, 132,
-        212, 18, 25, 113, 53, 71, 255, 68, 15, 213, 40, 25, 118, 180, 156, 67, 63, 153, 150, 17,
-        64, 74, 68, 242, 195, 11, 53, 92, 103, 222, 109, 66, 104, 115, 86, 243, 49, 31, 229, 160,
-        71, 213, 45, 119, 126, 183, 106, 235, 224, 63, 132, 119, 208, 158, 236, 201, 147, 200, 70,
-        166, 175, 20, 239, 145, 228, 215, 233, 184, 111, 54, 134, 133, 28, 171, 118, 94, 99, 43,
-        194, 122, 19, 20, 107, 214, 203, 72, 16, 71, 16, 58, 116, 98, 64, 156, 197, 241, 184, 76,
-        197, 198, 79, 15, 90, 157, 18, 234, 35, 241, 144, 136, 72, 69, 197, 232, 251, 251, 181,
-        190, 64, 191, 130, 160, 76, 253, 179, 172, 12, 7, 213, 245, 140, 109, 97, 222, 164, 233,
-        189, 166, 219, 218, 243, 72, 95, 124, 184, 71, 152, 109, 101, 47, 119, 117, 141, 1, 1, 108,
-        148, 28, 69, 217, 177, 187, 153, 119, 216, 76, 44, 102, 249, 94, 56, 93, 108, 7, 229, 79,
-        75, 47, 82, 82, 159, 202, 238, 240, 176, 99, 123, 61, 186, 28, 149, 166, 124, 62, 176, 84,
-        197, 231, 222, 116, 40, 39, 68, 228, 210, 208, 152, 50, 240, 53, 223, 9, 213, 255, 190,
-        231, 214, 11, 126, 155, 19, 190,
-    ];
-
-    // credential as it is sent from scout to carbide
-    const CRED_SERIALIZED: [u8; 32] = [
-        47, 191, 142, 91, 237, 86, 32, 168, 119, 196, 199, 149, 110, 183, 182, 192, 193, 99, 101,
-        208, 107, 198, 254, 254, 10, 146, 61, 122, 138, 2, 82, 79,
-    ];
-
-    // pcr values as those are sent from scout to carbide
-    const PCR_VALUES: [[u8; 32]; 12] = [
-        [
-            164, 126, 4, 71, 192, 152, 159, 113, 199, 82, 135, 160, 29, 112, 174, 109, 44, 162, 41,
-            122, 116, 248, 9, 60, 82, 184, 5, 170, 14, 216, 205, 85,
-        ],
-        [
-            194, 184, 135, 178, 147, 136, 167, 102, 146, 89, 65, 45, 32, 200, 40, 3, 203, 165, 253,
-            191, 25, 109, 184, 243, 196, 215, 170, 188, 187, 77, 188, 218,
-        ],
-        [
-            193, 20, 120, 210, 17, 121, 15, 237, 131, 254, 240, 142, 201, 223, 137, 40, 127, 152,
-            151, 201, 86, 65, 123, 108, 214, 208, 253, 40, 199, 6, 186, 14,
-        ],
-        [
-            61, 69, 140, 254, 85, 204, 3, 234, 31, 68, 63, 21, 98, 190, 236, 141, 245, 28, 117,
-            225, 74, 159, 207, 154, 114, 52, 161, 63, 25, 142, 121, 105,
-        ],
-        [
-            54, 29, 138, 144, 34, 133, 229, 109, 235, 18, 189, 32, 27, 118, 159, 87, 239, 21, 214,
-            6, 94, 134, 22, 217, 13, 102, 96, 227, 91, 75, 201, 105,
-        ],
-        [
-            34, 193, 24, 132, 113, 177, 222, 184, 127, 190, 135, 165, 107, 89, 26, 228, 171, 28,
-            190, 33, 100, 152, 163, 231, 16, 102, 191, 62, 249, 103, 91, 235,
-        ],
-        [
-            61, 69, 140, 254, 85, 204, 3, 234, 31, 68, 63, 21, 98, 190, 236, 141, 245, 28, 117,
-            225, 74, 159, 207, 154, 114, 52, 161, 63, 25, 142, 121, 105,
-        ],
-        [
-            89, 252, 9, 250, 212, 63, 169, 82, 124, 51, 102, 184, 32, 209, 249, 6, 131, 146, 231,
-            49, 153, 40, 149, 164, 249, 101, 71, 133, 195, 0, 18, 143,
-        ],
-        [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
-        ],
-        [
-            188, 142, 221, 92, 34, 86, 131, 100, 127, 248, 194, 106, 130, 144, 121, 202, 150, 176,
-            167, 15, 93, 82, 93, 56, 194, 248, 41, 154, 110, 90, 230, 118,
-        ],
-        [
-            200, 178, 20, 112, 5, 43, 67, 200, 183, 151, 1, 204, 18, 52, 80, 93, 155, 157, 78, 41,
-            20, 211, 120, 174, 206, 220, 162, 162, 151, 67, 241, 175,
-        ],
-        [
-            229, 31, 88, 234, 165, 46, 59, 155, 7, 0, 86, 10, 54, 122, 7, 39, 243, 23, 126, 117,
-            71, 151, 2, 167, 175, 95, 121, 145, 192, 203, 204, 165,
-        ],
-    ];
 
     #[sqlx::test(fixtures("create_cred_pub_key.sql"))]
     async fn test_verify_quote_no_secret_in_db_returns_error(pool: sqlx::PgPool) {
@@ -509,5 +437,562 @@ mod tests {
                 assert_eq!(e.message(), "Attestation Verify Quote Error: PCR signature invalid and PCR hash mismatch (see logs for full event log)");
             }
         }
+    }
+
+    // carbide/api/attestation.rs tests
+
+    use carbide::attestation::verify_pcr_hash;
+    use carbide::attestation::verify_signature;
+    use carbide::CarbideError::AttestationBindKeyError;
+    use num_bigint_dig::BigUint;
+    use rsa::RsaPublicKey;
+    use tss_esapi::structures::Attest;
+    use tss_esapi::structures::EccPoint;
+    use tss_esapi::structures::Public;
+    use tss_esapi::structures::Signature;
+    use tss_esapi::structures::Signature::RsaPss;
+    use tss_esapi::traits::Marshall;
+    use tss_esapi::traits::UnMarshall;
+
+    #[test]
+    fn test_compare_pub_key_against_cert_corrupt_ek_pub_returns_error() {
+        let ek_pub = [
+            0, 44, 204, 141, 70, 165, 215, 36, 253, 82, 215, 110, 6, 82, 11, 100, 242, 161, 218,
+            27, 51, 20, 105, 170, 0, 6, 0, 128, 0, 67, 0, 16, 8, 0, 0, 0, 0, 0, 1, 0, 161, 6, 212,
+            135, 171, 109, 37, 41, 140, 162, 195, 208, 28, 179, 230, 10, 240, 68, 50, 63, 156, 87,
+            145, 116, 187, 226, 155, 98, 39, 45, 151, 92, 237, 12, 163, 23, 222, 219, 192, 54, 202,
+            86, 88, 126, 33, 221, 129, 226, 234, 88, 157, 181, 78, 232, 181, 248, 75, 150, 214, 90,
+            154, 231, 177, 168, 97, 214, 69, 237, 147, 77, 89, 191, 188, 209, 36, 87, 92, 145, 236,
+            231, 206, 100, 177, 159, 40, 65, 177, 177, 91, 116, 173, 114, 128, 82, 70, 2, 225, 214,
+            11, 241, 253, 134, 12, 160, 205, 34, 148, 77, 77, 114, 165, 237, 25, 36, 65, 183, 193,
+            35, 138, 64, 183, 59, 240, 142, 126, 67, 81, 15, 120, 9, 13, 94, 220, 12, 99, 225, 130,
+            91, 81, 223, 183, 122, 0, 224, 243, 84, 239, 188, 147, 44, 149, 78, 90, 246, 180, 255,
+            71, 44, 4, 20, 114, 46, 234, 213, 115, 123, 21, 3, 29, 161, 52, 203, 172, 186, 8, 84,
+            2, 127, 252, 152, 219, 56, 144, 177, 9, 125, 234, 93, 78, 118, 126, 101, 38, 59, 174,
+            103, 249, 86, 7, 2, 97, 246, 117, 79, 1, 222, 12, 64, 167, 15, 41, 67, 140, 66, 124,
+            100, 236, 245, 2, 227, 26, 68, 132, 104, 156, 96, 53, 225, 169, 180, 84, 182, 67, 143,
+            162, 63, 156, 13, 6, 118, 37, 35, 105, 163, 200, 56, 233, 254, 7, 165, 40, 33, 189,
+            226, 206, 145,
+        ];
+
+        let res = do_compare_pub_key_against_cert(
+            &TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
+            &ek_pub.to_vec(),
+        );
+
+        match res {
+            Ok(..) => {
+                panic!("Failed: should have returned error");
+            }
+            Err(e) => match e {
+                AttestationBindKeyError(d) => {
+                    assert_eq!(d, "Could not unmarshall EK: response code not recognized")
+                }
+                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+            },
+        }
+    }
+
+    #[test]
+    fn test_compare_pub_key_against_cert_ek_pub_not_rsa_returns_error() {
+        let ek_pub = get_ext_ecc_pub();
+
+        let ek_pub_serialized = ek_pub.marshall().unwrap();
+
+        let res = do_compare_pub_key_against_cert(
+            &TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
+            &ek_pub_serialized,
+        );
+
+        match res {
+            Ok(..) => {
+                panic!("Failed: should have returned error");
+            }
+            Err(e) => match e {
+                AttestationBindKeyError(d) => {
+                    assert_eq!(d, "EK Pub is not in RSA format")
+                }
+                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+            },
+        }
+    }
+
+    #[test]
+    fn test_compare_pub_key_against_cert_invalid_modulus_returns_error() {
+        use tss_esapi::structures::Public::Rsa;
+        use tss_esapi::structures::PublicKeyRsa;
+
+        let ek_pub = get_ext_rsa_pub();
+
+        let (object_attributes, name_hashing_algo, auth_policy, params) = match ek_pub {
+            Rsa {
+                object_attributes,
+                name_hashing_algorithm,
+                auth_policy,
+                parameters,
+                ..
+            } => (
+                object_attributes,
+                name_hashing_algorithm,
+                auth_policy,
+                parameters,
+            ),
+            _ => panic!("Incorrect key type"),
+        };
+
+        let ek_pub_copy = Rsa {
+            object_attributes,
+            name_hashing_algorithm: name_hashing_algo,
+            auth_policy,
+            parameters: params,
+            unique: PublicKeyRsa::try_from([0, 34, 56].to_vec()).unwrap(), // injecting bad value
+        };
+
+        let ek_pub_serialized = ek_pub_copy.marshall().unwrap();
+
+        let res = do_compare_pub_key_against_cert(
+            &TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
+            &ek_pub_serialized,
+        );
+
+        match res {
+            Ok(..) => {
+                panic!("Failed: should have returned error");
+            }
+            Err(e) => match e {
+                AttestationBindKeyError(d) => {
+                    assert_eq!(
+                        d,
+                        "Could not create RsaPublicKey from TPM's EK Pub: invalid modulus"
+                    )
+                }
+                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+            },
+        }
+    }
+
+    #[test]
+    fn test_compare_pub_key_against_cert_invalid_cert_returns_error() {
+        // need to corrupt certificate
+        let mut ek_cert_corrupted = EK_CERT_SERIALIZED;
+
+        ek_cert_corrupted[56] = 20;
+        ek_cert_corrupted[543] = 92;
+
+        let res = do_compare_pub_key_against_cert(
+            &TpmEkCertificate::from(ek_cert_corrupted.to_vec()),
+            &EK_PUB_SERIALIZED.to_vec(),
+        );
+
+        match res {
+            Ok(..) => {
+                panic!("Failed: should have returned error");
+            }
+            Err(e) => match e {
+                AttestationBindKeyError(d) => {
+                    assert_eq!(
+                        d,
+                        "Could not unmarshall EK Cert: error when decoding ASN.1 data: trailing data (at position 556)"
+                    )
+                }
+                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+            },
+        }
+    }
+
+    #[test]
+    fn test_compare_pub_key_against_cert_different_cert_returns_false() {
+        let res = do_compare_pub_key_against_cert(
+            &TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
+            &AK_PUB_SERIALIZED.to_vec(), // using AK instad of EK on purpose to make it fail
+        );
+
+        match res {
+            Ok(val) => assert!(!val.0),
+            Err(..) => panic!("Failed: should have returned error"),
+        }
+    }
+
+    #[test]
+    fn test_compare_pub_key_against_cert_success_returns_true() {
+        let res = do_compare_pub_key_against_cert(
+            &TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
+            &EK_PUB_SERIALIZED.to_vec(),
+        );
+
+        match res {
+            Ok(val) => assert!(val.0),
+            Err(..) => panic!("Failed: should have returned error"),
+        }
+    }
+
+    // apparently either GitLab pipelines don't have permissions to write to disk, or default location is not writable
+    #[ignore]
+    #[test]
+    fn test_cli_make_cred_success_returns_cred_and_secret() {
+        let ek_pub = get_ext_rsa_pub();
+
+        let unique = match ek_pub {
+            Public::Rsa { unique, .. } => unique,
+            _ => {
+                panic!("EK Pub is not in RSA format");
+            }
+        };
+
+        // now, we construct the actual public key from the modulus and exponent
+        let modulus = BigUint::from_bytes_be(unique.value());
+        let exponent: BigUint = BigUint::from(65537u32);
+
+        let pub_key_ek =
+            RsaPublicKey::new(modulus, exponent).expect("ERROR: could not create RsaPublicKey");
+
+        let res = cli_make_cred(pub_key_ek, AK_NAME.to_vec().as_ref(), &SESSION_KEY);
+
+        match res {
+            Ok((v1, v2)) => {
+                assert_eq!(v1.len(), 50);
+                assert_eq!(v2.len(), 256);
+            }
+            Err(_) => panic!("Failed: should have returned Ok"),
+        }
+    }
+
+    use carbide::CarbideError::AttestationVerifyQuoteError;
+
+    /*const ATTEST_SERIALIZED: [u8; 129] = [
+        255, 84, 67, 71, 128, 24, 0, 34, 0, 11, 131, 45, 55, 82, 140, 235, 232, 215, 180, 133, 115,
+        220, 203, 79, 13, 153, 10, 168, 230, 203, 59, 199, 64, 128, 150, 218, 164, 66, 52, 72, 227,
+        197, 0, 16, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        0, 0, 0, 1, 108, 44, 167, 86, 0, 0, 0, 63, 0, 0, 0, 0, 1, 0, 7, 0, 2, 0, 2, 0, 0, 0, 0, 0,
+        1, 0, 11, 3, 255, 15, 0, 0, 32, 69, 159, 141, 33, 201, 110, 233, 102, 224, 171, 155, 67,
+        115, 214, 128, 145, 55, 215, 242, 130, 251, 89, 92, 188, 251, 113, 20, 127, 251, 198, 74,
+        188,
+    ];
+    const SIGNATURE_SERIALIZED: [u8; 262] = [
+        0, 22, 0, 11, 1, 0, 171, 33, 190, 68, 89, 71, 190, 125, 172, 120, 100, 63, 101, 236, 168,
+        171, 90, 209, 161, 89, 156, 193, 87, 74, 57, 203, 179, 84, 240, 213, 128, 158, 39, 132,
+        212, 18, 25, 113, 53, 71, 255, 68, 15, 213, 40, 25, 118, 180, 156, 67, 63, 153, 150, 17,
+        64, 74, 68, 242, 195, 11, 53, 92, 103, 222, 109, 66, 104, 115, 86, 243, 49, 31, 229, 160,
+        71, 213, 45, 119, 126, 183, 106, 235, 224, 63, 132, 119, 208, 158, 236, 201, 147, 200, 70,
+        166, 175, 20, 239, 145, 228, 215, 233, 184, 111, 54, 134, 133, 28, 171, 118, 94, 99, 43,
+        194, 122, 19, 20, 107, 214, 203, 72, 16, 71, 16, 58, 116, 98, 64, 156, 197, 241, 184, 76,
+        197, 198, 79, 15, 90, 157, 18, 234, 35, 241, 144, 136, 72, 69, 197, 232, 251, 251, 181,
+        190, 64, 191, 130, 160, 76, 253, 179, 172, 12, 7, 213, 245, 140, 109, 97, 222, 164, 233,
+        189, 166, 219, 218, 243, 72, 95, 124, 184, 71, 152, 109, 101, 47, 119, 117, 141, 1, 1, 108,
+        148, 28, 69, 217, 177, 187, 153, 119, 216, 76, 44, 102, 249, 94, 56, 93, 108, 7, 229, 79,
+        75, 47, 82, 82, 159, 202, 238, 240, 176, 99, 123, 61, 186, 28, 149, 166, 124, 62, 176, 84,
+        197, 231, 222, 116, 40, 39, 68, 228, 210, 208, 152, 50, 240, 53, 223, 9, 213, 255, 190,
+        231, 214, 11, 126, 155, 19, 190,
+    ];
+    const AK_PUB_SERIALIZED: [u8; 280] = [
+        0, 1, 0, 11, 0, 5, 0, 114, 0, 0, 0, 16, 0, 22, 0, 11, 8, 0, 0, 0, 0, 0, 1, 0, 183, 98, 82,
+        64, 227, 242, 101, 235, 94, 190, 115, 98, 139, 145, 176, 117, 64, 80, 27, 131, 8, 234, 223,
+        32, 34, 225, 126, 76, 88, 171, 97, 120, 111, 22, 89, 174, 189, 113, 255, 8, 67, 184, 206,
+        133, 82, 210, 227, 106, 176, 17, 105, 132, 103, 117, 61, 114, 235, 2, 183, 216, 246, 213,
+        57, 111, 174, 139, 247, 70, 142, 225, 151, 15, 144, 249, 214, 149, 255, 45, 193, 0, 161,
+        109, 251, 69, 246, 78, 116, 230, 2, 18, 229, 211, 74, 98, 18, 174, 104, 227, 162, 237, 72,
+        207, 117, 130, 242, 149, 143, 46, 6, 25, 170, 234, 80, 199, 240, 7, 142, 92, 44, 55, 217,
+        205, 139, 86, 8, 4, 140, 164, 223, 233, 109, 78, 188, 127, 130, 237, 39, 219, 189, 29, 47,
+        111, 145, 114, 92, 32, 24, 186, 135, 193, 176, 52, 138, 18, 232, 54, 104, 56, 13, 219, 90,
+        219, 94, 110, 246, 28, 224, 112, 222, 0, 166, 131, 21, 226, 52, 36, 236, 140, 235, 183,
+        226, 80, 77, 58, 26, 218, 173, 223, 209, 111, 191, 126, 87, 215, 91, 93, 71, 246, 25, 190,
+        91, 62, 244, 53, 61, 149, 148, 197, 219, 230, 18, 10, 206, 183, 208, 22, 106, 242, 174,
+        182, 35, 206, 26, 208, 0, 39, 180, 241, 23, 129, 19, 218, 129, 59, 126, 25, 184, 252, 146,
+        246, 248, 204, 177, 4, 42, 2, 198, 69, 50, 0, 243, 27, 42, 41, 68, 177,
+    ];*/
+
+    #[test]
+    fn test_verify_signature_ak_pub_not_rsa_returns_error() {
+        let ak_pub = get_ext_ecc_pub();
+
+        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED).unwrap();
+
+        let res = verify_signature(&ak_pub, &ATTEST_SERIALIZED.to_vec(), &signature);
+
+        match res {
+            Ok(..) => {
+                panic!("Failed: should have returned error");
+            }
+            Err(e) => match e {
+                AttestationVerifyQuoteError(d) => {
+                    assert_eq!(d, "AK Pub is not an RSA key")
+                }
+                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+            },
+        }
+    }
+
+    #[test]
+    fn test_verify_signature_ak_pub_invalid_modulus_returns_error() {
+        use tss_esapi::structures::Public::Rsa;
+        use tss_esapi::structures::PublicKeyRsa;
+
+        let ak_pub = get_ext_rsa_pub();
+
+        let (object_attributes, name_hashing_algo, auth_policy, params) = match ak_pub {
+            Rsa {
+                object_attributes,
+                name_hashing_algorithm,
+                auth_policy,
+                parameters,
+                ..
+            } => (
+                object_attributes,
+                name_hashing_algorithm,
+                auth_policy,
+                parameters,
+            ),
+            _ => panic!("Incorrect key type"),
+        };
+
+        let ak_pub_copy = Rsa {
+            object_attributes,
+            name_hashing_algorithm: name_hashing_algo,
+            auth_policy,
+            parameters: params,
+            unique: PublicKeyRsa::try_from([0, 34, 56].to_vec()).unwrap(), // injecting invalid value
+        };
+
+        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED).unwrap();
+
+        let res = verify_signature(&ak_pub_copy, &ATTEST_SERIALIZED.to_vec(), &signature);
+
+        match res {
+            Ok(..) => {
+                panic!("Failed: should have returned error");
+            }
+            Err(e) => match e {
+                AttestationVerifyQuoteError(d) => {
+                    assert_eq!(d, "Could not create RsaPublicKey: invalid modulus")
+                }
+                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+            },
+        }
+    }
+
+    #[test]
+    fn test_verify_signature_invalid_signature_type_returns_error() {
+        use tss_esapi::structures::Public as TssPublic;
+        use tss_esapi::structures::Signature::RsaSsa;
+
+        let ak_pub = TssPublic::unmarshall(AK_PUB_SERIALIZED.as_slice()).unwrap();
+
+        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED).unwrap();
+
+        let rsa_signature = match signature {
+            RsaPss(rsa_signature) => rsa_signature,
+            _ => panic!("Failed: Unexepected signature type in test"),
+        };
+
+        let signature = RsaSsa(rsa_signature);
+
+        let res = verify_signature(&ak_pub, &ATTEST_SERIALIZED.to_vec(), &signature);
+
+        match res {
+            Ok(..) => {
+                panic!("Failed: should have returned error");
+            }
+            Err(e) => match e {
+                AttestationVerifyQuoteError(d) => {
+                    assert_eq!(d, "unknown signature type")
+                }
+                _another_error => panic!("Failed: incorrect error type: {:?}", _another_error),
+            },
+        }
+    }
+
+    #[test]
+    fn test_verify_signature_invalid_attestation_returns_false() {
+        use tss_esapi::structures::Public as TssPublic;
+
+        let bad_attest = [
+            255, 84, 67, 53, 10, 168, 230, 203, 59, 199, 64, 128, 150, 218, 164, 66, 52, 72, 227,
+            197, 0, 16, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 0, 0, 0, 1, 108, 44, 167, 86, 0, 0, 0, 63, 0, 0, 0, 0, 1, 0, 7, 0, 2, 0, 2, 0, 0,
+            0, 0, 0, 1, 0, 11, 3, 255, 15, 0, 0, 32, 69, 159, 141, 33, 201, 110, 233, 102, 224,
+            171, 155, 67, 115, 214, 128, 145, 55, 215, 242, 130, 251, 89, 92, 188, 251, 113, 20,
+            127, 251, 198, 74, 188,
+        ];
+
+        let ak_pub = TssPublic::unmarshall(AK_PUB_SERIALIZED.as_slice()).unwrap();
+
+        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED).unwrap();
+
+        let res = verify_signature(&ak_pub, &bad_attest.to_vec(), &signature);
+
+        match res {
+            Ok(value) => assert!(!value),
+            Err(_) => panic!("Failed: Should have returned Ok"),
+        }
+    }
+
+    #[test]
+    fn test_verify_signature_success_returns_true() {
+        use tss_esapi::structures::Public as TssPublic;
+
+        let ak_pub = TssPublic::unmarshall(AK_PUB_SERIALIZED_2.as_slice()).unwrap();
+
+        let signature = Signature::unmarshall(&SIGNATURE_SERIALIZED_2).unwrap();
+
+        let res = verify_signature(&ak_pub, &ATTEST_SERIALIZED_2.to_vec(), &signature);
+
+        match res {
+            Ok(value) => assert!(value),
+            Err(_) => panic!("Failed: Should have returned Ok"),
+        }
+    }
+
+    #[test]
+    fn test_verify_pcr_hash_attest_not_match_returns_false() {
+        let attest = Attest::unmarshall(&ATTEST_SERIALIZED_SHORT).unwrap();
+        let mut pcr_values_copy = PCR_VALUES_SHORT;
+
+        pcr_values_copy[0][10] = 255;
+
+        let res = verify_pcr_hash(
+            &attest,
+            &[pcr_values_copy[0].to_vec(), pcr_values_copy[1].to_vec()],
+        );
+
+        match res {
+            Ok(value) => assert!(!value),
+            Err(_) => panic!("Failed: Should have returned Ok"),
+        }
+    }
+
+    #[test]
+    fn test_verify_pcr_hash_success_returns_true() {
+        let attest = Attest::unmarshall(&ATTEST_SERIALIZED_SHORT).unwrap();
+
+        let res = verify_pcr_hash(
+            &attest,
+            &[PCR_VALUES_SHORT[0].to_vec(), PCR_VALUES_SHORT[1].to_vec()],
+        );
+
+        match res {
+            Ok(value) => assert!(value),
+            Err(_) => panic!("Failed: Should have returned Ok"),
+        }
+    }
+
+    // test_verify_pcr_hash_invalid_quote_type_returns_error - currently impossible to do since Attest fields are private
+
+    //------------------
+
+    use tss_esapi::interface_types::algorithm::HashingAlgorithm;
+
+    fn get_ext_ecc_pub() -> Public {
+        use tss_esapi::attributes::ObjectAttributesBuilder;
+        use tss_esapi::interface_types::algorithm::PublicAlgorithm;
+        use tss_esapi::interface_types::ecc::EccCurve;
+        use tss_esapi::structures::EccScheme;
+        use tss_esapi::structures::KeyDerivationFunctionScheme;
+        use tss_esapi::structures::PublicBuilder;
+        use tss_esapi::structures::PublicEccParametersBuilder;
+
+        let object_attributes = ObjectAttributesBuilder::new()
+            .with_user_with_auth(true)
+            .with_decrypt(false)
+            .with_sign_encrypt(true)
+            .with_restricted(false)
+            .build()
+            .expect("Failed to build object attributes");
+
+        let ecc_parameters = PublicEccParametersBuilder::new()
+            .with_ecc_scheme(EccScheme::Null)
+            .with_curve(EccCurve::NistP256)
+            .with_is_signing_key(false)
+            .with_is_decryption_key(true)
+            .with_restricted(false)
+            .with_key_derivation_function_scheme(KeyDerivationFunctionScheme::Null)
+            .build()
+            .expect("Failed to build PublicEccParameters");
+        PublicBuilder::new()
+            .with_public_algorithm(PublicAlgorithm::Ecc)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_ecc_parameters(ecc_parameters)
+            .with_ecc_unique_identifier(get_ecc_point())
+            .build()
+            .expect("Failed to build Public structure")
+    }
+
+    const EC_POINT: [u8; 65] = [
+        0x04, 0x14, 0xd8, 0x59, 0xec, 0x31, 0xe5, 0x94, 0x0f, 0x2b, 0x3a, 0x08, 0x97, 0x64, 0xc4,
+        0xfb, 0xa6, 0xcd, 0xaf, 0x0e, 0xa2, 0x44, 0x7f, 0x30, 0xcf, 0xe8, 0x2e, 0xe5, 0x1b, 0x47,
+        0x70, 0x01, 0xc3, 0xd6, 0xb4, 0x69, 0x7e, 0xa1, 0xcf, 0x03, 0xdb, 0x05, 0x9c, 0x62, 0x3e,
+        0xc6, 0x15, 0x4f, 0xed, 0xab, 0xa0, 0xa0, 0xab, 0x84, 0x2e, 0x67, 0x0c, 0x98, 0xc7, 0x1e,
+        0xef, 0xd2, 0x51, 0x91, 0xce,
+    ];
+
+    fn get_ecc_point() -> EccPoint {
+        use tss_esapi::structures::EccParameter;
+
+        let x =
+            EccParameter::try_from(&EC_POINT[1..33]).expect("Failed to construct x EccParameter");
+        let y: EccParameter =
+            EccParameter::try_from(&EC_POINT[33..]).expect("Failed to construct y EccParameter");
+        EccPoint::new(x, y)
+    }
+
+    const RSA_KEY: [u8; 256] = [
+        0xc9, 0x75, 0xf8, 0xb2, 0x30, 0xf4, 0x24, 0x6e, 0x95, 0xb1, 0x3c, 0x55, 0x0f, 0xe4, 0x48,
+        0xe9, 0xac, 0x06, 0x1f, 0xa8, 0xbe, 0xa4, 0xd7, 0x1c, 0xa5, 0x5e, 0x2a, 0xbf, 0x60, 0xc2,
+        0x98, 0x63, 0x6c, 0xb4, 0xe2, 0x61, 0x54, 0x31, 0xc3, 0x3e, 0x9d, 0x1a, 0x83, 0x84, 0x18,
+        0x51, 0xe9, 0x8c, 0x24, 0xcf, 0xac, 0xc6, 0x0d, 0x26, 0x2c, 0x9f, 0x2b, 0xd5, 0x91, 0x98,
+        0x89, 0xe3, 0x68, 0x97, 0x36, 0x02, 0xec, 0x16, 0x37, 0x24, 0x08, 0xb4, 0x77, 0xd1, 0x56,
+        0x10, 0x3e, 0xf0, 0x64, 0xf6, 0x68, 0x50, 0x68, 0x31, 0xf8, 0x9b, 0x88, 0xf2, 0xc5, 0xfb,
+        0xc9, 0x21, 0xd2, 0xdf, 0x93, 0x6f, 0x98, 0x94, 0x53, 0x68, 0xe5, 0x25, 0x8d, 0x8a, 0xf1,
+        0xd7, 0x5b, 0xf3, 0xf9, 0xdf, 0x8c, 0x77, 0x24, 0x9e, 0x28, 0x09, 0x36, 0xf0, 0xa2, 0x93,
+        0x17, 0xad, 0xbb, 0x1a, 0xd7, 0x6f, 0x25, 0x6b, 0x0c, 0xd3, 0x76, 0x7f, 0xcf, 0x3a, 0xe3,
+        0x1a, 0x84, 0x57, 0x62, 0x71, 0x8a, 0x6a, 0x42, 0x94, 0x71, 0x21, 0x6a, 0x13, 0x73, 0x17,
+        0x56, 0xa2, 0x38, 0xc1, 0x5e, 0x76, 0x0b, 0x67, 0x6b, 0x6e, 0xcd, 0xd3, 0xe2, 0x8a, 0x80,
+        0x61, 0x6c, 0x1c, 0x60, 0x9d, 0x65, 0xbd, 0x5a, 0x4e, 0xeb, 0xa2, 0x06, 0xd6, 0xbe, 0xf5,
+        0x49, 0xc1, 0x7d, 0xd9, 0x46, 0x3e, 0x9f, 0x2f, 0x92, 0xa4, 0x1a, 0x14, 0x2c, 0x1e, 0xb7,
+        0x6d, 0x71, 0x29, 0x92, 0x43, 0x7b, 0x76, 0xa4, 0x8b, 0x33, 0xf3, 0xd0, 0xda, 0x7c, 0x7f,
+        0x73, 0x50, 0xe2, 0xc5, 0x30, 0xad, 0x9e, 0x0f, 0x61, 0x73, 0xa0, 0xbb, 0x87, 0x1f, 0x0b,
+        0x70, 0xa9, 0xa6, 0xaa, 0x31, 0x2d, 0x62, 0x2c, 0xaf, 0xea, 0x49, 0xb2, 0xce, 0x6c, 0x23,
+        0x90, 0xdd, 0x29, 0x37, 0x67, 0xb1, 0xc9, 0x99, 0x3a, 0x3f, 0xa6, 0x69, 0xc9, 0x0d, 0x24,
+        0x3f,
+    ];
+
+    pub fn get_ext_rsa_pub() -> Public {
+        use tss_esapi::attributes::ObjectAttributesBuilder;
+        use tss_esapi::interface_types::algorithm::PublicAlgorithm;
+        use tss_esapi::interface_types::algorithm::RsaSchemeAlgorithm;
+        use tss_esapi::interface_types::key_bits::RsaKeyBits;
+        use tss_esapi::structures::PublicBuilder;
+        use tss_esapi::structures::PublicKeyRsa;
+        use tss_esapi::structures::PublicRsaParametersBuilder;
+        use tss_esapi::structures::RsaScheme;
+
+        let object_attributes = ObjectAttributesBuilder::new()
+            .with_user_with_auth(true)
+            .with_decrypt(false)
+            .with_sign_encrypt(true)
+            .with_restricted(false)
+            .build()
+            .expect("Failed to build object attributes");
+
+        PublicBuilder::new()
+            .with_public_algorithm(PublicAlgorithm::Rsa)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_rsa_parameters(
+                PublicRsaParametersBuilder::new_unrestricted_signing_key(
+                    RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))
+                        .expect("Failed to create rsa scheme"),
+                    RsaKeyBits::Rsa2048,
+                    Default::default(), // Default exponent is 0 but TPM internally this is mapped to 65537
+                )
+                .build()
+                .expect("Failed to create rsa parameters for public structure"),
+            )
+            .with_rsa_unique_identifier(
+                PublicKeyRsa::try_from(&RSA_KEY[..])
+                    .expect("Failed to create Public RSA key from buffer"),
+            )
+            .build()
+            .expect("Failed to build Public structure")
     }
 }
