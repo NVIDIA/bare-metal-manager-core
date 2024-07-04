@@ -33,6 +33,7 @@ pub struct MachineATronArgs {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MachineConfig {
     pub host_count: u32,
+    pub vpc_count: u32,
     pub dpu_per_host_count: u32,
     pub boot_delay: u32,
     pub dpu_reboot_delay: u64,  // in units of seconds

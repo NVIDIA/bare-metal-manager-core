@@ -15,6 +15,7 @@ use crate::{
     tui::{Tui, UiEvent},
 };
 
+use crate::vpc::Vpc;
 use tokio::sync::mpsc::channel;
 
 #[derive(PartialEq, Eq)]
@@ -35,6 +36,7 @@ impl MachineATron {
         let running = Arc::new(AtomicBool::new(true));
         let (app_tx, mut app_rx) = channel(5000);
         let mut machine_ids: Vec<String> = Vec::new();
+        let mut vpc_handles: Vec<Vpc> = Vec::new();
 
         let (tui_handle, ui_event_tx) = if self.app_context.app_config.tui_enabled {
             let (ui_tx, ui_rx) = channel(5000);
@@ -51,6 +53,14 @@ impl MachineATron {
         } else {
             (None, None)
         };
+
+        for (_config_name, config) in self.app_context.app_config.machines.iter() {
+            for _ in 0..config.vpc_count {
+                let app_context = self.app_context.clone();
+                let vpc = Vpc::new(app_context, config.clone(), ui_event_tx.clone());
+                vpc_handles.push(vpc.await);
+            }
+        }
 
         let mut machine_handles = Vec::default();
 
@@ -128,6 +138,16 @@ impl MachineATron {
                 }
             }
         }
+
+        // Following block does not remove the entries from the VPC table due to possible references by other places.
+        // It rather soft deletes the VPCs by updating the deleted column of a vpc.
+        for vpc in vpc_handles {
+            tracing::info!("Attempting to delete VPC with id: {} from db.", vpc.vpc_id);
+            if let Err(e) = api_client::delete_vpc(&self.app_context.clone(), &vpc.vpc_id).await {
+                tracing::error!("Delete VPC Api call failed with {}", e)
+            }
+        }
+
         if let Some(tui_handle) = tui_handle {
             if let Some(ui_event_tx) = ui_event_tx.as_ref() {
                 _ = ui_event_tx
