@@ -3777,10 +3777,18 @@ impl Forge for Api {
     ) -> std::result::Result<tonic::Response<rpc::BindResponse>, tonic::Status> {
         log_request_data(&request);
 
-        if let Some(machine_id) = &request.get_ref().machine_id {
-            if let Ok(id) = try_parse_machine_id(machine_id) {
-                log_machine_id(&id)
-            }
+        let machine_id: MachineId;
+
+        if let Some(machine_id_field) = &request.get_ref().machine_id {
+            let id = try_parse_machine_id(machine_id_field).map_err(|e| {
+                CarbideError::AttestationBindKeyError(format!("Could not parse machine id: {0}", e))
+            })?;
+            log_machine_id(&id);
+            machine_id = id;
+        } else {
+            return Err(Status::from(CarbideError::AttestationBindKeyError(
+                "MachineId could not be found in bind_attest_key message".into(),
+            )));
         }
 
         let mut txn = self.database_connection.begin().await.map_err(|e| {
@@ -3792,16 +3800,25 @@ impl Forge for Api {
             ))
         })?;
 
+        let (matched, ek_pub_rsa) = attest::compare_pub_key_against_cert(
+            &mut txn,
+            &machine_id,
+            request.get_ref().ek_pub.as_ref(),
+        )
+        .await?;
+        if !matched {
+            return Err(Status::from(CarbideError::AttestationBindKeyError(
+                "Certificate's public key did not match EK Pub Key".to_string(),
+            )));
+        }
+
         // generate a secret/credential
         let secret_bytes: [u8; 32] = rand::random();
 
         tracing::debug!("Generated session key {:?}", secret_bytes);
 
-        let (cli_cred_blob, cli_secret) = attest::cli_make_cred(
-            &request.get_ref().ek_pub,
-            &request.get_ref().ak_name,
-            &secret_bytes,
-        )?;
+        let (cli_cred_blob, cli_secret) =
+            attest::cli_make_cred(ek_pub_rsa, &request.get_ref().ak_name, &secret_bytes)?;
 
         SecretAkPub::insert(
             &mut txn,
