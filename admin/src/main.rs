@@ -17,7 +17,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::cfg::carbide_options::IbPartitionOptions;
+use crate::cfg::carbide_options::{IbPartitionOptions, TenantKeySetOptions};
 use ::rpc::common::MachineId;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
@@ -76,6 +76,7 @@ mod ping;
 mod redfish;
 mod resource_pool;
 mod rpc;
+mod tenant_keyset;
 mod version;
 mod vpc;
 
@@ -831,6 +832,17 @@ async fn main() -> color_eyre::Result<()> {
             IbPartitionOptions::Show(ibp) => {
                 ib_partition::handle_show(ibp, config.format, api_config, config.internal_page_size)
                     .await?
+            }
+        },
+        CarbideCommand::TenantKeySet(tks) => match tks {
+            TenantKeySetOptions::Show(tks) => {
+                tenant_keyset::handle_show(
+                    tks,
+                    config.format,
+                    api_config,
+                    config.internal_page_size,
+                )
+                .await?
             }
         },
     }

@@ -134,6 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.TenantPublicKey", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.TenantKeySetList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcResourceState", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineBootOverride", "#[derive(serde::Serialize)]")
         .type_attribute("forge.ConnectedDevice", "#[derive(serde::Serialize)]")
