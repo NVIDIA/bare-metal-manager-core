@@ -13,7 +13,6 @@ use data_encoding::BASE32_DNSSEC;
 use std::net::IpAddr;
 
 use carbide::{
-    api::rpc as api_rpc,
     db::{
         machine::{Machine, MachineSearchConfig},
         ObjectFilter,
@@ -472,14 +471,14 @@ async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
             let serial = format!("machine_{index}");
             let hash: [u8; 32] = Sha256::new_with_prefix(serial.as_bytes()).finalize().into();
             let encoded = BASE32_DNSSEC.encode(&hash);
-            api_rpc::MachineId {
+            ::rpc::common::MachineId {
                 id: format!("fm100ds{encoded}"),
             }
         })
         .collect();
     //build request
-    let request: Request<api_rpc::MachineIdList> =
-        Request::new(api_rpc::MachineIdList { machine_ids });
+    let request: Request<::rpc::common::MachineIdList> =
+        Request::new(::rpc::common::MachineIdList { machine_ids });
     // execute
     let response = env.api.find_machines_by_ids(request).await;
     // validate
@@ -500,7 +499,7 @@ async fn test_find_machines_by_ids_over_max(pool: sqlx::PgPool) {
 async fn test_find_machines_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let request = tonic::Request::new(carbide::api::rpc::MachineIdList::default());
+    let request = tonic::Request::new(::rpc::common::MachineIdList::default());
 
     let response = env.api.find_machines_by_ids(request).await;
     // validate

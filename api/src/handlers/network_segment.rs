@@ -47,7 +47,7 @@ pub(crate) async fn find_ids(
     Ok(Response::new(rpc::NetworkSegmentIdList {
         network_segments_ids: segment_ids
             .into_iter()
-            .map(|id| rpc::Uuid {
+            .map(|id| ::rpc::common::Uuid {
                 value: id.to_string(),
             })
             .collect(),

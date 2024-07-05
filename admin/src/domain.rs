@@ -37,7 +37,7 @@ fn convert_domain_to_nice_format(domain: &forgerpc::Domain) -> CarbideCliResult<
     let width = 10;
     let mut lines = String::new();
 
-    let domain_default = &forgerpc::Uuid::default();
+    let domain_default = &::rpc::common::Uuid::default();
     let timestamp_default = &Timestamp::default();
 
     let domain_id = domain.id.as_ref().unwrap_or(domain_default).value.as_str();

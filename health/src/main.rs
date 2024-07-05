@@ -20,9 +20,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ::rpc::common::MachineId;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
-use ::rpc::MachineId;
 use forge_tls::client_config::ClientCert;
 
 use http::header::CONTENT_LENGTH;

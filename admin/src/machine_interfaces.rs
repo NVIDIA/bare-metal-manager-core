@@ -137,7 +137,7 @@ fn convert_machines_to_nice_table(
             machine_interface
                 .machine_id
                 .as_ref()
-                .map(::rpc::MachineId::to_string)
+                .map(::rpc::common::MachineId::to_string)
                 .unwrap_or_default(),
             machine_interface.hostname,
             machine_interface.vendor.unwrap_or_default(),
@@ -181,7 +181,7 @@ fn convert_machine_to_nice_format(
             machine_interface
                 .attached_dpu_machine_id
                 .as_ref()
-                .map(::rpc::MachineId::to_string)
+                .map(::rpc::common::MachineId::to_string)
                 .unwrap_or_default(),
         ),
         (
@@ -189,7 +189,7 @@ fn convert_machine_to_nice_format(
             machine_interface
                 .machine_id
                 .as_ref()
-                .map(::rpc::MachineId::to_string)
+                .map(::rpc::common::MachineId::to_string)
                 .unwrap_or_default(),
         ),
         (

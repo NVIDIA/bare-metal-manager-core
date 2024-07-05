@@ -80,7 +80,7 @@ impl fmt::Display for MachineInterfaceId {
     }
 }
 
-impl From<MachineInterfaceId> for rpc::Uuid {
+impl From<MachineInterfaceId> for ::rpc::common::Uuid {
     fn from(val: MachineInterfaceId) -> Self {
         Self {
             value: val.to_string(),
@@ -88,23 +88,23 @@ impl From<MachineInterfaceId> for rpc::Uuid {
     }
 }
 
-impl TryFrom<rpc::Uuid> for MachineInterfaceId {
+impl TryFrom<::rpc::common::Uuid> for MachineInterfaceId {
     type Error = RpcDataConversionError;
-    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+    fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
 
-impl TryFrom<&rpc::Uuid> for MachineInterfaceId {
+impl TryFrom<&::rpc::common::Uuid> for MachineInterfaceId {
     type Error = RpcDataConversionError;
-    fn try_from(msg: &rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+    fn try_from(msg: &::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
 
-impl TryFrom<Option<rpc::Uuid>> for MachineInterfaceId {
+impl TryFrom<Option<::rpc::common::Uuid>> for MachineInterfaceId {
     type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    fn try_from(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
             // TODO(chet): Maybe this isn't the right place for this, since
             // depending on the proto message, the field name can differ (which
@@ -117,7 +117,7 @@ impl TryFrom<Option<rpc::Uuid>> for MachineInterfaceId {
 }
 
 impl MachineInterfaceId {
-    pub fn from_grpc(msg: Option<rpc::Uuid>) -> Result<Self, Status> {
+    pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
             .map_err(|e| Status::invalid_argument(format!("bad grpc interface ID: {}", e)))
     }

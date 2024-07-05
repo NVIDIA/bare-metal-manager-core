@@ -12,7 +12,7 @@
 
 use crate::common::api_fixtures::{create_test_env, managed_host::create_managed_host_multi_dpu};
 use rpc::forge::forge_server::Forge;
-use rpc::{forge::MachineIdList, MachineId};
+use rpc::{common::MachineIdList, MachineId};
 
 pub mod common;
 

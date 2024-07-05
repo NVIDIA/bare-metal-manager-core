@@ -33,7 +33,7 @@ impl RpcContext {
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| err.to_string())?;
-        let interface_id = Some(rpc::Uuid {
+        let interface_id = Some(::rpc::common::Uuid {
             value: machine_interface_id.to_string(),
         });
         let request = tonic::Request::new(rpc::PxeInstructionRequest {

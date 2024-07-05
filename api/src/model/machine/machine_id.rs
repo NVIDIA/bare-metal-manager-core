@@ -436,7 +436,7 @@ impl<'de> Deserialize<'de> for MachineId {
 
 /// Converts a RPC MachineId into the internal data format
 pub fn try_parse_machine_id(
-    id: &rpc::forge::MachineId,
+    id: &rpc::common::MachineId,
 ) -> Result<MachineId, RpcDataConversionError> {
     MachineId::from_str(id.id.as_str())
         .map_err(|_| RpcDataConversionError::InvalidMachineId(id.id.clone()))
@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn validate_remote_id() {
-        let dpu_id = try_parse_machine_id(&::rpc::forge::MachineId {
+        let dpu_id = try_parse_machine_id(&::rpc::common::MachineId {
             id: "fm100dsg4ekcb4sdi6hkqn0iojhj18okrr8vct64luh8957lfe8e69vme20".to_string(),
         })
         .unwrap();

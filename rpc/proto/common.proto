@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package common;
+
+message MachineId {
+  string id = 1;
+}
+
+message MachineIdList {
+  repeated MachineId machine_ids = 1;
+}
+
+message UUID {
+  string value = 1;
+}

@@ -50,7 +50,7 @@ impl From<forgerpc::MachineInterface> for InterfaceRowDisplay {
             machine_id: mi
                 .machine_id
                 .as_ref()
-                .map(::rpc::MachineId::to_string)
+                .map(::rpc::common::MachineId::to_string)
                 .unwrap_or_default(),
             hostname: mi.hostname,
             vendor: mi.vendor.unwrap_or_default(),
@@ -170,12 +170,12 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
             dpu_machine_id: mi
                 .attached_dpu_machine_id
                 .as_ref()
-                .map(::rpc::MachineId::to_string)
+                .map(::rpc::common::MachineId::to_string)
                 .unwrap_or_default(),
             machine_id: mi
                 .machine_id
                 .as_ref()
-                .map(::rpc::MachineId::to_string)
+                .map(::rpc::common::MachineId::to_string)
                 .unwrap_or_default(),
             segment_id: mi
                 .segment_id
@@ -205,7 +205,7 @@ pub async fn detail(
     AxumPath(interface_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::InterfaceSearchQuery {
-        id: Some(forgerpc::Uuid {
+        id: Some(::rpc::common::Uuid {
             value: interface_id.clone(),
         }),
         ip: None,

@@ -69,7 +69,7 @@ pub(crate) async fn find_ids(
     Ok(tonic::Response::new(rpc::InstanceIdList {
         instance_ids: instance_ids
             .into_iter()
-            .map(|id| rpc::Uuid {
+            .map(|id| ::rpc::common::Uuid {
                 value: id.to_string(),
             })
             .collect(),
@@ -212,7 +212,7 @@ pub(crate) async fn find(
 
 pub(crate) async fn find_by_machine_id(
     api: &Api,
-    request: Request<rpc::MachineId>,
+    request: Request<::rpc::common::MachineId>,
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
 

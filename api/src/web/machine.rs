@@ -377,7 +377,7 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
 ) -> Response {
-    let rpc_machine_id = forgerpc::MachineId {
+    let rpc_machine_id = ::rpc::common::MachineId {
         id: machine_id.clone(),
     };
     let request = tonic::Request::new(rpc_machine_id.clone());
@@ -400,7 +400,7 @@ pub async fn detail(
     let mut display: MachineDetail = machine.into();
     if !display.is_host {
         let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(forgerpc::MachineId {
+            dpu_machine_id: Some(::rpc::common::MachineId {
                 id: display.id.clone(),
             }),
         });

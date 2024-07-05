@@ -41,7 +41,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
             format!("192.0.{}.0/24", i + 1).as_str(),
             format!("192.0.{}.1", i + 1).as_str(),
             rpc::NetworkSegmentType::Underlay,
-            Some(rpc::Uuid {
+            Some(::rpc::common::Uuid {
                 value: vpc_id.to_string(),
             }),
         )
@@ -122,7 +122,7 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
             format!("192.0.{}.0/24", i + 1).as_str(),
             format!("192.0.{}.1", i + 1).as_str(),
             rpc::NetworkSegmentType::Underlay,
-            Some(rpc::Uuid {
+            Some(::rpc::common::Uuid {
                 value: vpc_id.to_string(),
             }),
         )
@@ -165,8 +165,8 @@ async fn test_find_network_segments_by_ids_over_max(pool: sqlx::PgPool) {
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
     let end_index: u32 = env.config.max_find_by_ids + 1;
-    let network_segments_ids: Vec<rpc::Uuid> = (1..=end_index)
-        .map(|_| rpc::Uuid {
+    let network_segments_ids: Vec<::rpc::common::Uuid> = (1..=end_index)
+        .map(|_| ::rpc::common::Uuid {
             value: uuid::Uuid::new_v4().to_string(),
         })
         .collect();

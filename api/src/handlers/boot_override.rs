@@ -21,7 +21,7 @@ use tonic::Status;
 
 pub(crate) async fn get(
     api: &Api,
-    request: tonic::Request<rpc::Uuid>,
+    request: tonic::Request<::rpc::common::Uuid>,
 ) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
     crate::api::log_request_data(&request);
 
@@ -105,7 +105,7 @@ pub(crate) async fn set(
 
 pub(crate) async fn clear(
     api: &Api,
-    request: tonic::Request<rpc::Uuid>,
+    request: tonic::Request<::rpc::common::Uuid>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     crate::api::log_request_data(&request);
 

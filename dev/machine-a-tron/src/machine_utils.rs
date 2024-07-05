@@ -30,7 +30,7 @@ pub fn next_mac() -> MacAddress {
 
 pub async fn get_fac_action(
     app_context: &MachineATronContext,
-    machine_id: rpc::forge::MachineId,
+    machine_id: rpc::common::MachineId,
 ) -> rpc::forge::forge_agent_control_response::Action {
     let response = api_client::forge_agent_control(app_context, machine_id.clone())
         .await
@@ -103,7 +103,7 @@ pub async fn send_pxe_boot_request(url: String, forward_ip: String) -> PXErespon
 
 pub async fn get_api_state(
     app_context: &MachineATronContext,
-    machine_id: &rpc::forge::MachineId,
+    machine_id: &rpc::common::MachineId,
     m_a_t_last_known_reboot_request: &mut Option<Timestamp>,
 ) -> (String, bool) {
     api_client::get_machine(app_context, machine_id.clone())

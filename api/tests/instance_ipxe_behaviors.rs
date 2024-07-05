@@ -156,7 +156,7 @@ async fn invoke_instance_power(
 ) {
     env.api
         .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
-            machine_id: Some(rpc::forge::MachineId {
+            machine_id: Some(rpc::common::MachineId {
                 id: host_machine_id.to_string(),
             }),
             operation: rpc::forge::instance_power_request::Operation::PowerReset as _,

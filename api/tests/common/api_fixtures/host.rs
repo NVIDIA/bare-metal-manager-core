@@ -136,7 +136,7 @@ pub async fn host_discover_machine(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
     machine_interface_id: rpc::Uuid,
-) -> rpc::MachineId {
+) -> ::rpc::common::MachineId {
     let response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {
@@ -323,7 +323,7 @@ pub async fn host_uefi_setup(
     env: &TestEnv,
     host_machine_id: &MachineId,
     handler: MachineStateHandler,
-    host_rpc_machine_id: rpc::forge::MachineId,
+    host_rpc_machine_id: ::rpc::common::MachineId,
 ) {
     for state in UefiSetupState::iter() {
         let mut txn = env.pool.begin().await.unwrap();

@@ -305,7 +305,7 @@ async fn show_instance_details(
     let instance = if id.starts_with("fm100") {
         rpc::get_instances_by_machine_id(api_config, id).await?
     } else {
-        let instance_id: forgerpc::Uuid = uuid::Uuid::parse_str(&id)
+        let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
             .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
             .into();
         match rpc::get_instances_by_ids(api_config, &[instance_id]).await {

@@ -587,12 +587,12 @@ impl HostMachine {
         Ok(work_done)
     }
 
-    pub fn get_machine_id(&self) -> Result<rpc::forge::MachineId, MachineStateError> {
+    pub fn get_machine_id(&self) -> Result<rpc::common::MachineId, MachineStateError> {
         self.get_machine_id_opt()
             .ok_or(MachineStateError::MissingMachineId)
     }
 
-    pub fn get_machine_id_opt(&self) -> Option<rpc::forge::MachineId> {
+    pub fn get_machine_id_opt(&self) -> Option<rpc::common::MachineId> {
         self.machine_discovery_result
             .as_ref()
             .and_then(|mdr| mdr.machine_id.clone())

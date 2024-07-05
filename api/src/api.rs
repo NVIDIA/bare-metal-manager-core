@@ -337,7 +337,7 @@ impl Forge for Api {
 
     async fn find_instance_by_machine_id(
         &self,
-        request: Request<rpc::MachineId>,
+        request: Request<::rpc::common::MachineId>,
     ) -> Result<Response<rpc::InstanceList>, Status> {
         crate::handlers::instance::find_by_machine_id(self, request).await
     }
@@ -1379,7 +1379,7 @@ impl Forge for Api {
 
     async fn get_machine(
         &self,
-        request: Request<rpc::MachineId>,
+        request: Request<::rpc::common::MachineId>,
     ) -> Result<Response<rpc::Machine>, Status> {
         log_request_data(&request);
 
@@ -1405,7 +1405,7 @@ impl Forge for Api {
     async fn find_machine_ids(
         &self,
         request: Request<rpc::MachineSearchConfig>,
-    ) -> Result<Response<rpc::MachineIdList>, Status> {
+    ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
         log_request_data(&request);
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -1422,18 +1422,18 @@ impl Forge for Api {
             .await
             .map_err(CarbideError::from)?;
 
-        Ok(tonic::Response::new(rpc::MachineIdList {
+        Ok(tonic::Response::new(::rpc::common::MachineIdList {
             machine_ids: machine_ids
                 .into_iter()
-                .map(|id| rpc::MachineId { id: id.to_string() })
+                .map(|id| ::rpc::common::MachineId { id: id.to_string() })
                 .collect(),
         }))
     }
 
     async fn find_machines_by_ids(
         &self,
-        request: Request<rpc::MachineIdList>,
-    ) -> Result<Response<rpc::MachineList>, Status> {
+        request: Request<::rpc::common::MachineIdList>,
+    ) -> Result<Response<::rpc::MachineList>, Status> {
         log_request_data(&request);
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
@@ -3084,7 +3084,7 @@ impl Forge for Api {
             .into_iter()
             .map(
                 |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
-                    id: Some(rpc::MachineId {
+                    id: Some(::rpc::common::MachineId {
                         id: x.id().to_string(),
                     }),
                     state: x.current_state().to_string(),
@@ -3151,7 +3151,7 @@ impl Forge for Api {
 
     async fn get_machine_boot_override(
         &self,
-        request: tonic::Request<rpc::Uuid>,
+        request: tonic::Request<::rpc::common::Uuid>,
     ) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
         crate::handlers::boot_override::get(self, request).await
     }
@@ -3165,7 +3165,7 @@ impl Forge for Api {
 
     async fn clear_machine_boot_override(
         &self,
-        request: tonic::Request<rpc::Uuid>,
+        request: tonic::Request<::rpc::common::Uuid>,
     ) -> Result<tonic::Response<()>, Status> {
         crate::handlers::boot_override::clear(self, request).await
     }
@@ -3700,7 +3700,7 @@ impl Forge for Api {
 
     async fn find_connected_devices_by_dpu_machine_ids(
         &self,
-        request: Request<rpc::MachineIdList>,
+        request: Request<::rpc::common::MachineIdList>,
     ) -> Result<tonic::Response<rpc::ConnectedDeviceList>, Status> {
         log_request_data(&request);
         let mut txn = self.database_connection.begin().await.map_err(|e| {

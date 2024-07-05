@@ -92,7 +92,7 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
                     interface
                         .attached_dpu_machine_id
                         .as_ref()
-                        .map(::rpc::MachineId::to_string)
+                        .map(::rpc::common::MachineId::to_string)
                         .unwrap_or_default(),
                 ),
                 (
@@ -100,7 +100,7 @@ fn convert_machine_to_nice_format(machine: forgerpc::Machine) -> CarbideCliResul
                     interface
                         .machine_id
                         .as_ref()
-                        .map(::rpc::MachineId::to_string)
+                        .map(::rpc::common::MachineId::to_string)
                         .unwrap_or_default(),
                 ),
                 (

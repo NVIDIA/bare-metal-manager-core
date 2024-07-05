@@ -190,14 +190,14 @@ pub(crate) fn not_found_response(resource: String) -> Response {
         .into_response()
 }
 
-pub(crate) fn invalid_machine_id() -> rpc::forge::MachineId {
-    rpc::forge::MachineId {
+pub(crate) fn invalid_machine_id() -> rpc::common::MachineId {
+    rpc::common::MachineId {
         id: "INVALID_MACHINE".to_string(),
     }
 }
 
-pub(crate) fn default_uuid() -> rpc::forge::Uuid {
-    rpc::forge::Uuid {
+pub(crate) fn default_uuid() -> rpc::common::Uuid {
+    rpc::common::Uuid {
         value: "00000000-0000-0000-0000-000000000000".to_string(),
     }
 }

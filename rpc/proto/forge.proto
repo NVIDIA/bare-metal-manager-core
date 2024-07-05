@@ -6,6 +6,7 @@ syntax = "proto3";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
+import "common.proto";
 import "health.proto";
 import "machine_discovery.proto";
 import "measured_boot.proto";
@@ -76,7 +77,7 @@ service Forge {
   rpc FindInstancesByIds(InstancesByIdsRequest) returns (InstanceList);
   // DEPRECATED: use FindInstanceIds and FindInstancesByIds instead
   rpc FindInstances(InstanceSearchQuery) returns (InstanceList);
-  rpc FindInstanceByMachineID(MachineId) returns (InstanceList);
+  rpc FindInstanceByMachineID(common.MachineId) returns (InstanceList);
 
   // INTERNAL: RPC method is used between Site Controller components,
   // and for testing
@@ -108,7 +109,7 @@ service Forge {
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
 
   // PRIVILEGED: Get a single machine
-  rpc GetMachine(MachineId) returns (Machine);
+  rpc GetMachine(common.MachineId) returns (Machine);
 
   // PRIVILEGED: Find things
   // DEPRECATED: use FindMachineIds and FindMachinesByIds instead
@@ -116,9 +117,9 @@ service Forge {
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc DeleteInterface(InterfaceDeleteQuery) returns (google.protobuf.Empty);
   rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
-  rpc FindMachineIds(MachineSearchConfig) returns (MachineIdList);
-  rpc FindMachinesByIds(MachineIdList) returns (MachineList);
-  rpc FindConnectedDevicesByDpuMachineIds(MachineIdList) returns (ConnectedDeviceList);
+  rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
+  rpc FindMachinesByIds(common.MachineIdList) returns (MachineList);
+  rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
 
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
@@ -203,9 +204,9 @@ service Forge {
   // with state machine.
   rpc TriggerDpuReset(DpuResetRequest) returns (DpuResetResponse);
 
-  rpc GetMachineBootOverride(UUID) returns (MachineBootOverride);
+  rpc GetMachineBootOverride(common.UUID) returns (MachineBootOverride);
   rpc SetMachineBootOverride(MachineBootOverride) returns (google.protobuf.Empty);
-  rpc ClearMachineBootOverride(UUID) returns (google.protobuf.Empty);
+  rpc ClearMachineBootOverride(common.UUID) returns (google.protobuf.Empty);
 
   // Get Network topology
   rpc GetNetworkTopology(NetworkTopologyRequest) returns (NetworkTopologyData);
@@ -327,7 +328,7 @@ service Forge {
 }
 
 message BindRequest{
-  MachineId machine_id = 1;
+  common.MachineId machine_id = 1;
   // Endorsement Public Key
   bytes EKPub = 2;
   // Attestation Public Key
@@ -344,7 +345,7 @@ message BindResponse{
 }
 
 message VerifyQuoteRequest{
-  MachineId machine_id = 1;
+  common.MachineId machine_id = 1;
   // Kind of AuthToken
   bytes Credential = 2;
   // TPM generated Attestation struct, contains a hash of PcrValues
@@ -459,10 +460,6 @@ message RuntimeConfig {
 
     uint32 max_find_by_ids = 30;
     bool attestation_enabled = 31;
- }
-
-message MachineId {
-  string id = 1;
 }
 
 message EchoRequest {
@@ -503,7 +500,7 @@ message DomainList {
 }
 
 message Domain {
-  UUID id = 1;
+  common.UUID id = 1;
   string name = 2;
 
   google.protobuf.Timestamp created = 3;
@@ -512,7 +509,7 @@ message Domain {
 }
 
 message DomainDeletion {
-  UUID id = 1;
+  common.UUID id = 1;
 }
 
 message DomainDeletionResult {
@@ -520,7 +517,7 @@ message DomainDeletionResult {
 }
 
 message DomainSearchQuery {
-  optional UUID id = 1;
+  optional common.UUID id = 1;
   optional string name = 2;
 }
 
@@ -536,14 +533,8 @@ message InstanceEvent {
   string event = 1;
 }
 
-
-// Primitives
-message UUID {
-  string value = 1;
-}
-
 message VpcSearchQuery {
-  optional UUID id = 1;
+  optional common.UUID id = 1;
   optional string name = 2;
 }
 
@@ -553,11 +544,11 @@ message VpcSearchFilter {
 }
 
 message VpcIdList {
-  repeated UUID vpc_ids = 1;
+  repeated common.UUID vpc_ids = 1;
 }
 
 message VpcsByIdsRequest {
-  repeated UUID vpc_ids = 1;
+  repeated common.UUID vpc_ids = 1;
 }
 
 message TenantSearchQuery {
@@ -565,7 +556,7 @@ message TenantSearchQuery {
 }
 
 message Vpc {
-  UUID id = 1;
+  common.UUID id = 1;
   string name = 2;
   string tenantOrganizationId = 3;
 
@@ -591,7 +582,7 @@ message VpcCreationRequest {
   // Desired ID for this VPC. If the ID is not provided, Forge will generate
   // a random ID.
   // The VPC ID must be unique within the Forge site.
-  optional UUID id = 6;
+  optional common.UUID id = 6;
 }
 
 enum VpcVirtualizationType {
@@ -601,7 +592,7 @@ enum VpcVirtualizationType {
 }
 
 message VpcUpdateRequest {
-  UUID id = 1;
+  common.UUID id = 1;
   // If the field here is set, the update will only be applied if the version
   // is equivalent to the current version on the Forge Site.
   // If a concurrent update changed the site configuration, the API will return
@@ -624,7 +615,7 @@ message VpcUpdateResult {
 }
 
 message VpcDeletionRequest {
-  UUID id = 1;
+  common.UUID id = 1;
 }
 
 message VpcDeletionResult {
@@ -690,7 +681,7 @@ message IBPartitionStatus {
 
 // Describe an Infiniband based Partition configuration and status
 message IBPartition {
-  UUID id = 1;
+  common.UUID id = 1;
 
   IBPartitionConfig config = 2;
   string config_version = 3;
@@ -707,11 +698,11 @@ message IBPartitionCreationRequest {
   // Desired ID for this Partition. If the ID is not provided, Forge will generate
   // a random ID.
   // The Partition ID must be unique within the Forge site.
-  optional UUID id = 2;
+  optional common.UUID id = 2;
 }
 
 message IBPartitionDeletionRequest {
-  UUID id = 1;
+  common.UUID id = 1;
 }
 
 message IBPartitionDeletionResult {
@@ -722,7 +713,7 @@ message IBPartitionSearchConfig {
 }
 
 message IBPartitionQuery {
-  UUID id = 1;
+  common.UUID id = 1;
   optional IBPartitionSearchConfig search_config = 2;
 }
 
@@ -732,12 +723,12 @@ message IBPartitionSearchFilter {
 }
 
 message IBPartitionsByIdsRequest {
-  repeated UUID ib_partition_ids = 1;
+  repeated common.UUID ib_partition_ids = 1;
   bool include_history = 2;
 }
 
 message IBPartitionIdList {
-  repeated UUID ib_partition_ids = 1;
+  repeated common.UUID ib_partition_ids = 1;
 }
 
 message NetworkSegmentStateHistory {
@@ -753,12 +744,12 @@ enum NetworkSegmentType {
 }
 
 message NetworkSegment {
-  UUID id = 1;
-  UUID vpc_id = 2;
+  common.UUID id = 1;
+  common.UUID vpc_id = 2;
 
   string name = 3;
 
-  optional UUID subdomain_id = 4;
+  optional common.UUID subdomain_id = 4;
   optional int32 mtu = 5;
 
   repeated NetworkPrefix prefixes = 6;
@@ -779,11 +770,11 @@ message NetworkSegment {
 }
 
 message NetworkSegmentCreationRequest {
-  UUID vpc_id = 2;
+  common.UUID vpc_id = 2;
 
   string name = 3;
 
-  optional UUID subdomain_id = 4;
+  optional common.UUID subdomain_id = 4;
   optional int32 mtu = 5;
 
   repeated NetworkPrefix prefixes = 6;
@@ -793,11 +784,11 @@ message NetworkSegmentCreationRequest {
   // Desired ID for this Network Segment. If the ID is not provided, Forge will generate
   // a random ID.
   // The Network Segment ID must be unique within the Forge site.
-  optional UUID id = 8;
+  optional common.UUID id = 8;
 }
 
 message NetworkSegmentDeletionRequest {
-  UUID id = 1;
+  common.UUID id = 1;
 }
 
 message NetworkSegmentDeletionResult {
@@ -809,7 +800,7 @@ message NetworkSegmentSearchConfig {
 }
 
 message NetworkSegmentQuery {
-  UUID id = 1;
+  common.UUID id = 1;
   optional NetworkSegmentSearchConfig search_config = 2;
 }
 
@@ -819,17 +810,17 @@ message NetworkSegmentSearchFilter {
 }
 
 message NetworkSegmentIdList {
-  repeated UUID network_segments_ids = 1;
+  repeated common.UUID network_segments_ids = 1;
 }
 
 message NetworkSegmentsByIdsRequest {
-  repeated UUID network_segments_ids = 1;
+  repeated common.UUID network_segments_ids = 1;
   bool include_history = 2;
   bool include_num_free_ips = 3;
 }
 
 message NetworkPrefix {
-  UUID id = 1;
+  common.UUID id = 1;
   string prefix = 2;
   optional string gateway = 3;
   int32 reserve_first = 4;
@@ -844,7 +835,7 @@ message MachineState {
 }
 
 message InstancePowerRequest {
-  MachineId machine_id = 1;
+  common.MachineId machine_id = 1;
 
   enum Operation {
     POWER_RESET = 0;
@@ -873,7 +864,7 @@ message InstancePowerResult {
 }
 
 message InstanceSearchQuery {
-  optional UUID id = 1;
+  optional common.UUID id = 1;
   optional Label label = 2;
 }
 
@@ -899,18 +890,18 @@ message InstanceSearchFilter {
 }
 
 message InstanceIdList {
-  repeated UUID instance_ids = 1;
+  repeated common.UUID instance_ids = 1;
 }
 
 message InstancesByIdsRequest {
-  repeated UUID instance_ids = 1;
+  repeated common.UUID instance_ids = 1;
 }
 
 message InstanceAllocationRequest {
   // The Machine on top of which we create an Instance
   // If we go towards "we already have instances model", this would become more of a
   // AssignInstanceToTenant request, and the ID would be the instance_id
-  MachineId machine_id = 1;
+  common.MachineId machine_id = 1;
 
   // Desired configuration for the allocated instance
   InstanceConfig config = 2;
@@ -918,7 +909,7 @@ message InstanceAllocationRequest {
   // Desired ID for this Instance. If the ID is not provided, Forge will generate
   // a random ID.
   // The Instance ID must be unique within the Forge site.
-  optional UUID instance_id = 3;
+  optional common.UUID instance_id = 3;
 
   reserved 11; // Was ssh_keys - replaced by tenantKeysetId in InstanceConfig.TenantConfig instead.
   Metadata metadata = 12;
@@ -1028,7 +1019,7 @@ message InstanceNetworkConfig {
   // The configurations in this group apply to all interfaces on the instance.
   // Note: This is commented because we will not supported setting these in the first
   // release of the new Instance API
-  // optional UUID security_group_id = 4;
+  // optional common.UUID security_group_id = 4;
 }
 
 // Desired infiniband configuration for an instance
@@ -1046,7 +1037,7 @@ message InstanceInfinibandConfig {
 // Note: This is commented because we will not immediately implement the method
 // message InstanceNetworkConfigUpdateRequest {
 //   // The ID of the instance that should get an updated networking configuration
-//   UUID instance_id = 1;
+//   common.UUID instance_id = 1;
 
 //   // If the field here is set, the update will only be applied if the version
 //   // is equivalent to the current network config version on the Forge Site.
@@ -1061,7 +1052,7 @@ message InstanceInfinibandConfig {
 // Updates the operating system utilized by an instance
 message InstanceOperatingSystemUpdateRequest {
   // The ID of the instance that should get an updated operating system
-  UUID instance_id = 1;
+  common.UUID instance_id = 1;
 
   // If the field here is set, the update will only be applied if the version
   // is equivalent to the current instance config version on the Forge Site.
@@ -1078,7 +1069,7 @@ message InstanceOperatingSystemUpdateRequest {
 // Updates the configuration utilized by an instance
 message InstanceConfigUpdateRequest {
   // The ID of the instance for which the config update will apply
-  UUID instance_id = 1;
+  common.UUID instance_id = 1;
 
   // If the field here is set, the update will only be applied if the version
   // is equivalent to the current instance config version on the Forge Site.
@@ -1172,9 +1163,9 @@ message InstanceInfinibandStatus {
 // This entails both the instance configuration, as well as the current state of the instance
 message Instance {
   // Instance ID
-  UUID id = 1;
+  common.UUID id = 1;
   // The ID of the host machine which is utilized for this Instance (host_machine_id)
-  MachineId machine_id = 2;
+  common.MachineId machine_id = 2;
   Metadata metadata = 3;
 
   // The desired configuration on the instance
@@ -1222,12 +1213,12 @@ message InstanceInterfaceConfig {
   InterfaceFunctionType function_type = 1;
 
   // Network segment ID can change. It if changes - we require a new IP address
-  UUID network_segment_id = 3;
+  common.UUID network_segment_id = 3;
 
   // The ID of security group that is attached to this interface
   // Note: This is commented because we will not supported setting these in the first
   // release of the new Instance API
-  // optional UUID security_group_id = 4;
+  // optional common.UUID security_group_id = 4;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -1260,7 +1251,7 @@ message InstanceIBInterfaceConfig {
   optional uint32 virtual_function_id = 12;
 
   // The actual configuration for the device
-  UUID ib_partition_id = 21;
+  common.UUID ib_partition_id = 21;
 }
 
 // The actual status of a single network interface of an instance
@@ -1306,7 +1297,7 @@ message InstanceIBInterfaceStatus {
 }
 
 message InstancePhoneHomeLastContactRequest {
-  UUID instance_id = 1;
+  common.UUID instance_id = 1;
 }
 
 message InstancePhoneHomeLastContactResponse {
@@ -1314,7 +1305,7 @@ message InstancePhoneHomeLastContactResponse {
 }
 
 message InstanceReleaseRequest {
-  UUID id = 1;
+  common.UUID id = 1;
 }
 
 message InstanceReleaseResult {
@@ -1330,7 +1321,7 @@ message MachineSearchConfig {
 }
 
 message MachineSearchQuery {
-  optional MachineId id = 1;
+  optional common.MachineId id = 1;
   optional string fqdn = 2;
   optional MachineSearchConfig search_config = 3;
 }
@@ -1344,11 +1335,11 @@ message MachineList {
 }
 
 message InterfaceDeleteQuery {
-  UUID id = 1;
+  common.UUID id = 1;
 }
 
 message InterfaceSearchQuery {
-  optional UUID id = 1;
+  optional common.UUID id = 1;
   optional string ip = 2;
 }
 
@@ -1369,7 +1360,7 @@ message BmcInfo {
 message Machine {
   // Uniquely identifies a Forge machine.
   // The value of this field is globally unique.
-  MachineId id = 1;
+  common.MachineId id = 1;
 
   reserved 4, 5, 6; // Used for timestamps in the past
 
@@ -1407,10 +1398,10 @@ message Machine {
   optional google.protobuf.Timestamp maintenance_start_time = 18;
 
   // Other machine ids associated with this machine
-  optional MachineId associated_host_machine_id = 19;
+  optional common.MachineId associated_host_machine_id = 19;
   // Deprecated, use associated_dpu_machine_ids. For now, this is filled in with the first DPU ID.
   // TODO: Once all admin CLI clients have updated, drop this and stop filling it in.
-  optional MachineId associated_dpu_machine_id = 20;
+  optional common.MachineId associated_dpu_machine_id = 20;
 
   optional MachineInventory inventory = 21;
   optional google.protobuf.Timestamp last_reboot_requested_time = 22;
@@ -1419,11 +1410,11 @@ message Machine {
   optional string dpu_agent_version = 24;
 
   // Fields are not ordered numerically, check the whole message for max field number
-  repeated MachineId associated_dpu_machine_ids = 26;
+  repeated common.MachineId associated_dpu_machine_ids = 26;
 }
 
 message DpuAgentInventoryReport {
-  MachineId machine_id = 1;
+  common.MachineId machine_id = 1;
   MachineInventory inventory = 2;
 }
 
@@ -1473,7 +1464,7 @@ enum MachineArchitecture {
 
 message MachineEvent {
   int64 id = 1;
-  MachineId machine_id = 2;
+  common.MachineId machine_id = 2;
 
   // The lifecycle state of the Machine
   string event = 3;
@@ -1484,14 +1475,14 @@ message MachineEvent {
 }
 
 message MachineInterface {
-  UUID id = 1;
-  optional MachineId attached_dpu_machine_id = 2;
-  MachineId machine_id = 3;
-  UUID segment_id = 4;
+  common.UUID id = 1;
+  optional common.MachineId attached_dpu_machine_id = 2;
+  common.MachineId machine_id = 3;
+  common.UUID segment_id = 4;
 
   string hostname = 5;
 
-  UUID domain_id = 6;
+  common.UUID domain_id = 6;
 
   bool primary_interface = 7;
   string mac_address = 8;
@@ -1513,10 +1504,10 @@ message DhcpDiscovery {
 }
 
 message DhcpRecord {
-  MachineId machine_id = 1;
-  UUID machine_interface_id = 2;
-  UUID segment_id = 3;
-  UUID subdomain_id = 4;
+  common.MachineId machine_id = 1;
+  common.UUID machine_interface_id = 2;
+  common.UUID segment_id = 3;
+  common.UUID subdomain_id = 4;
 
   string fqdn = 5;
   string mac_address = 6;
@@ -1557,7 +1548,7 @@ message TagVoid {
 
 message TagsList {
   repeated string slugs = 1;
-  UUID target = 2;
+  common.UUID target = 2;
   TagTargetKind target_kind = 3;
 }
 
@@ -1572,13 +1563,13 @@ enum TagTargetKind {
 
 message TagAssign {
   string slug = 1;
-  UUID target = 2;
+  common.UUID target = 2;
   TagTargetKind target_kind = 3;
 }
 
 message TagRemove {
   string slug = 1;
-  UUID target = 2;
+  common.UUID target = 2;
   TagTargetKind target_kind = 3;
 }
 
@@ -1625,7 +1616,7 @@ message ExploreRequest {
 }
 
 message ManagedHostNetworkConfigRequest {
-  MachineId dpu_machine_id = 1;
+  common.MachineId dpu_machine_id = 1;
 }
 
 message ManagedHostNetworkConfigResponse {
@@ -1653,7 +1644,7 @@ message ManagedHostNetworkConfigResponse {
   repeated FlatInterfaceConfig tenant_interfaces = 9;
   // Blank if on the admin network, matches DB instances.network_config if there's a tenant
   string instance_config_version = 10;
-  optional UUID instance_id = 11;
+  optional common.UUID instance_id = 11;
 
   // Both None if on the admin network
   optional VpcVirtualizationType network_virtualization_type = 12;
@@ -1828,7 +1819,7 @@ enum BMCRequestType {
 }
 
 message BMCMetaDataGetRequest {
-    MachineId machine_id = 1;
+    common.MachineId machine_id = 1;
     UserRoles role = 2;
     BMCRequestType request_type = 3;
 }
@@ -1848,7 +1839,7 @@ message BMCMetaDataUpdateRequest {
         string password = 4;
     }
 
-    MachineId machine_id = 1;
+    common.MachineId machine_id = 1;
     repeated DataItem data = 2;
     BMCRequestType request_type = 3;
     BmcInfo bmc_info = 4;
@@ -1869,7 +1860,7 @@ message MachineCredentialsUpdateRequest {
        CredentialPurpose credential_purpose = 3;
    }
 
-    MachineId machine_id = 4;
+    common.MachineId machine_id = 4;
     repeated Credentials credentials = 5;
     optional string mac_address = 6;
 }
@@ -1877,7 +1868,7 @@ message MachineCredentialsUpdateRequest {
 message MachineCredentialsUpdateResponse {}
 
 message ForgeAgentControlRequest {
-    MachineId machine_id = 1;
+    common.MachineId machine_id = 1;
 }
 
 message ForgeAgentControlResponse {
@@ -1901,7 +1892,7 @@ message ForgeAgentControlResponse {
 }
 
 message MachineDiscoveryInfo {
-  UUID machine_interface_id = 1;
+  common.UUID machine_interface_id = 1;
   oneof discovery_data {
     machine_discovery.DiscoveryInfo info = 2;
   }
@@ -1909,7 +1900,7 @@ message MachineDiscoveryInfo {
 }
 
 message MachineDiscoveryCompletedRequest {
-	MachineId machine_id = 1;
+	common.MachineId machine_id = 1;
   optional string DiscoveryError = 2;
 }
 
@@ -1924,7 +1915,7 @@ message MachineCleanupInfo {
 		string message = 2;
 	}
 
-	MachineId machine_id = 1;
+	common.MachineId machine_id = 1;
 
 	// NVMe Cleanup Result
 	CleanupStepResult nvme = 2;
@@ -1952,7 +1943,7 @@ message MachineCertificateResult {
 
 message MachineDiscoveryResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
-  MachineId machine_id = 1;
+  common.MachineId machine_id = 1;
   // This is returned to the discovery client so that it can use the embedded certificate to authenticate to the api for further communications.
   MachineCertificate machine_certificate = 2;
 }
@@ -1966,9 +1957,9 @@ message MachineCleanupResult {
 message ForgeScoutErrorReport {
   // Machine that encountered the error
   // This might be null if the MachineId could not be resolved
-  MachineId machine_id = 1;
+  common.MachineId machine_id = 1;
   // Interface ID of the Machine that encountered the error
-  UUID machine_interface_id = 2;
+  common.UUID machine_interface_id = 2;
   // Error report
   string error = 3;
 }
@@ -1983,7 +1974,7 @@ message VpcResourceState {
 message NetworkPrefixEvent {
   int64 id = 1;
 
-  UUID network_prefix_id = 2;
+  common.UUID network_prefix_id = 2;
 
   VpcResourceAction event = 3;
 
@@ -1993,7 +1984,7 @@ message NetworkPrefixEvent {
 message VpcResourceLeafEvent {
   int64 id = 1;
 
-  UUID vpc_leaf_id = 2;
+  common.UUID vpc_leaf_id = 2;
 
   VpcResourceAction event = 3;
 
@@ -2012,7 +2003,7 @@ enum VpcResourceAction {
 
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
-  UUID interface_id = 2;
+  common.UUID interface_id = 2;
 }
 
 message PxeInstructions {
@@ -2050,7 +2041,7 @@ enum InterfaceFunctionType {
 
 // What forge-dpu-agent reports. Will grow over time.
 message DpuNetworkStatus {
-  MachineId dpu_machine_id = 1;
+  common.MachineId dpu_machine_id = 1;
   google.protobuf.Timestamp observed_at = 2;
   // Legacy mechanism to indicate DPU health.
   // Replaced by the `dpu_health` field
@@ -2059,7 +2050,7 @@ message DpuNetworkStatus {
   optional string instance_config_version = 5;
   repeated InstanceInterfaceStatusObservation interfaces = 6;
   optional string network_config_error = 7;
-  optional UUID instance_id = 8;
+  optional common.UUID instance_id = 8;
   optional string dpu_agent_version = 9;
   optional int64 client_certificate_expiry_unix_epoch_secs = 10;
   health.HealthReport dpu_health = 11;
@@ -2068,7 +2059,7 @@ message DpuNetworkStatus {
 // Observed status of the networking subsystem of an instance
 message InstanceNetworkStatusObservation {
   // The ID of the instance for which this status was observed
-  UUID instance_id = 1;
+  common.UUID instance_id = 1;
 
   // The version of the config that is applied on the networking subsystem
   // Only if the version is equivalent to the latest desired version we
@@ -2312,7 +2303,7 @@ enum MaintenanceOperation {
 message MaintenanceRequest {
   MaintenanceOperation operation = 1;
   // Managed host ID
-  MachineId host_id = 2;
+  common.MachineId host_id = 2;
   // For Enable: The ticket tracker URL.
   optional string reference = 3;
 }
@@ -2343,7 +2334,7 @@ enum UpdateInitiator {
 }
 
 message DpuResetRequest {
-  MachineId dpu_id = 1;
+  common.MachineId dpu_id = 1;
 }
 
 message DpuResetResponse {
@@ -2356,7 +2347,7 @@ message DpuReprovisioningRequest {
     Clear = 1;
     Restart = 2;
   }
-  MachineId dpu_id = 1;
+  common.MachineId dpu_id = 1;
   Mode mode = 2;
   UpdateInitiator initiator = 3;
   bool update_firmware = 4;
@@ -2367,7 +2358,7 @@ message DpuReprovisioningListRequest {
 
 message DpuReprovisioningListResponse {
   message DpuReprovisioningListItem {
-    MachineId id = 1;  // Dpu Machine ID
+    common.MachineId id = 1;  // Dpu Machine ID
     string state = 2;  // ManagedHost state
     string initiator = 3;  // Who requested this reprovisioning.
     google.protobuf.Timestamp requested_at = 4;  // When reprovisioning was requested.
@@ -2416,14 +2407,14 @@ enum IpType {
 }
 
 message MachineBootOverride {
-  UUID machine_interface_id = 1;
+  common.UUID machine_interface_id = 1;
   optional string custom_pxe = 2;
   optional string custom_user_data = 3;
 }
 
 // A connected device is described by DPU and local port.
 message ConnectedDevice {
-  MachineId id = 1;
+  common.MachineId id = 1;
   string local_port = 2;
   string remote_port = 3;
   optional string network_device_id = 4;
@@ -2461,12 +2452,8 @@ message RouteServers {
   repeated string route_servers = 1;
 }
 
-message MachineIdList {
-  repeated MachineId machine_ids = 1;
-}
-
 message SetHostUefiPasswordRequest {
-  MachineId host_id = 1;
+  common.MachineId host_id = 1;
 }
 
 message SetHostUefiPasswordResponse {}
@@ -2497,11 +2484,11 @@ message ExpectedMachineList {
 message MachineRebootCompletedResponse { }
 
 message MachineRebootCompletedRequest {
-	MachineId machine_id = 1;
+	common.MachineId machine_id = 1;
 }
 
 message MachineValidationCompletedRequest {
-  MachineId machine_id = 1;
+  common.MachineId machine_id = 1;
   optional string machine_validation_error = 2;
 }
 

@@ -74,7 +74,7 @@ impl From<DhcpRecord> for rpc::DhcpRecord {
             machine_id: record.machine_id.map(|id| id.to_string().into()),
             machine_interface_id: Some(record.machine_interface_id.into()),
             segment_id: Some(record.segment_id.into()),
-            subdomain_id: record.subdomain_id.map(rpc::Uuid::from),
+            subdomain_id: record.subdomain_id.map(::rpc::common::Uuid::from),
             fqdn: record.fqdn,
             mac_address: record.mac_address.to_string(),
             address: record.address.to_string(),
@@ -162,7 +162,7 @@ impl TryFrom<InstanceDhcpRecord> for rpc::DhcpRecord {
                 InterfaceFunctionId::Virtual { .. } => None,
             },
             segment_id: Some(record.segment_id.into()),
-            subdomain_id: record.subdomain_id.map(rpc::Uuid::from),
+            subdomain_id: record.subdomain_id.map(::rpc::common::Uuid::from),
             fqdn: record.fqdn,
             mac_address: record
                 .mac_address
