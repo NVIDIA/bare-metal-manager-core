@@ -42,7 +42,6 @@ use crate::{
         tenant::TenantOrganizationId,
         ConfigValidationError, RpcDataConversionError,
     },
-    state_controller::snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader},
     CarbideError, CarbideResult,
 };
 
@@ -235,14 +234,18 @@ pub async fn allocate_instance(
     .await?;
 
     // Machine will be rebooted once managed resource creation is successful.
-    let snapshot = DbSnapshotLoader {}
-        .load_instance_snapshot(
-            &mut txn,
-            instance.id,
-            machine.current_state(),
-            reprovision_request,
-        )
-        .await?;
+    let snapshot = Instance::load_snapshot_by_machine_id(
+        &mut txn,
+        &machine_id,
+        machine.current_state(),
+        reprovision_request,
+    )
+    .await?
+    .ok_or_else(|| {
+        CarbideError::GenericError(format!(
+            "Newly created instance for {machine_id} was not found"
+        ))
+    })?;
 
     txn.commit()
         .await

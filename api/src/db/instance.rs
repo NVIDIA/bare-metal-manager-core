@@ -19,32 +19,34 @@ use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
-use sqlx::{FromRow, Postgres, Row, Transaction, Type};
+use sqlx::{
+    postgres::{PgHasArrayType, PgRow, PgTypeInfo},
+    FromRow, Postgres, Row, Transaction, Type,
+};
+use tonic::Status;
 
-use super::DatabaseError;
-use crate::model::instance::config::InstanceConfig;
-use crate::model::os::{IpxeOperatingSystem, OperatingSystemVariant};
-use crate::model::RpcDataConversionError;
 use crate::{
-    db::{instance_address::InstanceAddress, machine::DbMachineId},
+    db::{instance_address::InstanceAddress, machine::DbMachineId, DatabaseError},
     model::{
         instance::{
             config::{
                 infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig,
-                tenant_config::TenantConfig,
+                tenant_config::TenantConfig, InstanceConfig,
             },
-            status::infiniband::InstanceInfinibandStatusObservation,
-            status::network::InstanceNetworkStatusObservation,
+            snapshot::InstanceSnapshot,
+            status::{
+                infiniband::InstanceInfinibandStatusObservation,
+                network::InstanceNetworkStatusObservation, InstanceStatusObservations,
+            },
         },
-        machine::machine_id::MachineId,
+        machine::{machine_id::MachineId, ManagedHostState, ReprovisionRequest},
         metadata::Metadata,
-        os::OperatingSystem,
+        os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
         tenant::TenantOrganizationId,
+        RpcDataConversionError,
     },
     CarbideError, CarbideResult,
 };
-use tonic::Status;
 
 /// InstanceId is a strongly typed UUID specific to an instance ID,
 /// with trait implementations allowing it to be passed around as
@@ -422,6 +424,38 @@ impl Instance {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(instance)
+    }
+
+    pub async fn load_snapshot_by_machine_id(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        machine_state: ManagedHostState,
+        reprovision_request: Option<ReprovisionRequest>,
+    ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
+        let instance = match Self::find_by_machine_id(txn, machine_id).await? {
+            Some(instance) => instance,
+            None => return Ok(None),
+        };
+
+        let snapshot = InstanceSnapshot {
+            instance_id: instance.id,
+            machine_id: instance.machine_id,
+            machine_state,
+            metadata: instance.metadata,
+            config: instance.config,
+            config_version: instance.config_version,
+            network_config_version: instance.network_config_version,
+            ib_config_version: instance.ib_config_version,
+            observations: InstanceStatusObservations {
+                network: instance.network_status_observation,
+                infiniband: instance.ib_status_observation,
+                phone_home_last_contact: instance.phone_home_last_contact,
+            },
+            delete_requested: instance.deleted.is_some(),
+            reprovision_request,
+        };
+
+        Ok(Some(snapshot))
     }
 
     pub fn id(&self) -> &InstanceId {

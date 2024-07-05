@@ -47,7 +47,7 @@ use carbide::{
     },
     state_controller::{
         machine::handler::MachineStateHandler,
-        snapshot_loader::{DbSnapshotLoader, InstanceSnapshotLoader, MachineStateSnapshotLoader},
+        snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     },
 };
 use chrono::Utc;
@@ -835,15 +835,19 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     // When no network status has been observed, we report an interface
     // list with no IPs and MACs to the user
-    let snapshot_loader = DbSnapshotLoader {};
     let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
-    let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
-        .await
-        .unwrap();
+    let snapshot = Instance::load_snapshot_by_machine_id(
+        &mut txn,
+        &host_machine_id,
+        machine.current_state(),
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     let pf_addr = *snapshot.config.network.interfaces[0]
         .ip_addrs
@@ -871,10 +875,15 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .unwrap()
         .unwrap();
 
-    let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
-        .await
-        .unwrap();
+    let snapshot = Instance::load_snapshot_by_machine_id(
+        &mut txn,
+        &host_machine_id,
+        machine.current_state(),
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         snapshot.observations.network.as_ref(),
@@ -904,10 +913,15 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .await
         .unwrap()
         .unwrap();
-    let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
-        .await
-        .unwrap();
+    let snapshot = Instance::load_snapshot_by_machine_id(
+        &mut txn,
+        &host_machine_id,
+        machine.current_state(),
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         snapshot.observations.network.as_ref(),
@@ -940,10 +954,15 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .await
         .unwrap()
         .unwrap();
-    let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
-        .await
-        .unwrap();
+    let snapshot = Instance::load_snapshot_by_machine_id(
+        &mut txn,
+        &host_machine_id,
+        machine.current_state(),
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         snapshot.observations.network.as_ref(),
@@ -984,10 +1003,15 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .await
         .unwrap()
         .unwrap();
-    let snapshot = snapshot_loader
-        .load_instance_snapshot(&mut txn, instance_id, machine.current_state(), None)
-        .await
-        .unwrap();
+    let snapshot = Instance::load_snapshot_by_machine_id(
+        &mut txn,
+        &host_machine_id,
+        machine.current_state(),
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(
         snapshot.observations.network.as_ref(),

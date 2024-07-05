@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -21,12 +21,9 @@ use crate::{
         },
         DatabaseError,
     },
-    model::{
-        instance::{snapshot::InstanceSnapshot, status::InstanceStatusObservations},
-        machine::{
-            machine_id::MachineId, CurrentMachineState, MachineInterfaceSnapshot, MachineSnapshot,
-            ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest,
-        },
+    model::machine::{
+        machine_id::MachineId, CurrentMachineState, MachineInterfaceSnapshot, MachineSnapshot,
+        ManagedHostStateSnapshot,
     },
 };
 
@@ -39,19 +36,6 @@ pub trait MachineStateSnapshotLoader: Send + Sync + std::fmt::Debug {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &MachineId,
     ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError>;
-}
-
-/// A service which allows to load a instance snapshot from the database
-#[async_trait::async_trait]
-pub trait InstanceSnapshotLoader: Send + Sync + std::fmt::Debug {
-    /// Loads a instance snapshot from the database
-    async fn load_instance_snapshot(
-        &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        instance_id: InstanceId,
-        machine_state: ManagedHostState,
-        reprovision_request: Option<ReprovisionRequest>,
-    ) -> Result<InstanceSnapshot, SnapshotLoaderError>;
 }
 
 /// Enumerates errors that are returned by [`MachineStateSnapshotLoader`]
@@ -207,62 +191,20 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             }
         }
 
-        let instance_id = Instance::find_id_by_machine_id(txn, host_machine.id()).await?;
-        let instance_snapshot = match instance_id {
-            Some(instance_id) => Some(
-                self.load_instance_snapshot(
-                    txn,
-                    instance_id,
-                    host_snapshot.current.state.clone(),
-                    reprovision_request,
-                )
-                .await?,
-            ),
-            None => None,
-        };
+        let instance = Instance::load_snapshot_by_machine_id(
+            txn,
+            host_machine.id(),
+            host_snapshot.current.state.clone(),
+            reprovision_request,
+        )
+        .await?;
 
         let managed_state = host_snapshot.current.state.clone();
         let snapshot = ManagedHostStateSnapshot {
             host_snapshot,
             dpu_snapshots,
-            instance: instance_snapshot,
+            instance,
             managed_state,
-        };
-
-        Ok(snapshot)
-    }
-}
-
-#[async_trait::async_trait]
-impl InstanceSnapshotLoader for DbSnapshotLoader {
-    async fn load_instance_snapshot(
-        &self,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        instance_id: InstanceId,
-        machine_state: ManagedHostState,
-        reprovision_request: Option<ReprovisionRequest>,
-    ) -> Result<InstanceSnapshot, SnapshotLoaderError> {
-        let instance = Instance::find_by_id(txn, instance_id)
-            .await
-            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
-            .ok_or_else(|| SnapshotLoaderError::InstanceNotFound(instance_id))?;
-
-        let snapshot = InstanceSnapshot {
-            instance_id,
-            machine_id: instance.machine_id,
-            machine_state,
-            metadata: instance.metadata,
-            config: instance.config,
-            config_version: instance.config_version,
-            network_config_version: instance.network_config_version,
-            ib_config_version: instance.ib_config_version,
-            observations: InstanceStatusObservations {
-                network: instance.network_status_observation,
-                infiniband: instance.ib_status_observation,
-                phone_home_last_contact: instance.phone_home_last_contact,
-            },
-            delete_requested: instance.deleted.is_some(),
-            reprovision_request,
         };
 
         Ok(snapshot)
