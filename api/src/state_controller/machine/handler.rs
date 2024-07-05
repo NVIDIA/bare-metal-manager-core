@@ -61,7 +61,10 @@ use crate::{
             UefiSetupInfo, UefiSetupState,
         },
     },
-    redfish::{build_redfish_client_from_machine_snapshot, host_power_control, poll_redfish_job},
+    redfish::{
+        build_redfish_client_from_machine_snapshot, host_power_control, poll_redfish_job,
+        RedfishClientCreationError,
+    },
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
@@ -1825,7 +1828,7 @@ impl StateHandler for DpuMachineStateHandler {
                 }
 
                 let next_state = ManagedHostState::HostNotReady {
-                    machine_state: MachineState::WaitingForDiscovery,
+                    machine_state: MachineState::WaitingForPlatformConfiguration,
                 };
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
@@ -2297,6 +2300,50 @@ impl StateHandler for HostMachineStateHandler {
                         host_machine_id.clone(),
                         state.managed_state.clone(),
                     ))
+                }
+                MachineState::WaitingForPlatformConfiguration => {
+                    let next_state = ManagedHostState::HostNotReady {
+                        machine_state: MachineState::WaitingForDiscovery,
+                    };
+
+                    tracing::info!(
+                        machine_id = %host_machine_id,
+                        "Starting UEFI / BMC setup");
+
+                    match build_redfish_client_from_machine_snapshot(
+                        &state.host_snapshot,
+                        &ctx.services.redfish_client_pool,
+                        txn,
+                    )
+                    .await
+                    {
+                        Ok(redfish_client) => {
+                            redfish_client.forge_setup().await.map_err(|e| {
+                                StateHandlerError::RedfishError {
+                                    operation: "forge_setup",
+                                    error: e,
+                                }
+                            })?;
+
+                            // Rely on the next_state being WaitingForDiscovery which performs a
+                            // reboot of the host to pick up the changes
+                            Ok(StateHandlerOutcome::Transition(next_state))
+                        }
+                        Err(RedfishClientCreationError::MissingBmcEndpoint(_)) => {
+                            tracing::warn!(
+                                machine_id = %host_machine_id,
+                                "Machine does not have BMC information, skipping UEFI / BMC setup");
+
+                            Ok(StateHandlerOutcome::Transition(next_state))
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                machine_id = %host_machine_id,
+                                "Unable to connect to Redfish API for UEFI / BMC setup: {:?}", e);
+
+                            Err(e.into())
+                        }
+                    }
                 }
                 MachineState::WaitingForDiscovery => {
                     if !discovered_after_state_transition(

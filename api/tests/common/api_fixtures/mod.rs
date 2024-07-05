@@ -164,6 +164,9 @@ impl TestEnv {
             ManagedHostState::HostNotReady { machine_state } => {
                 let mc = match machine_state {
                     carbide::model::machine::MachineState::Init => machine_state,
+                    carbide::model::machine::MachineState::WaitingForPlatformConfiguration => {
+                        machine_state
+                    }
                     carbide::model::machine::MachineState::WaitingForNetworkInstall => {
                         machine_state
                     }
