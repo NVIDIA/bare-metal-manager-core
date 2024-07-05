@@ -152,6 +152,12 @@ pub enum CarbideCommand {
     ExpectedMachine(ExpectedMachineAction),
     #[clap(about = "VPC related handling", subcommand)]
     Vpc(VpcOptions),
+    #[clap(
+        about = "InfiniBand Partition related handling",
+        subcommand,
+        visible_alias = "ibp"
+    )]
+    IbPartition(IbPartitionOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -1258,5 +1264,26 @@ pub struct ShowVpc {
     pub tenant_org_id: Option<String>,
 
     #[clap(short, long, help = "The VPC name to query")]
+    pub name: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub enum IbPartitionOptions {
+    #[clap(about = "Display InfiniBand Partition information")]
+    Show(ShowIbPartition),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowIbPartition {
+    #[clap(
+        default_value(""),
+        help = "The InfiniBand Partition ID to query, leave empty for all (default)"
+    )]
+    pub id: String,
+
+    #[clap(short, long, help = "The Tenant Org ID to query")]
+    pub tenant_org_id: Option<String>,
+
+    #[clap(short, long, help = "The InfiniBand Partition name to query")]
     pub name: Option<String>,
 }

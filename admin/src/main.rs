@@ -17,6 +17,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::cfg::carbide_options::IbPartitionOptions;
 use ::rpc::common::MachineId;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
@@ -62,6 +63,7 @@ use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*
 mod cfg;
 mod domain;
 mod dpu;
+mod ib_partition;
 mod instance;
 mod inventory;
 mod machine;
@@ -823,6 +825,12 @@ async fn main() -> color_eyre::Result<()> {
         CarbideCommand::Vpc(vpc) => match vpc {
             VpcOptions::Show(vpc) => {
                 vpc::handle_show(vpc, config.format, api_config, config.internal_page_size).await?
+            }
+        },
+        CarbideCommand::IbPartition(ibp) => match ibp {
+            IbPartitionOptions::Show(ibp) => {
+                ib_partition::handle_show(ibp, config.format, api_config, config.internal_page_size)
+                    .await?
             }
         },
     }
