@@ -909,41 +909,10 @@ build-machine-lifecycle-test-container:
     - docker push $BUILD_DOCKER_IMAGE
 
 #
-# Generate variables needed by the pipeline
+# Generate variables and certs needed by the scheduled test pipeline
 #
 scheduled-test:prepare:
   stage: .pre
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-  retry:
-    when:
-      - runner_system_failure
-    max: 1
-  image:
-    name: alpine:latest
-    entrypoint: [ "" ]
-  variables:
-    # This variable is specified in GitLab UI > Scheduled Pipelines
-    SITE_UNDER_TEST: $SITE_UNDER_TEST
-  script:
-    - set -euo pipefail
-    # Parse short site name from full site name
-    - export SHORT_SITE_NAME=$(echo "${SITE_UNDER_TEST}" | cut -d '-' -f 2)
-    # Generate carbide API URL
-    - export CARBIDE_API_URL="api-${SHORT_SITE_NAME}.frg.nvidia.com"
-    - echo "SHORT_SITE_NAME=${SHORT_SITE_NAME}" > variables.env
-    - echo "CARBIDE_API_URL=${CARBIDE_API_URL}" >> variables.env
-  artifacts:
-    reports:
-      dotenv: variables.env
-
-#
-# Get short-lived certificate for talking to carbide-api
-#
-scheduled-test:get-api-certificate:
-  stage: .pre
-  needs:
-    - job: scheduled-test:prepare
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   retry:
@@ -962,22 +931,30 @@ scheduled-test:get-api-certificate:
       aud: $VAULT_ADDR
   before_script:
     - set -euo pipefail
-    # Cannot overwrite predefined GitLab variables using the 'variables' section, so do it here:
     - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
     - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
     - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
   script:
+    # Parse short site name from full site name
+    - export SHORT_SITE_NAME=$(echo "${SITE_UNDER_TEST}" | cut -d '-' -f 2)
+    # Generate carbide API URL
+    - export CARBIDE_API_URL="api-${SHORT_SITE_NAME}.frg.nvidia.com"
+    - echo "SHORT_SITE_NAME=${SHORT_SITE_NAME}" > variables.env
+    - echo "CARBIDE_API_URL=${CARBIDE_API_URL}" >> variables.env
+    # Generate short-lived carbide API certificate
     - mkdir certs && pushd certs
     - vault write --format json forgeca-production/issue/ci-api-access common_name="${CARBIDE_API_URL}" ttl="6h" > vault_cert_output.json
     - cat vault_cert_output.json | jq -r .data.certificate > ci-api-user.crt
     - cat vault_cert_output.json | jq -r .data.private_key > ci-api-user
     - popd
   artifacts:
+    reports:
+      dotenv: variables.env
     paths:
       - certs/
 
 #
-# Get the latest versions of carbide and ssh-console from nvcr.io/nvidian/nvforge-devel
+# Get the latest versions of carbide and ssh-console from nvcr.io
 #
 scheduled-test:get-latest-versions:
   stage: .pre
@@ -1074,7 +1051,6 @@ scheduled-test:verify-site-controller-version:
   stage: dev-deploy
   needs:
     - job: scheduled-test:prepare
-    - job: scheduled-test:get-api-certificate
     - job: scheduled-test:get-latest-versions
     - job: scheduled-test:auto-deploy-site-controller
   rules:
@@ -1112,8 +1088,6 @@ scheduled-test:cloud-api-tests:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS =="false"
       when: never
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS == "true"
-      needs:
-        - job: scheduled-test:verify-site-controller-version
   timeout: 2h
   retry:
     when:
@@ -1173,12 +1147,11 @@ scheduled-test:machine-lifecycle-test:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "false" && $RUN_TESTS =="true"
       needs:
         - job: scheduled-test:prepare
-        - job: scheduled-test:get-api-certificate
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS =="false"
       when: never
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS == "true"
       needs:
-        - job: scheduled-test:verify-site-controller-version
+        - job: scheduled-test:prepare
   retry:
     max: 0
   image:
