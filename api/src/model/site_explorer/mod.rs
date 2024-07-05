@@ -24,6 +24,8 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
+use super::hardware_info::DpuData;
+
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
 /// only be adjusted in a backward compatible fashion.
@@ -173,38 +175,117 @@ impl ExploredDpu {
     }
 
     pub fn has_valid_firmware(&self, dpu_models: &HashMap<DpuModel, DpuDesc>) -> CarbideResult<()> {
-        if let Some(dpu_model) = self.report.identify_dpu() {
-            if let Some(dpu_desc) = dpu_models.get(&dpu_model) {
-                for dpu_component in DpuComponent::iter() {
-                    if let Some(min_version) = dpu_desc.component_min_version.get(&dpu_component) {
-                        if let Some(cur_version) = self.report.dpu_component_version(dpu_component)
+        match self.report.identify_dpu() {
+            Some(dpu_model) => match dpu_models.get(&dpu_model) {
+                Some(dpu_desc) => {
+                    for dpu_component in DpuComponent::iter() {
+                        if let Some(min_version) =
+                            dpu_desc.component_min_version.get(&dpu_component)
                         {
-                            match version_compare::compare_to(
-                                &cur_version,
-                                min_version,
-                                version_compare::Cmp::Lt,
-                            ) {
-                                Ok(is_unsuppored_firmware_version) => {
-                                    if is_unsuppored_firmware_version {
-                                        return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                                            "{:?} firmware version {} is not supported. Please update to: {}",
-                                            dpu_component, cur_version, min_version
-                                        )));
+                            if let Some(cur_version) =
+                                self.report.dpu_component_version(dpu_component)
+                            {
+                                match version_compare::compare_to(
+                                    &cur_version,
+                                    min_version,
+                                    version_compare::Cmp::Lt,
+                                ) {
+                                    Ok(is_unsuppored_firmware_version) => {
+                                        if is_unsuppored_firmware_version {
+                                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                                                    "{:?} firmware version {} is not supported. Please update to: {}",
+                                                    dpu_component, cur_version, min_version
+                                                )));
+                                        }
                                     }
-                                }
-                                Err(e) => {
-                                    return Err(CarbideError::GenericError(format!(
-                                        "Could not compare firmware versions (cur_version: {cur_version}, min_version: {min_version}) for DPU {:#?}: {e:#?}",
-                                        self.report.machine_id
-                                    )));
+                                    Err(e) => {
+                                        return Err(CarbideError::GenericError(format!(
+                                                "Could not compare firmware versions (cur_version: {cur_version}, min_version: {min_version}) for DPU {:#?}: {e:#?}",
+                                                self.report.machine_id
+                                            )));
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                None => {
+                    return Err(CarbideError::GenericError(format!(
+                        "Missing Forge model information for DPU model {:#?} out of {:#?}",
+                        dpu_model.clone(),
+                        dpu_models.clone()
+                    )));
+                }
+            },
+            None => {
+                return Err(CarbideError::GenericError(format!(
+                    "Cannot determine DPU model for {:#?}",
+                    self
+                )));
             }
         }
+
         Ok(())
+    }
+
+    pub fn bmc_firmware_version(&self) -> CarbideResult<Option<String>> {
+        Ok(self.report.dpu_component_version(DpuComponent::Bmc))
+    }
+
+    pub fn hardware_info(&self) -> CarbideResult<HardwareInfo> {
+        let serial_number = self
+            .report
+            .systems
+            .first()
+            .and_then(|system| system.serial_number.as_ref())
+            .unwrap();
+        let dmi_data = self
+            .report
+            .create_temporary_dmi_data(serial_number.as_str());
+
+        let chassis_map = self
+            .report
+            .chassis
+            .clone()
+            .into_iter()
+            .map(|x| (x.id.clone(), x))
+            .collect::<HashMap<_, _>>();
+        let inventory_map = self.report.get_inventory_map();
+
+        let dpu_data = DpuData {
+            factory_mac_address: self
+                .host_pf_mac_address
+                .ok_or(CarbideError::MissingArgument("Missing base mac"))?
+                .to_string(),
+            part_number: chassis_map
+                .get("Card1")
+                .and_then(|value: &Chassis| value.part_number.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            part_description: chassis_map
+                .get("Card1")
+                .and_then(|value| value.model.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            firmware_version: inventory_map
+                .get("DPU_NIC")
+                .and_then(|value| value.version.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            firmware_date: inventory_map
+                .get("DPU_NIC")
+                .and_then(|value| value.release_date.as_ref())
+                .unwrap_or(&"".to_string())
+                .to_string(),
+            ..Default::default()
+        };
+
+        Ok(HardwareInfo {
+            dmi_data: Some(dmi_data),
+            dpu_info: Some(dpu_data),
+            machine_type: "aarch64".to_string(),
+            ..Default::default()
+        })
     }
 }
 
