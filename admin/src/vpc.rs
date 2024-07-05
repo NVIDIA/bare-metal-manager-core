@@ -90,7 +90,7 @@ async fn show_vpc_details(
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
     let vpcs = match rpc::get_vpcs_by_ids(api_config, &[vpc_id.clone()]).await {
-        Ok(instances) => instances,
+        Ok(vpcs) => vpcs,
         Err(CarbideCliError::ApiInvocationError(status))
             if status.code() == tonic::Code::Unimplemented =>
         {

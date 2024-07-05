@@ -1317,3 +1317,69 @@ pub async fn get_ib_partitions_deprecated(
     })
     .await
 }
+
+pub async fn get_keyset_ids(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+) -> CarbideCliResult<rpc::TenantKeysetIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::TenantKeysetSearchFilter { tenant_org_id });
+        let ids = client
+            .find_tenant_keyset_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(ids)
+    })
+    .await
+}
+
+pub async fn get_keysets_by_ids(
+    api_config: &ApiConfig<'_>,
+    identifiers: &[rpc::TenantKeysetIdentifier],
+) -> CarbideCliResult<rpc::TenantKeySetList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::TenantKeysetsByIdsRequest {
+            keyset_ids: Vec::from(identifiers),
+            include_key_data: true,
+        });
+        let instances = client
+            .find_tenant_keysets_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(instances)
+    })
+    .await
+}
+
+// TODO: remove when all sites have been upgraded to include find_ids and find_by_ids methods
+pub async fn get_keysets_deprecated(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    identifier: Option<rpc::TenantKeysetIdentifier>,
+) -> CarbideCliResult<rpc::TenantKeySetList> {
+    let (mut organization_id, keyset_id) = match identifier.clone() {
+        Some(id) => (Some(id.organization_id), Some(id.keyset_id)),
+        None => (None, None),
+    };
+    if tenant_org_id.is_some() {
+        organization_id = tenant_org_id;
+    }
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::FindTenantKeysetRequest {
+            organization_id,
+            keyset_id,
+            include_key_data: true,
+        });
+        let details = client
+            .find_tenant_keyset(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(details)
+    })
+    .await
+}

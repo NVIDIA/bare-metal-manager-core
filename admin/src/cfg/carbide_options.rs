@@ -158,6 +158,12 @@ pub enum CarbideCommand {
         visible_alias = "ibp"
     )]
     IbPartition(IbPartitionOptions),
+    #[clap(
+        about = "Tenant KeySet related handling",
+        subcommand,
+        visible_alias = "tks"
+    )]
+    TenantKeySet(TenantKeySetOptions),
 }
 
 #[derive(Parser, Debug)]
@@ -1286,4 +1292,22 @@ pub struct ShowIbPartition {
 
     #[clap(short, long, help = "The InfiniBand Partition name to query")]
     pub name: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+pub enum TenantKeySetOptions {
+    #[clap(about = "Display Tenant KeySet information")]
+    Show(ShowTenantKeySet),
+}
+
+#[derive(Parser, Debug)]
+pub struct ShowTenantKeySet {
+    #[clap(
+        default_value(""),
+        help = "The Tenant KeySet ID in the format of <tenant_org_id>/<keyset_id> to query, leave empty for all (default)"
+    )]
+    pub id: String,
+
+    #[clap(short, long, help = "The Tenant Org ID to query")]
+    pub tenant_org_id: Option<String>,
 }
