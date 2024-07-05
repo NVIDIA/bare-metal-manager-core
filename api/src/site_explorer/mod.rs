@@ -21,6 +21,7 @@ use std::{
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use sqlx::PgPool;
+use sqlx::{Postgres, Transaction};
 use tokio::{net::lookup_host, sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
@@ -322,49 +323,9 @@ impl SiteExplorer {
 
             let dpu_machine_id = dpu_report.report.machine_id.as_ref().unwrap();
 
-            let (dpu_machine, is_new) =
-                match Machine::find_one(&mut txn, dpu_machine_id, MachineSearchConfig::default())
-                    .await?
-                {
-                    // Do nothing if machine exists. It'll be reprovisioned via redfish
-                    Some(m) => (m, false),
-                    None => match Machine::create(
-                        &mut txn,
-                        dpu_machine_id,
-                        ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::Initializing,
-                        },
-                    )
-                    .await
-                    {
-                        Ok(m) => {
-                            tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
-                            (m, true)
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, "Can't create Machine");
-                            return Err(e);
-                        }
-                    },
-                };
-            if !is_new {
+            if !self.create_dpu_machine(&mut txn, dpu_machine_id).await? {
                 return Ok(false);
             }
-
-            let (mut network_config, version) = dpu_machine.network_config().clone().take();
-            if network_config.loopback_ip.is_none() {
-                let loopback_ip = Machine::allocate_loopback_ip(
-                    &self.common_pools,
-                    &mut txn,
-                    &dpu_machine_id.to_string(),
-                )
-                .await?;
-                network_config.loopback_ip = Some(loopback_ip);
-            }
-            network_config.use_admin_network = Some(true);
-            Machine::try_update_network_config(&mut txn, dpu_machine_id, version, &network_config)
-                .await
-                .map_err(CarbideError::from)?;
 
             let serial_number = dpu_report
                 .report
@@ -1012,6 +973,67 @@ impl SiteExplorer {
     fn can_visit(&self, explored_dpu: &ExploredDpu) -> CarbideResult<()> {
         explored_dpu.has_valid_report()?;
         explored_dpu.has_valid_firmware(&self.dpu_models)?;
+        Ok(())
+    }
+
+    // create_dpu_machine creates a machine for the DPU as specified by dpu_machine_id. Returns a boolean indicating whether the function created a new machine (returns false if a machine already existed for this DPU).
+    // if an entry exists in the machines table with a machine ID which matches dpu_machine_id, a machine has already been created for this DPU. There is no further work for the site-explorer for this endpoint: return false.
+    // if an entry doesnt exist in the machine table, the site explorer will add an entry in the machines table for the DPU and update its network config appropriately (allocating a loop ip address etc). Return true.
+    async fn create_dpu_machine(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        dpu_machine_id: &MachineId,
+    ) -> CarbideResult<bool> {
+        let dpu_machine =
+            match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
+                // Do nothing if machine exists. It'll be reprovisioned via redfish
+                Some(_existing_machine) => {
+                    return Ok(false);
+                }
+                None => match Machine::create(
+                    txn,
+                    dpu_machine_id,
+                    ManagedHostState::DpuDiscoveringState {
+                        discovering_state: DpuDiscoveringState::Initializing,
+                    },
+                )
+                .await
+                {
+                    Ok(machine) => {
+                        tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
+                        machine
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Can't create Machine");
+                        return Err(e);
+                    }
+                },
+            };
+
+        self.update_dpu_network_config(txn, &dpu_machine).await?;
+        Ok(true)
+    }
+
+    async fn update_dpu_network_config(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        dpu_machine: &Machine,
+    ) -> CarbideResult<()> {
+        let (mut network_config, version) = dpu_machine.network_config().clone().take();
+        if network_config.loopback_ip.is_none() {
+            let loopback_ip = Machine::allocate_loopback_ip(
+                &self.common_pools,
+                txn,
+                &dpu_machine.id().to_string(),
+            )
+            .await?;
+            network_config.loopback_ip = Some(loopback_ip);
+        }
+        network_config.use_admin_network = Some(true);
+        Machine::try_update_network_config(txn, dpu_machine.id(), version, &network_config)
+            .await
+            .map_err(CarbideError::from)?;
+
         Ok(())
     }
 }
