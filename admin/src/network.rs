@@ -214,15 +214,23 @@ async fn show_all_segments(
     name: Option<String>,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_segment_ids = match rpc::get_segment_ids(api_config, tenant_org_id, name).await {
-        Ok(all_segment_ids) => all_segment_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            return show_all_segments_deprecated(json, api_config).await;
-        }
-        Err(e) => return Err(e),
-    };
+    let all_segment_ids =
+        match rpc::get_segment_ids(api_config, tenant_org_id.clone(), name.clone()).await {
+            Ok(all_segment_ids) => all_segment_ids,
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::Unimplemented =>
+            {
+                if tenant_org_id.is_some() || name.is_some() {
+                    return Err(CarbideCliError::GenericError(
+                        "Filtering by Tenant Org ID or Name is not supported for this site.\
+                \nIt does not have a required version of the Carbide API."
+                            .to_string(),
+                    ));
+                }
+                return show_all_segments_deprecated(json, api_config).await;
+            }
+            Err(e) => return Err(e),
+        };
     let mut all_segments = forgerpc::NetworkSegmentList {
         network_segments: Vec::with_capacity(all_segment_ids.network_segments_ids.len()),
     };
@@ -301,7 +309,14 @@ pub async fn handle_show(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
     if args.network.is_empty() {
-        show_all_segments(is_json, api_config, None, None, page_size).await?;
+        show_all_segments(
+            is_json,
+            api_config,
+            args.tenant_org_id,
+            args.name,
+            page_size,
+        )
+        .await?;
         return Ok(());
     }
     show_network_information(args.network, is_json, api_config).await?;

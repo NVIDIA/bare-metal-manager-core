@@ -884,6 +884,9 @@ pub struct ShowInstance {
     #[clap(short, long, action)]
     pub extrainfo: bool,
 
+    #[clap(short, long, help = "The Tenant Org ID to query")]
+    pub tenant_org_id: Option<String>,
+
     #[clap(long, help = "The key of label instance to query")]
     pub label_key: Option<String>,
 
@@ -953,6 +956,12 @@ pub struct ShowNetwork {
         help = "The network segment to query, leave empty for all (default)"
     )]
     pub network: String,
+
+    #[clap(short, long, help = "The Tenant Org ID to query")]
+    pub tenant_org_id: Option<String>,
+
+    #[clap(short, long, help = "The VPC name to query")]
+    pub name: Option<String>,
 }
 
 #[derive(PartialEq, Eq, ValueEnum, Clone, Debug)]

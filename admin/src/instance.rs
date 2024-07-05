@@ -249,22 +249,34 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 async fn show_instances(
     json: bool,
     api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
     label_key: Option<String>,
     label_value: Option<String>,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_instance_ids =
-        match rpc::get_instance_ids(api_config, None, label_key.clone(), label_value.clone()).await
+    let all_instance_ids = match rpc::get_instance_ids(
+        api_config,
+        tenant_org_id.clone(),
+        label_key.clone(),
+        label_value.clone(),
+    )
+    .await
+    {
+        Ok(all_instance_ids) => all_instance_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
         {
-            Ok(all_instance_ids) => all_instance_ids,
-            Err(CarbideCliError::ApiInvocationError(status))
-                if status.code() == tonic::Code::Unimplemented =>
-            {
-                return show_all_instances_deprecated(json, api_config, label_key, label_value)
-                    .await;
+            if tenant_org_id.is_some() {
+                return Err(CarbideCliError::GenericError(
+                    "Filtering by Tenant Org ID is not supported for this site.\
+                \nIt does not have a required version of the Carbide API."
+                        .to_string(),
+                ));
             }
-            Err(e) => return Err(e),
-        };
+            return show_all_instances_deprecated(json, api_config, label_key, label_value).await;
+        }
+        Err(e) => return Err(e),
+    };
     let mut all_instances = forgerpc::InstanceList {
         instances: Vec::with_capacity(all_instance_ids.instance_ids.len()),
     };
@@ -349,6 +361,7 @@ pub async fn handle_show(
         show_instances(
             is_json,
             api_config,
+            args.tenant_org_id,
             args.label_key,
             args.label_value,
             page_size,
