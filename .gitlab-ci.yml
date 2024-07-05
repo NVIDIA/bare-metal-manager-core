@@ -1041,6 +1041,7 @@ scheduled-test:auto-deploy-site-controller:
     - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
     - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
     - export ARGOCD_SITE_PASSWORD="$(vault kv get -field argo-admin-password secrets/${SITE_UNDER_TEST})"
+    - export FORGED_PROJECT_ACCESS_TOKEN="$(vault kv get -field=forged_project_token secrets/forge/tokens)"
   script:
     - bash .gitlab/update-site-controller.sh
 
