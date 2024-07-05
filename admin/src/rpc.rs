@@ -23,6 +23,7 @@ use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientT};
 
 use super::{CarbideCliError, CarbideCliResult};
 use crate::cfg::carbide_options::{self, ForceDeleteMachineQuery, MachineQuery};
+
 pub async fn with_forge_client<'a, T, F>(
     api_config: &ApiConfig<'a>,
     callback: impl FnOnce(ForgeClientT) -> F,
@@ -1245,6 +1246,69 @@ pub async fn get_vpcs_deprecated(
         let request = tonic::Request::new(rpc::VpcSearchQuery { id, name });
         let details = client
             .find_vpcs(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(details)
+    })
+    .await
+}
+
+pub async fn get_ib_partition_ids(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    name: Option<String>,
+) -> CarbideCliResult<rpc::IbPartitionIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::IbPartitionSearchFilter {
+            tenant_org_id,
+            name,
+        });
+        let ids = client
+            .find_ib_partition_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(ids)
+    })
+    .await
+}
+
+pub async fn get_ib_partitions_by_ids(
+    api_config: &ApiConfig<'_>,
+    ids: &[::rpc::common::Uuid],
+) -> CarbideCliResult<rpc::IbPartitionList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::IbPartitionsByIdsRequest {
+            ib_partition_ids: Vec::from(ids),
+            include_history: ids.len() == 1,
+        });
+        let instances = client
+            .find_ib_partitions_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(instances)
+    })
+    .await
+}
+
+// TODO: remove when all sites have been upgraded to include find_ids and find_by_ids methods
+pub async fn get_ib_partitions_deprecated(
+    api_config: &ApiConfig<'_>,
+    id: Option<::rpc::common::Uuid>,
+) -> CarbideCliResult<rpc::IbPartitionList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::IbPartitionQuery {
+            id: id.clone(),
+            search_config: Some(rpc::IbPartitionSearchConfig {
+                include_history: id.is_some(),
+            }),
+        });
+        let details = client
+            .find_ib_partitions(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
