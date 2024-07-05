@@ -16,11 +16,12 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cfg::{DpuComponent, DpuModel},
+    cfg::{DpuComponent, DpuDesc, DpuModel},
     model::{
         hardware_info::{DmiData, HardwareInfo},
         machine::machine_id::MachineId,
     },
+    CarbideError, CarbideResult,
 };
 
 /// Data that we gathered about a particular endpoint during site exploration
@@ -147,6 +148,63 @@ impl From<ExploredDpu> for rpc::site_explorer::ExploredDpu {
             bmc_ip: dpu.bmc_ip.to_string(),
             host_pf_mac_address: dpu.host_pf_mac_address.map(|m| m.to_string()),
         }
+    }
+}
+
+impl ExploredDpu {
+    pub fn has_valid_report(&self) -> CarbideResult<()> {
+        if self.report.machine_id.is_none() {
+            return Err(CarbideError::MissingArgument("Missing Machine ID"));
+        }
+
+        if self.report.systems.is_empty() {
+            return Err(CarbideError::MissingArgument("Missing Systems Info"));
+        }
+
+        if self.report.chassis.is_empty() {
+            return Err(CarbideError::MissingArgument("Missing Chassis Info"));
+        }
+
+        if self.report.service.is_empty() {
+            return Err(CarbideError::MissingArgument("Missing Service Info"));
+        }
+
+        Ok(())
+    }
+
+    pub fn has_valid_firmware(&self, dpu_models: &HashMap<DpuModel, DpuDesc>) -> CarbideResult<()> {
+        if let Some(dpu_model) = self.report.identify_dpu() {
+            if let Some(dpu_desc) = dpu_models.get(&dpu_model) {
+                for dpu_component in DpuComponent::iter() {
+                    if let Some(min_version) = dpu_desc.component_min_version.get(&dpu_component) {
+                        if let Some(cur_version) = self.report.dpu_component_version(dpu_component)
+                        {
+                            match version_compare::compare_to(
+                                &cur_version,
+                                min_version,
+                                version_compare::Cmp::Lt,
+                            ) {
+                                Ok(is_unsuppored_firmware_version) => {
+                                    if is_unsuppored_firmware_version {
+                                        return Err(CarbideError::UnsupportedFirmwareVersion(format!(
+                                            "{:?} firmware version {} is not supported. Please update to: {}",
+                                            dpu_component, cur_version, min_version
+                                        )));
+                                    }
+                                }
+                                Err(e) => {
+                                    return Err(CarbideError::GenericError(format!(
+                                        "Could not compare firmware versions (cur_version: {cur_version}, min_version: {min_version}) for DPU {:#?}: {e:#?}",
+                                        self.report.machine_id
+                                    )));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 

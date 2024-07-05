@@ -25,7 +25,7 @@ use tokio::{net::lookup_host, sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
-    cfg::{DpuComponent, DpuDesc, DpuModel, SiteExplorerConfig},
+    cfg::{DpuDesc, DpuModel, SiteExplorerConfig},
     db::{
         bmc_metadata::BmcMetaDataUpdateRequest,
         expected_machine::ExpectedMachine,
@@ -318,87 +318,35 @@ impl SiteExplorer {
         let mut host_machine_id: Option<MachineId> = None;
 
         for (i, dpu_report) in explored_host.dpus.iter().enumerate() {
-            if dpu_report.report.machine_id.is_none() {
-                return Err(CarbideError::MissingArgument("Missing Machine ID"));
-            }
+            self.can_visit(dpu_report)?;
 
-            if dpu_report.report.systems.is_empty() {
-                return Err(CarbideError::MissingArgument("Missing Systems Info"));
-            }
+            let dpu_machine_id = dpu_report.report.machine_id.as_ref().unwrap();
 
-            if dpu_report.report.chassis.is_empty() {
-                return Err(CarbideError::MissingArgument("Missing Chassis Info"));
-            }
-
-            if dpu_report.report.service.is_empty() {
-                return Err(CarbideError::MissingArgument("Missing Service Info"));
-            }
-
-            if let Some(dpu_model) = dpu_report.report.identify_dpu() {
-                if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
-                    for dpu_component in DpuComponent::iter() {
-                        if let Some(min_version) =
-                            dpu_desc.component_min_version.get(&dpu_component)
-                        {
-                            if let Some(cur_version) =
-                                dpu_report.report.dpu_component_version(dpu_component)
-                            {
-                                match version_compare::compare_to(
-                                    &cur_version,
-                                    min_version,
-                                    version_compare::Cmp::Lt,
-                                ) {
-                                    Ok(is_unsuppored_firmware_version) => {
-                                        if is_unsuppored_firmware_version {
-                                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                                                "{:?} firmware version {} is not supported. Please update to: {}",
-                                                dpu_component, cur_version, min_version
-                                            )));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        return Err(CarbideError::GenericError(format!(
-                                            "Could not compare firmware versions (cur_version: {cur_version}, min_version: {min_version}) for DPU {:#?}: {e:#?}",
-                                            dpu_report.report.machine_id
-                                        )));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            let stable_machine_id = dpu_report.report.machine_id.as_ref().unwrap();
-
-            let (dpu_machine, is_new) = match Machine::find_one(
-                &mut txn,
-                stable_machine_id,
-                MachineSearchConfig::default(),
-            )
-            .await?
-            {
-                // Do nothing if machine exists. It'll be reprovisioned via redfish
-                Some(m) => (m, false),
-                None => match Machine::create(
-                    &mut txn,
-                    stable_machine_id,
-                    ManagedHostState::DpuDiscoveringState {
-                        discovering_state: DpuDiscoveringState::Initializing,
-                    },
-                )
-                .await
+            let (dpu_machine, is_new) =
+                match Machine::find_one(&mut txn, dpu_machine_id, MachineSearchConfig::default())
+                    .await?
                 {
-                    Ok(m) => {
-                        tracing::info!("Created machine id: {}", stable_machine_id);
-                        (m, true)
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %e, "Can't create Machine");
-                        return Err(e);
-                    }
-                },
-            };
+                    // Do nothing if machine exists. It'll be reprovisioned via redfish
+                    Some(m) => (m, false),
+                    None => match Machine::create(
+                        &mut txn,
+                        dpu_machine_id,
+                        ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::Initializing,
+                        },
+                    )
+                    .await
+                    {
+                        Ok(m) => {
+                            tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
+                            (m, true)
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "Can't create Machine");
+                            return Err(e);
+                        }
+                    },
+                };
             if !is_new {
                 return Ok(false);
             }
@@ -408,20 +356,15 @@ impl SiteExplorer {
                 let loopback_ip = Machine::allocate_loopback_ip(
                     &self.common_pools,
                     &mut txn,
-                    &stable_machine_id.to_string(),
+                    &dpu_machine_id.to_string(),
                 )
                 .await?;
                 network_config.loopback_ip = Some(loopback_ip);
             }
             network_config.use_admin_network = Some(true);
-            Machine::try_update_network_config(
-                &mut txn,
-                stable_machine_id,
-                version,
-                &network_config,
-            )
-            .await
-            .map_err(CarbideError::from)?;
+            Machine::try_update_network_config(&mut txn, dpu_machine_id, version, &network_config)
+                .await
+                .map_err(CarbideError::from)?;
 
             let serial_number = dpu_report
                 .report
@@ -478,11 +421,10 @@ impl SiteExplorer {
             };
 
             let _topology =
-                MachineTopology::create_or_update(&mut txn, stable_machine_id, &hardware_info)
-                    .await?;
+                MachineTopology::create_or_update(&mut txn, dpu_machine_id, &hardware_info).await?;
 
             // Forge scout will update this topology with a full information.
-            MachineTopology::set_topology_update_needed(&mut txn, stable_machine_id, true).await?;
+            MachineTopology::set_topology_update_needed(&mut txn, dpu_machine_id, true).await?;
 
             let bmc_info = BmcInfo {
                 ip: Some(dpu_report.bmc_ip.to_string()),
@@ -504,7 +446,7 @@ impl SiteExplorer {
             };
 
             let bmc_metadata = BmcMetaDataUpdateRequest {
-                machine_id: stable_machine_id.clone(),
+                machine_id: dpu_machine_id.clone(),
                 bmc_info,
             };
 
@@ -520,7 +462,7 @@ impl SiteExplorer {
                     MachineInterface::create_host_machine_interface_proactively(
                         &mut txn,
                         Some(&hardware_info),
-                        dpu_machine.id(),
+                        dpu_machine_id,
                     )
                     .await?;
 
@@ -588,7 +530,7 @@ impl SiteExplorer {
                     MachineInterface::create_host_machine_interface_proactively(
                         &mut txn,
                         Some(&hardware_info),
-                        dpu_machine.id(),
+                        dpu_machine_id,
                     )
                     .await?;
                 machine_interface
@@ -1064,6 +1006,12 @@ impl SiteExplorer {
             return Err(err.into());
         }
 
+        Ok(())
+    }
+
+    fn can_visit(&self, explored_dpu: &ExploredDpu) -> CarbideResult<()> {
+        explored_dpu.has_valid_report()?;
+        explored_dpu.has_valid_firmware(&self.dpu_models)?;
         Ok(())
     }
 }
