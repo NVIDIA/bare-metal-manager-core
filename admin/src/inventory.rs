@@ -319,7 +319,7 @@ fn create_inventory_for_instances(
     machines: &MachineList,
 ) -> CarbideCliResult<(
     HashMap<String, Vec<InstanceDetails>>,
-    Vec<Option<::rpc::MachineId>>,
+    Vec<Option<::rpc::common::MachineId>>,
 )> {
     let mut tenant_map: HashMap<String, Vec<InstanceDetails>> = HashMap::new();
     let mut used_machines = vec![];

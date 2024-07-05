@@ -344,7 +344,7 @@ impl TestEnv {
     // Returns all machines using FindMachines call.
     pub async fn find_machines(
         &self,
-        id: Option<rpc::forge::MachineId>,
+        id: Option<rpc::common::MachineId>,
         fqdn: Option<String>,
         include_dpus: bool,
     ) -> rpc::forge::MachineList {
@@ -364,7 +364,7 @@ impl TestEnv {
     }
 
     // Returns all instances using FindInstances call.
-    pub async fn find_instances(&self, id: Option<rpc::forge::Uuid>) -> rpc::forge::InstanceList {
+    pub async fn find_instances(&self, id: Option<rpc::common::Uuid>) -> rpc::forge::InstanceList {
         self.api
             .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
                 id,
@@ -666,7 +666,7 @@ fn pool_defs() -> HashMap<String, resource_pool::ResourcePoolDef> {
 /// Emulates the `UpdateBmcMetaData` request of a DPU/Host
 pub async fn update_bmc_metadata(
     env: &TestEnv,
-    machine_id: rpc::forge::MachineId,
+    machine_id: rpc::common::MachineId,
     bmc_ip_address: &str,
     admin_user: String,
     bmc_mac_address: String,
@@ -701,7 +701,7 @@ pub async fn update_bmc_metadata(
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
 pub async fn discovery_completed(
     env: &TestEnv,
-    machine_id: rpc::forge::MachineId,
+    machine_id: rpc::common::MachineId,
     discovery_error: Option<String>,
 ) {
     let _response = env
@@ -800,7 +800,7 @@ pub async fn network_configured(
 
 pub async fn forge_agent_control(
     env: &TestEnv,
-    machine_id: rpc::forge::MachineId,
+    machine_id: rpc::common::MachineId,
 ) -> rpc::forge::ForgeAgentControlResponse {
     let _ = reboot_completed(env, machine_id.clone()).await;
 
@@ -859,7 +859,7 @@ pub async fn update_time_params(pool: &sqlx::PgPool, machine: &Machine, retry_co
 
 pub async fn reboot_completed(
     env: &TestEnv,
-    machine_id: rpc::forge::MachineId,
+    machine_id: rpc::common::MachineId,
 ) -> rpc::forge::MachineRebootCompletedResponse {
     tracing::info!("Machine ={} rebooted", machine_id);
     env.api
@@ -874,7 +874,7 @@ pub async fn reboot_completed(
 // Emulates the `MachineValidationComplete` request of a Host
 pub async fn machine_validation_completed(
     env: &TestEnv,
-    machine_id: rpc::forge::MachineId,
+    machine_id: rpc::common::MachineId,
     machine_validation_error: Option<String>,
 ) {
     let _response = env
@@ -893,7 +893,7 @@ pub async fn machine_validation_completed(
 /// inject_machine_measurements injects auto-approved measurements
 /// for a machine. This also will create a new profile and bundle,
 /// if needed, as part of the auto-approval process.
-pub async fn inject_machine_measurements(env: &TestEnv, machine_id: rpc::forge::MachineId) {
+pub async fn inject_machine_measurements(env: &TestEnv, machine_id: rpc::common::MachineId) {
     let _response = env
         .api
         .add_measurement_trusted_machine(Request::new(

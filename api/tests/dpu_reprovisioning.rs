@@ -209,7 +209,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
-    let dpu_rpc_id = rpc::forge::MachineId {
+    let dpu_rpc_id = rpc::common::MachineId {
         id: dpu_machine_id.to_string(),
     };
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
@@ -353,7 +353,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let _response = forge_agent_control(
         &env,
-        rpc::forge::MachineId {
+        rpc::common::MachineId {
             id: host_machine_id.to_string(),
         },
     )
@@ -475,7 +475,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         env.attestation_enabled,
     );
 
-    let dpu_rpc_id = rpc::forge::MachineId {
+    let dpu_rpc_id = rpc::common::MachineId {
         id: dpu_machine_id.to_string(),
     };
     env.run_machine_state_controller_iteration(handler.clone())
@@ -575,7 +575,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
 
     let _response = forge_agent_control(
         &env,
-        rpc::forge::MachineId {
+        rpc::common::MachineId {
             id: host_machine_id.to_string(),
         },
     )
@@ -633,7 +633,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(::rpc::MachineId {
+            machine_id: Some(::rpc::common::MachineId {
                 id: host_machine_id.to_string(),
             }),
             apply_updates_on_reboot: true,
@@ -713,7 +713,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert_ne!(pxe.pxe_script, "exit".to_string());
 
-    let dpu_rpc_id = rpc::forge::MachineId {
+    let dpu_rpc_id = rpc::common::MachineId {
         id: dpu_machine_id.to_string(),
     };
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
@@ -915,7 +915,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, false).await;
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(::rpc::MachineId {
+            machine_id: Some(::rpc::common::MachineId {
                 id: host_machine_id.to_string(),
             }),
             apply_updates_on_reboot: true,
@@ -1004,7 +1004,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     assert!(env
         .api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
-            machine_id: Some(::rpc::MachineId {
+            machine_id: Some(::rpc::common::MachineId {
                 id: host_machine_id.to_string(),
             }),
             apply_updates_on_reboot: true,
@@ -1024,7 +1024,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    let dpu_rpc_id = rpc::forge::MachineId {
+    let dpu_rpc_id = rpc::common::MachineId {
         id: dpu_machine_id.to_string(),
     };
 

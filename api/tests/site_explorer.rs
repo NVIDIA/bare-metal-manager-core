@@ -1134,7 +1134,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .api
             .get_managed_host_network_config(Request::new(
                 rpc::forge::ManagedHostNetworkConfigRequest {
-                    dpu_machine_id: Some(rpc::forge::MachineId {
+                    dpu_machine_id: Some(rpc::common::MachineId {
                         id: dpu_machine.id().to_string(),
                     }),
                 },

@@ -135,7 +135,7 @@ pub async fn detail(
     AxumPath(vpc_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::VpcSearchQuery {
-        id: Some(forgerpc::Uuid {
+        id: Some(::rpc::common::Uuid {
             value: vpc_id.clone(),
         }),
         name: None,

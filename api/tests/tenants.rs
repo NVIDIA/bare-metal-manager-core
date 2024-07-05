@@ -628,7 +628,7 @@ async fn test_keyset_in_instance(pool: sqlx::PgPool) {
     let instance = env
         .api
         .find_instances(tonic::Request::new(::rpc::forge::InstanceSearchQuery {
-            id: Some(::rpc::forge::Uuid {
+            id: Some(::rpc::common::Uuid {
                 value: instance_id.to_string(),
             }),
             label: None,

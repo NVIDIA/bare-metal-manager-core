@@ -66,7 +66,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
     };
 
     let agent_report = rpc::DpuAgentInventoryReport {
-        machine_id: Some(rpc::MachineId { id: machine_id }),
+        machine_id: Some(::rpc::common::MachineId { id: machine_id }),
         inventory: Some(inventory),
     };
 

@@ -136,7 +136,10 @@ async fn convert_network_to_nice_format(
     Ok(lines)
 }
 
-async fn get_domain_name(domain_id: Option<forgerpc::Uuid>, api_config: &ApiConfig<'_>) -> String {
+async fn get_domain_name(
+    domain_id: Option<::rpc::common::Uuid>,
+    api_config: &ApiConfig<'_>,
+) -> String {
     match domain_id {
         Some(id) => match rpc::get_domains(Some(id), api_config).await {
             Ok(domain_list) => {
@@ -262,7 +265,7 @@ async fn show_network_information(
     json: bool,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
-    let segment_id: forgerpc::Uuid = uuid::Uuid::parse_str(&id)
+    let segment_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
     let segment = match rpc::get_segments_by_ids(api_config, &[segment_id.clone()]).await {

@@ -36,7 +36,7 @@ use common::api_fixtures::{
     instance::create_instance_with_ib_config,
     TestEnv,
 };
-use rpc::forge::MachineIdList;
+use rpc::common::MachineIdList;
 
 #[ctor::ctor]
 fn setup() {

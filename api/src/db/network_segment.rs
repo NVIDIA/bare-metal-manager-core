@@ -87,7 +87,7 @@ impl fmt::Display for NetworkSegmentId {
     }
 }
 
-impl From<NetworkSegmentId> for rpc::Uuid {
+impl From<NetworkSegmentId> for ::rpc::common::Uuid {
     fn from(val: NetworkSegmentId) -> Self {
         Self {
             value: val.to_string(),
@@ -95,23 +95,23 @@ impl From<NetworkSegmentId> for rpc::Uuid {
     }
 }
 
-impl TryFrom<rpc::Uuid> for NetworkSegmentId {
+impl TryFrom<::rpc::common::Uuid> for NetworkSegmentId {
     type Error = RpcDataConversionError;
-    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+    fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
 
-impl TryFrom<&rpc::Uuid> for NetworkSegmentId {
+impl TryFrom<&::rpc::common::Uuid> for NetworkSegmentId {
     type Error = RpcDataConversionError;
-    fn try_from(msg: &rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+    fn try_from(msg: &::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
 
-impl TryFrom<Option<rpc::Uuid>> for NetworkSegmentId {
+impl TryFrom<Option<::rpc::common::Uuid>> for NetworkSegmentId {
     type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    fn try_from(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
             // TODO(chet): Maybe this isn't the right place for this, since
             // depending on the proto message, the field name can differ (which
@@ -124,7 +124,7 @@ impl TryFrom<Option<rpc::Uuid>> for NetworkSegmentId {
 }
 
 impl NetworkSegmentId {
-    pub fn from_grpc(msg: Option<rpc::Uuid>) -> Result<Self, Status> {
+    pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
             .map_err(|e| Status::invalid_argument(format!("bad grpc network segment ID: {}", e)))
     }
@@ -406,7 +406,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             id: Some(src.id.into()),
             version: src.version.version_string(),
             name: src.name,
-            subdomain_id: src.subdomain_id.map(rpc::Uuid::from),
+            subdomain_id: src.subdomain_id.map(::rpc::common::Uuid::from),
             mtu: Some(src.mtu),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
@@ -416,7 +416,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                 .into_iter()
                 .map(rpc::NetworkPrefix::from)
                 .collect_vec(),
-            vpc_id: src.vpc_id.map(rpc::Uuid::from),
+            vpc_id: src.vpc_id.map(::rpc::common::Uuid::from),
             state: state as i32,
             state_reason: src.controller_state_outcome.map(|r| r.into()),
             history,

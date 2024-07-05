@@ -168,7 +168,7 @@ pub async fn fetch(
         }
     };
     let request = tonic::Request::new(rpc::ManagedHostNetworkConfigRequest {
-        dpu_machine_id: Some(rpc::MachineId {
+        dpu_machine_id: Some(::rpc::common::MachineId {
             id: dpu_machine_id.to_string(),
         }),
     });

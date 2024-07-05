@@ -153,7 +153,7 @@ async fn fetch_network_segments(
     Ok(networks.network_segments)
 }
 
-async fn get_domain_name(state: Arc<Api>, domain_id: &forgerpc::Uuid) -> eyre::Result<String> {
+async fn get_domain_name(state: Arc<Api>, domain_id: &::rpc::common::Uuid) -> eyre::Result<String> {
     let request = tonic::Request::new(forgerpc::DomainSearchQuery {
         id: Some(domain_id.clone()),
         name: None,
@@ -270,7 +270,7 @@ pub async fn detail(
     AxumPath(segment_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::NetworkSegmentQuery {
-        id: Some(forgerpc::Uuid {
+        id: Some(::rpc::common::Uuid {
             value: segment_id.clone(),
         }),
         search_config: Some(forgerpc::NetworkSegmentSearchConfig {

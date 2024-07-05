@@ -386,7 +386,7 @@ pub async fn detail(
     };
 
     let dpu_machines = state
-        .find_machines_by_ids(tonic::Request::new(forgerpc::MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(::rpc::common::MachineIdList {
             machine_ids: host_machine.associated_dpu_machine_ids.clone(),
         }))
         .await

@@ -86,7 +86,7 @@ async fn show_vpc_details(
     json: bool,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
-    let vpc_id: forgerpc::Uuid = uuid::Uuid::parse_str(&id)
+    let vpc_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
     let vpcs = match rpc::get_vpcs_by_ids(api_config, &[vpc_id.clone()]).await {

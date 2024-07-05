@@ -62,7 +62,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
 impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
     fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {
         rpc::DpuNetworkStatus {
-            dpu_machine_id: Some(rpc::MachineId { id: m.machine_id }),
+            dpu_machine_id: Some(::rpc::common::MachineId { id: m.machine_id }),
             dpu_agent_version: m.agent_version.clone(),
             observed_at: Some(m.observed_at.into()),
             health: Some(m.health_status.into()),

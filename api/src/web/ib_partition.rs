@@ -217,7 +217,7 @@ pub async fn detail(
     AxumPath(partition_id): AxumPath<String>,
 ) -> Response {
     let request = tonic::Request::new(forgerpc::IbPartitionQuery {
-        id: Some(forgerpc::Uuid {
+        id: Some(::rpc::common::Uuid {
             value: partition_id.clone(),
         }),
         search_config: Some(forgerpc::IbPartitionSearchConfig {

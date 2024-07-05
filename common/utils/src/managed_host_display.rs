@@ -18,10 +18,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    ConnectedDevice, GetSiteExplorationRequest, MachineIdList, MachineType, NetworkDevice,
-    NetworkDeviceIdList,
+    ConnectedDevice, GetSiteExplorationRequest, MachineType, NetworkDevice, NetworkDeviceIdList,
 };
 use rpc::machine_discovery::MemoryDevice;
 use rpc::site_explorer::ExploredManagedHost;

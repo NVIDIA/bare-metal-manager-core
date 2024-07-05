@@ -279,8 +279,8 @@ async fn test_find_instances_by_ids_over_max(pool: sqlx::PgPool) {
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
     let end_index: u32 = env.config.max_find_by_ids + 1;
-    let instance_ids: Vec<rpc::Uuid> = (1..=end_index)
-        .map(|_| rpc::Uuid {
+    let instance_ids: Vec<::rpc::common::Uuid> = (1..=end_index)
+        .map(|_| ::rpc::common::Uuid {
             value: uuid::Uuid::new_v4().to_string(),
         })
         .collect();
@@ -325,7 +325,7 @@ async fn test_find_instances_by_machine_id_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let request = tonic::Request::new(rpc::MachineId {
+    let request = tonic::Request::new(::rpc::common::MachineId {
         id: dpu_machine_id.to_string(),
     });
 

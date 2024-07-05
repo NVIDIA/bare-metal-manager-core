@@ -17,13 +17,13 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use ::rpc::common::MachineId;
 use ::rpc::forge as forgerpc;
 use ::rpc::forge::dpu_reprovisioning_request::Mode;
 use ::rpc::forge::ConfigSetting;
 use ::rpc::forge::MachineType;
 use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use ::rpc::CredentialType;
-use ::rpc::MachineId;
 use ::rpc::Uuid;
 use cfg::carbide_options::AgentUpgrade;
 use cfg::carbide_options::AgentUpgradePolicyChoice;
@@ -120,14 +120,14 @@ pub enum CarbideCliError {
 
 pub type CarbideCliResult<T> = Result<T, CarbideCliError>;
 
-pub fn default_uuid() -> forgerpc::Uuid {
-    forgerpc::Uuid {
+pub fn default_uuid() -> ::rpc::common::Uuid {
+    ::rpc::common::Uuid {
         value: "00000000-0000-0000-0000-000000000000".to_string(),
     }
 }
 
-pub fn invalid_machine_id() -> forgerpc::MachineId {
-    forgerpc::MachineId {
+pub fn invalid_machine_id() -> ::rpc::common::MachineId {
+    ::rpc::common::MachineId {
         id: "INVALID_MACHINE".to_string(),
     }
 }

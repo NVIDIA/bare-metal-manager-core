@@ -67,7 +67,7 @@ impl fmt::Display for VpcId {
     }
 }
 
-impl From<VpcId> for rpc::Uuid {
+impl From<VpcId> for ::rpc::common::Uuid {
     fn from(val: VpcId) -> Self {
         Self {
             value: val.to_string(),
@@ -75,16 +75,16 @@ impl From<VpcId> for rpc::Uuid {
     }
 }
 
-impl TryFrom<rpc::Uuid> for VpcId {
+impl TryFrom<::rpc::common::Uuid> for VpcId {
     type Error = RpcDataConversionError;
-    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+    fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
 
-impl TryFrom<Option<rpc::Uuid>> for VpcId {
+impl TryFrom<Option<::rpc::common::Uuid>> for VpcId {
     type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    fn try_from(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
             return Err(CarbideError::MissingArgument("VpcId").into());
         };

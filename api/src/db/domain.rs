@@ -65,7 +65,7 @@ impl fmt::Display for DomainId {
     }
 }
 
-impl From<DomainId> for rpc::Uuid {
+impl From<DomainId> for ::rpc::common::Uuid {
     fn from(val: DomainId) -> Self {
         Self {
             value: val.to_string(),
@@ -73,23 +73,23 @@ impl From<DomainId> for rpc::Uuid {
     }
 }
 
-impl TryFrom<rpc::Uuid> for DomainId {
+impl TryFrom<::rpc::common::Uuid> for DomainId {
     type Error = RpcDataConversionError;
-    fn try_from(msg: rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+    fn try_from(msg: ::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
 
-impl TryFrom<&rpc::Uuid> for DomainId {
+impl TryFrom<&::rpc::common::Uuid> for DomainId {
     type Error = RpcDataConversionError;
-    fn try_from(msg: &rpc::Uuid) -> Result<Self, RpcDataConversionError> {
+    fn try_from(msg: &::rpc::common::Uuid) -> Result<Self, RpcDataConversionError> {
         Self::from_str(msg.value.as_str())
     }
 }
 
-impl TryFrom<Option<rpc::Uuid>> for DomainId {
+impl TryFrom<Option<::rpc::common::Uuid>> for DomainId {
     type Error = Box<dyn std::error::Error>;
-    fn try_from(msg: Option<rpc::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
+    fn try_from(msg: Option<::rpc::common::Uuid>) -> Result<Self, Box<dyn std::error::Error>> {
         let Some(input_uuid) = msg else {
             // TODO(chet): Maybe this isn't the right place for this, since
             // depending on the proto message, the field name can differ (which
@@ -102,7 +102,7 @@ impl TryFrom<Option<rpc::Uuid>> for DomainId {
 }
 
 impl DomainId {
-    pub fn from_grpc(msg: Option<rpc::Uuid>) -> Result<Self, Status> {
+    pub fn from_grpc(msg: Option<::rpc::common::Uuid>) -> Result<Self, Status> {
         Self::try_from(msg)
             .map_err(|e| Status::invalid_argument(format!("bad grpc domain ID: {}", e)))
     }

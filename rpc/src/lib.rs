@@ -24,6 +24,7 @@ use std::str::FromStr;
 use mac_address::{MacAddress, MacParseError};
 use prost::Message;
 
+pub use crate::protos::common::{self, MachineId, Uuid};
 pub use crate::protos::forge::{
     self, forge_agent_control_response, machine_credentials_update_request::CredentialPurpose,
     machine_discovery_info::DiscoveryData, CredentialType, Domain, DomainList,
@@ -32,9 +33,9 @@ pub use crate::protos::forge::{
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
     InstanceNetworkStatusObservation, InstanceReleaseRequest, InstanceSearchQuery, InstanceStatus,
     InstanceTenantStatus, InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo,
-    MachineEvent, MachineId, MachineInterface, MachineList, Metadata, NetworkPrefixEvent,
-    NetworkSegment, NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult,
-    ResourcePoolType, SyncState, TenantConfig, TenantState, Uuid,
+    MachineEvent, MachineInterface, MachineList, Metadata, NetworkPrefixEvent, NetworkSegment,
+    NetworkSegmentList, ObservedInstanceNetworkStatusRecordResult, ResourcePoolType, SyncState,
+    TenantConfig, TenantState,
 };
 pub use crate::protos::forge::{
     IbPartition, IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
@@ -201,35 +202,35 @@ impl std::fmt::Display for DiscriminantError {
     }
 }
 
-impl From<uuid::Uuid> for forge::Uuid {
-    fn from(uuid: uuid::Uuid) -> forge::Uuid {
-        forge::Uuid {
+impl From<uuid::Uuid> for common::Uuid {
+    fn from(uuid: uuid::Uuid) -> common::Uuid {
+        common::Uuid {
             value: uuid.hyphenated().to_string(),
         }
     }
 }
 
-impl From<String> for forge::MachineId {
-    fn from(machine_id: String) -> forge::MachineId {
-        forge::MachineId { id: machine_id }
+impl From<String> for common::MachineId {
+    fn from(machine_id: String) -> common::MachineId {
+        common::MachineId { id: machine_id }
     }
 }
 
-impl TryFrom<forge::Uuid> for uuid::Uuid {
+impl TryFrom<common::Uuid> for uuid::Uuid {
     type Error = uuid::Error;
     fn try_from(uuid: Uuid) -> Result<Self, Self::Error> {
         uuid::Uuid::parse_str(&uuid.value)
     }
 }
 
-impl TryFrom<&forge::Uuid> for uuid::Uuid {
+impl TryFrom<&common::Uuid> for uuid::Uuid {
     type Error = uuid::Error;
     fn try_from(uuid: &Uuid) -> Result<Self, Self::Error> {
         uuid::Uuid::parse_str(&uuid.value)
     }
 }
 
-impl Display for forge::Uuid {
+impl Display for common::Uuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match uuid::Uuid::try_from(self) {
             Ok(uuid) => write!(f, "{}", uuid),
@@ -238,15 +239,15 @@ impl Display for forge::Uuid {
     }
 }
 
-impl Display for forge::MachineId {
+impl Display for common::MachineId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.id.fmt(f)
     }
 }
 
 /// Custom Serializer implementation which omits the notion of the wrapper in gRPC
-/// and just serializes the MachineId itself
-impl serde::Serialize for forge::MachineId {
+/// and just serializes the common::MachineId itself
+impl serde::Serialize for common::MachineId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -256,15 +257,15 @@ impl serde::Serialize for forge::MachineId {
 }
 
 /// Custom Deserializer implementation which omits the notion of the wrapper in gRPC
-/// and just serializes the MachineId itself
-impl<'de> serde::Deserialize<'de> for forge::MachineId {
+/// and just serializes the common::MachineId itself
+impl<'de> serde::Deserialize<'de> for common::MachineId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let id = serde::Deserialize::deserialize(deserializer)?;
 
-        Ok(MachineId { id })
+        Ok(common::MachineId { id })
     }
 }
 
@@ -406,7 +407,7 @@ mod tests {
 
     #[test]
     fn test_serialize_machine_id_as_json() {
-        let id = MachineId::from("fms100ABCD".to_string());
+        let id = common::MachineId::from("fms100ABCD".to_string());
         assert_eq!("\"fms100ABCD\"", serde_json::to_string(&id).unwrap());
     }
 
