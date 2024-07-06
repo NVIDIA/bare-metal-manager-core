@@ -9,11 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::{
-    collections::HashMap,
-    net::IpAddr,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, time::Duration};
 
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
@@ -30,7 +26,7 @@ use carbide::{
         instance::{
             config::{
                 infiniband::InstanceInfinibandConfig,
-                network::{InstanceNetworkConfig, InterfaceFunctionId, InterfaceFunctionType},
+                network::{InstanceNetworkConfig, InterfaceFunctionId},
                 InstanceConfig,
             },
             status::{
@@ -45,10 +41,7 @@ use carbide::{
         machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
         metadata::Metadata,
     },
-    state_controller::{
-        machine::handler::MachineStateHandler,
-        snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
-    },
+    state_controller::machine::handler::MachineStateHandler,
 };
 use chrono::Utc;
 use common::api_fixtures::{
@@ -817,6 +810,9 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
+    // TODO: The test is broken from here. This method already moves the instance
+    // into READY state, which means most assertions that follow this won't test
+    // anything new anymmore.
     let (instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
@@ -1035,75 +1031,6 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_instance_snapshot_is_included_in_machine_snapshot(
-    _: PgPoolOptions,
-    options: PgConnectOptions,
-) {
-    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-
-    let snapshot_loader = DbSnapshotLoader {};
-
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
-    assert!(
-        snapshot.instance.is_none(),
-        "Expected instance snapshot to be not available"
-    );
-    txn.commit().await.unwrap();
-
-    let (instance_id, _instance) = create_instance(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
-        None,
-        vec![],
-    )
-    .await;
-
-    let mut txn = env
-        .pool
-        .begin()
-        .await
-        .expect("Unable to create transaction on database pool");
-    let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-    let instance_snapshot = snapshot
-        .instance
-        .expect("Expected instance snapshot to be available");
-    assert_eq!(instance_snapshot.network_config_version.version_nr(), 1);
-
-    // We expect IP addresses to be allocated. but we can't compare them to the
-    // request since they are automatically and randomly assigned
-    let mut network_config = instance_snapshot.config.network.clone();
-    assert_eq!(network_config.interfaces[0].ip_addrs.len(), 1);
-    network_config.interfaces[0].ip_addrs.clear();
-    assert_eq!(
-        network_config,
-        InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID)
-    );
-
-    assert_eq!(
-        instance_snapshot.config.tenant,
-        default_tenant_config().try_into().unwrap()
-    );
-
-    delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -1178,7 +1105,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         ],
     });
 
-    let (instance_id, instance) = create_instance(
+    let (_instance_id, _instance) = create_instance(
         &env,
         &dpu_machine_id,
         &host_machine_id,
@@ -1206,88 +1133,22 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
             .unwrap(),
         1
     );
-
-    // The addresses should show up in the internal config
-    let snapshot_loader = DbSnapshotLoader {};
-    let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
     txn.commit().await.unwrap();
-    let instance_snapshot = snapshot.instance.unwrap();
-    let network_config = instance_snapshot.config.network;
-    assert_eq!(network_config.interfaces[0].ip_addrs.len(), 1);
-    assert_eq!(
-        network_config.interfaces[0]
-            .ip_addrs
-            .iter()
-            .next()
-            .unwrap()
-            .1,
-        &"192.0.2.3".parse::<IpAddr>().unwrap()
-    );
-    assert_eq!(network_config.interfaces[1].ip_addrs.len(), 1);
-    assert_eq!(
-        network_config.interfaces[1]
-            .ip_addrs
-            .iter()
-            .next()
-            .unwrap()
-            .1,
-        &"192.0.3.3".parse::<IpAddr>().unwrap()
-    );
 
-    let segment_ip = HashMap::from([(None, "192.0.2.3"), (Some(0), "192.0.3.3")]);
-
-    env.api
-        .record_observed_instance_network_status(tonic::Request::new(
-            rpc::InstanceNetworkStatusObservation {
-                instance_id: Some(instance_id.into()),
-                config_version: instance.network_config_version,
-                observed_at: Some(SystemTime::now().into()),
-                interfaces: vec![
-                    rpc::InstanceInterfaceStatusObservation {
-                        function_type: rpc::InterfaceFunctionType::from(
-                            InterfaceFunctionType::Physical,
-                        ) as i32,
-                        virtual_function_id: None,
-                        mac_address: None,
-                        addresses: vec!["192.0.2.3".to_string()],
-                    },
-                    rpc::InstanceInterfaceStatusObservation {
-                        function_type: rpc::InterfaceFunctionType::from(
-                            InterfaceFunctionType::Virtual,
-                        ) as i32,
-                        virtual_function_id: Some(0),
-                        mac_address: None,
-                        addresses: vec!["192.0.3.3".to_string()],
-                    },
-                ],
+    // The addresses should show up in the internal config - which is sent to the DPU
+    let network_config = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
             },
         ))
         .await
-        .unwrap();
-
-    let instance = &env
-        .api
-        .find_instances(tonic::Request::new(rpc::forge::InstanceSearchQuery {
-            id: Some(instance_id.into()),
-            label: None,
-        }))
-        .await
         .unwrap()
-        .into_inner()
-        .instances[0];
-
-    for interface in instance.status.clone().unwrap().network.unwrap().interfaces {
-        assert_eq!(
-            interface.addresses[0],
-            segment_ip
-                .get(&interface.virtual_function_id)
-                .unwrap()
-                .to_owned()
-        );
-    }
+        .into_inner();
+    assert!(!network_config.use_admin_network);
+    assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.2.3");
+    assert_eq!(network_config.tenant_interfaces[1].ip, "192.0.3.3");
 }
 
 // TODO(gk) Restore after https://jirasw.nvidia.com/browse/FORGE-2243

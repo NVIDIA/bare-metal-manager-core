@@ -13,13 +13,13 @@
 use carbide::{
     db::{dpu_machine::DpuMachine, host_machine::HostMachine},
     model::machine::machine_id::try_parse_machine_id,
-    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
 };
 
 pub mod common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 
 use crate::common::api_fixtures::create_managed_host;
+use rpc::forge::forge_server::Forge;
 
 #[ctor::ctor]
 fn setup() {
@@ -94,21 +94,47 @@ async fn test_find_temp_host_machine(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let dpu_rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
-    let dpu_machine_id = try_parse_machine_id(&dpu_rpc_machine_id).unwrap();
 
-    let mut txn = env.pool.begin().await?;
-
-    let host_machine_id = DbSnapshotLoader {}
-        .load_machine_snapshot(&mut txn, &dpu_machine_id)
+    let machine = env
+        .api
+        .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
+            search_config: Some(rpc::forge::MachineSearchConfig {
+                include_dpus: true,
+                include_associated_machine_id: true,
+                include_predicted_host: true,
+                include_history: true,
+                ..Default::default()
+            }),
+            id: Some(dpu_rpc_machine_id),
+            fqdn: None,
+        }))
         .await
         .unwrap()
-        .host_snapshot
-        .machine_id;
+        .into_inner()
+        .machines
+        .remove(0);
+    let host_rpc_machine_id = machine.associated_host_machine_id.clone().unwrap();
+    let host_machine_id = try_parse_machine_id(&host_rpc_machine_id).unwrap();
+    assert!(host_machine_id.machine_type().is_predicted_host());
 
-    let host_machine = HostMachine::find_by_machine_id(&mut txn, &host_machine_id)
+    let _host_machine = env
+        .api
+        .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
+            search_config: Some(rpc::forge::MachineSearchConfig {
+                include_dpus: true,
+                include_associated_machine_id: true,
+                include_predicted_host: true,
+                include_history: true,
+                ..Default::default()
+            }),
+            id: Some(host_rpc_machine_id),
+            fqdn: None,
+        }))
         .await
-        .unwrap();
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0);
 
-    assert!(host_machine.machine_id().machine_type().is_predicted_host());
     Ok(())
 }
