@@ -12,14 +12,7 @@
 
 use crate::{
     db::{
-        instance::{Instance, InstanceId},
-        machine::Machine,
-        machine_interface::MachineInterface,
-        machine_interface_address::MachineInterfaceAddress,
-        network_segment::{
-            NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
-        },
-        DatabaseError,
+        instance::Instance, machine::Machine, machine_interface::MachineInterface, DatabaseError,
     },
     model::machine::{
         machine_id::MachineId, CurrentMachineState, MachineInterfaceSnapshot, MachineSnapshot,
@@ -43,12 +36,6 @@ pub trait MachineStateSnapshotLoader: Send + Sync + std::fmt::Debug {
 pub enum SnapshotLoaderError {
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] DatabaseError),
-    #[error("Unable to load Hardware information: {0}")]
-    HardwareInfoSqlError(String),
-    #[error("Hardware information for Machine {0} is missing")]
-    MissingHardwareInfo(MachineId),
-    #[error("Instance with ID {0} was not found")]
-    InstanceNotFound(InstanceId),
     #[error("Invalid result: {0}")]
     InvalidResult(String),
     #[error("Machine with ID {0} was not found.")]
@@ -57,8 +44,6 @@ pub enum SnapshotLoaderError {
     DPUNotFound(MachineId),
     #[error("Host for dpu machine with ID {0} was not found.")]
     HostNotFound(MachineId),
-    #[error("Expected 1 instance with id {0} found {1}")]
-    MultipleInstances(uuid::Uuid, usize),
     #[error("State handling generic error: {0}")]
     GenericError(eyre::Report),
 }
@@ -68,7 +53,6 @@ pub enum SnapshotLoaderError {
 pub struct DbSnapshotLoader;
 
 pub async fn get_machine_snapshot(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine: &Machine,
 ) -> Result<MachineSnapshot, SnapshotLoaderError> {
     let snapshot = MachineSnapshot {
@@ -78,7 +62,7 @@ pub async fn get_machine_snapshot(
         hardware_info: machine.hardware_info().cloned(),
         inventory: machine.inventory().cloned().unwrap_or_default(),
         network_config: machine.network_config().clone(),
-        interfaces: interface_to_snapshot(txn, machine.interfaces()).await?,
+        interfaces: interface_to_snapshot(machine.interfaces()).await?,
         network_status_observation: machine.network_status_observation().cloned(),
         current: CurrentMachineState {
             state: machine.current_state(),
@@ -99,49 +83,15 @@ pub async fn get_machine_snapshot(
 }
 
 pub async fn interface_to_snapshot(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     interfaces: &[MachineInterface],
 ) -> Result<Vec<MachineInterfaceSnapshot>, SnapshotLoaderError> {
     let mut out = Vec::new();
     for iface in interfaces {
-        let segments = NetworkSegment::find(
-            txn,
-            NetworkSegmentIdKeyedObjectFilter::One(iface.segment_id()),
-            NetworkSegmentSearchConfig::default(),
-        )
-        .await?;
-        // machine_interfaces to network_segments is many-to-one, so this can only be 0 or 1
-        if segments.len() != 1 {
-            return Err(SnapshotLoaderError::GenericError(eyre::eyre!(
-                "Interface {} has {} segments, expected 1",
-                iface.id,
-                segments.len()
-            )));
-        }
-        let segment = &segments[0];
-
-        let prefix = match segment.prefixes.first() {
-            Some(p) => p,
-            None => {
-                return Err(SnapshotLoaderError::GenericError(eyre::eyre!(
-                    "Network segment '{}' has no network prefixes, expected 1",
-                    segment.id,
-                )));
-            }
-        };
-
-        // One IPv4 and potentially many IPv6, find the IPv4
-        let address = MachineInterfaceAddress::find_ipv4_for_interface(txn, iface.id).await?;
-
         out.push(MachineInterfaceSnapshot {
             id: iface.id,
             hostname: iface.hostname().to_string(),
             is_primary: iface.primary_interface(),
             mac_address: iface.mac_address.to_string(),
-            ip_address: address.address,
-            vlan_id: segment.vlan_id.unwrap_or_default() as u32,
-            vni: segment.vni.map(|v| v as u32).unwrap_or_default(), // not on underlay networks
-            gateway_cidr: prefix.gateway_cidr().unwrap_or_default(),
         });
     }
     Ok(out)
@@ -174,11 +124,11 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             .await
             .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
 
-        let host_snapshot = get_machine_snapshot(txn, &host_machine).await?;
+        let host_snapshot = get_machine_snapshot(&host_machine).await?;
 
         let mut dpu_snapshots: Vec<MachineSnapshot> = Vec::new();
         for dpu in &dpus {
-            dpu_snapshots.push(get_machine_snapshot(txn, dpu).await?);
+            dpu_snapshots.push(get_machine_snapshot(dpu).await?);
         }
 
         // Determine whether there is any outstanding reprovision request which needs
