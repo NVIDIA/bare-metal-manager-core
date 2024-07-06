@@ -10,10 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    fmt::Display,
-    net::{IpAddr, Ipv4Addr},
-};
+use std::{fmt::Display, net::Ipv4Addr};
 
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -555,10 +552,6 @@ pub struct MachineInterfaceSnapshot {
     pub hostname: String,
     pub is_primary: bool,
     pub mac_address: String,
-    pub ip_address: IpAddr,
-    pub vlan_id: u32,
-    pub vni: u32,
-    pub gateway_cidr: String,
 }
 
 pub struct InstanceNextStateResolver;
