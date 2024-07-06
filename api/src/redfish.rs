@@ -60,6 +60,8 @@ pub enum RedfishClientCreationError {
     SetCredentials { key: String, cause: eyre::Report },
     #[error("Missing Arguments: {0}")]
     MissingArgument(String),
+    #[error("Missing BMC Information: {0}")]
+    MissingBmcEndpoint(String),
     #[error("Invalid Argument: {0}: {1}")]
     InvalidArgument(String, String),
     #[error("Database Error Loading Machine Interface")]
@@ -1119,8 +1121,8 @@ pub async fn build_redfish_client_from_machine_snapshot(
     let machine_id = &target.machine_id;
 
     let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
-        RedfishClientCreationError::MissingArgument(format!(
-            "IP address is missing for {}",
+        RedfishClientCreationError::MissingBmcEndpoint(format!(
+            "BMC Endpoint Information (bmc_info.ip) is missing for {}",
             machine_id
         ))
     })?;

@@ -319,6 +319,7 @@ pub enum DpuDiscoveringState {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum MachineState {
     Init,
+    WaitingForPlatformConfiguration,
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
     UefiSetup {

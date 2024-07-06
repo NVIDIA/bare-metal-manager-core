@@ -525,9 +525,12 @@ pub(crate) fn map_redfish_client_creation_error(
                 details: format!("RedfishClientError::InvalidHeader: {}", original_error),
             }
         }
-        RedfishClientCreationError::MissingArgument(argument) => EndpointExplorationError::Other {
-            details: format!("Missing argument to RedFish client: {0}", argument),
-        },
+        RedfishClientCreationError::MissingBmcEndpoint(argument)
+        | RedfishClientCreationError::MissingArgument(argument) => {
+            EndpointExplorationError::Other {
+                details: format!("Missing argument to RedFish client: {0}", argument),
+            }
+        }
         RedfishClientCreationError::InvalidArgument(key, value) => {
             EndpointExplorationError::Other {
                 details: format!("Invalid Argument to RedFish client: {}={}", key, value),

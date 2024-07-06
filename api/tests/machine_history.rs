@@ -47,6 +47,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"init\"}}",
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkinstall\"}}",
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkconfig\"}}",
+            "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
             "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}"]
     );
 
@@ -135,6 +136,7 @@ async fn test_old_machine_state_history(
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"init\"}}",
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkinstall\"}}",
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkconfig\"}}",
+            "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
             "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}",
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"nolongerarealstate\"}}",
         ],
