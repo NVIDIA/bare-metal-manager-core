@@ -13,7 +13,6 @@
 #[path = "../common/mod.rs"]
 pub mod common;
 mod machine_state_controller;
-mod snapshot_loader;
 
 #[ctor::ctor]
 fn setup() {
