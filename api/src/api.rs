@@ -1082,6 +1082,25 @@ impl Forge for Api {
         let interface =
             MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
+            // if site explorer is creating machine records and there isn't one for this machine return an error
+            if **self.runtime_config.site_explorer.create_machines.load() {
+                Machine::find_one(
+                    &mut txn,
+                    &stable_machine_id,
+                    MachineSearchConfig {
+                        include_dpus: true,
+                        ..MachineSearchConfig::default()
+                    },
+                )
+                .await
+                .map_err(CarbideError::from)?
+                .ok_or_else(|| {
+                    Status::invalid_argument(format!(
+                        "Machine id {stable_machine_id} was not discovered by site-explorer."
+                    ))
+                })?;
+            }
+
             let db_machine = if machine_discovery_info.create_machine {
                 Machine::get_or_create(&mut txn, &stable_machine_id, &interface).await?
             } else {
