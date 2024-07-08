@@ -104,16 +104,33 @@ async fn test_preingestion_bmc_upgrade(
 
     let endpoints = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
     assert!(endpoints.len() == 1);
-    let endpoint = endpoints.first().unwrap();
+    let mut endpoint = endpoints.first().unwrap().clone();
     match &endpoint.preingestion_state {
         // We expect it to be waiting for task completion
-        PreingestionState::UpgradeFirmwareWait { task_id } => {
-            println!("Waiting on {task_id}");
+        PreingestionState::UpgradeFirmwareWait {
+            task_id,
+            final_version,
+            upgrade_type,
+        } => {
+            println!("Waiting on {task_id} {upgrade_type:?} {final_version}");
         }
         _ => {
             panic!("Bad preingestion state: {endpoint:?}");
         }
     }
+
+    // Now we simulate site explorer coming through and reading the new updated version
+    endpoint.report.service[0].inventories[0].version = Some("1.0".to_string());
+    assert!(
+        DbExploredEndpoint::try_update(
+            endpoint.address,
+            endpoint.report_version,
+            &endpoint.report,
+            &mut txn
+        )
+        .await?
+    );
+
     txn.commit().await?;
 
     // The next run of the state machine should see that the task shows as complete and move us back to checking again
@@ -139,7 +156,7 @@ async fn test_preingestion_bmc_upgrade(
     let mut txn = pool.begin().await.unwrap();
     let endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
     assert!(endpoints.len() == 1);
-    let mut endpoint = endpoints.first().unwrap().clone();
+    let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::RecheckVersions => {
             println!("Rechecking versions");
@@ -149,8 +166,6 @@ async fn test_preingestion_bmc_upgrade(
         }
     }
 
-    // Now we simulate site explorer coming through and reading the new updated version
-    endpoint.report.service[0].inventories[0].version = Some("1.0".to_string());
     assert!(
         DbExploredEndpoint::try_update(
             endpoint.address,

@@ -16,6 +16,7 @@ use config_version::ConfigVersion;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{
+    cfg::FirmwareHostComponentType,
     db::DatabaseError,
     model::site_explorer::{EndpointExplorationReport, ExploredEndpoint, PreingestionState},
 };
@@ -265,9 +266,15 @@ WHERE address = $3 AND version=$4";
     pub async fn set_preingestion_waittask(
         address: IpAddr,
         task_id: String,
+        final_version: &str,
+        upgrade_type: &FirmwareHostComponentType,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let state = PreingestionState::UpgradeFirmwareWait { task_id };
+        let state = PreingestionState::UpgradeFirmwareWait {
+            task_id,
+            final_version: final_version.to_owned(),
+            upgrade_type: *upgrade_type,
+        };
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }
 

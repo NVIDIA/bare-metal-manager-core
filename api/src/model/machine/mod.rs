@@ -83,6 +83,15 @@ pub struct MachineLastRebootRequested {
     pub mode: MachineLastRebootRequestedMode,
 }
 
+impl Default for MachineLastRebootRequested {
+    fn default() -> Self {
+        MachineLastRebootRequested {
+            time: Default::default(),
+            mode: MachineLastRebootRequestedMode::Reboot,
+        }
+    }
+}
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
 pub struct MachineSnapshot {
