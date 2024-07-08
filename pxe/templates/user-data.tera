@@ -170,32 +170,7 @@ write_files:
       [Match]
       Name=*_sf_r
       [Link]
-      MTUBytes=9216
-  - path: /etc/systemd/system/sfc.service.tmp # This is a temporary workaround in hbn 2.0, we need to revisit in the next hbn version https://jirasw.nvidia.com/browse/FORGE-2921
-    content: |
-      [Unit]
-        Description=Setup SFC
-        After=openvswitch-switch.service
-        Requires=openvswitch-switch.service
-      [Service]
-        Type=simple
-        ExecStartPre=/usr/bin/bash -c "until ls -l /sys/class/net/p0/device; do sleep 1; done"
-        ExecStartPre=/usr/bin/bash -c "until ls -l /sys/class/net/p1/device; do sleep 1; done"
-        ExecStartPre=/usr/bin/bash -c "until ovs-vsctl -t 60 --no-wait --may-exist add-br br-hbn; do sleep 1; done"
-        # ensure openvswitch-switch service is healthy, if not restart it
-        ExecStartPre=/usr/bin/bash -c 'status=`/usr/share/openvswitch/scripts/ovs-ctl status | grep "is running" | wc -l`; if [ $status -lt 2 ]; then systemctl restart openvswitch-switch; fi'
-        # wait for OVSDB and vswitchd to be up before running sfc.sh
-        ExecStartPre=/usr/bin/bash -c "until ovs-vsctl -t 60 --no-wait --may-exist add-br br-hbn; do sleep 1; done"
-        ExecStartPre=/usr/bin/bash -c "until ovs-ofctl -t 60 show br-hbn ; do sleep 1; done"
-        ExecStartPre=/opt/mellanox/sfc/sfc.sh
-        ExecStartPre=/opt/mellanox/sfc/patch.sh
-        ExecStart=/usr/bin/python3 /opt/mellanox/sfc/ovs-vswitchd-watchdog.py
-        StandardOutput=journal
-        Restart=on-failure
-        RestartSec=1s
-        TimeoutStartSec=0
-      [Install]
-        WantedBy=multi-user.target
+      MTUBytes=9216  
 {% endif %}
   - path: /etc/forge/config.toml
     encoding: b64
@@ -252,9 +227,6 @@ write_files:
       cp /opt/forge/doca_container_configs/configs/doca_telemetry.yaml /etc/kubelet.d/
       sum /etc/kubelet.d/doca_telemetry.yaml
       sync
-      mv /etc/systemd/system/sfc.service.tmp /etc/systemd/system/sfc.service
-      systemctl daemon-reload
-      ovs-vsctl --no-wait del-br br-hbn
       /opt/forge/run-scout.sh
       touch /run/cloud-init.done
 {% endif %}
