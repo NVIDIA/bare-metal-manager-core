@@ -12,12 +12,14 @@
 
 pub mod boot_override;
 pub mod credential;
+pub mod dns;
 pub mod domain;
 pub mod expected_machine;
 pub mod ib_partition;
 pub mod instance;
 pub mod machine_validation;
 pub mod network_segment;
+pub mod pxe;
 pub mod resource_pool;
 pub mod route_server;
 pub mod tenant;
