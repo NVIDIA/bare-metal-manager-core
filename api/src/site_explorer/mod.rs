@@ -40,10 +40,10 @@ use crate::{
     },
     model::{
         bmc_info::BmcInfo,
-        hardware_info::{DpuData, HardwareInfo},
+        hardware_info::HardwareInfo,
         machine::{machine_id::MachineId, DpuDiscoveringState, ManagedHostState},
         site_explorer::{
-            Chassis, EndpointExplorationReport, EndpointType, ExploredDpu, ExploredEndpoint,
+            EndpointExplorationReport, EndpointType, ExploredDpu, ExploredEndpoint,
             ExploredManagedHost, NicMode, Service,
         },
     },
@@ -345,7 +345,7 @@ impl SiteExplorer {
             let oob_net0_mac = MacAddress::from_str(&oob_net0_mac)?;
 
             if !self
-                .create_dpu_machine(&mut txn, dpu_machine_id, oob_net0_mac)
+                .create_dpu_machine(&mut txn, dpu_report, oob_net0_mac)
                 .await?
             {
                 // No error is returned but existing machine is found. It is possible that we
@@ -354,95 +354,13 @@ impl SiteExplorer {
                 txn.commit().await.map_err(|e| {
                     DatabaseError::new(file!(), line!(), "existing dpu create_machine_pair", e)
                 })?;
+
+                // Site explorer has already created a machine for this DPU previously: no more work to do for this endpoint.
                 return Ok(false);
             }
 
-            let serial_number = dpu_report
-                .report
-                .systems
-                .first()
-                .and_then(|system| system.serial_number.as_ref())
-                .unwrap();
-            let dmi_data = dpu_report
-                .report
-                .create_temporary_dmi_data(serial_number.as_str());
-
-            let chassis_map = dpu_report
-                .report
-                .chassis
-                .clone()
-                .into_iter()
-                .map(|x| (x.id.clone(), x))
-                .collect::<HashMap<_, _>>();
-            let inventory_map = dpu_report.report.get_inventory_map();
-
-            let dpu_data = DpuData {
-                factory_mac_address: dpu_report
-                    .host_pf_mac_address
-                    .ok_or(CarbideError::MissingArgument("Missing base mac"))?
-                    .to_string(),
-                part_number: chassis_map
-                    .get("Card1")
-                    .and_then(|value: &Chassis| value.part_number.as_ref())
-                    .unwrap_or(&"".to_string())
-                    .to_string(),
-                part_description: chassis_map
-                    .get("Card1")
-                    .and_then(|value| value.model.as_ref())
-                    .unwrap_or(&"".to_string())
-                    .to_string(),
-                firmware_version: inventory_map
-                    .get("DPU_NIC")
-                    .and_then(|value| value.version.as_ref())
-                    .unwrap_or(&"".to_string())
-                    .to_string(),
-                firmware_date: inventory_map
-                    .get("DPU_NIC")
-                    .and_then(|value| value.release_date.as_ref())
-                    .unwrap_or(&"".to_string())
-                    .to_string(),
-                ..Default::default()
-            };
-
-            let hardware_info = HardwareInfo {
-                dmi_data: Some(dmi_data),
-                dpu_info: Some(dpu_data),
-                machine_type: "aarch64".to_string(),
-                ..Default::default()
-            };
-
-            let _topology =
-                MachineTopology::create_or_update(&mut txn, dpu_machine_id, &hardware_info).await?;
-
-            // Forge scout will update this topology with a full information.
-            MachineTopology::set_topology_update_needed(&mut txn, dpu_machine_id, true).await?;
-
-            let bmc_info = BmcInfo {
-                ip: Some(dpu_report.bmc_ip.to_string()),
-                mac: dpu_report.report.managers.first().and_then(|m| {
-                    m.ethernet_interfaces
-                        .first()
-                        .and_then(|e| e.mac_address.clone())
-                }),
-                firmware_version: Some(
-                    inventory_map
-                        .iter()
-                        .find(|s| s.0.contains("BMC_Firmware"))
-                        .and_then(|value| value.1.version.as_ref())
-                        .unwrap_or(&"".to_string())
-                        .to_lowercase()
-                        .replace("bf-", ""),
-                ),
-                ..Default::default()
-            };
-
-            let bmc_metadata = BmcMetaDataUpdateRequest {
-                machine_id: dpu_machine_id.clone(),
-                bmc_info,
-            };
-
-            bmc_metadata
-                .update_bmc_network_into_topologies(&mut txn)
+            let dpu_hw_info = dpu_report.hardware_info()?;
+            self.update_dpu_topology(&mut txn, dpu_report, &dpu_hw_info)
                 .await?;
 
             if i == 0 {
@@ -452,8 +370,8 @@ impl SiteExplorer {
                 let machine_interface =
                     MachineInterface::create_host_machine_interface_proactively(
                         &mut txn,
-                        Some(&hardware_info),
-                        dpu_machine_id,
+                        Some(&dpu_hw_info),
+                        dpu_report.report.machine_id.as_ref().unwrap(),
                     )
                     .await?;
 
@@ -468,8 +386,8 @@ impl SiteExplorer {
                     ));
                 }
 
-                let predicted_machine_id =
-                    MachineId::host_id_from_dpu_hardware_info(&hardware_info).map_err(|e| {
+                let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&dpu_hw_info)
+                    .map_err(|e| {
                         CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
                     })?;
                 let mi_id = machine_interface.id;
@@ -520,8 +438,8 @@ impl SiteExplorer {
                 let machine_interface =
                     MachineInterface::create_host_machine_interface_proactively(
                         &mut txn,
-                        Some(&hardware_info),
-                        dpu_machine_id,
+                        Some(&dpu_hw_info),
+                        dpu_report.report.machine_id.as_ref().unwrap(),
                     )
                     .await?;
                 machine_interface
@@ -1012,9 +930,10 @@ impl SiteExplorer {
     async fn create_dpu_machine(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        dpu_machine_id: &MachineId,
+        explored_dpu: &ExploredDpu,
         mac_address: MacAddress,
     ) -> CarbideResult<bool> {
+        let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
         let (dpu_machine, new_machine) =
             match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
                 // Do nothing if machine exists. It'll be reprovisioned via redfish
@@ -1080,6 +999,41 @@ impl SiteExplorer {
         Machine::try_update_network_config(txn, dpu_machine.id(), version, &network_config)
             .await
             .map_err(CarbideError::from)?;
+
+        Ok(())
+    }
+
+    async fn update_dpu_topology(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        explored_dpu: &ExploredDpu,
+        hardware_info: &HardwareInfo,
+    ) -> CarbideResult<()> {
+        let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
+
+        let _topology =
+            MachineTopology::create_or_update(txn, dpu_machine_id, hardware_info).await?;
+
+        // Forge scout will update this topology with a full information.
+        MachineTopology::set_topology_update_needed(txn, dpu_machine_id, true).await?;
+
+        let bmc_info = BmcInfo {
+            ip: Some(explored_dpu.bmc_ip.to_string()),
+            mac: explored_dpu.report.managers.first().and_then(|m| {
+                m.ethernet_interfaces
+                    .first()
+                    .and_then(|e| e.mac_address.clone())
+            }),
+            firmware_version: explored_dpu.bmc_firmware_version()?,
+            ..Default::default()
+        };
+
+        let bmc_metadata = BmcMetaDataUpdateRequest {
+            machine_id: dpu_machine_id.clone(),
+            bmc_info,
+        };
+
+        bmc_metadata.update_bmc_network_into_topologies(txn).await?;
 
         Ok(())
     }
