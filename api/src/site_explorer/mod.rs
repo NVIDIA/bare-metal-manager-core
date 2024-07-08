@@ -342,6 +342,8 @@ impl SiteExplorer {
                     ))
                 })?;
 
+            let oob_net0_mac = MacAddress::from_str(&oob_net0_mac)?;
+
             if !self
                 .create_dpu_machine(&mut txn, dpu_machine_id, oob_net0_mac)
                 .await?
@@ -1011,7 +1013,7 @@ impl SiteExplorer {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
-        mac_address: String,
+        mac_address: MacAddress,
     ) -> CarbideResult<bool> {
         let (dpu_machine, new_machine) =
             match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
@@ -1038,7 +1040,6 @@ impl SiteExplorer {
             };
 
         // If machine_interface exists for the DPU and machine_id is not updated, do it now.
-        let mac_address = MacAddress::from_str(&mac_address).map_err(CarbideError::from)?;
         let mi = MachineInterface::find_by_mac_address(txn, mac_address).await?;
 
         if let Some(interface) = mi.first() {
