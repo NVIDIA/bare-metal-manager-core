@@ -322,8 +322,36 @@ impl SiteExplorer {
             self.can_visit(dpu_report)?;
 
             let dpu_machine_id = dpu_report.report.machine_id.as_ref().unwrap();
+            let oob_net0_mac = dpu_report
+                .report
+                .systems
+                .iter()
+                .find_map(|x| {
+                    x.ethernet_interfaces.iter().find_map(|x| {
+                        if x.id == Some("oob_net0".to_string()) {
+                            x.mac_address.clone()
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .ok_or_else(|| {
+                    CarbideError::GenericError(format!(
+                        "oob_net0 mac is missing for dpu: {}.",
+                        dpu_machine_id
+                    ))
+                })?;
 
-            if !self.create_dpu_machine(&mut txn, dpu_machine_id).await? {
+            if !self
+                .create_dpu_machine(&mut txn, dpu_machine_id, oob_net0_mac)
+                .await?
+            {
+                // No error is returned but existing machine is found. It is possible that we
+                // updated machine and attached_dpu id in machine_interface table. Commit the
+                // transaction now.
+                txn.commit().await.map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "existing dpu create_machine_pair", e)
+                })?;
                 return Ok(false);
             }
 
@@ -983,13 +1011,12 @@ impl SiteExplorer {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
+        mac_address: String,
     ) -> CarbideResult<bool> {
-        let dpu_machine =
+        let (dpu_machine, new_machine) =
             match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
                 // Do nothing if machine exists. It'll be reprovisioned via redfish
-                Some(_existing_machine) => {
-                    return Ok(false);
-                }
+                Some(existing_machine) => (existing_machine, false),
                 None => match Machine::create(
                     txn,
                     dpu_machine_id,
@@ -1001,7 +1028,7 @@ impl SiteExplorer {
                 {
                     Ok(machine) => {
                         tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
-                        machine
+                        (machine, true)
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "Can't create Machine");
@@ -1009,6 +1036,25 @@ impl SiteExplorer {
                     }
                 },
             };
+
+        // If machine_interface exists for the DPU and machine_id is not updated, do it now.
+        let mac_address = MacAddress::from_str(&mac_address).map_err(CarbideError::from)?;
+        let mi = MachineInterface::find_by_mac_address(txn, mac_address).await?;
+
+        if let Some(interface) = mi.first() {
+            if interface.machine_id.is_none() {
+                interface
+                    .associate_interface_with_machine(txn, dpu_machine_id)
+                    .await?;
+                interface
+                    .associate_interface_with_dpu_machine(txn, dpu_machine_id)
+                    .await?;
+            }
+        }
+
+        if !new_machine {
+            return Ok(false);
+        }
 
         self.update_dpu_network_config(txn, &dpu_machine).await?;
         Ok(true)

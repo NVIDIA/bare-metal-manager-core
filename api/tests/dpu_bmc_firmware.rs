@@ -412,7 +412,12 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }],
         systems: vec![ComputerSystem {
             id: "Bluefield".to_string(),
-            ethernet_interfaces: Vec::new(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("oob_net0".to_string()),
+                description: Some("1G DPU OOB network interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some(oob_mac.to_string()),
+            }],
             manufacturer: None,
             model: None,
             serial_number: Some("MT2328XZ185R".to_string()),
