@@ -352,7 +352,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Configuation value can not be modified: TenantConfig::tenant_organization_id"
+        "Configuration value cannot be modified: TenantConfig::tenant_organization_id"
     );
 
     // The network configuration of an instance can not be updated
@@ -381,7 +381,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Configuation value can not be modified: network"
+        "Configuration value cannot be modified: network"
     );
 
     // The infiniband configuration of an instance can not be updated
@@ -411,7 +411,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Configuation value can not be modified: infiniband"
+        "Configuration value cannot be modified: infiniband"
     );
 
     // // Try to update to duplicated tenant keyset IDs
