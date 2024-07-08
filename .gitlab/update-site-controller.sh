@@ -46,6 +46,11 @@ function update_git() {
   done
 }
 
+source .gitlab/get-latest-versions.sh
+
+ARGOCD_SITE_PASSWORD="$(vault kv get -field argo-admin-password "secrets/${SITE_UNDER_TEST}")"
+FORGED_PROJECT_ACCESS_TOKEN="$(vault kv get -field forged_project_token secrets/forge/tokens)"
+
 ARGOCD_SITE_URL="argocd-${SHORT_SITE_NAME}.frg.nvidia.com"
 argocd login "${ARGOCD_SITE_URL}" --username "${ARGOCD_SITE_USERNAME}" --password "${ARGOCD_SITE_PASSWORD}"
 echo "Getting initial sync status of Argo CD"
@@ -58,7 +63,7 @@ cd envs/"${SITE_UNDER_TEST}"/site/site-controller
 kustomize edit set image "${APPLICATION_DOCKER_IMAGE_PRODUCTION}"="${APPLICATION_DOCKER_IMAGE}":"${LATEST_COMMON_VERSION}"
 kustomize edit set image "${ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION}"="${ARTIFACTS_DOCKER_IMAGE_AARCH64}":"${LATEST_COMMON_VERSION}"
 kustomize edit set image "${ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION}"="${ARTIFACTS_DOCKER_IMAGE_X86_64}":"${LATEST_COMMON_VERSION}"
-kustomize edit set image nvcr.io/nvidian/nvforge/ssh-console=nvcr.io/nvidian/nvforge-devel/ssh-console:"${SSH_CONSOLE_VERSION}"
+kustomize edit set image nvcr.io/nvidian/nvforge/ssh-console=nvcr.io/nvidian/nvforge-devel/ssh-console:"${LATEST_SSH_CONSOLE_VERSION}"
 
 git_status="$(git status --porcelain)"
 if [[ -n $git_status ]]; then
