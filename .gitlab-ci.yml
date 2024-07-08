@@ -954,68 +954,13 @@ scheduled-test:prepare:
       - certs/
 
 #
-# Get the latest versions of carbide and ssh-console from nvcr.io
-#
-scheduled-test:get-latest-versions:
-  stage: .pre
-  needs:
-    - job: export-docker-json-config
-      optional: false
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true"
-  retry:
-    when:
-      - runner_system_failure
-    max: 1
-  image:
-    name: golang:1.22
-    entrypoint: [ "" ]
-  variables:
-    TESTABLE_VERSION_PATTERN: '^v\d{4}\.\d{2}\.\d{2}-rc\d+-\d+-\d+-g\w+$'  # Ignore any version without a git hash
-  before_script:
-    - set -xeuo pipefail
-    - mkdir -p /root/.docker
-    - cp .docker/config.json /root/.docker/config.json
-    - go install github.com/google/go-containerregistry/cmd/crane@v0.19.1
-  script:
-    - CARBIDE_VERSIONS="$(crane ls "${APPLICATION_DOCKER_IMAGE}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 20 | tac)"
-    - BOOT_AARCH64_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_AARCH64}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 20 | tac)"
-    - BOOT_X86_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_X86_64}" | grep -P "${TESTABLE_VERSION_PATTERN}" | sort -V | tail -n 20 | tac)"
-    - |
-      LATEST_COMMON_VERSION=""
-      for version in $(echo "${CARBIDE_VERSIONS}"); do
-        git_hash=$(echo "$version" | awk -F'-g' '{print $2}')
-        git log origin/trunk | grep "$git_hash" || continue
-        if [[ $(echo "${BOOT_AARCH64_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]] && [[ $(echo "${BOOT_X86_VERSIONS}" | grep -c "\<$version\>") -gt 0 ]]; then
-          LATEST_COMMON_VERSION=$version
-          echo "Found latest common version: $LATEST_COMMON_VERSION"
-          break
-        fi
-      done
-      if [[ -z "${LATEST_COMMON_VERSION}" ]]; then
-        echo "Error: There is no common version across the last 20 versions of nvmetal-carbide, boot-artifacts-aarch64 and boot-artifacts-x86_64."
-        exit 1
-      fi
-    - SSH_CONSOLE_VERSION="$(crane ls "${DEV_NVCR_BASE}"/ssh-console | sort -V | tail -n 1)"
-    - |
-      if [[ -z "${SSH_CONSOLE_VERSION}" ]]; then
-        echo "Error: SSH_CONSOLE_VERSION is empty."
-        exit 1
-      fi
-    - echo "LATEST_COMMON_VERSION=${LATEST_COMMON_VERSION}" >> versions.env
-    - echo "SSH_CONSOLE_VERSION=${SSH_CONSOLE_VERSION}" >> versions.env
-  artifacts:
-    reports:
-      dotenv: versions.env
-
-#
 # Auto-deploy the latest versions of carbide and ssh-console to the site under test by updating the `forged` repo
 #
 scheduled-test:auto-deploy-site-controller:
   stage: dev-deploy
   needs:
-    - scheduled-test:prepare
-    - scheduled-test:get-latest-versions
+    - job: export-docker-json-config
+    - job: scheduled-test:prepare
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true"
   retry:
@@ -1037,13 +982,16 @@ scheduled-test:auto-deploy-site-controller:
       aud: $VAULT_ADDR
   before_script:
     - set -euo pipefail
+    - mkdir -p /root/.docker
+    - cp .docker/config.json /root/.docker/config.json
     - export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
     - export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
     - export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
-    - export ARGOCD_SITE_PASSWORD="$(vault kv get -field argo-admin-password secrets/${SITE_UNDER_TEST})"
-    - export FORGED_PROJECT_ACCESS_TOKEN="$(vault kv get -field=forged_project_token secrets/forge/tokens)"
   script:
     - bash .gitlab/update-site-controller.sh
+  artifacts:
+    reports:
+      dotenv: versions.env
 
 #
 # Verify the running version of carbide-api on the site under test is the version that was deployed
@@ -1052,7 +1000,6 @@ scheduled-test:verify-site-controller-version:
   stage: dev-deploy
   needs:
     - job: scheduled-test:prepare
-    - job: scheduled-test:get-latest-versions
     - job: scheduled-test:auto-deploy-site-controller
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true"
