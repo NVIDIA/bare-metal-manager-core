@@ -41,6 +41,7 @@ use carbide::{
     site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
     state_controller::machine::handler::MachineStateHandler,
 };
+use itertools::Itertools;
 use mac_address::MacAddress;
 use rpc::{
     forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
@@ -648,7 +649,12 @@ async fn test_site_explorer_creates_managed_host(
         }],
         systems: vec![ComputerSystem {
             id: "Bluefield".to_string(),
-            ethernet_interfaces: Vec::new(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("oob_net0".to_string()),
+                description: Some("1G DPU OOB network interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some(oob_mac.to_string()),
+            }],
             manufacturer: None,
             model: None,
             serial_number: Some("MT2328XZ185R".to_string()),
@@ -1002,7 +1008,12 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             }],
             systems: vec![ComputerSystem {
                 id: "Bluefield".to_string(),
-                ethernet_interfaces: Vec::new(),
+                ethernet_interfaces: vec![EthernetInterface {
+                    id: Some("oob_net0".to_string()),
+                    description: Some("1G DPU OOB network interface".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some(oob_mac.to_string()),
+                }],
                 manufacturer: None,
                 model: None,
                 serial_number: Some(serial_number.to_string()),
@@ -1354,4 +1365,370 @@ async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExpl
         .await
         .unwrap()
         .into_inner()
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool).await;
+
+    let _admin_segment = create_admin_network_segment(&env).await;
+    let oob_mac = "b8:3f:d2:90:97:a6".to_string();
+
+    // Create mi now.
+    let _response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: oob_mac.clone(),
+            relay_address: "192.0.2.1".to_string(),
+            link_address: None,
+            vendor_string: Some("bluefield".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await?
+        .into_inner();
+
+    let serial_number = "MT2328XZ180R".to_string();
+
+    let mut dpu_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "Bluefield_BMC".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("eth0".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("a0:88:c2:08:80:90".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("oob_net0".to_string()),
+                description: Some("1G DPU OOB network interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some(oob_mac.clone()),
+            }],
+            manufacturer: None,
+            model: None,
+            serial_number: Some(serial_number.to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+            },
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+            serial_number: Some(serial_number.to_string()),
+            network_adapters: vec![],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "DPU_NIC".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("32.38.1002".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_BSP".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0.12984".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("BF-23.10-3".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OFED".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OS".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-43-geb17a52".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
+    };
+    dpu_report.generate_machine_id();
+
+    let explored_dpus = vec![ExploredDpu {
+        bmc_ip: IpAddr::from_str("192.168.1.2")?,
+        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:70")?),
+        report: dpu_report.clone(),
+    }];
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        dpus: explored_dpus.clone(),
+    };
+
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let dpu_config = default_dpu_models();
+    let test_meter = TestMeter::default();
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: carbide::dynamic_settings::create_machines(true),
+        override_target_ip: None,
+        override_target_port: None,
+    };
+
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        &dpu_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        env.common_pools.clone(),
+    );
+
+    // Machine interface should not have any machine id associated with it right now.
+    let mut txn = env.pool.begin().await?;
+    let macaddr = MacAddress::from_str(&oob_mac)?;
+    let mi = MachineInterface::find_by_mac_address(&mut txn, macaddr).await?;
+    assert!(mi[0].attached_dpu_machine_id().is_none());
+    assert!(mi[0].machine_id.is_none());
+    txn.rollback().await?;
+
+    assert!(
+        explorer
+            .create_managed_host(&exploration_report, &env.pool)
+            .await?
+    );
+
+    // At this point, create_managed_hostmust have updated the associated machine id in
+    // machine_interfaces table.
+    let mut txn = env.pool.begin().await?;
+    let macaddr = MacAddress::from_str(&oob_mac)?;
+    let mi = MachineInterface::find_by_mac_address(&mut txn, macaddr).await?;
+    assert!(mi[0].attached_dpu_machine_id().is_some());
+    assert!(mi[0].machine_id.is_some());
+    txn.rollback().await?;
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc",))]
+async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool).await;
+
+    let _admin_segment = create_admin_network_segment(&env).await;
+    let oob_mac = "b8:3f:d2:90:97:a6".to_string();
+    let serial_number = "MT2328XZ180R".to_string();
+
+    let mut dpu_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "Bluefield_BMC".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("eth0".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("a0:88:c2:08:80:90".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("oob_net0".to_string()),
+                description: Some("1G DPU OOB network interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some(oob_mac.clone()),
+            }],
+            manufacturer: None,
+            model: None,
+            serial_number: Some(serial_number.to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+            },
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+            serial_number: Some(serial_number.to_string()),
+            network_adapters: vec![],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "DPU_NIC".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("32.38.1002".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_BSP".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0.12984".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("BF-23.10-3".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OFED".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OS".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_UEFI".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0-43-geb17a52".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
+    };
+    dpu_report.generate_machine_id();
+    let dpu_machine_id = dpu_report.machine_id.clone().unwrap();
+
+    let explored_dpus = vec![ExploredDpu {
+        bmc_ip: IpAddr::from_str("192.168.1.2")?,
+        host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:70")?),
+        report: dpu_report.clone(),
+    }];
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        dpus: explored_dpus.clone(),
+    };
+
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let dpu_config = default_dpu_models();
+    let test_meter = TestMeter::default();
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: carbide::dynamic_settings::create_machines(true),
+        override_target_ip: None,
+        override_target_port: None,
+    };
+
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        &dpu_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        env.common_pools.clone(),
+    );
+
+    // No way to find a machine_interface using machine id as machine id is not yet associated with
+    // interface (right now no machine interface is created yet).
+    let mut txn = env.pool.begin().await?;
+    let mi = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
+    assert!(mi.is_empty());
+    txn.rollback().await?;
+
+    assert!(
+        explorer
+            .create_managed_host(&exploration_report, &env.pool)
+            .await?
+    );
+
+    // At this point, create_managed_hostmust have created machine but can not associate it with to
+    // any interface as interface does not exist.
+    let mut txn = env.pool.begin().await?;
+    let machine = Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        MachineSearchConfig {
+            include_dpus: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await?;
+    assert!(machine.is_some());
+
+    // No way to find a machine_interface using machine id as machine id is not yet associated with
+    // interface (right now no machine interface is created yet).
+    let mi = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
+    assert!(mi.is_empty());
+    txn.rollback().await?;
+
+    // Create mi now.
+    let _response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: oob_mac.clone(),
+            relay_address: "192.0.2.1".to_string(),
+            link_address: None,
+            vendor_string: Some("bluefield".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await?
+        .into_inner();
+
+    // Machine is already created, create_managed_host should return false.
+    assert!(
+        !explorer
+            .create_managed_host(&exploration_report, &env.pool)
+            .await?
+    );
+
+    // At this point, create_managed_host must have updated the associated machine id in
+    // machine_interfaces table.
+    let mut txn = env.pool.begin().await?;
+    let mi = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
+    assert!(!mi.is_empty());
+    let value = mi.values().collect_vec()[0].clone()[0].clone();
+    assert_eq!(
+        value.attached_dpu_machine_id().clone().unwrap(),
+        dpu_machine_id
+    );
+    assert_eq!(value.machine_id.unwrap(), dpu_machine_id);
+    txn.rollback().await?;
+
+    Ok(())
 }
