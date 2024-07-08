@@ -15,11 +15,16 @@
 use config_version::{ConfigVersion, Versioned};
 
 use crate::{
-    db::{host_machine::HostMachine, machine::Machine, DatabaseError},
-    model::controller_outcome::PersistentStateHandlerOutcome,
-    model::machine::{
-        machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState, ManagedHostState,
-        ManagedHostStateSnapshot, MeasuringState,
+    db::{
+        machine::{Machine, MachineSearchConfig},
+        DatabaseError,
+    },
+    model::{
+        controller_outcome::PersistentStateHandlerOutcome,
+        machine::{
+            machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState,
+            ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+        },
     },
     state_controller::{
         io::StateControllerIO,
@@ -50,9 +55,19 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
     ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
-        Ok(crate::db::host_machine::HostMachine::list_active_ids(txn)
-            .await
-            .map_err(|x| SnapshotLoaderError::GenericError(x.into()))?)
+        Ok(crate::db::machine::Machine::find_machine_ids(
+            txn,
+            MachineSearchConfig {
+                include_dpus: false,
+                include_history: false,
+                include_predicted_host: true,
+                only_maintenance: false,
+                include_associated_machine_id: false,
+                exclude_hosts: false,
+            },
+        )
+        .await
+        .map_err(|x| SnapshotLoaderError::GenericError(x.into()))?)
     }
 
     /// Loads a state snapshot from the database
@@ -84,7 +99,7 @@ impl StateControllerIO for MachineStateControllerIO {
         _old_version: ConfigVersion,
         new_state: Self::ControllerState,
     ) -> Result<(), SnapshotLoaderError> {
-        HostMachine::update_state(txn, object_id, new_state)
+        Machine::update_state(txn, object_id, new_state)
             .await
             .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
 
