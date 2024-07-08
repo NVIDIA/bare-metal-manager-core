@@ -13,10 +13,11 @@ ENV VAULT_VERSION=1.16.1
 
 RUN apt-get update && \
     apt-get install -y \
-    wget \
-    unzip \
+    curl \
     git \
-    jq
+    jq \
+    unzip \
+    wget
 RUN wget -qO crane.tar.gz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_linux_x86_64.tar.gz" && \
     tar -zxf crane.tar.gz -C /usr/local/bin/ crane && \
     rm crane.tar.gz
