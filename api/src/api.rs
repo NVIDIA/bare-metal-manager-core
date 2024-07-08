@@ -2285,7 +2285,7 @@ impl Forge for Api {
                 }
             }
 
-            response.ufm_unregistaration_pending = true;
+            response.ufm_unregistration_pending = true;
             // unbind ib ports from UFM
             for (ib_partition_id, guids) in ib_config_map.iter() {
                 if let Some(pkey) =
@@ -2299,7 +2299,7 @@ impl Forge for Api {
                     //TODO: release VF GUID resource when VF supported.
                 }
             }
-            response.ufm_unregistaration_pending = false;
+            response.ufm_unregistration_pending = false;
 
             // Delete the instance and allocated address
             // TODO: This might need some changes with the new state machine

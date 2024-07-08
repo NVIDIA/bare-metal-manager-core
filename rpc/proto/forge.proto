@@ -1767,7 +1767,7 @@ message AdminForceDeleteMachineResponse {
     // How many interfaces have been unregistered from UFM
     uint32 ufm_unregistrations = 35;
     // UFM unregistrations have been started, but could not be finished
-    bool ufm_unregistaration_pending = 36;
+    bool ufm_unregistration_pending = 36;
 
     // The Machines lockdown state before it was attempted to unlock the Machine
     string initial_lockdown_state = 41;
