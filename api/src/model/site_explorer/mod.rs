@@ -16,7 +16,7 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cfg::{DpuComponent, DpuDesc, DpuModel},
+    cfg::{DpuComponent, DpuDesc, DpuModel, FirmwareHostComponentType},
     model::{
         hardware_info::{DmiData, HardwareInfo},
         machine::machine_id::MachineId,
@@ -117,7 +117,11 @@ impl ExploredEndpoint {
 pub enum PreingestionState {
     Initial,
     RecheckVersions,
-    UpgradeFirmwareWait { task_id: String },
+    UpgradeFirmwareWait {
+        task_id: String,
+        final_version: String,
+        upgrade_type: FirmwareHostComponentType,
+    },
     Complete,
 }
 

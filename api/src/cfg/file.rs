@@ -796,7 +796,7 @@ impl ParsedHosts {
     pub fn find(&self, address: IpAddr, vendor: String, model: String) -> Option<FirmwareHost> {
         let key = vendor_model_to_key(vendor, model);
         let ret = self.map.get(&key).map(|x| x.to_owned());
-        tracing::info!("ParsedHosts::find {address}: key {key} found {ret:?}");
+        tracing::debug!("ParsedHosts::find {address}: key {key} found {ret:?}");
         ret
     }
 }

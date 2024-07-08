@@ -12,10 +12,11 @@
 
 mod metrics;
 
-use std::{sync::Arc, time::Duration};
+use std::{default::Default, sync::Arc, time::Duration};
 
+use chrono::{TimeDelta, Utc};
 use forge_secrets::credentials::{CredentialKey, CredentialType};
-use libredfish::model::task::TaskState;
+use libredfish::{model::task::TaskState, SystemPowerControl};
 use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::{
@@ -29,11 +30,18 @@ use crate::{
         CarbideConfig, FirmwareEntry, FirmwareGlobal, FirmwareHost, FirmwareHostComponentType,
         ParsedHosts,
     },
-    db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
+    db::{
+        explored_endpoints::DbExploredEndpoint,
+        machine::{Machine, MachineSearchConfig},
+        DatabaseError, ObjectFilter,
+    },
     firmware_downloader::FirmwareDownloader,
-    model::site_explorer::{ExploredEndpoint, PreingestionState},
+    model::{
+        machine::MachineLastRebootRequestedMode,
+        site_explorer::{ExploredEndpoint, PreingestionState},
+    },
     redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool},
-    CarbideError,
+    CarbideError, MachineId,
 };
 
 /// DatabaseResult is a mirror of CarbideResult, but we should only be bubbling up an error if it was a database error and we need to reconnect.
@@ -151,7 +159,7 @@ impl PreingestionManager {
         let items = DbExploredEndpoint::find_preingest_not_waiting_not_error(&mut txn).await?;
         if !items.is_empty() && items.len() < 3 {
             // Show states if a modest amount, just count otherwise
-            tracing::info!(
+            tracing::debug!(
                 "PreingestionManager: Working on {} items {:?}",
                 items.len(),
                 items
@@ -160,7 +168,7 @@ impl PreingestionManager {
                     .collect::<Vec<String>>()
             );
         } else {
-            tracing::info!("PreingestionManager: Working on {} items", items.len())
+            tracing::debug!("PreingestionManager: Working on {} items", items.len())
         }
         let mut task_set = JoinSet::new();
         let active_uploads = Arc::new(Mutex::new(0));
@@ -201,7 +209,7 @@ impl PreingestionManager {
             .await?
             .len();
 
-        tracing::info!(
+        tracing::debug!(
             "Preingestion metrics: in_preingestion {} waiting {} delayed {}",
             metrics.machines_in_preingestion,
             metrics.waiting_for_installation,
@@ -239,6 +247,8 @@ async fn one_endpoint(
         )
     })?;
 
+    tracing::info!("Preingestion on endpoint {:?}", endpoint);
+
     // Main state machine match.
     let delayed_upgrade = match &endpoint.preingestion_state {
         PreingestionState::Initial => {
@@ -251,9 +261,13 @@ async fn one_endpoint(
                 .start_firmware_uploads_or_continue(&mut txn, &endpoint, active_uploads)
                 .await?
         }
-        PreingestionState::UpgradeFirmwareWait { task_id } => {
+        PreingestionState::UpgradeFirmwareWait {
+            task_id,
+            final_version,
+            upgrade_type,
+        } => {
             static_info
-                .in_upgrade_firmware_wait(&mut txn, &endpoint, task_id)
+                .in_upgrade_firmware_wait(&mut txn, &endpoint, task_id, final_version, upgrade_type)
                 .await?;
             false
         }
@@ -500,6 +514,7 @@ impl PreingestionManagerStatic {
                         endpoint,
                         &self.redfish_client_pool,
                         &to_install,
+                        &fw_type,
                         &self.downloader,
                     )
                     .await?;
@@ -522,6 +537,8 @@ impl PreingestionManagerStatic {
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
         task_id: &str,
+        final_version: &str,
+        upgrade_type: &FirmwareHostComponentType,
     ) -> DatabaseResult<()> {
         let redfish_client = match self
             .redfish_client_pool
@@ -561,8 +578,54 @@ impl PreingestionManagerStatic {
                     }
                     Some(TaskState::Completed) => {
                         // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
+                        // First check if we should be rebooting though
+                        if let Some(machine_id) = &endpoint.report.machine_id {
+                            if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
+                                if let Some(current_version) =
+                                    find_version(endpoint, &fw_info, *upgrade_type)
+                                {
+                                    if current_version != final_version {
+                                        // Still not reporting the new version.  If this is the UEFI, we need to request a reset.  Otherwise, we just need to wait a bit.
+                                        if *upgrade_type == FirmwareHostComponentType::Uefi
+                                            && !rebooted_recently(
+                                                machine_id,
+                                                TimeDelta::seconds(300),
+                                                txn,
+                                            )
+                                            .await
+                                        {
+                                            tracing::info!(
+                                            "Upgrade task has completed for {} but needs reboot",
+                                            &endpoint.address
+                                        );
+                                            Machine::update_reboot_requested_time(
+                                                machine_id,
+                                                txn,
+                                                MachineLastRebootRequestedMode::Reboot,
+                                            )
+                                            .await?;
+                                            match redfish_client
+                                                .power(SystemPowerControl::ForceRestart)
+                                                .await
+                                            {
+                                                Ok(()) => {}
+                                                Err(e) => {
+                                                    tracing::error!(
+                                                        "Failed to reboot {}: {e}",
+                                                        &endpoint.address
+                                                    )
+                                                }
+                                            }
+                                            return Ok(());
+                                        }
+                                        tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        }
                         tracing::info!(
-                            "Marking completion of BMC firmware upgrade for {}",
+                            "Marking completion of firmware upgrade for {}",
                             &endpoint.address
                         );
                         DbExploredEndpoint::set_preingestion_recheck_versions(
@@ -586,7 +649,7 @@ impl PreingestionManagerStatic {
                             task_info
                                 .messages
                                 .last()
-                                .map_or("".to_string(), |m| m.message.clone())
+                                .map_or(String::new(), |m| m.message.clone())
                         );
 
                         // Wait for site explorer to refresh it then try again after that.
@@ -642,7 +705,8 @@ fn find_version(
     None
 }
 
-/// need_upgrade determines if the given endpoint needs a firmware upgrade based on the description in fw_info, and if so returns the FirmwareEntry matching the desired upgrade.
+/// need_upgrade determines if the given endpoint needs a firmware upgrade based on the description in fw_info, and if
+/// so returns the FirmwareEntry matching the desired upgrade along with the ID that Redfish uses to specify its version.
 fn need_upgrade(
     endpoint: &ExploredEndpoint,
     fw_info: &FirmwareHost,
@@ -682,6 +746,7 @@ async fn initiate_update(
     endpoint_clone: &ExploredEndpoint,
     redfish_client_pool: &Arc<dyn RedfishClientPool>,
     to_install: &FirmwareEntry,
+    firmware_type: &FirmwareHostComponentType,
     downloader: &FirmwareDownloader,
 ) -> Result<(), DatabaseError> {
     if !downloader
@@ -748,7 +813,45 @@ async fn initiate_update(
         endpoint_clone.address
     );
 
-    DbExploredEndpoint::set_preingestion_waittask(endpoint_clone.address, task, txn).await?;
+    DbExploredEndpoint::set_preingestion_waittask(
+        endpoint_clone.address,
+        task,
+        &to_install.version,
+        firmware_type,
+        txn,
+    )
+    .await?;
 
     Ok(())
+}
+
+async fn rebooted_recently(
+    machine_id: &MachineId,
+    time_limit: TimeDelta,
+    txn: &mut Transaction<'_, Postgres>,
+) -> bool {
+    let machine = match Machine::find(
+        txn,
+        ObjectFilter::One(machine_id.clone()),
+        MachineSearchConfig::default(),
+    )
+    .await
+    {
+        Err(e) => {
+            tracing::error!("rebooted_recently failed to find {machine_id}: {e}");
+            return false;
+        }
+        Ok(machine) => machine,
+    };
+
+    let machine = match machine.first() {
+        None => {
+            tracing::error!("rebooted_recently failed to find {machine_id}");
+            return false;
+        }
+        Some(machine) => machine,
+    };
+
+    Utc::now().signed_duration_since(machine.last_reboot_requested().unwrap_or_default().time)
+        < time_limit
 }
