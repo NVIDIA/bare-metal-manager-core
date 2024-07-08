@@ -1664,6 +1664,35 @@ SELECT m.id FROM
         Ok(machine_ids.into_iter().map(MachineId::from).collect())
     }
 
+    pub async fn update_state(
+        txn: &mut Transaction<'_, Postgres>,
+        host_id: &MachineId,
+        new_state: ManagedHostState,
+    ) -> CarbideResult<()> {
+        let host = Machine::find_one(
+            txn,
+            host_id,
+            crate::db::machine::MachineSearchConfig::default(),
+        )
+        .await?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: host_id.to_string(),
+        })?;
+
+        let version = host.current_version().increment();
+        tracing::info!(machine_id = %host.id(), %new_state, "Updating host state");
+        host.advance(txn, new_state.clone(), Some(version)).await?;
+
+        // Keep both host and dpu's states in sync.
+        let dpus = Machine::find_dpus_by_host_machine_id(txn, host_id).await?;
+
+        for dpu in dpus {
+            dpu.advance(txn, new_state.clone(), Some(version)).await?;
+        }
+        Ok(())
+    }
+
     pub async fn update_machine_validation_time(
         machine_id: &MachineId,
         txn: &mut sqlx::Transaction<'_, Postgres>,
