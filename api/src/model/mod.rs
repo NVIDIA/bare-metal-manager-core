@@ -118,8 +118,11 @@ pub enum ConfigValidationError {
     #[error("Segment {0} is requested to be deleted.")]
     NetworkSegmentToBeDeleted(NetworkSegmentId),
 
-    #[error("Configuation value can not be modified: {0}")]
+    #[error("Configuration value cannot be modified: {0}")]
     ConfigCanNotBeModified(String),
+
+    #[error("Duplicate TenantKeyset ID found: {0}")]
+    DuplicateTenantKeysetId(String),
 }
 
 impl ConfigValidationError {

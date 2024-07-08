@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::model::tenant::TenantOrganizationId;
@@ -55,6 +57,17 @@ impl TryFrom<TenantConfig> for rpc::TenantConfig {
 impl TenantConfig {
     /// Validates the tenant configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
+        // Perform a check for duplicate keysets
+        // and throw back an error to the caller if found.
+        let mut unique_keyset_ids: HashSet<&String> = HashSet::new();
+        for keyset_id in self.tenant_keyset_ids.iter() {
+            if !unique_keyset_ids.insert(keyset_id) {
+                return Err(ConfigValidationError::DuplicateTenantKeysetId(
+                    keyset_id.into(),
+                ));
+            }
+        }
+
         Ok(())
     }
 
@@ -89,5 +102,33 @@ mod tests {
             serde_json::from_str::<TenantConfig>(&serialized).unwrap(),
             config
         );
+    }
+
+    #[test]
+    fn validate_tenant_config_duplicate_keysets() {
+        let config = TenantConfig {
+            tenant_organization_id: TenantOrganizationId::try_from("TenantA".to_string()).unwrap(),
+            tenant_keyset_ids: vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "a".to_string(),
+            ],
+        };
+
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigValidationError::DuplicateTenantKeysetId(_))
+        ))
+    }
+
+    #[test]
+    fn validate_tenant_config_unique_keysets() {
+        let config = TenantConfig {
+            tenant_organization_id: TenantOrganizationId::try_from("TenantA".to_string()).unwrap(),
+            tenant_keyset_ids: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+        };
+
+        config.validate().unwrap()
     }
 }
