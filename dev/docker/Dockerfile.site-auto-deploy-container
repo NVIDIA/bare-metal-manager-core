@@ -4,19 +4,27 @@
 
 FROM registry.gitlab.com/python-gitlab/python-gitlab:v4.4.0-slim-bullseye
 
+WORKDIR /root
+
+ENV CRANE_VERSION=v0.19.1
+ENV ARGOCD_VERSION=v2.10.7
+ENV KUSTOMIZE_VERSION=v5.4.1
+ENV VAULT_VERSION=1.16.1
+
 RUN apt-get update && \
     apt-get install -y \
     wget \
     unzip \
     git \
     jq
-RUN wget -qO /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v2.10.7/argocd-linux-amd64 &&  \
+RUN wget -qO crane.tar.gz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_linux_x86_64.tar.gz" && \
+    tar -zxf crane.tar.gz -C /usr/local/bin/ crane && \
+    rm crane.tar.gz
+RUN wget -qO /usr/local/bin/argocd "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64" &&  \
     chmod +x /usr/local/bin/argocd
-RUN wget -qO kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.1/kustomize_v5.4.1_linux_amd64.tar.gz && \
-    tar -zxf kustomize.tar.gz && \
-    mv kustomize /usr/local/bin/kustomize && \
+RUN wget -qO kustomize.tar.gz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" && \
+    tar -zxf kustomize.tar.gz -C /usr/local/bin/ kustomize && \
     rm kustomize.tar.gz
-RUN wget -qO vault.zip https://releases.hashicorp.com/vault/1.16.1/vault_1.16.1_linux_amd64.zip && \
-    unzip vault.zip && \
-    mv vault /usr/local/bin/vault && \
+RUN wget -qO vault.zip "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip" && \
+    unzip vault.zip -d /usr/local/bin/ vault && \
     rm vault.zip
