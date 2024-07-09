@@ -24,6 +24,7 @@ use mac_address::MacAddress;
 use serde::Serialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
+use uuid::Uuid;
 
 use super::{DatabaseError, ObjectFilter};
 use crate::db::machine_interface::MachineInterface;
@@ -165,8 +166,11 @@ pub struct Machine {
     /// Last host validation finished.
     last_machine_validation_time: Option<DateTime<Utc>>,
 
-    /// current machine validation id.
-    current_machine_validation_id: Option<uuid::Uuid>,
+    /// current discovery validation id.
+    discovery_machine_validation_id: Option<uuid::Uuid>,
+
+    /// current cleanup validation id.
+    cleanup_machine_validation_id: Option<uuid::Uuid>,
 }
 
 // We need to implement FromRow because we can't associate dependent tables with the default derive
@@ -247,7 +251,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             controller_state_outcome: state_outcome.map(|x| x.0),
             bios_password_set_time: row.try_get("bios_password_set_time")?,
             last_machine_validation_time: row.try_get("last_machine_validation_time")?,
-            current_machine_validation_id: row.try_get("current_machine_validation_id")?,
+            discovery_machine_validation_id: row.try_get("discovery_machine_validation_id")?,
+            cleanup_machine_validation_id: row.try_get("cleanup_machine_validation_id")?,
         })
     }
 }
@@ -973,8 +978,13 @@ SELECT m.id FROM
     pub fn last_machine_validation_time(&self) -> Option<DateTime<Utc>> {
         self.last_machine_validation_time
     }
-    pub fn current_machine_validation_id(&self) -> Option<uuid::Uuid> {
-        self.current_machine_validation_id
+
+    pub fn discovery_machine_validation_id(&self) -> Option<uuid::Uuid> {
+        self.discovery_machine_validation_id
+    }
+
+    pub fn cleanup_machine_validation_id(&self) -> Option<uuid::Uuid> {
+        self.cleanup_machine_validation_id
     }
 
     pub async fn update_reboot_time(
@@ -1707,18 +1717,22 @@ SELECT m.id FROM
 
         Ok(())
     }
-    pub async fn update_current_machine_validation_id(
+    pub async fn update_machine_validation_id(
         machine_id: &MachineId,
-        current_machine_validation_id: uuid::Uuid,
+        validation_id: uuid::Uuid,
+        context_column_name: String,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE machines SET current_machine_validation_id=$1 WHERE id=$2 RETURNING id";
-        let _id = sqlx::query_as::<_, DbMachineId>(query)
-            .bind(current_machine_validation_id)
-            .bind(machine_id.to_string())
-            .fetch_one(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+        let base_query = "UPDATE machines SET {column}=$1 WHERE id=$2 RETURNING *".to_owned();
+        // let query = base_query.replace("{column}", context_column_name.as_str());
+        let _id = sqlx::query_as::<_, Self>(
+            &base_query.replace("{column}", context_column_name.as_str()),
+        )
+        .bind(validation_id)
+        .bind(machine_id.to_string())
+        .fetch_one(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "UPDATE machines ", e))?;
 
         Ok(())
     }
@@ -1791,6 +1805,26 @@ SELECT m.id FROM
                 Err(err.into())
             }
         }
+    }
+    pub async fn find_by_validation_id(
+        txn: &mut Transaction<'_, Postgres>,
+        validation_id: &Uuid,
+    ) -> Result<Option<Self>, DatabaseError> {
+        let query = r#"SELECT * FROM machines 
+            WHERE discovery_machine_validation_id = $1 OR cleanup_machine_validation_id = $1"#;
+        let machine: Option<Self> = sqlx::query_as(query)
+            .bind(validation_id)
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        let mut machine = match machine {
+            Some(machine) => machine,
+            None => return Ok(None),
+        };
+
+        machine.load_related_data(txn).await?;
+        Ok(Some(machine))
     }
 }
 

@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::time::SystemTime;
+
 use carbide::{
     cfg::default_dpu_models,
     db::instance::InstanceId,
@@ -21,11 +23,11 @@ use carbide::{
     },
     state_controller::machine::handler::MachineStateHandler,
 };
-use rpc::{forge::forge_server::Forge, InstanceReleaseRequest};
+use rpc::{forge::forge_server::Forge, InstanceReleaseRequest, Timestamp};
 
 use crate::common::api_fixtures::network_segment::FIXTURE_NETWORK_SEGMENT_ID;
 
-use super::TestEnv;
+use super::{forge_agent_control, persist_machine_validation_result, TestEnv};
 
 pub const FIXTURE_CIRCUIT_ID: &str = "vlan_100";
 pub const FIXTURE_CIRCUIT_ID_1: &str = "vlan_101";
@@ -362,7 +364,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::MachineValidating {
-                context: "CleanupState".to_string(),
+                context: "Cleanup".to_string(),
                 id: uuid::Uuid::default(),
                 completed: 1,
                 total: 1,
@@ -371,6 +373,34 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
     )
     .await;
     txn.commit().await.unwrap();
+
+    let mut machine_validation_result = rpc::forge::MachineValidationResult {
+        validation_id: None,
+        name: "instance".to_string(),
+        description: "desc".to_string(),
+        command: "echo".to_string(),
+        args: "test".to_string(),
+        std_out: "".to_string(),
+        std_err: "".to_string(),
+        context: "Cleanup".to_string(),
+        exit_code: 0,
+        start_time: Some(Timestamp::from(SystemTime::now())),
+        end_time: Some(Timestamp::from(SystemTime::now())),
+    };
+
+    let response = forge_agent_control(
+        env,
+        rpc::MachineId {
+            id: host_machine_id.to_string(),
+        },
+    )
+    .await;
+    let uuid = &response.data.unwrap().pair[1].value;
+
+    machine_validation_result.validation_id = Some(rpc::Uuid {
+        value: uuid.to_owned(),
+    });
+    persist_machine_validation_result(env, machine_validation_result.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
     Machine::update_machine_validation_time(host_machine_id, &mut txn)

@@ -130,8 +130,11 @@ pub struct MachineSnapshot {
     pub bios_password_set_time: Option<DateTime<Utc>>,
     /// Last host validation finished.
     pub last_machine_validation_time: Option<DateTime<Utc>>,
-    /// current machine validation id.
-    pub current_machine_validation_id: Option<uuid::Uuid>,
+    /// current discovery validation id.
+    pub discovery_machine_validation_id: Option<uuid::Uuid>,
+
+    /// current cleanup validation id.
+    pub cleanup_machine_validation_id: Option<uuid::Uuid>,
 }
 
 impl MachineSnapshot {

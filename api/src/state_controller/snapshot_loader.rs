@@ -76,7 +76,8 @@ pub async fn get_machine_snapshot(
         last_reboot_requested: machine.last_reboot_requested(),
         bios_password_set_time: machine.bios_password_set_time(),
         last_machine_validation_time: machine.last_machine_validation_time(),
-        current_machine_validation_id: machine.current_machine_validation_id(),
+        discovery_machine_validation_id: machine.discovery_machine_validation_id(),
+        cleanup_machine_validation_id: machine.cleanup_machine_validation_id(),
     };
 
     Ok(snapshot)

@@ -14,6 +14,7 @@
 
 use carbide::db::machine::Machine;
 use carbide::db::network_prefix::NetworkPrefix;
+use carbide::model::machine::{FailureCause, FailureDetails, FailureSource};
 use carbide::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use carbide::{
     cfg::default_dpu_models,
@@ -28,6 +29,7 @@ use carbide::{
     },
     state_controller::machine::handler::MachineStateHandler,
 };
+use rpc::forge::MachineValidationResult;
 use rpc::{
     forge::{forge_agent_control_response::Action, forge_server::Forge, DhcpDiscovery},
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
@@ -38,7 +40,9 @@ use crate::common::api_fixtures::{
     discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
     TestEnv,
 };
-use crate::common::api_fixtures::{inject_machine_measurements, machine_validation_completed};
+use crate::common::api_fixtures::{
+    inject_machine_measurements, machine_validation_completed, persist_machine_validation_result,
+};
 
 use strum::IntoEnumIterator;
 
@@ -349,12 +353,17 @@ pub async fn host_uefi_setup(
     }
 }
 
-pub async fn create_machine_with_machine_validation_completion_error(
+pub async fn create_host_with_machine_validation(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
     dpu_machine_id: &MachineId,
+    machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
     error: Option<String>,
 ) -> rpc::MachineId {
+    let mut machine_validation_result = match machine_validation_result_data {
+        Some(data) => data,
+        None => MachineValidationResult::default(),
+    };
     use carbide::model::machine::{LockdownInfo, LockdownMode, LockdownState, MachineState};
     let bmc_machine_interface_id =
         host_bmc_discover_dhcp(env, &host_config.host_bmc_mac_address.to_string()).await;
@@ -386,7 +395,7 @@ pub async fn create_machine_with_machine_validation_completion_error(
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler.clone(),
-        2,
+        1,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::WaitingForDiscovery,
@@ -423,7 +432,7 @@ pub async fn create_machine_with_machine_validation_completion_error(
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler.clone(),
-        3,
+        2,
         &mut txn,
         ManagedHostState::HostNotReady {
             machine_state: MachineState::WaitingForLockdown {
@@ -459,28 +468,83 @@ pub async fn create_machine_with_machine_validation_completion_error(
     .await;
     txn.commit().await.unwrap();
 
-    machine_validation_completed(env, host_rpc_machine_id.clone(), error).await;
+    let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+    let uuid = &response.data.unwrap().pair[1].value;
 
-    env.run_machine_state_controller_iteration(handler).await;
+    machine_validation_result.validation_id = Some(rpc::Uuid {
+        value: uuid.to_owned(),
+    });
+    persist_machine_validation_result(env, machine_validation_result.clone()).await;
 
-    let mut txn = env.pool.begin().await.unwrap();
-    let machine = Machine::find_one(
-        &mut txn,
-        dpu_machine_id,
-        carbide::db::machine::MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    machine_validation_completed(env, host_rpc_machine_id.clone(), error.clone()).await;
+    if error.is_some() {
+        env.run_machine_state_controller_iteration(handler).await;
 
-    match machine.current_state() {
-        ManagedHostState::Failed { .. } => {}
-        s => {
-            panic!("Incorrect state: {}", s);
+        let mut txn = env.pool.begin().await.unwrap();
+        let machine = Machine::find_one(
+            &mut txn,
+            dpu_machine_id,
+            carbide::db::machine::MachineSearchConfig::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        match machine.current_state() {
+            ManagedHostState::Failed { .. } => {}
+            s => {
+                panic!("Incorrect state: {}", s);
+            }
         }
+
+        txn.commit().await.unwrap();
+    } else if machine_validation_result.exit_code == 0 {
+        let mut txn = env.pool.begin().await.unwrap();
+        env.run_machine_state_controller_iteration_until_state_matches(
+            &host_machine_id,
+            handler.clone(),
+            3,
+            &mut txn,
+            ManagedHostState::HostNotReady {
+                machine_state: MachineState::Discovered,
+            },
+        )
+        .await;
+        txn.commit().await.unwrap();
+
+        let response = forge_agent_control(env, host_rpc_machine_id.clone()).await;
+        assert_eq!(response.action, Action::Noop as i32);
+        let mut txn = env.pool.begin().await.unwrap();
+        env.run_machine_state_controller_iteration_until_state_matches(
+            &host_machine_id,
+            handler,
+            1,
+            &mut txn,
+            ManagedHostState::Ready,
+        )
+        .await;
+        txn.commit().await.unwrap();
+    } else {
+        let mut txn = env.pool.begin().await.unwrap();
+        env.run_machine_state_controller_iteration_until_state_matches(
+            &host_machine_id,
+            handler,
+            1,
+            &mut txn,
+            ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::MachineValidation {
+                        err: machine_validation_result.std_err.clone(),
+                    },
+                    failed_at: chrono::Utc::now(),
+                    source: FailureSource::Scout,
+                },
+                machine_id: host_machine_id.clone(),
+                retry_count: 0,
+            },
+        )
+        .await;
+        txn.commit().await.unwrap();
     }
-
-    txn.commit().await.unwrap();
-
     host_rpc_machine_id
 }

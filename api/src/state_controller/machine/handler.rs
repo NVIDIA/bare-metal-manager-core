@@ -34,6 +34,7 @@ use crate::{
         machine::Machine,
         machine_interface::MachineInterface,
         machine_topology::MachineTopology,
+        machine_validation::MachineValidation,
     },
     ib::{self, types::IBNetwork, DEFAULT_IB_FABRIC_NAME},
     measured_boot::{
@@ -392,25 +393,17 @@ impl MachineStateHandler {
                         )
                         .await?;
 
-                        purge_machine_validation_results(
-                            &state.host_snapshot.machine_id,
-                            "CleanupState".to_string(),
+                        let validation_id = MachineValidation::create_new_run(
                             txn,
+                            &state.host_snapshot.machine_id,
+                            "Cleanup".to_string(),
                         )
                         .await?;
-
-                        let current_machine_validation_id = uuid::Uuid::new_v4();
-
-                        Machine::update_current_machine_validation_id(
-                            &state.host_snapshot.machine_id,
-                            current_machine_validation_id,
-                            txn,
-                        )
-                        .await?;
+                        // Link to machine
                         let next_state = ManagedHostState::HostNotReady {
                             machine_state: MachineState::MachineValidating {
-                                context: "CleanupState".to_string(),
-                                id: current_machine_validation_id,
+                                context: "Cleanup".to_string(),
+                                id: validation_id,
                                 completed: 1,
                                 total: 1,
                             },
@@ -2425,24 +2418,16 @@ impl StateHandler for HostMachineStateHandler {
                                 )
                                 .await?;
                                 if LockdownMode::Enable == lockdown_info.mode {
-                                    purge_machine_validation_results(
+                                    let validation_id = MachineValidation::create_new_run(
+                                        txn,
                                         &state.host_snapshot.machine_id,
                                         "Discovery".to_string(),
-                                        txn,
-                                    )
-                                    .await?;
-                                    let current_machine_validation_id = uuid::Uuid::new_v4();
-
-                                    Machine::update_current_machine_validation_id(
-                                        &state.host_snapshot.machine_id,
-                                        current_machine_validation_id,
-                                        txn,
                                     )
                                     .await?;
                                     let next_state = ManagedHostState::HostNotReady {
                                         machine_state: MachineState::MachineValidating {
                                             context: "Discovery".to_string(),
-                                            id: current_machine_validation_id,
+                                            id: validation_id,
                                             completed: 1,
                                             total: 1,
                                         },
@@ -3112,15 +3097,6 @@ async fn handler_restart_dpu(
     .await
     .map_err(|err| err.into())
     //handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn).await
-}
-
-async fn purge_machine_validation_results(
-    _machine_id: &MachineId,
-    _context: String,
-    _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), StateHandlerError> {
-    // MachineValidationResult::delete_by_context(txn, context, machine_id).await?;
-    Ok(())
 }
 
 async fn host_power_state(
