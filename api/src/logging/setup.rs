@@ -24,6 +24,7 @@ use tracing_subscriber::{
 use super::level_filter::ActiveLevel;
 use crate::logging::sqlx_query_tracing;
 
+#[derive(Debug, Clone)]
 pub struct TelemetrySetup {
     pub registry: prometheus::Registry,
     pub meter: Meter,

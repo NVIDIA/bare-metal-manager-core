@@ -12,16 +12,20 @@
 use chrono::Duration;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use carbide::cfg::{
     default_dpu_models, default_max_find_by_ids, AgentUpgradePolicyChoice, AuthConfig,
     CarbideConfig, FirmwareGlobal, IBFabricConfig, IbFabricMonitorConfig,
     IbPartitionStateControllerConfig, MachineStateControllerConfig,
-    NetworkSegmentStateControllerConfig, StateControllerConfig, TlsConfig,
+    NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };
+use carbide::logging::setup::TelemetrySetup;
 use carbide::logging::sqlx_query_tracing;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
+use carbide::redfish::RedfishClientPool;
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
+use tokio::sync::oneshot::Receiver;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::{filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt};
 
@@ -32,6 +36,9 @@ pub async fn start(
     root_dir: String,
     db_url: String,
     vault_token: String,
+    override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
+    telemetry_setup: TelemetrySetup,
+    stop_channel: Receiver<()>,
 ) -> eyre::Result<()> {
     let mut dpu_nic_firmware_update_versions = HashMap::new();
     dpu_nic_firmware_update_versions.insert("product_x".to_owned(), "v1".to_owned());
@@ -150,7 +157,15 @@ pub async fn start(
         dpu_nic_firmware_reprovision_update_enabled: false,
         max_concurrent_machine_updates: Some(1),
         machine_update_run_interval: None,
-        site_explorer: carbide::cfg::default_site_explorer_config(),
+        site_explorer: SiteExplorerConfig {
+            enabled: true,
+            run_interval: std::time::Duration::from_secs(5),
+            concurrent_explorations: 5,
+            explorations_per_run: 10,
+            create_machines: carbide::dynamic_settings::create_machines(false),
+            override_target_ip: None,
+            override_target_port: None,
+        },
         dpu_dhcp_server_enabled: true,
         nvue_enabled: true,
         attestation_enabled: false,
@@ -201,7 +216,16 @@ pub async fn start(
     std::env::set_var("VAULT_TOKEN", vault_token);
 
     let carbide_config_str = toml::to_string(&carbide_config).unwrap();
-    carbide::run(0, carbide_config_str, None, Some(test_logging_subscriber())).await
+    carbide::run(
+        0,
+        carbide_config_str,
+        None,
+        Some(test_logging_subscriber()),
+        override_redfish_pool,
+        Some(telemetry_setup),
+        stop_channel,
+    )
+    .await
 }
 
 pub fn test_logging_subscriber() -> impl SubscriberInitExt {

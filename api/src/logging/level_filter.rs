@@ -18,6 +18,7 @@ use tracing_subscriber::EnvFilter;
 /// The current RUST_LOG setting.
 /// Immutable. Owner holds it in an ArcSwap and replaces the whole object using one of `with_base` or
 /// `reset_from`.
+#[derive(Debug)]
 pub struct ActiveLevel {
     /// The current filter that logging uses
     pub current: EnvFilter,

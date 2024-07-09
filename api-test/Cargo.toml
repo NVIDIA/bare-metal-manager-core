@@ -10,8 +10,10 @@ authors.workspace = true
 chrono = "0.4.34"
 eyre = "*"
 ipnetwork = { version = "^0.20.0", features = ["serde"] }
+lazy_static = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
+serial_test = "3"
 sqlx = { version = "0.7.1", features = ["runtime-tokio-rustls", "mac_address", "ipnetwork", "uuid", "migrate", "postgres", "chrono", "macros", "json"] }
 tempfile = "3"
 tokio.workspace = true
@@ -26,9 +28,14 @@ carbide-api = { path = "../api" }
 forge-host-support = { path = "../common/host-support" }
 forge-version = { path = "../common/version" }
 rpc = { path = "../rpc" }
+machine-a-tron = { path = "../dev/machine-a-tron" }
+forge-tls = { path = "../common/tls" }
 
 [dependencies]
 async-trait = "0.1.72"
+libredfish.workspace = true
+http = "0.2.12"
+thiserror = "1"
 
 [build-dependencies]
 forge-version = { path = "../common/version" }

@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use axum::Router;
+use bmc_mock::ListenerOrAddress;
 use tracing::info;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt::Layer;
@@ -77,6 +78,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     routers_by_mac.insert("".to_owned(), router);
 
-    bmc_mock::run_combined_mock(routers_by_mac, args.cert_path, listen_addr).await?;
+    bmc_mock::run_combined_mock(
+        routers_by_mac,
+        args.cert_path,
+        listen_addr.map(ListenerOrAddress::Address),
+    )
+    .await?;
     Ok(())
 }

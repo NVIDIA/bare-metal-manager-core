@@ -21,7 +21,7 @@ socket2 = "0.5.5"
 base64 = "0.21.7"
 chrono = "0.4.34"
 thiserror = "1"
-axum = "0.6.18"
+axum = "0.7.5"
 crossterm = { version = "0.25.0", features = ["event-stream"] }
 ratatui = "0.26.1"
 dhcproto = "0.11.0"
@@ -36,13 +36,15 @@ reqwest = { version = "0.11", default-features = false, features = [
     "socks",
     "multipart",
 ] }
+eyre = "0.6.12"
+tower = "0.4.13"
+http-body = "1.0.0"
+regex = "1.10.5"
+bytes = "1.6.0"
+tempfile = "3"
 
 # [local-dependencies]
 rpc = { path = "../../rpc" }
 bmc-mock = { path = "../bmc-mock" }
 forge-tls = { path = "../../common/tls" }
 utils = { path = "../../common/utils" }
-eyre = "0.6.12"
-tower = "0.4.13"
-http-body = "0.4.6"
-regex = "1.10.5"

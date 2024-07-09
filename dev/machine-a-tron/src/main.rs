@@ -78,6 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app_config,
         forge_client_config,
         circuit_id: None,
+        bmc_mock_certs_dir: None,
     };
 
     let (mut dhcp_client, mut dhcp_service) =
@@ -105,7 +106,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("version: {}", info.build_version);
 
     let mut mat = MachineATron::new(app_context);
-    mat.run(&mut dhcp_client).await?;
+    let machines = mat.make_machines().await?;
+    mat.run(machines, &mut dhcp_client).await?;
 
     dhcp_client.stop_service().await;
     dhcp_handle.await?;

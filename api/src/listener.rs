@@ -16,6 +16,8 @@ use ::rpc::forge as rpc;
 use hyper::server::conn::Http;
 use opentelemetry::{metrics::Meter, KeyValue};
 use tokio::net::TcpListener;
+use tokio::select;
+use tokio::sync::oneshot::Receiver;
 use tokio_rustls::{
     rustls::{
         server::AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore,
@@ -149,6 +151,7 @@ pub async fn listen_and_serve(
     listen_port: SocketAddr,
     authorizer: auth::Authorizer,
     meter: Meter,
+    mut stop_channel: Receiver<()>,
 ) -> eyre::Result<()> {
     let api_reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
@@ -207,7 +210,13 @@ pub async fn listen_and_serve(
     let mut tls_acceptor_created = Instant::now();
     let mut initialize_tls_acceptor = true;
     loop {
-        let incoming_connection = listener.accept().await;
+        let incoming_connection = select! {
+            incoming_connection = listener.accept() => incoming_connection,
+            _ = &mut stop_channel => {
+                tracing::info!("carbide-api shutting down");
+                return Ok(());
+            }
+        };
         connection_total_counter.add(1, &[]);
         let (conn, addr) = match incoming_connection {
             Ok(incoming) => incoming,

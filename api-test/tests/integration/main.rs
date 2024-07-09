@@ -10,17 +10,22 @@
  * its affiliates is strictly prohibited.
  */
 
+use crate::machine_a_tron::MachineATronInstance;
+use crate::redfish::MachineATronBackedRedfishClientPool;
+use crate::utils::IntegrationTestEnvironment;
+use ::machine_a_tron::config::{MachineATronConfig, MachineConfig};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     env, fs,
-    net::{SocketAddr, TcpListener},
+    net::{Ipv4Addr, SocketAddr},
     path::{self, PathBuf},
+    sync::Arc,
     time::{self, Duration},
 };
 
 use grpcurl::grpcurl;
 use host::machine_validation_completed;
-use sqlx::{migrate::MigrateDatabase, Postgres, Row};
+use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 
 mod api_server;
@@ -29,9 +34,12 @@ pub mod grpcurl;
 mod host;
 mod instance;
 mod machine;
+mod machine_a_tron;
 mod metrics;
+mod redfish;
 mod subnet;
 mod upgrade;
+mod utils;
 mod vault;
 mod vpc;
 
@@ -39,80 +47,31 @@ mod vpc;
 /// that `bootstrap-forge-docker` would do.
 /// It requires `grpcurl` and `vault` on the PATH,
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+#[serial_test::serial] // These tests drop/create a postgres database, prevent them from running concurrently
 async fn test_integration() -> eyre::Result<()> {
-    env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
-    env::set_var("IGNORE_MGMT_VRF", "true");
-    // There is unfortunately no support for certificates in the vault dev server, so we have to disable this in code.
-    env::set_var("UNSUPPORTED_CERTIFICATE_PROVIDER", "true");
-    env::set_var("NO_DPU_CONTAINERS", "true");
-    env::set_var("NO_DPU_ARMOS_NETWORK", "true");
-
-    // We should setup logging here but:
-    // - try_init sets a global logger and can only be called once.
-    // Error is: "a global default trace dispatcher has already been set".
-    // forge_host_support::init_logging() calls try_init, but so does carbide-api when it starts.
-    // - Even if we could get around that (forge_host_support::subscriber().set_default() should
-    // set a thread-specific logger), tracing will attempt to initialize the `log` crate (via tracing-log)
-    // which can also only be initialized once. What a mess.
-    // Error is: "attempted to set a logger after the logging system was already initialized"
-
-    let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
-        eprintln!(
-            "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
-        );
+    let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
         return Ok(());
     };
-    let root_dir = PathBuf::from(repo_root.clone());
-    let bins = find_prerequisites()?;
 
-    // Put our fake `crictl` on front of path so that forge-dpu-agent's HBN health checks succeed
-    let dev_bin = root_dir.join("dev/bin");
-    if let Some(path) = env::var_os("PATH") {
-        let mut paths = env::split_paths(&path).collect::<Vec<_>>();
-        paths.insert(0, dev_bin);
-        let new_path = env::join_paths(paths)?;
-        env::set_var("PATH", new_path);
-    }
+    // Save typing...
+    let IntegrationTestEnvironment {
+        carbide_api_addr,
+        root_dir,
+        carbide_metrics_addr,
+        db_pool,
+        db_url: _,
+        telemetry_setup: _,
+    } = test_env.clone();
 
-    // We have to do [sqlx::test] 's work manually here so that we can use a multi-threaded executor
-    let db_url = env::var("DATABASE_URL")? + "/test_integration";
-    if sqlx::Postgres::database_exists(&db_url).await? {
-        sqlx::Postgres::drop_database(&db_url).await?;
-    }
-    sqlx::Postgres::create_database(&db_url).await?;
-    let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
-    let m = sqlx::migrate!("../api/migrations");
-
-    // Dependencies: Postgres, Vault and a Redfish BMC
-    m.run(&db_pool).await?;
-    let vault = vault::start(bins.get("vault").unwrap())?;
+    // Run bmc-mock
     let mut routers = HashMap::default();
     routers.insert(
         "".to_owned(),
         bmc_mock::default_router(bmc_mock::BmcState { use_qemu: false }),
     );
-    tokio::spawn(bmc_mock::run_combined_mock(routers, None, None));
+    tokio::spawn(bmc_mock::run_combined_mock::<String>(routers, None, None));
 
-    // Ask OS for a free port
-    let carbide_api_addr = {
-        let l = TcpListener::bind("127.0.0.1:0")?;
-        l.local_addr()?
-    };
-    // TODO: Also pick a free port for metrics
-    let carbide_metrics_addr: SocketAddr = "127.0.0.1:1080".parse().unwrap();
-
-    let vault_token = vault.token().to_string();
-    let root_dir_clone = root_dir.to_str().unwrap().to_string();
-    let db_url = db_url.to_string();
-    tokio::spawn(async move {
-        if let Err(e) =
-            api_server::start(carbide_api_addr, root_dir_clone, db_url, vault_token).await
-        {
-            eprintln!("Failed to start API server: {:#}", e);
-        }
-    });
-
-    sleep(time::Duration::from_secs(5)).await;
+    let server_handle = utils::start_api_server(test_env, None).await?;
 
     // And now.. Behold! The Test!
 
@@ -171,7 +130,7 @@ async fn test_integration() -> eyre::Result<()> {
         })),
     }));
     tokio::time::sleep(Duration::from_secs(1)).await;
-    upgrade::confirm_upgraded(db_pool, &dpu_info.machine_id).await?;
+    upgrade::confirm_upgraded(db_pool.clone(), &dpu_info.machine_id).await?;
 
     let vpc_id = vpc::create(carbide_api_addr)?;
     let segment_id = subnet::create(carbide_api_addr, &vpc_id)?;
@@ -250,6 +209,99 @@ async fn test_integration() -> eyre::Result<()> {
 
     sleep(time::Duration::from_millis(500)).await;
     fs::remove_dir_all(dpu_info.hbn_root)?;
+    server_handle.stop().await?;
+    db_pool.close().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+#[serial_test::serial] // These tests drop/create a postgres database, prevent them from running concurrently
+async fn test_integration_machine_a_tron() -> eyre::Result<()> {
+    let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
+        return Ok(());
+    };
+
+    let carbide_api_addr = test_env.carbide_api_addr;
+    let root_dir = test_env.root_dir.clone();
+
+    let mat_config = MachineATronConfig {
+        machines: BTreeMap::from([(
+            "config".to_string(),
+            MachineConfig {
+                host_count: 10,
+                dpu_per_host_count: 1,
+                boot_delay: 1,
+                dpu_reboot_delay: 1,
+                host_reboot_delay: 1,
+                template_dir: root_dir
+                    .join("dev/machine-a-tron/templates")
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                admin_dhcp_relay_address: Ipv4Addr::new(172, 20, 0, 2),
+                oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 0, 2),
+                vpc_count: 0,
+            },
+        )]),
+        carbide_api_url: Some(format!(
+            "https://{}:{}",
+            carbide_api_addr.ip(),
+            carbide_api_addr.port()
+        )),
+        log_file: None,
+        bmc_mock_host_tar: format!(
+            "{}/dev/bmc-mock/lenovo_thinksystem_sr670.tar.gz",
+            root_dir.to_string_lossy()
+        ),
+        bmc_mock_dpu_tar: format!(
+            "{}/dev/bmc-mock/nvidia_dpu.tar.gz",
+            root_dir.to_string_lossy()
+        ),
+        use_pxe_api: true,
+        bmc_mock_dynamic_ports: true,
+        pxe_server_host: String::from("UNUSED"), // unused, we're using pxe_api
+        pxe_server_port: String::from("UNUSED"), // unused, we're using pxe_api
+        bmc_mock_port: 0,                        // unused, we're using dynamic ports on localhost
+        dhcp_server_address: String::from("UNUSED"), // unused, we're using dhcp API
+        interface: String::from("UNUSED"),       // unused, we're using dynamic ports on localhost
+        tui_enabled: false,
+        sudo_command: None,
+        use_dhcp_api: true,
+    };
+
+    // Note: We need to start the API server before running machine-a-tron, or it will fail to
+    // initialize. This means we need to construct an empty mock redfish pool first, then start the
+    // API server with it, then start machine-a-tron, *then* we can add the machines to the pool.
+    let mock_redfish_pool = Arc::new(MachineATronBackedRedfishClientPool::new());
+    let server_handle =
+        utils::start_api_server(test_env.clone(), Some(mock_redfish_pool.clone())).await?;
+
+    let tenant1_vpc = vpc::create(carbide_api_addr)?;
+    subnet::create(carbide_api_addr, &tenant1_vpc)?;
+
+    let MachineATronInstance {
+        join_handle,
+        host_machines,
+    } = machine_a_tron::run_local(mat_config, root_dir)
+        .await
+        .unwrap();
+
+    // Now that machine-a-tron is started, we can add its machines to mock_redfish_pool
+    mock_redfish_pool
+        .host_machines
+        .lock()
+        .await
+        .extend_from_slice(&host_machines);
+
+    let timeout = Duration::from_secs(20 * 60);
+    tokio::select! {
+        _ = sleep(timeout) => {
+            panic!("Timed out after {} seconds waiting for machines to achieve ready status", timeout.as_secs());
+        }
+        msg = join_handle => msg?,
+    }?;
+    server_handle.stop().await?;
+    test_env.db_pool.close().await;
     Ok(())
 }
 

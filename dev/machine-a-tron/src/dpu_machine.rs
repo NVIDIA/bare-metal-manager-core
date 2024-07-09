@@ -1,14 +1,4 @@
-use axum::Router;
-use std::net::SocketAddr;
-use std::{fmt::Display, time::Duration};
-
-use ::rpc::Timestamp;
-use mac_address::MacAddress;
-use rpc::forge::ManagedHostNetworkConfigResponse;
-use tokio::time::Instant;
-use uuid::Uuid;
-
-use crate::bmc_mock_wrapper::{BmcMockWrapper, DpuBmcInfo, MockBmcInfo};
+use crate::bmc_mock_wrapper::{BmcMockWrapper, DpuBmcInfo, ListenMode, MockBmcInfo};
 use crate::host_machine::SendRebootCompleted;
 use crate::{
     api_client,
@@ -17,6 +7,14 @@ use crate::{
     host_machine::{MachineState, MachineStateError},
     machine_utils::{get_api_state, get_fac_action, next_mac, send_pxe_boot_request, PXEresponse},
 };
+use ::rpc::Timestamp;
+use axum::Router;
+use mac_address::MacAddress;
+use rpc::forge::{MachineArchitecture, ManagedHostNetworkConfigResponse};
+use std::net::SocketAddr;
+use std::{fmt::Display, time::Duration};
+use tokio::time::Instant;
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct DpuMachine {
@@ -38,7 +36,7 @@ pub struct DpuMachine {
     pub bmc_mac_address: MacAddress,
     pub bmc_dhcp_info: Option<DhcpResponseInfo>,
 
-    bmc: Option<BmcMockWrapper>,
+    pub bmc: Option<BmcMockWrapper>,
     last_reboot: Instant,
     m_a_t_last_known_reboot_request: Option<Timestamp>,
     bmc_mock_router: Router,
@@ -180,16 +178,28 @@ impl DpuMachine {
                             return Ok(false);
                         };
 
-                        let bmc_mock_address = SocketAddr::new(
-                            dhcp_response_info.ip_address.into(),
-                            self.app_context.app_config.bmc_mock_port,
-                        );
-                        let mut bmc = BmcMockWrapper::new(
-                            MockBmcInfo::Dpu(self.bmc_info()),
-                            self.bmc_mock_router.clone(),
-                            bmc_mock_address,
-                            self.app_context.clone(),
-                        );
+                        let mut bmc = if self.app_context.app_config.bmc_mock_dynamic_ports {
+                            BmcMockWrapper::new(
+                                MockBmcInfo::Dpu(self.bmc_info()),
+                                self.bmc_mock_router.clone(),
+                                self.app_context.clone(),
+                                ListenMode::LocalhostWithDynamicPort,
+                            )
+                        } else {
+                            let address = SocketAddr::new(
+                                dhcp_response_info.ip_address.into(),
+                                self.app_context.app_config.bmc_mock_port,
+                            );
+                            BmcMockWrapper::new(
+                                MockBmcInfo::Dpu(self.bmc_info()),
+                                self.bmc_mock_router.clone(),
+                                self.app_context.clone(),
+                                ListenMode::SpecifiedAddress {
+                                    address,
+                                    add_ip_alias: true,
+                                },
+                            )
+                        };
 
                         bmc.start().await?;
                         self.bmc = Some(bmc);
@@ -303,21 +313,17 @@ impl DpuMachine {
                     return Ok(false);
                 };
 
-                let url = format!(
-                    "http://{}:{}/api/v0/pxe/boot?uuid={}&buildarch=arm64",
-                    self.app_context.app_config.pxe_server_host,
-                    self.app_context.app_config.pxe_server_port,
-                    machine_interface_id
-                );
+                let pxe_response = send_pxe_boot_request(
+                    &self.app_context,
+                    MachineArchitecture::Arm,
+                    machine_interface_id.clone(),
+                    self.machine_dhcp_info
+                        .as_ref()
+                        .map(|info| info.ip_address.to_string()),
+                )
+                .await;
 
-                let forward_ip = self
-                    .machine_dhcp_info
-                    .as_ref()
-                    .map(|info| info.ip_address)
-                    .unwrap()
-                    .to_string();
-
-                match send_pxe_boot_request(url, forward_ip).await {
+                match pxe_response {
                     PXEresponse::Exit => {
                         self.mat_state = MachineState::MachineUp(SendRebootCompleted(true));
                     }

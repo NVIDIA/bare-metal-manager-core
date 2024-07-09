@@ -1,21 +1,5 @@
-use axum::Router;
-use std::net::SocketAddr;
-use std::{
-    collections::HashMap,
-    convert::From,
-    fmt::{Debug, Display},
-    time::{Duration, SystemTime},
-};
-
-use ::rpc::Timestamp;
-use chrono::{DateTime, Local};
-use mac_address::MacAddress;
-use rpc::forge_agent_control_response::Action;
-use tokio::time::Instant;
-use uuid::Uuid;
-
 use crate::api_client::ClientApiError;
-use crate::bmc_mock_wrapper::{BmcMockWrapper, HostBmcInfo, MockBmcInfo};
+use crate::bmc_mock_wrapper::{BmcMockWrapper, HostBmcInfo, ListenMode, MockBmcInfo};
 use crate::{
     api_client,
     config::{MachineATronContext, MachineConfig},
@@ -24,6 +8,21 @@ use crate::{
     machine_utils::{get_api_state, get_fac_action, next_mac, send_pxe_boot_request, PXEresponse},
     tui::{HostDetails, UiEvent},
 };
+use ::rpc::Timestamp;
+use axum::Router;
+use chrono::{DateTime, Local};
+use mac_address::MacAddress;
+use rpc::forge::MachineArchitecture;
+use rpc::forge_agent_control_response::Action;
+use std::net::SocketAddr;
+use std::{
+    collections::HashMap,
+    convert::From,
+    fmt::{Debug, Display},
+    time::{Duration, SystemTime},
+};
+use tokio::time::Instant;
+use uuid::Uuid;
 
 const MAX_LOG_LINES: usize = 20;
 
@@ -55,7 +54,7 @@ pub enum MachineStateError {
     #[error("Error launching BMC mock service: {0}")]
     BmcMockServiceError(String),
     #[error("Error configuring listening address: {0}")]
-    ListenAddressConfigError(AddressConfigError),
+    ListenAddressConfigError(#[from] AddressConfigError),
     #[error("Could not find certificates at {0}")]
     MissingCertificates(String),
     #[error("Error calling forge API: {0}")]
@@ -93,12 +92,12 @@ pub struct HostMachine {
     pub bmc_mac_address: MacAddress,
     pub bmc_dhcp_info: Option<DhcpResponseInfo>,
 
-    ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
+    pub ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
 
     pub logs: Vec<String>,
 
     dpus_previously_ready: bool,
-    bmc: Option<BmcMockWrapper>,
+    pub bmc: Option<BmcMockWrapper>,
 
     last_reboot: Instant,
     m_a_t_last_known_reboot_request: Option<Timestamp>,
@@ -317,16 +316,28 @@ impl HostMachine {
                             return Ok(false);
                         };
 
-                        let bmc_mock_address = SocketAddr::new(
-                            dhcp_response_info.ip_address.into(),
-                            self.app_context.app_config.bmc_mock_port,
-                        );
-                        let mut bmc = BmcMockWrapper::new(
-                            MockBmcInfo::Host(self.bmc_info()),
-                            self.host_bmc_mock_router.clone(),
-                            bmc_mock_address,
-                            self.app_context.clone(),
-                        );
+                        let mut bmc = if self.app_context.app_config.bmc_mock_dynamic_ports {
+                            BmcMockWrapper::new(
+                                MockBmcInfo::Host(self.bmc_info()),
+                                self.host_bmc_mock_router.clone(),
+                                self.app_context.clone(),
+                                ListenMode::LocalhostWithDynamicPort,
+                            )
+                        } else {
+                            let address = SocketAddr::new(
+                                dhcp_response_info.ip_address.into(),
+                                self.app_context.app_config.bmc_mock_port,
+                            );
+                            BmcMockWrapper::new(
+                                MockBmcInfo::Host(self.bmc_info()),
+                                self.host_bmc_mock_router.clone(),
+                                self.app_context.clone(),
+                                ListenMode::SpecifiedAddress {
+                                    address,
+                                    add_ip_alias: true,
+                                },
+                            )
+                        };
 
                         bmc.start().await?;
                         self.bmc = Some(bmc);
@@ -422,21 +433,16 @@ impl HostMachine {
                         return Ok(false);
                     };
 
-                    let url = format!(
-                        "http://{}:{}/api/v0/pxe/boot?uuid={}&buildarch=x86_64",
-                        self.app_context.app_config.pxe_server_host,
-                        self.app_context.app_config.pxe_server_port,
-                        machine_interface_id
-                    );
-
-                    let forward_ip = self
-                        .machine_dhcp_info
-                        .as_ref()
-                        .map(|info| info.ip_address)
-                        .unwrap()
-                        .to_string();
-
-                    match send_pxe_boot_request(url, forward_ip).await {
+                    match send_pxe_boot_request(
+                        &self.app_context,
+                        MachineArchitecture::X86,
+                        machine_interface_id.clone(),
+                        self.machine_dhcp_info
+                            .as_ref()
+                            .map(|info| info.ip_address.to_string()),
+                    )
+                    .await
+                    {
                         PXEresponse::Exit => {
                             self.mat_state = MachineState::MachineUp(SendRebootCompleted(true));
                         }
@@ -450,7 +456,7 @@ impl HostMachine {
                     }
 
                     let start = Instant::now();
-                    let Ok(machine_discovery_result) = api_client::discover_machine(
+                    let machine_discovery_result = match api_client::discover_machine(
                         &self.app_context,
                         &template_dir,
                         rpc::forge::MachineType::Host,
@@ -460,9 +466,12 @@ impl HostMachine {
                         "".to_owned(),
                     )
                     .await
-                    else {
-                        tracing::warn!("discover_machine failed");
-                        return Ok(false);
+                    {
+                        Ok(r) => r,
+                        Err(e) => {
+                            tracing::warn!("discover_machine failed: {e}");
+                            return Ok(false);
+                        }
                     };
 
                     self.log(format!(

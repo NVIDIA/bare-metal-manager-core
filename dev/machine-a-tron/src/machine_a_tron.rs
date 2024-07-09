@@ -32,7 +32,41 @@ impl MachineATron {
         Self { app_context }
     }
 
-    pub async fn run(&mut self, dhcp_client: &mut DhcpRelayClient) -> eyre::Result<()> {
+    pub async fn make_machines(&self) -> eyre::Result<Vec<HostMachine>> {
+        let dpu_bmc_mock_router = bmc_mock::tar_router(
+            Path::new(self.app_context.app_config.bmc_mock_dpu_tar.as_str()),
+            None,
+        )?;
+        let host_bmc_mock_router = bmc_mock::tar_router(
+            Path::new(self.app_context.app_config.bmc_mock_host_tar.as_str()),
+            None,
+        )?;
+
+        Ok(self
+            .app_context
+            .app_config
+            .machines
+            .iter()
+            .flat_map(|(config_name, config)| {
+                tracing::info!("Constructing machines for config {}", config_name);
+                (0..config.host_count).map(|_| {
+                    HostMachine::new(
+                        self.app_context.clone(),
+                        config.clone(),
+                        None,
+                        host_bmc_mock_router.clone(),
+                        dpu_bmc_mock_router.clone(),
+                    )
+                })
+            })
+            .collect())
+    }
+
+    pub async fn run(
+        &mut self,
+        machines: Vec<HostMachine>,
+        dhcp_client: &mut DhcpRelayClient,
+    ) -> eyre::Result<()> {
         let running = Arc::new(AtomicBool::new(true));
         let (app_tx, mut app_rx) = channel(5000);
         let mut machine_ids: Vec<String> = Vec::new();
@@ -63,47 +97,27 @@ impl MachineATron {
         }
 
         let mut machine_handles = Vec::default();
+        for mut machine in machines {
+            let running = running.clone();
+            let mut dhcp_client_clone = dhcp_client.clone();
+            machine.ui_event_tx = ui_event_tx.clone();
+            machine_ids.push(machine.get_machine_id_str());
 
-        let dpu_bmc_mock_router = bmc_mock::tar_router(
-            Path::new(self.app_context.app_config.bmc_mock_dpu_tar.as_str()),
-            None,
-        )?;
-        let host_bmc_mock_router = bmc_mock::tar_router(
-            Path::new(self.app_context.app_config.bmc_mock_host_tar.as_str()),
-            None,
-        )?;
-
-        for (config_name, config) in self.app_context.app_config.machines.iter() {
-            tracing::info!("Constructing machines for config {}", config_name);
-            for _ in 0..config.host_count {
-                let running = running.clone();
-                let app_context = self.app_context.clone();
-                let mut dhcp_client_clone = dhcp_client.clone();
-                let mut machine = HostMachine::new(
-                    app_context,
-                    config.clone(),
-                    ui_event_tx.clone(),
-                    host_bmc_mock_router.clone(),
-                    dpu_bmc_mock_router.clone(),
-                );
-                machine_ids.push(machine.get_machine_id_str());
-
-                let join_handle = tokio::spawn(async move {
-                    while running.as_ref().load(Ordering::Relaxed) {
-                        let work_done = machine
-                            .process_state(&mut dhcp_client_clone)
-                            .await
-                            .inspect_err(|e| tracing::error!("Error processing state: {e}"))
-                            .unwrap_or(false);
-                        if work_done {
-                            tokio::time::sleep(Duration::from_secs(5)).await;
-                        } else {
-                            tokio::time::sleep(Duration::from_secs(30)).await;
-                        }
+            let join_handle = tokio::spawn(async move {
+                while running.as_ref().load(Ordering::Relaxed) {
+                    let work_done = machine
+                        .process_state(&mut dhcp_client_clone)
+                        .await
+                        .inspect_err(|e| tracing::error!("Error processing state: {e}"))
+                        .unwrap_or(false);
+                    if work_done {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    } else {
+                        tokio::time::sleep(Duration::from_secs(30)).await;
                     }
-                });
-                machine_handles.push(join_handle);
-            }
+                }
+            });
+            machine_handles.push(join_handle);
         }
         tracing::info!("Machine construction complete");
 

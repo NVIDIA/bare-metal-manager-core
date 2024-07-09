@@ -7,8 +7,8 @@ license-file.workspace = true
 authors.workspace = true
 
 [dependencies]
-axum = "0.6.18"
-axum-server = { version = "0.4.4", features = ["tls-rustls"] }
+axum = "0.7.5"
+axum-server = { version = "0.6.0", features = ["tls-rustls"] }
 libredfish = { workspace = true }
 clap = { workspace = true }
 tokio.workspace = true
@@ -21,5 +21,5 @@ tar = "0.4.40"
 eyre = "0.6.12"
 flate2 = "1.0.30"
 tower = "0.4.13"
-hyper = { version = "1.3.1", features = ["server", "http2"] }
-http-body = "0.4.6"
+hyper = { version = "1.4.0", features = ["server", "http2"] }
+http-body = "1.0.0"

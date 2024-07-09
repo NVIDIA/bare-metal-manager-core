@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use axum::body::{Body, Bytes};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::ffi::OsStr;
 use std::future::Future;
 use std::io::ErrorKind;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener};
 
+use axum::body::Body;
 use std::path::Path;
 use std::pin::Pin;
 use std::process::Command;
@@ -29,8 +30,7 @@ use axum::Json;
 use axum::Router;
 use axum::ServiceExt;
 use axum_server::tls_rustls::RustlsConfig;
-use http_body::combinators::UnsyncBoxBody;
-use http_body::Body as HttpBody;
+use hyper::body::Incoming;
 use tower::Service;
 
 use tracing::{debug, error, info};
@@ -118,10 +118,10 @@ pub fn default_router(state: BmcState) -> Router {
 /// Information on what machine to mock will be passed by carbide via the `x-really-to-mac` HTTP header,
 /// which will be used to route the request to the appropriate entry in the `bmc_routers_by_mac_address`
 /// table.
-pub async fn run_combined_mock(
+pub async fn run_combined_mock<T: AsRef<OsStr>>(
     bmc_routers_by_mac_address: HashMap<String, Router>,
-    cert_path: Option<String>,
-    listen_addr: Option<SocketAddr>,
+    cert_path: Option<T>,
+    listener_or_address: Option<ListenerOrAddress>,
 ) -> Result<(), BmcMockError> {
     let cert_path = match cert_path.as_ref() {
         Some(cert_path) => Path::new(cert_path),
@@ -140,26 +140,57 @@ pub async fn run_combined_mock(
         }
     };
 
-    let addr = listen_addr.unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 1266)));
+    //let addr = listen_addr.unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 1266)));
 
     let cert_file = cert_path.join("tls.crt");
     let key_file = cert_path.join("tls.key");
     info!("Loading {:?} and {:?}", cert_file, key_file);
-    let config = RustlsConfig::from_pem_file(cert_file, key_file)
+    let config = RustlsConfig::from_pem_file(cert_file.clone(), key_file)
         .await
+        .inspect_err(|e| {
+            tracing::error!(
+                "Could not get cert from {}: {}",
+                cert_file.to_string_lossy(),
+                e
+            )
+        })
         .unwrap();
-
-    debug!("Listening on {}", addr);
 
     let bmc_service = BmcService {
         routers: bmc_routers_by_mac_address,
     };
 
-    axum_server::bind_rustls(addr, config)
+    let (addr, server) = match listener_or_address {
+        Some(ListenerOrAddress::Address(addr)) => (addr, axum_server::bind_rustls(addr, config)),
+        Some(ListenerOrAddress::Listener(listener)) => (
+            listener.local_addr().unwrap(),
+            axum_server::from_tcp_rustls(listener, config),
+        ),
+        None => {
+            let addr = SocketAddr::from(([0, 0, 0, 0], 1266));
+            (addr, axum_server::bind_rustls(addr, config))
+        }
+    };
+    debug!("Listening on {}", addr);
+    server
         .serve(bmc_service.into_make_service())
         .await
         .inspect_err(|e| tracing::error!("BMC mock could not listen on address {}: {}", addr, e))?;
     Ok(())
+}
+
+pub enum ListenerOrAddress {
+    Listener(TcpListener),
+    Address(SocketAddr),
+}
+
+impl ListenerOrAddress {
+    pub fn address(&self) -> std::io::Result<SocketAddr> {
+        match self {
+            Self::Listener(l) => l.local_addr(),
+            Self::Address(a) => Ok(*a),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -167,8 +198,8 @@ struct BmcService {
     routers: HashMap<String, Router>,
 }
 
-impl Service<axum::http::Request<Body>> for BmcService {
-    type Response = Response<UnsyncBoxBody<Bytes, axum::Error>>;
+impl Service<axum::http::Request<Incoming>> for BmcService {
+    type Response = Response<Body>;
     type Error = Infallible;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
@@ -179,7 +210,7 @@ impl Service<axum::http::Request<Body>> for BmcService {
         std::task::Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, request: Request<Body>) -> Self::Future {
+    fn call(&mut self, request: Request<Incoming>) -> Self::Future {
         let mac_address = request
             .headers()
             .get("x-really-to-mac")
@@ -188,13 +219,11 @@ impl Service<axum::http::Request<Body>> for BmcService {
 
         let Some(router) = self.routers.get_mut(mac_address) else {
             let err = format!("no BMC mock configured for mac: {mac_address}");
-            tracing::info!(err);
-            return Box::pin(async {
+            tracing::info!("{err}");
+            return Box::pin(async move {
                 Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
-                    .body(UnsyncBoxBody::new(
-                        err.map_err(|_| panic!("Infallible failed")),
-                    ))
+                    .body(err.into())
                     .unwrap())
             });
         };
