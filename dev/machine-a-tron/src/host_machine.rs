@@ -1,5 +1,6 @@
 use crate::api_client::ClientApiError;
 use crate::bmc_mock_wrapper::{BmcMockWrapper, HostBmcInfo, ListenMode, MockBmcInfo};
+use crate::machine_utils::get_validation_id;
 use crate::{
     api_client,
     config::{MachineATronContext, MachineConfig},
@@ -258,8 +259,19 @@ impl HostMachine {
                 work_done = true;
             }
             if api_state.contains("MachineValidating") {
-                api_client::machine_validation_complete(&self.app_context, &machine_id).await?;
-                work_done = true;
+                if let Some(validation_id) =
+                    get_validation_id(&self.app_context, machine_id.clone()).await
+                {
+                    api_client::machine_validation_complete(
+                        &self.app_context,
+                        machine_id.clone(),
+                        validation_id,
+                    )
+                    .await?;
+                    work_done = true;
+                } else {
+                    tracing::error!("api state is MachineValidating, but ForgeAgentControl did not return a validation_id. Cannot send MachineValidationComplete, machine will likely be stuck.")
+                }
             }
             if old_api_state != self.api_state {
                 work_done = true;

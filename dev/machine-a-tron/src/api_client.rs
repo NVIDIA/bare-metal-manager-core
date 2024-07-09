@@ -423,15 +423,16 @@ pub async fn delete_vpc(
 
 pub async fn machine_validation_complete(
     app_context: &MachineATronContext,
-    machine_id: &rpc::MachineId,
+    machine_id: rpc::MachineId,
+    validation_id: rpc::common::Uuid,
 ) -> ClientApiResult<()> {
     with_forge_client(app_context, |mut client| async move {
         client
             .machine_validation_completed(tonic::Request::new(
                 rpc::forge::MachineValidationCompletedRequest {
-                    machine_id: Some(machine_id.clone()),
+                    machine_id: Some(machine_id),
                     machine_validation_error: None,
-                    validation_id: None,
+                    validation_id: Some(validation_id),
                 },
             ))
             .await
