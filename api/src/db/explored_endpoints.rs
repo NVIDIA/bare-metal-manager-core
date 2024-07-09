@@ -91,7 +91,7 @@ impl DbExploredEndpoint {
         let query = "SELECT * FROM explored_endpoints 
                         WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"') 
                             AND waiting_for_explorer_refresh = false 
-                            AND exploration_report->'last_exploration_error' IS NULL;";
+                            AND (exploration_report->'LastExplorationError' IS NULL OR exploration_report->'LastExplorationError' = 'null');"; // If LastExplorationError is completely notexistant it is NULL, if it is there and indicates a null value it is 'null'.
 
         sqlx::query_as::<_, Self>(query)
             .fetch_all(&mut **txn)
