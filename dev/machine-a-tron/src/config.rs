@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, net::Ipv4Addr};
-
 use clap::Parser;
+use std::path::PathBuf;
+use std::{collections::BTreeMap, net::Ipv4Addr};
 
 use rpc::forge_tls_client::ForgeClientConfig;
 use serde::{Deserialize, Serialize};
@@ -57,10 +57,12 @@ pub struct MachineATronConfig {
 
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
+    pub bmc_mock_dynamic_ports: bool,
     #[serde(default = "default_bmc_mock_host_tar")]
     pub bmc_mock_host_tar: String,
     #[serde(default = "default_bmc_mock_dpu_tar")]
     pub bmc_mock_dpu_tar: String,
+    pub use_pxe_api: bool,
     pub pxe_server_host: String,
     pub pxe_server_port: String,
     pub sudo_command: Option<String>,
@@ -81,4 +83,5 @@ pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
     pub forge_client_config: ForgeClientConfig,
     pub circuit_id: Option<String>,
+    pub bmc_mock_certs_dir: Option<PathBuf>,
 }

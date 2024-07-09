@@ -14,6 +14,7 @@
 //! The Carbide API server library.
 //!
 
+use std::sync::Arc;
 use std::{
     backtrace::{Backtrace, BacktraceStatus},
     net::IpAddr,
@@ -28,13 +29,16 @@ use model::{
     tenant::TenantError, ConfigValidationError, RpcDataConversionError,
 };
 use state_controller::snapshot_loader::SnapshotLoaderError;
+use tokio::sync::oneshot::Receiver;
 use tonic::Status;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use crate::logging::setup::TelemetrySetup;
 use crate::logging::{
     metrics_endpoint::{run_metrics_endpoint, MetricsEndpointConfig},
     setup::setup_telemetry,
 };
+use crate::redfish::{RedfishClientPool, RedfishClientPoolImpl};
 
 pub mod api;
 #[cfg(feature = "tss-esapi")]
@@ -310,11 +314,17 @@ pub async fn run(
     config_str: String,
     site_config_str: Option<String>,
     logging_subscriber: Option<impl SubscriberInitExt>,
+    override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
+    override_telemetry_setup: Option<TelemetrySetup>,
+    stop_channel: Receiver<()>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
-    let tconf = setup_telemetry(debug, logging_subscriber)
-        .await
-        .wrap_err("setup_telemetry")?;
+    let tconf = match override_telemetry_setup {
+        Some(t) => t,
+        None => setup_telemetry(debug, logging_subscriber)
+            .await
+            .wrap_err("setup_telemetry")?,
+    };
 
     // Redact credentials before printing the config
     let print_config = {
@@ -364,5 +374,28 @@ pub async fn run(
         "Start carbide-api",
     );
 
-    setup::start_api(carbide_config, tconf.meter, dynamic_settings).await
+    let vault_client = setup::create_vault_client(tconf.meter.clone()).await?;
+    let redfish_pool = match override_redfish_pool {
+        Some(pool) => {
+            tracing::info!("Using override redfish client pool");
+            pool
+        }
+        None => {
+            let rf_pool = libredfish::RedfishClientPool::builder()
+                .build()
+                .map_err(CarbideError::from)?;
+            let redfish_pool = RedfishClientPoolImpl::new(vault_client.clone(), rf_pool);
+            Arc::new(redfish_pool)
+        }
+    };
+
+    setup::start_api(
+        carbide_config,
+        tconf.meter,
+        dynamic_settings,
+        redfish_pool,
+        vault_client,
+        stop_channel,
+    )
+    .await
 }

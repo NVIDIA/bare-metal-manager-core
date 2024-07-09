@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -20,11 +21,11 @@ use tokio::{
 use uuid::Uuid;
 
 use mac_address::MacAddress;
+use tokio::time::sleep;
 
 use crate::{
     api_client::{self, ClientApiError},
-    config::MachineATronContext,
-    MachineATronConfig,
+    config::{MachineATronConfig, MachineATronContext},
 };
 static NEXT_XID: AtomicU32 = AtomicU32::new(1000);
 
@@ -112,7 +113,6 @@ struct DhcpRequestInfo {
 }
 
 #[derive(Clone, Debug)]
-
 pub struct DhcpResponseInfo {
     pub mat_id: Uuid,
     pub interface_id: Option<Uuid>,
@@ -162,16 +162,20 @@ impl DhcpRelayService {
     pub async fn run(&mut self) -> DhcpRelayResult {
         let mut requests: HashMap<Uuid, DhcpRequestInfo> = HashMap::default();
 
-        let udp_socket = self
-            .create_udp_socket()
-            .inspect_err(|e| tracing::error!("DHCP relay: error creating UDP socket: {}", e))?;
+        let udp_socket =
+            if self.app_config.use_dhcp_api {
+                None
+            } else {
+                Some(self.create_udp_socket().inspect_err(|e| {
+                    tracing::error!("DHCP relay: error creating UDP socket: {}", e)
+                })?)
+            };
 
         let mut running = true;
         while running {
             let mut buf = [0u8; 1024];
-
             select! {
-                msg = udp_socket.recv_from(&mut buf) => {
+                msg = Self::get_next_request_from_udp_socket_or_sleep_forever(&mut buf, udp_socket.as_ref()) => {
                     match msg {
                         Ok((_bytes_read, _remote_addr)) => {
                             _ = Self::handle_dhcp_message(&mut buf, &mut self.request_tx, &mut requests).await
@@ -194,21 +198,19 @@ impl DhcpRelayService {
                             }
                             self.last_dhcp_request = Instant::now();
 
-                            if self.app_config.use_dhcp_api {
-                                if let RequestType::Request(request_info) = request_info {
-                                    // Handle the request using the API server, and send the
-                                    // response back. Send a None response if we got an error
-                                    // handling the request: If we don't send a response, the
-                                    // client will be awaiting response_rx forever.
-                                    let response = self.fake_dhcp_request(&request_info).await
-                                        .inspect_err(|e| tracing::error!("Error sending fake DHCP request via API: {}", e))
-                                        .ok();
-                                    if request_info.response_tx.send(response).is_err() {
-                                        tracing::error!("Error sending fake DHCP response");
-                                    }
+                            if let Some(udp_socket) = udp_socket.as_ref() {
+                                running = self.handle_request_message(udp_socket, &mut requests, request_info).await;
+                            } else if let RequestType::Request(request_info) = request_info {
+                                // Handle the request using the API server, and send the
+                                // response back. Send a None response if we got an error
+                                // handling the request: If we don't send a response, the
+                                // client will be awaiting response_rx forever.
+                                let response = self.fake_dhcp_request(&request_info).await
+                                    .inspect_err(|e| tracing::error!("Error sending fake DHCP request via API: {}", e))
+                                    .ok();
+                                if request_info.response_tx.send(response).is_err() {
+                                    tracing::error!("Error sending fake DHCP response");
                                 }
-                            } else {
-                                running = self.handle_request_message(&udp_socket, &mut requests, request_info).await;
                             }
                         }
                         None => tracing::warn!("request channel is closed"),
@@ -218,6 +220,22 @@ impl DhcpRelayService {
             }
         }
         Ok(())
+    }
+
+    /// Read from the given Option<&UdpSocket> if it's Some, else sleep forever.
+    ///
+    /// This is a simple ha^H^Htrick to make it so we can avoid listening on a UNIX socket
+    /// altogether if we're not configured to, but without needing to worry about condidtionally
+    /// passing a UDP socket to tokio::select.
+    async fn get_next_request_from_udp_socket_or_sleep_forever(
+        buf: &mut [u8],
+        udp_socket: Option<&UdpSocket>,
+    ) -> std::io::Result<(usize, SocketAddr)> {
+        let Some(udp_socket) = udp_socket else {
+            sleep(Duration::from_secs(u64::MAX)).await;
+            unreachable!("No UDP socket configured, should sleep forever")
+        };
+        udp_socket.recv_from(buf).await
     }
 
     async fn fake_dhcp_request(
@@ -444,7 +462,9 @@ impl DhcpRelayService {
                 }
                 requests.remove(&mat_id);
             }
-            _ => todo!(),
+            _ => {
+                tracing::error!("Unknown message type {:?}", msg_type);
+            }
         };
         Ok(())
     }

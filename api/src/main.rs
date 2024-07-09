@@ -60,7 +60,18 @@ async fn main() -> eyre::Result<()> {
                 None
             };
 
-            carbide::run(debug, config_str, site_config_str, None::<NoSubscriber>).await?;
+            let (_tx, _rx) = tokio::sync::oneshot::channel();
+
+            carbide::run(
+                debug,
+                config_str,
+                site_config_str,
+                None::<NoSubscriber>,
+                None,
+                None,
+                _rx,
+            )
+            .await?;
         }
     }
     Ok(())

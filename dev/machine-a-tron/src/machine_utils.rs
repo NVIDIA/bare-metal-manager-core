@@ -1,11 +1,22 @@
 use ::rpc::Timestamp;
 use mac_address::MacAddress;
-use reqwest::ClientBuilder;
 use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
 
 use crate::{api_client, config::MachineATronContext, host_machine::AddressConfigError};
 
 use std::sync::atomic::{AtomicU32, Ordering};
+
+use lazy_static::lazy_static;
+use reqwest::ClientBuilder;
+use rpc::forge::MachineArchitecture;
+use tempfile::TempDir;
+
+lazy_static! {
+    static ref BMC_MOCK_SOCKET_TEMP_DIR: TempDir = tempfile::Builder::new()
+        .prefix("bmc-mock")
+        .tempdir()
+        .unwrap();
+}
 
 static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 
@@ -68,35 +79,71 @@ pub fn reboot_requested_for_machine(
     rr
 }
 
-pub async fn send_pxe_boot_request(url: String, forward_ip: String) -> PXEresponse {
-    let client = ClientBuilder::new().build().unwrap();
-    let response = client
-        .get(&url)
-        .header("X-Forwarded-For", forward_ip)
-        .send()
-        .await;
+pub async fn send_pxe_boot_request(
+    app_context: &MachineATronContext,
+    arch: MachineArchitecture,
+    interface_id: rpc::Uuid,
+    forward_ip: Option<String>,
+) -> PXEresponse {
+    if app_context.app_config.use_pxe_api {
+        let Ok(response) = api_client::get_pxe_instructions(app_context, arch, interface_id)
+            .await
+            .inspect_err(|e| {
+                tracing::error!("PXE Request failed: {}", e);
+            })
+        else {
+            return PXEresponse::Error;
+        };
 
-    match response {
-        Ok(res) => {
-            if res.status().is_success() {
-                tracing::info!("PXE Request successful with status: {}", res.status());
+        tracing::info!("PXE Request successful");
 
-                let result = res.text().await.unwrap();
-                if result.contains("exit") {
-                    tracing::info!("PXE Request is EXIT");
-                    PXEresponse::Exit
+        if response.pxe_script.contains("exit") {
+            tracing::info!("PXE Request is EXIT");
+            PXEresponse::Exit
+        } else {
+            tracing::info!("PXE Request is EFI");
+            PXEresponse::Efi
+        }
+    } else {
+        let url = format!(
+            "http://{}:{}/api/v0/pxe/boot?uuid={}&buildarch={}",
+            app_context.app_config.pxe_server_host,
+            app_context.app_config.pxe_server_port,
+            interface_id,
+            match arch {
+                MachineArchitecture::X86 => "x86_64",
+                MachineArchitecture::Arm => "arm64",
+            }
+        );
+
+        let mut request = ClientBuilder::new().build().unwrap().get(&url);
+        if let Some(forward_ip) = forward_ip {
+            request = request.header("X-Forwarded-For", forward_ip);
+        }
+        let response = request.send().await;
+
+        match response {
+            Ok(res) => {
+                if res.status().is_success() {
+                    tracing::info!("PXE Request successful with status: {}", res.status());
+
+                    let result = res.text().await.unwrap();
+                    if result.contains("exit") {
+                        tracing::info!("PXE Request is EXIT");
+                        PXEresponse::Exit
+                    } else {
+                        tracing::info!("PXE Request is EFI");
+                        PXEresponse::Efi
+                    }
                 } else {
-                    tracing::info!("PXE Request is EFI");
-                    PXEresponse::Efi
+                    tracing::error!("Request failed with status: {}", res.status());
+                    PXEresponse::Error
                 }
-            } else {
-                tracing::error!("Request failed with status: {}", res.status());
+            }
+            Err(e) => {
+                tracing::error!("PXE Request failed: {}", e);
                 PXEresponse::Error
             }
-        }
-        Err(e) => {
-            tracing::error!("PXE Request failed: {}", e);
-            PXEresponse::Error
         }
     }
 }

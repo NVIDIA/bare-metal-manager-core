@@ -2,13 +2,13 @@ use base64::prelude::*;
 use std::future::Future;
 use std::net::Ipv4Addr;
 
+use crate::config::MachineATronContext;
+use rpc::forge::PxeInstructions;
 use rpc::{
     forge::{MachineSearchConfig, MachineType},
     forge_tls_client::{self, ApiConfig, ForgeClientT},
 };
 use uuid::Uuid;
-
-use crate::config::MachineATronContext;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
@@ -457,4 +457,22 @@ pub async fn reboot_completed(
     })
     .await
     .map(|_| ())
+}
+
+pub async fn get_pxe_instructions(
+    app_context: &MachineATronContext,
+    arch: rpc::forge::MachineArchitecture,
+    interface_id: rpc::Uuid,
+) -> ClientApiResult<PxeInstructions> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+                arch: arch.into(),
+                interface_id: Some(interface_id),
+            }))
+            .await
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+    .map(|r| r.into_inner())
 }

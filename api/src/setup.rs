@@ -42,7 +42,7 @@ use crate::{
     logging::service_health_metrics::{start_export_service_health_metrics, ServiceHealthContext},
     machine_update_manager::MachineUpdateManager,
     preingestion_manager::PreingestionManager,
-    redfish::{RedfishClientPool, RedfishClientPoolImpl},
+    redfish::RedfishClientPool,
     resource_pool::{self, common::CommonPools},
     site_explorer::{RedfishEndpointExplorer, SiteExplorer},
     state_controller::{
@@ -56,8 +56,8 @@ use crate::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
         },
     },
-    CarbideError,
 };
+use tokio::sync::oneshot::Receiver;
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -200,15 +200,11 @@ pub async fn start_api(
     carbide_config: Arc<CarbideConfig>,
     meter: opentelemetry::metrics::Meter,
     dynamic_settings: crate::dynamic_settings::DynamicSettings,
+    shared_redfish_pool: Arc<dyn RedfishClientPool>,
+    vault_client: Arc<ForgeVaultClient>,
+    stop_channel: Receiver<()>,
 ) -> eyre::Result<()> {
-    let vault_client = create_vault_client(meter.clone()).await?;
     let ipmi_tool = create_ipmi_tool(vault_client.clone(), &carbide_config);
-
-    let rf_pool = libredfish::RedfishClientPool::builder()
-        .build()
-        .map_err(CarbideError::from)?;
-    let redfish_pool = RedfishClientPoolImpl::new(vault_client.clone(), rf_pool);
-    let shared_redfish_pool: Arc<dyn RedfishClientPool> = Arc::new(redfish_pool);
 
     let db_pool = create_and_connect_postgres_pool(&carbide_config).await?;
 
@@ -413,5 +409,13 @@ pub async fn start_api(
     let _preingestion_manager_stop_handle = preingestion_manager.start()?;
 
     let listen_addr = carbide_config.listen;
-    listener::listen_and_serve(api_service, tls_config, listen_addr, authorizer, meter).await
+    listener::listen_and_serve(
+        api_service,
+        tls_config,
+        listen_addr,
+        authorizer,
+        meter,
+        stop_channel,
+    )
+    .await
 }
