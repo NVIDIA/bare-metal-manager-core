@@ -981,8 +981,8 @@ SELECT m.id FROM
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING *";
-        let _id = sqlx::query_as::<_, Self>(query)
+        let query = "UPDATE machines SET last_reboot_time=NOW() WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(self.id().to_string())
             .fetch_one(&mut **txn)
             .await
@@ -1000,8 +1000,8 @@ SELECT m.id FROM
             mode,
         };
 
-        let query = "UPDATE machines SET last_reboot_requested=$1 WHERE id=$2 RETURNING *";
-        let _id = sqlx::query_as::<_, Self>(query)
+        let query = "UPDATE machines SET last_reboot_requested=$1 WHERE id=$2 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(sqlx::types::Json(&data))
             .bind(machine_id.to_string())
             .fetch_one(&mut **txn)
@@ -1014,8 +1014,8 @@ SELECT m.id FROM
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING *";
-        let _id = sqlx::query_as::<_, Self>(query)
+        let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(self.id().to_string())
             .fetch_one(&mut **txn)
             .await
@@ -1042,8 +1042,8 @@ SELECT m.id FROM
         &self,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING *";
-        let _id = sqlx::query_as::<_, Self>(query)
+        let query = "UPDATE machines SET last_discovery_time=NOW() WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(self.id().to_string())
             .fetch_one(&mut **txn)
             .await
@@ -1698,8 +1698,8 @@ SELECT m.id FROM
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query =
-            "UPDATE machines SET last_machine_validation_time=NOW() WHERE id=$1 RETURNING *";
-        let _id = sqlx::query_as::<_, Self>(query)
+            "UPDATE machines SET last_machine_validation_time=NOW() WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(machine_id.to_string())
             .fetch_one(&mut **txn)
             .await
@@ -1712,8 +1712,8 @@ SELECT m.id FROM
         current_machine_validation_id: uuid::Uuid,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let query = "UPDATE machines SET current_machine_validation_id=$1 WHERE id=$2 RETURNING *";
-        let _id = sqlx::query_as::<_, Self>(query)
+        let query = "UPDATE machines SET current_machine_validation_id=$1 WHERE id=$2 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(current_machine_validation_id)
             .bind(machine_id.to_string())
             .fetch_one(&mut **txn)
