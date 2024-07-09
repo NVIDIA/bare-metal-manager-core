@@ -321,33 +321,7 @@ impl SiteExplorer {
         for (i, dpu_report) in explored_host.dpus.iter().enumerate() {
             self.can_visit(dpu_report)?;
 
-            let dpu_machine_id = dpu_report.report.machine_id.as_ref().unwrap();
-            let oob_net0_mac = dpu_report
-                .report
-                .systems
-                .iter()
-                .find_map(|x| {
-                    x.ethernet_interfaces.iter().find_map(|x| {
-                        if x.id == Some("oob_net0".to_string()) {
-                            x.mac_address.clone()
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .ok_or_else(|| {
-                    CarbideError::GenericError(format!(
-                        "oob_net0 mac is missing for dpu: {}.",
-                        dpu_machine_id
-                    ))
-                })?;
-
-            let oob_net0_mac = MacAddress::from_str(&oob_net0_mac)?;
-
-            if !self
-                .create_dpu_machine(&mut txn, dpu_report, oob_net0_mac)
-                .await?
-            {
+            if !self.create_dpu_machine(&mut txn, dpu_report).await? {
                 // No error is returned but existing machine is found. It is possible that we
                 // updated machine and attached_dpu id in machine_interface table. Commit the
                 // transaction now.
@@ -931,7 +905,6 @@ impl SiteExplorer {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         explored_dpu: &ExploredDpu,
-        mac_address: MacAddress,
     ) -> CarbideResult<bool> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
         let (dpu_machine, new_machine) =
@@ -959,16 +932,33 @@ impl SiteExplorer {
             };
 
         // If machine_interface exists for the DPU and machine_id is not updated, do it now.
-        let mi = MachineInterface::find_by_mac_address(txn, mac_address).await?;
+        let oob_net0_mac = explored_dpu.report.systems.iter().find_map(|x| {
+            x.ethernet_interfaces.iter().find_map(|x| {
+                if x.id == Some("oob_net0".to_string()) {
+                    x.mac_address.clone()
+                } else {
+                    None
+                }
+            })
+        });
 
-        if let Some(interface) = mi.first() {
-            if interface.machine_id.is_none() {
-                interface
-                    .associate_interface_with_machine(txn, dpu_machine_id)
-                    .await?;
-                interface
-                    .associate_interface_with_dpu_machine(txn, dpu_machine_id)
-                    .await?;
+        if let Some(oob_net0_mac) = oob_net0_mac {
+            let mac_address = MacAddress::from_str(&oob_net0_mac)?;
+            let mi = MachineInterface::find_by_mac_address(txn, mac_address).await?;
+
+            if let Some(interface) = mi.first() {
+                if interface.machine_id.is_none() {
+                    tracing::info!(
+                        "Updating machine interface {} with machine id {dpu_machine_id}.",
+                        interface.id
+                    );
+                    interface
+                        .associate_interface_with_machine(txn, dpu_machine_id)
+                        .await?;
+                    interface
+                        .associate_interface_with_dpu_machine(txn, dpu_machine_id)
+                        .await?;
+                }
             }
         }
 
