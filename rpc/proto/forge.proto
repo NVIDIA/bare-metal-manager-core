@@ -2057,6 +2057,8 @@ message DpuNetworkStatus {
   // Replaced by the `dpu_health` field
   NetworkHealth health = 3;
   optional string network_config_version = 4;
+  // If an instance is configured, this field references the version of the networking
+  // configuration that is applied on the instance
   optional string instance_network_config_version = 5;
   repeated InstanceInterfaceStatusObservation interfaces = 6;
   optional string network_config_error = 7;
@@ -2064,6 +2066,10 @@ message DpuNetworkStatus {
   optional string dpu_agent_version = 9;
   optional int64 client_certificate_expiry_unix_epoch_secs = 10;
   health.HealthReport dpu_health = 11;
+  // The version of the instance configuration that had been applied by forge-network-config
+  // This version number tracks versioning OS details, tags, etc
+  // It is different than instance_network_config_version, which only tracks networking details
+  optional string instance_config_version = 12;
 }
 
 // Observed status of the networking subsystem of an instance

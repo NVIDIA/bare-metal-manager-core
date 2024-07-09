@@ -305,7 +305,7 @@ pub async fn get_managed_host_network_config(
 pub async fn record_dpu_network_status(
     app_context: &MachineATronContext,
     dpu_machine_id: rpc::MachineId,
-    version: Option<String>,
+    network_config_version: Option<String>,
 ) -> ClientApiResult<()> {
     let dpu_machine_id = Some(dpu_machine_id);
 
@@ -326,7 +326,8 @@ pub async fn record_dpu_network_status(
                     failed: vec![],
                     message: Some("Hello".to_owned()),
                 }),
-                network_config_version: version,
+                network_config_version,
+                instance_config_version: None,
                 instance_network_config_version: None,
                 interfaces: vec![],
                 network_config_error: None,

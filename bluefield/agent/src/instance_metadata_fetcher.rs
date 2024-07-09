@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use arc_swap::ArcSwap;
+use arc_swap::ArcSwapOption;
 use tracing::{error, info, trace};
 
 use ::rpc::forge_tls_client::ForgeClientConfig;
@@ -35,6 +35,8 @@ pub struct InstanceMetadata {
     pub machine_id: Option<MachineId>,
     pub user_data: String,
     pub ib_devices: Option<Vec<IBDeviceConfig>>,
+    pub config_version: String,
+    pub network_config_version: String,
 }
 
 #[derive(Clone, Debug)]
@@ -55,13 +57,13 @@ pub struct IBInstanceConfig {
 }
 
 pub struct InstanceMetadataFetcherState {
-    current: ArcSwap<Option<InstanceMetadata>>,
+    current: ArcSwapOption<InstanceMetadata>,
     config: InstanceMetadataFetcherConfig,
     is_cancelled: AtomicBool,
 }
 
 impl InstanceMetadataFetcherState {
-    pub fn read(&self) -> Arc<Option<InstanceMetadata>> {
+    pub fn read(&self) -> Option<Arc<InstanceMetadata>> {
         self.current.load_full()
     }
 }
@@ -91,7 +93,7 @@ impl InstanceMetadataFetcher {
     pub fn new(config: InstanceMetadataFetcherConfig) -> Self {
         let forge_client_config = config.forge_client_config.clone();
         let state = Arc::new(InstanceMetadataFetcherState {
-            current: ArcSwap::default(),
+            current: ArcSwapOption::default(),
             config,
             is_cancelled: AtomicBool::new(false),
         });
@@ -141,10 +143,11 @@ async fn run_instance_metadata_fetcher(
 
         match fetch_latest_ip_addresses(forge_client_config.clone(), &state).await {
             Ok(Some(config)) => {
-                state.current.store(Arc::new(Some(config)));
+                state.current.store(Some(Arc::new(config)));
             }
             Ok(None) => {
-                info!("No instance is found configured on the host yet.")
+                info!("No instance is found configured on the host.");
+                state.current.store(None);
             }
             Err(err) => {
                 error!(
@@ -210,6 +213,8 @@ async fn fetch_latest_ip_addresses(
         machine_id,
         user_data,
         ib_devices: devices,
+        config_version: instance.config_version,
+        network_config_version: instance.network_config_version,
     }))
 }
 

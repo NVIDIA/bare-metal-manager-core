@@ -68,6 +68,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             health: Some(m.health_status.into()),
             network_config_version: m.network_config_version.map(|v| v.version_string()),
             instance_id: None,
+            instance_config_version: None,
             instance_network_config_version: None,
             interfaces: vec![],
             network_config_error: None,

@@ -76,10 +76,10 @@ pub async fn run(
                 forge_client_config: forge_client_config.clone(),
             },
         ));
+    let instance_metadata_reader = instance_metadata_fetcher.reader();
 
     let instance_metadata_state = Arc::new(
         instance_metadata_endpoint::InstanceMetadataRouterStateImpl::new(
-            instance_metadata_fetcher.reader(),
             machine_id.to_string(),
             forge_api.to_string(),
             forge_client_config.clone(),
@@ -90,7 +90,7 @@ pub async fn run(
         if let Err(e) = spawn_metadata_service(
             agent.metadata_service.address.clone(),
             agent.telemetry.metrics_address.clone(),
-            instance_metadata_state,
+            instance_metadata_state.clone(),
         ) {
             return Err(eyre::eyre!("Failed to run metadata service: {:#}", e));
         }
@@ -204,6 +204,7 @@ pub async fn run(
             observed_at: None, // None makes carbide-api set it on receipt
             health: None,
             network_config_version: None,
+            instance_config_version: None,
             instance_network_config_version: None,
             interfaces: vec![],
             network_config_error: None,
@@ -213,6 +214,8 @@ pub async fn run(
         // `read` does not block
         match *network_config_reader.read() {
             Some(ref conf) => {
+                let instance_data = instance_metadata_reader.read();
+
                 let proposed_routes: Vec<_> = conf
                     .tenant_interfaces
                     .iter()
@@ -356,6 +359,12 @@ pub async fn run(
                         }
                     }
                 }
+
+                // Feed the latest instance metadata to FMDS and acknowledge it
+                instance_metadata_state.update_instance_data(instance_data.clone());
+                status_out.instance_config_version = instance_data
+                    .as_ref()
+                    .map(|instance| instance.config_version.clone());
 
                 let health_report = health::health_check(
                     &agent.hbn.root_dir,

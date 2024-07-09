@@ -106,6 +106,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             health: Some(hs),
             network_config_version: Some(network_config_version.clone()),
             instance_id: Some(instance_id.into()),
+            instance_config_version: Some(instance.config_version),
             instance_network_config_version: Some(instance.network_config_version),
             interfaces: vec![rpc::InstanceInterfaceStatusObservation {
                 function_type: physical,
@@ -216,6 +217,7 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
             health: Some(hs),
             network_config_version: Some(response.managed_host_config_version.clone()),
             instance_id: None,
+            instance_config_version: None,
             instance_network_config_version: None,
             interfaces: vec![rpc::InstanceInterfaceStatusObservation {
                 function_type: admin_if.function_type,

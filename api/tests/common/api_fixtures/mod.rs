@@ -743,7 +743,7 @@ pub async fn discovery_completed(
 pub async fn network_configured(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
-) -> (String, Option<String>) {
+) -> NetworkConfiguredResult {
     let network_config = env
         .api
         .get_managed_host_network_config(Request::new(
@@ -755,11 +755,35 @@ pub async fn network_configured(
         .unwrap()
         .into_inner();
 
-    let instance_cv = if network_config.instance_network_config_version.is_empty() {
-        None
+    let instance_network_config_version =
+        if network_config.instance_network_config_version.is_empty() {
+            None
+        } else {
+            Some(network_config.instance_network_config_version.clone())
+        };
+    let instance = env
+        .api
+        .find_instance_by_machine_id(Request::new(dpu_machine_id.to_string().into()))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop();
+    let instance_config_version = if let Some(instance) = instance {
+        // If an instance is reported via this API, the version should match what we
+        // get via the GetManagedHostNetworkConfig API
+        if !network_config.use_admin_network {
+            assert_eq!(
+                instance_network_config_version.as_ref().unwrap().as_str(),
+                instance.network_config_version,
+                "Different network config versions reported via FindInstanceByMachineId and GetManagedHostNetworkConfig"
+            );
+        }
+        Some(instance.config_version.clone())
     } else {
-        Some(network_config.instance_network_config_version.clone())
+        None
     };
+
     let interfaces = if network_config.use_admin_network {
         let iface = network_config
             .admin_interface
@@ -799,15 +823,17 @@ pub async fn network_configured(
         }),
         network_config_version: Some(network_config.managed_host_config_version.clone()),
         instance_id: network_config.instance_id.clone(),
-        instance_network_config_version: instance_cv.clone(),
+        instance_config_version: instance_config_version.clone(),
+        instance_network_config_version: instance_network_config_version.clone(),
         interfaces,
         network_config_error: None,
         client_certificate_expiry_unix_epoch_secs: None,
     };
     tracing::trace!(
-        "network_configured machine={} instance={}",
+        "network_configured machine={} instance_network={} instance={}",
         status.network_config_version.as_ref().unwrap(),
-        instance_cv.clone().unwrap_or_default(),
+        instance_network_config_version.clone().unwrap_or_default(),
+        instance_config_version.clone().unwrap_or_default(),
     );
     let _ = env
         .api
@@ -815,10 +841,17 @@ pub async fn network_configured(
         .await
         .unwrap();
 
-    (
-        network_config.managed_host_config_version.clone(),
-        instance_cv,
-    )
+    NetworkConfiguredResult {
+        managed_host_network_config_version: network_config.managed_host_config_version,
+        instance_network_config_version,
+        instance_config_version,
+    }
+}
+
+pub struct NetworkConfiguredResult {
+    managed_host_network_config_version: String,
+    instance_network_config_version: Option<String>,
+    instance_config_version: Option<String>,
 }
 
 pub async fn forge_agent_control(

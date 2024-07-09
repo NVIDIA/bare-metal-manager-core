@@ -84,6 +84,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             }),
             network_config_version: Some(network_config_version.clone()),
             instance_id: None,
+            instance_config_version: None,
             instance_network_config_version: None,
             interfaces: vec![rpc::InstanceInterfaceStatusObservation {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
