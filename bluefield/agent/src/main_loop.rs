@@ -191,7 +191,8 @@ pub async fn run(
         let mut current_config_error = None;
         let mut is_healthy = false;
         let mut has_changed_configs = false;
-        let mut current_host_config_version = None;
+        let mut current_host_network_config_version = None;
+        let mut current_instance_network_config_version = None;
         let mut current_instance_config_version = None;
 
         let client_certificate_expiry_unix_epoch_secs =
@@ -341,8 +342,9 @@ pub async fn run(
                                 status_out.instance_network_config_version =
                                     Some(conf.instance_network_config_version.clone());
                             }
-                            current_host_config_version = status_out.network_config_version.clone();
-                            current_instance_config_version =
+                            current_host_network_config_version =
+                                status_out.network_config_version.clone();
+                            current_instance_network_config_version =
                                 status_out.instance_network_config_version.clone();
 
                             match ethernet_virtualization::interfaces(conf, mac_address).await {
@@ -365,6 +367,7 @@ pub async fn run(
                 status_out.instance_config_version = instance_data
                     .as_ref()
                     .map(|instance| instance.config_version.clone());
+                current_instance_config_version = status_out.instance_config_version.clone();
 
                 let health_report = health::health_check(
                     &agent.hbn.root_dir,
@@ -484,7 +487,8 @@ pub async fn run(
             num_health_check_errors = cr7.map(|hs| hs.checks_failed.len()).unwrap_or_default(),
             health_check_first_error = cr7.and_then(|hs| hs.message.as_deref()).unwrap_or_default(),
             write_config_error = current_config_error.unwrap_or_default(),
-            managed_host_config_version = current_host_config_version.unwrap_or_default(),
+            managed_host_network_config_version = current_host_network_config_version.unwrap_or_default(),
+            instance_network_config_version = current_instance_network_config_version.unwrap_or_default(),
             instance_config_version = current_instance_config_version.unwrap_or_default(),
             loop_duration = %dt(loop_start.elapsed()),
             version_check_in = %dt(version_check_time - Instant::now()),
