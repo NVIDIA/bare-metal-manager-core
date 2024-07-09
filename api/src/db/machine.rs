@@ -951,6 +951,10 @@ SELECT m.id FROM
         self.maintenance_reference.clone()
     }
 
+    pub fn maintenance_start_time(&self) -> Option<DateTime<Utc>> {
+        self.maintenance_start_time
+    }
+
     pub fn last_reboot_time(&self) -> Option<DateTime<Utc>> {
         self.last_reboot_time
     }

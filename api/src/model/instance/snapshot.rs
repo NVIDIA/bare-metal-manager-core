@@ -34,11 +34,6 @@ pub struct InstanceSnapshot {
     /// Machine ID
     pub machine_id: MachineId,
 
-    /// Machine State
-    pub machine_state: ManagedHostState,
-    /// Whether reprovsioning is request on the Machine or one of the DPUs
-    pub reprovision_request: Option<ReprovisionRequest>,
-
     /// Instance Metadata
     pub metadata: Metadata,
 
@@ -60,41 +55,26 @@ pub struct InstanceSnapshot {
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
 
-    /// Is delete requested
-    pub delete_requested: bool,
-}
-
-impl TryFrom<InstanceSnapshot> for rpc::Instance {
-    type Error = RpcDataConversionError;
-
-    fn try_from(snapshot: InstanceSnapshot) -> Result<Self, Self::Error> {
-        let status = snapshot.derive_status()?;
-
-        Ok(rpc::Instance {
-            id: Some(snapshot.instance_id.into()),
-            machine_id: Some(snapshot.machine_id.to_string().into()),
-            config: Some(snapshot.config.try_into()?),
-            status: Some(status.try_into()?),
-            config_version: snapshot.config_version.version_string(),
-            network_config_version: snapshot.network_config_version.version_string(),
-            ib_config_version: snapshot.ib_config_version.version_string(),
-            metadata: Some(snapshot.metadata.try_into()?),
-        })
-    }
+    /// The timestamp when deletion for this instance was requested
+    pub deleted: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl InstanceSnapshot {
     /// Derives the tenant and site-admin facing [`InstanceStatus`] from the
     /// snapshot information about the instance
-    pub fn derive_status(&self) -> Result<InstanceStatus, RpcDataConversionError> {
+    pub fn derive_status(
+        &self,
+        managed_host_state: ManagedHostState,
+        reprovision_request: Option<ReprovisionRequest>,
+    ) -> Result<InstanceStatus, RpcDataConversionError> {
         InstanceStatus::from_config_and_observation(
             Versioned::new(&self.config.network, self.network_config_version),
             Versioned::new(&self.config.infiniband, self.ib_config_version),
             &self.observations,
-            self.machine_state.clone(),
-            self.delete_requested,
+            managed_host_state,
+            self.deleted.is_some(),
             self.config.os.phone_home_enabled,
-            self.reprovision_request.clone(),
+            reprovision_request,
         )
     }
 }

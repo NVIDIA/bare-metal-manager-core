@@ -2669,7 +2669,7 @@ impl StateHandler for InstanceStateHandler {
                         false
                     };
 
-                    if instance.delete_requested || reprov_needed {
+                    if instance.deleted.is_some() || reprov_needed {
                         if reprov_needed {
                             // User won't be allowed to clear reprovisioning flag after this.
                             Machine::update_dpu_reprovision_start_time(
@@ -2750,7 +2750,7 @@ impl StateHandler for InstanceStateHandler {
                         Some(retry.count + 1);
 
                     // In case state is triggered for delete instance handling, follow that path.
-                    if instance.delete_requested {
+                    if instance.deleted.is_some() {
                         let next_state = ManagedHostState::Assigned {
                             instance_state: InstanceState::SwitchToAdminNetwork,
                         };

@@ -21,6 +21,7 @@ use crate::instance::{allocate_instance, InstanceAllocationRequest};
 use crate::model::instance::config::InstanceConfig;
 use crate::model::instance::status::network::InstanceNetworkStatusObservation;
 use crate::model::machine::machine_id::try_parse_machine_id;
+use crate::model::machine::ManagedHostStateSnapshot;
 use crate::model::metadata::Metadata;
 use crate::model::os::OperatingSystem;
 use crate::model::RpcDataConversionError;
@@ -40,11 +41,9 @@ pub(crate) async fn allocate(
 
     let request = InstanceAllocationRequest::try_from(request.into_inner())?;
     log_machine_id(&request.machine_id);
-    let instance_snapshot = allocate_instance(request, &api.database_connection).await?;
+    let mh_snapshot = allocate_instance(request, &api.database_connection).await?;
 
-    Ok(Response::new(
-        rpc::Instance::try_from(instance_snapshot).map_err(CarbideError::from)?,
-    ))
+    Ok(Response::new(snapshot_to_instance(mh_snapshot)?))
 }
 
 pub(crate) async fn find_ids(
@@ -130,12 +129,9 @@ pub(crate) async fn find_by_ids(
             .await
             .map_err(CarbideError::from)?;
 
-        let snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
-            Status::invalid_argument(format!("Snapshot not found for Instance {}", instance.id())),
-        )?)
-        .map_err(CarbideError::from)?;
+        let instance = snapshot_to_instance(mh_snapshot)?;
 
-        instances.push(snapshot);
+        instances.push(instance);
     }
 
     Ok(Response::new(rpc::InstanceList { instances }))
@@ -198,13 +194,8 @@ pub(crate) async fn find(
             .load_machine_snapshot(&mut txn, &instance.machine_id)
             .await
             .map_err(CarbideError::from)?;
-
-        let snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
-            Status::invalid_argument(format!("Snapshot not found for Instance {}", instance.id())),
-        )?)
-        .map_err(CarbideError::from)?;
-
-        instances.push(snapshot);
+        let instance = snapshot_to_instance(mh_snapshot)?;
+        instances.push(instance);
     }
 
     Ok(Response::new(rpc::InstanceList { instances }))
@@ -232,9 +223,11 @@ pub(crate) async fn find_by_machine_id(
         .load_machine_snapshot(&mut txn, &machine_id)
         .await
         .map_err(CarbideError::from)?;
+    let maybe_instance =
+        Option::<rpc::Instance>::try_from(mh_snapshot).map_err(CarbideError::from)?;
 
-    let instances = if let Some(instance) = mh_snapshot.instance {
-        vec![rpc::Instance::try_from(instance).map_err(CarbideError::from)?]
+    let instances = if let Some(instance) = maybe_instance {
+        vec![instance]
     } else {
         vec![]
     };
@@ -595,13 +588,7 @@ pub(crate) async fn update_operating_system(
         .load_machine_snapshot(&mut txn, &instance.machine_id)
         .await
         .map_err(CarbideError::from)?;
-    let snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
-        Status::invalid_argument(format!(
-            "Snapshot not found for machine {}",
-            instance.machine_id
-        )),
-    )?)
-    .map_err(CarbideError::from)?;
+    let instance = snapshot_to_instance(mh_snapshot)?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -612,7 +599,7 @@ pub(crate) async fn update_operating_system(
         ))
     })?;
 
-    Ok(Response::new(snapshot))
+    Ok(Response::new(instance))
 }
 
 pub(crate) async fn update_instance_config(
@@ -676,13 +663,7 @@ pub(crate) async fn update_instance_config(
         .load_machine_snapshot(&mut txn, &instance.machine_id)
         .await
         .map_err(CarbideError::from)?;
-    let snapshot = rpc::Instance::try_from(mh_snapshot.instance.ok_or(
-        Status::invalid_argument(format!(
-            "Snapshot not found for machine {}",
-            instance.machine_id
-        )),
-    )?)
-    .map_err(CarbideError::from)?;
+    let instance = snapshot_to_instance(mh_snapshot)?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -693,5 +674,24 @@ pub(crate) async fn update_instance_config(
         ))
     })?;
 
-    Ok(Response::new(snapshot))
+    Ok(Response::new(instance))
+}
+
+/// Extracts the RPC representation of Instances from a ManagedHost snapshot
+///
+/// This method expects that the snapshot must contain an instance definition.
+/// If this is not required, then `Option::<rpc::Instance>::try_from(mh_snapshot)`
+/// can be utilized.
+fn snapshot_to_instance(
+    mh_snapshot: ManagedHostStateSnapshot,
+) -> Result<rpc::Instance, CarbideError> {
+    let machine_id = mh_snapshot.host_snapshot.machine_id.clone();
+    Option::<rpc::Instance>::try_from(mh_snapshot)
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| {
+            CarbideError::GenericError(format!(
+                "Instance not found for {} after update",
+                machine_id
+            ))
+        })
 }

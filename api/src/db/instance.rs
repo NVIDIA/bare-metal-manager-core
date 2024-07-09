@@ -39,7 +39,7 @@ use crate::{
                 network::InstanceNetworkStatusObservation, InstanceStatusObservations,
             },
         },
-        machine::{machine_id::MachineId, ManagedHostState, ReprovisionRequest},
+        machine::machine_id::MachineId,
         metadata::Metadata,
         os::{IpxeOperatingSystem, OperatingSystem, OperatingSystemVariant},
         tenant::TenantOrganizationId,
@@ -429,8 +429,6 @@ impl Instance {
     pub async fn load_snapshot_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: &MachineId,
-        machine_state: ManagedHostState,
-        reprovision_request: Option<ReprovisionRequest>,
     ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
         let instance = match Self::find_by_machine_id(txn, machine_id).await? {
             Some(instance) => instance,
@@ -440,7 +438,6 @@ impl Instance {
         let snapshot = InstanceSnapshot {
             instance_id: instance.id,
             machine_id: instance.machine_id,
-            machine_state,
             metadata: instance.metadata,
             config: instance.config,
             config_version: instance.config_version,
@@ -451,8 +448,7 @@ impl Instance {
                 infiniband: instance.ib_status_observation,
                 phone_home_last_contact: instance.phone_home_last_contact,
             },
-            delete_requested: instance.deleted.is_some(),
-            reprovision_request,
+            deleted: instance.deleted,
         };
 
         Ok(Some(snapshot))
