@@ -21,6 +21,7 @@ use tracing::{error, info, trace};
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::Instance;
 use ::rpc::Uuid as uuid;
+use rpc::MachineId;
 
 use crate::util::{create_forge_client, get_instance};
 
@@ -31,6 +32,7 @@ pub struct InstanceMetadata {
     pub address: String,
     pub hostname: String,
     pub instance_id: Option<uuid>,
+    pub machine_id: Option<MachineId>,
     pub user_data: String,
     pub ib_devices: Option<Vec<IBDeviceConfig>>,
 }
@@ -170,6 +172,8 @@ async fn fetch_latest_ip_addresses(
         None => return Err(eyre::eyre!("host name is not present in tenant config")),
     };
 
+    let machine_id = instance.machine_id.clone();
+
     let instance_id = instance.id.clone();
 
     let pf_address = instance
@@ -203,6 +207,7 @@ async fn fetch_latest_ip_addresses(
         address: pf_address,
         hostname,
         instance_id,
+        machine_id,
         user_data,
         ib_devices: devices,
     }))

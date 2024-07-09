@@ -12,10 +12,6 @@
 
 use std::sync::Arc;
 
-use crate::instance_metadata_fetcher::InstanceMetadata;
-use crate::instance_metadata_fetcher::InstanceMetadataFetcherState;
-use crate::util::{create_forge_client, phone_home};
-use ::rpc::forge_tls_client::ForgeClientConfig;
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::{extract::Path, extract::State, routing::get, routing::post, Router};
@@ -28,6 +24,12 @@ use governor::Quota;
 use governor::RateLimiter;
 use mockall::automock;
 use nonzero_ext::nonzero;
+
+use ::rpc::forge_tls_client::ForgeClientConfig;
+
+use crate::instance_metadata_fetcher::InstanceMetadata;
+use crate::instance_metadata_fetcher::InstanceMetadataFetcherState;
+use crate::util::{create_forge_client, phone_home};
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
 const HOSTNAME_CATEGORY: &str = "hostname";
@@ -125,6 +127,7 @@ pub fn get_instance_metadata_router(
         .nest("/infiniband", ib_router)
         .route("/phone_home", post(post_phone_home))
         .route("/instance-id", get(get_instance_id))
+        .route("/machine-id", get(get_machine_id))
         .route("/:category", get(get_metadata_parameter))
         .with_state(metadata_router_state)
 }
@@ -147,6 +150,30 @@ async fn get_metadata_parameter(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "metadata currently unavailable".to_string(),
+        )
+    }
+}
+
+async fn get_machine_id(
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
+) -> (StatusCode, String) {
+    let read_guard: Arc<Option<InstanceMetadata>> = state.read();
+    let metadata = match read_guard.as_ref() {
+        Some(metadata) => metadata,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "metadata currently unavailable".to_string(),
+            );
+        }
+    };
+
+    if let Some(machine_id) = &metadata.machine_id {
+        (StatusCode::OK, machine_id.to_string())
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            "machine id not available".to_string(),
         )
     }
 }
@@ -359,9 +386,11 @@ async fn post_phone_home(
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::Uuid;
     use axum::http;
     use uuid::uuid;
+
+    use ::rpc::Uuid;
+    use rpc::MachineId;
 
     use crate::instance_metadata_fetcher::{IBDeviceConfig, IBInstanceConfig, InstanceMetadata};
 
@@ -425,6 +454,9 @@ mod tests {
     async fn test_get_metadata_parameter_public_ipv4_category() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -446,6 +478,9 @@ mod tests {
     async fn test_get_metadata_parameter_hostname_category() {
         let metadata = InstanceMetadata {
             instance_id: None,
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -467,6 +502,9 @@ mod tests {
     async fn test_get_metadata_parameter_user_data_category() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -501,6 +539,9 @@ mod tests {
     async fn test_get_ib_devices() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -539,6 +580,9 @@ mod tests {
     async fn test_get_incorrect_ib_device() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -567,6 +611,9 @@ mod tests {
     async fn test_get_ib_instances() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -602,6 +649,9 @@ mod tests {
     async fn test_get_ib_instance() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -632,6 +682,9 @@ mod tests {
     async fn test_get_ib_instance_not_all_attributes() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -660,6 +713,9 @@ mod tests {
     async fn test_get_incorrect_ib_instance() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -688,6 +744,9 @@ mod tests {
     async fn test_get_ib_instance_attribute() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -716,6 +775,9 @@ mod tests {
     async fn test_get_ib_instance_nonexistent_attribute() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -744,6 +806,9 @@ mod tests {
     async fn test_get_instance_id() {
         let metadata = InstanceMetadata {
             instance_id: Some(Uuid::from(uuid!("67e55044-10b1-426f-9247-bb680e5fe0c8"))),
+            machine_id: Some(MachineId {
+                id: "machine_id".to_string(),
+            }),
             address: "127.0.0.1".to_string(),
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
@@ -755,6 +820,30 @@ mod tests {
             server_port,
             "instance-id",
             "67e55044-10b1-426f-9247-bb680e5fe0c8",
+            StatusCode::OK,
+        )
+        .await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn test_get_machine_id() {
+        let metadata = InstanceMetadata {
+            instance_id: None,
+            machine_id: Some(MachineId {
+                id: "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg".to_string(),
+            }),
+            address: "127.0.0.1".to_string(),
+            hostname: "localhost".to_string(),
+            user_data: "\"userData\": {\"data\": 0}".to_string(),
+            ib_devices: None,
+        };
+
+        let (server, server_port) = setup_server(Some(metadata.clone())).await;
+        send_request_and_check_response(
+            server_port,
+            "machine-id",
+            "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg",
             StatusCode::OK,
         )
         .await;
