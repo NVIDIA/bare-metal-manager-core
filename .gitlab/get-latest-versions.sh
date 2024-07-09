@@ -34,7 +34,7 @@ if [[ -z "${LATEST_COMMON_VERSION}" ]]; then
 fi
 
 # Find latest version of ssh-console that exists in `main` (i.e. filter out private builds)
-GITLAB_API_TOKEN=$(vault kv get -field scheduled_pipeline_bot_token secrets/forge/tokens)
+GITLAB_API_TOKEN=$(vault kv get -field gitlab-group-api-read secrets/forge/tokens)
 LATEST_SSH_CONSOLE_VERSION=""
 for version in ${SSH_CONSOLE_VERSIONS}; do
   git_hash=$(awk -F'-g' '{print $2}' <<< "$version")
