@@ -661,11 +661,17 @@ fn spawn_metadata_service(
 
     start_server(
         metadata_service_address,
-        Router::new().nest(
-            "/latest/meta-data",
-            get_instance_metadata_router(instance_metadata_state.clone())
-                .with_tracing_layer(metrics_state),
-        ),
+        Router::new()
+            .nest(
+                "/latest/meta-data",
+                get_instance_metadata_router(instance_metadata_state.clone())
+                    .with_tracing_layer(metrics_state.clone()),
+            )
+            .nest(
+                "/2009-04-04/meta-data",
+                get_instance_metadata_router(instance_metadata_state.clone())
+                    .with_tracing_layer(metrics_state.clone()),
+            ),
     )
     .expect("metadata server panicked");
 
