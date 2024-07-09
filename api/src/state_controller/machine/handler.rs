@@ -1578,9 +1578,10 @@ impl StateHandler for DpuMachineStateHandler {
                 let dpu_redfish_client = match dpu_redfish_client_result {
                     Ok(redfish_client) => redfish_client,
                     Err(e) => {
-                        let msg = format!("Failed to instantiate redfish client: {}", e);
-                        let next_state = self.get_discovery_failure(msg, dpu_machine_id);
-                        return Ok(StateHandlerOutcome::Transition(next_state));
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "Waiting for RedFish to become available: {:?}",
+                            e
+                        )))
                     }
                 };
 
