@@ -1196,7 +1196,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
             message: Some("test_cannot_create_instance_on_unhealthy_dpu".to_string()),
         }),
         network_config_version: Some(version.version_string()),
-        instance_config_version: None,
+        instance_network_config_version: None,
         interfaces: vec![rpc::InstanceInterfaceStatusObservation {
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             virtual_function_id: None,

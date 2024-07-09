@@ -541,7 +541,7 @@ impl Forge for Api {
             use_admin_network,
             admin_interface: Some(admin_interface_rpc),
             tenant_interfaces,
-            instance_config_version: if use_admin_network {
+            instance_network_config_version: if use_admin_network {
                 "".to_string()
             } else {
                 snapshot
@@ -678,7 +678,7 @@ impl Forge for Api {
         tracing::trace!(
             machine_id = %dpu_machine_id,
             machine_network_config = ?request.network_config_version,
-            instance_network_config = ?request.instance_config_version,
+            instance_network_config = ?request.instance_network_config_version,
             agent_version = machine_obs.agent_version,
             "Applied network configs",
         );
@@ -750,10 +750,10 @@ impl Forge for Api {
 
         // We already persisted the machine parts of applied_config in
         // update_network_status_observation above. Now do the instance parts.
-        if let Some(version_string) = request.instance_config_version {
+        if let Some(version_string) = request.instance_network_config_version {
             let Ok(version) = version_string.as_str().parse() else {
                 return Err(CarbideError::InvalidArgument(
-                    "applied_config.instance_config_version".to_string(),
+                    "applied_config.instance_network_config_version".to_string(),
                 )
                 .into());
             };

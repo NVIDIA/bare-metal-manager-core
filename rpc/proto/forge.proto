@@ -1649,7 +1649,7 @@ message ManagedHostNetworkConfigResponse {
 
   repeated FlatInterfaceConfig tenant_interfaces = 9;
   // Blank if on the admin network, matches DB instances.network_config if there's a tenant
-  string instance_config_version = 10;
+  string instance_network_config_version = 10;
   optional common.UUID instance_id = 11;
 
   // Both None if on the admin network
@@ -2057,7 +2057,7 @@ message DpuNetworkStatus {
   // Replaced by the `dpu_health` field
   NetworkHealth health = 3;
   optional string network_config_version = 4;
-  optional string instance_config_version = 5;
+  optional string instance_network_config_version = 5;
   repeated InstanceInterfaceStatusObservation interfaces = 6;
   optional string network_config_error = 7;
   optional common.UUID instance_id = 8;

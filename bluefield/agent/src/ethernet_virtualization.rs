@@ -1406,7 +1406,7 @@ mod tests {
             admin_interface: Some(admin_interface),
 
             tenant_interfaces,
-            instance_config_version: "V1-T1666644937952999".to_string(),
+            instance_network_config_version: "V1-T1666644937952999".to_string(),
 
             instance_id: Some(
                 uuid::Uuid::try_from("60cef902-9779-4666-8362-c9bb4b37184f")
@@ -1688,7 +1688,7 @@ mod tests {
             admin_interface: Some(admin_interface),
 
             tenant_interfaces,
-            instance_config_version: "V1-T1666644937952999".to_string(),
+            instance_network_config_version: "V1-T1666644937952999".to_string(),
 
             instance_id: Some(
                 uuid::Uuid::try_from("60cef902-9779-4666-8362-c9bb4b37184f")

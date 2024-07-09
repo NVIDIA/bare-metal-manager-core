@@ -327,7 +327,7 @@ pub async fn record_dpu_network_status(
                     message: Some("Hello".to_owned()),
                 }),
                 network_config_version: version,
-                instance_config_version: None,
+                instance_network_config_version: None,
                 interfaces: vec![],
                 network_config_error: None,
                 instance_id: None,
