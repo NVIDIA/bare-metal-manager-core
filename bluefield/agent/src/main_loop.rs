@@ -204,7 +204,7 @@ pub async fn run(
             observed_at: None, // None makes carbide-api set it on receipt
             health: None,
             network_config_version: None,
-            instance_config_version: None,
+            instance_network_config_version: None,
             interfaces: vec![],
             network_config_error: None,
             instance_id: None,
@@ -334,13 +334,13 @@ pub async fn run(
                             status_out.network_config_version =
                                 Some(conf.managed_host_config_version.clone());
                             status_out.instance_id = conf.instance_id.clone();
-                            if !conf.instance_config_version.is_empty() {
-                                status_out.instance_config_version =
-                                    Some(conf.instance_config_version.clone());
+                            if !conf.instance_network_config_version.is_empty() {
+                                status_out.instance_network_config_version =
+                                    Some(conf.instance_network_config_version.clone());
                             }
                             current_host_config_version = status_out.network_config_version.clone();
                             current_instance_config_version =
-                                status_out.instance_config_version.clone();
+                                status_out.instance_network_config_version.clone();
 
                             match ethernet_virtualization::interfaces(conf, mac_address).await {
                                 Ok(interfaces) => status_out.interfaces = interfaces,

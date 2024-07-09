@@ -739,7 +739,7 @@ pub async fn discovery_completed(
 }
 
 /// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back
-/// Returns tuple of latest (machine_config_version, instance_config_version)
+/// Returns tuple of latest (machine_config_version, instance_network_config_version)
 pub async fn network_configured(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
@@ -755,10 +755,10 @@ pub async fn network_configured(
         .unwrap()
         .into_inner();
 
-    let instance_cv = if network_config.instance_config_version.is_empty() {
+    let instance_cv = if network_config.instance_network_config_version.is_empty() {
         None
     } else {
-        Some(network_config.instance_config_version.clone())
+        Some(network_config.instance_network_config_version.clone())
     };
     let interfaces = if network_config.use_admin_network {
         let iface = network_config
@@ -799,7 +799,7 @@ pub async fn network_configured(
         }),
         network_config_version: Some(network_config.managed_host_config_version.clone()),
         instance_id: network_config.instance_id.clone(),
-        instance_config_version: instance_cv.clone(),
+        instance_network_config_version: instance_cv.clone(),
         interfaces,
         network_config_error: None,
         client_certificate_expiry_unix_epoch_secs: None,
