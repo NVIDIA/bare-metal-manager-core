@@ -37,7 +37,7 @@ use carbide::{
         hardware_info::TpmEkCertificate,
         machine::{
             machine_id::{try_parse_machine_id, MachineId},
-            MachineLastRebootRequested, ManagedHostState,
+            FailureDetails, MachineLastRebootRequested, ManagedHostState,
         },
     },
     redfish::RedfishSim,
@@ -182,12 +182,20 @@ impl TestEnv {
                         id: _,
                         completed,
                         total,
-                    } => carbide::model::machine::MachineState::MachineValidating {
-                        context,
-                        id: machine.current_machine_validation_id().unwrap_or_default(),
-                        completed,
-                        total,
-                    },
+                    } => {
+                        let mut id = machine
+                            .discovery_machine_validation_id()
+                            .unwrap_or_default();
+                        if context == "Cleanup" {
+                            id = machine.cleanup_machine_validation_id().unwrap_or_default();
+                        }
+                        carbide::model::machine::MachineState::MachineValidating {
+                            context,
+                            id,
+                            completed,
+                            total,
+                        }
+                    }
                 };
                 ManagedHostState::HostNotReady { machine_state: mc }
             }
@@ -196,7 +204,19 @@ impl TestEnv {
             ManagedHostState::WaitingForCleanup { .. } => state.clone(),
             ManagedHostState::Created => state.clone(),
             ManagedHostState::ForceDeletion => state.clone(),
-            ManagedHostState::Failed { .. } => state.clone(),
+            ManagedHostState::Failed {
+                details,
+                machine_id,
+                retry_count,
+            } => ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: details.cause,
+                    failed_at: machine.failure_details().failed_at,
+                    source: details.source,
+                },
+                machine_id,
+                retry_count,
+            },
             ManagedHostState::DPUReprovision { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
         }
@@ -880,12 +900,18 @@ pub async fn machine_validation_completed(
     machine_id: rpc::common::MachineId,
     machine_validation_error: Option<String>,
 ) {
+    let response = forge_agent_control(env, machine_id.clone()).await;
+    let uuid = &response.data.unwrap().pair[1].value;
+
     let _response = env
         .api
         .machine_validation_completed(Request::new(
             rpc::forge::MachineValidationCompletedRequest {
                 machine_id: Some(machine_id),
                 machine_validation_error,
+                validation_id: Some(rpc::Uuid {
+                    value: uuid.to_owned(),
+                }),
             },
         ))
         .await
@@ -934,4 +960,36 @@ pub async fn inject_machine_measurements(env: &TestEnv, machine_id: rpc::common:
         .await
         .unwrap()
         .into_inner();
+}
+
+/// Emulates the `MachineValidationComplete` request of a Host
+pub async fn persist_machine_validation_result(
+    env: &TestEnv,
+    machine_validation_result: rpc::forge::MachineValidationResult,
+) {
+    env.api
+        .persist_validation_result(Request::new(
+            rpc::forge::MachineValidationResultPostRequest {
+                result: Some(machine_validation_result),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+}
+
+/// Emulates the `get_machine_validation_results` request of a Host
+pub async fn get_machine_validation_results(
+    env: &TestEnv,
+    machine_id: rpc::common::MachineId,
+    include_history: bool,
+) -> rpc::forge::MachineValidationResultList {
+    env.api
+        .get_machine_validation_results(Request::new(rpc::forge::MachineValidationGetRequest {
+            machine_id: Some(machine_id),
+            include_history,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
 }

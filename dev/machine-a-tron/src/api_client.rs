@@ -371,7 +371,11 @@ pub async fn force_delete_machine(
                 },
             ))
             .await
-            .map(|response| response.into_inner())
+            .map(
+                |response: tonic::Response<rpc::forge::AdminForceDeleteMachineResponse>| {
+                    response.into_inner()
+                },
+            )
             .map_err(ClientApiError::InvocationError)
     })
     .await
@@ -427,6 +431,7 @@ pub async fn machine_validation_complete(
                 rpc::forge::MachineValidationCompletedRequest {
                     machine_id: Some(machine_id.clone()),
                     machine_validation_error: None,
+                    validation_id: None,
                 },
             ))
             .await

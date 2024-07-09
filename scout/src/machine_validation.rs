@@ -17,13 +17,48 @@ use crate::{cfg::Options, client::create_forge_client, CarbideClientError};
 pub(crate) async fn completed(
     config: &Options,
     machine_id: &str,
+    uuid: String,
     machine_validation_error: Option<String>,
 ) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
     let request = tonic::Request::new(rpc::MachineValidationCompletedRequest {
         machine_id: Some(machine_id.to_string().into()),
         machine_validation_error,
+        validation_id: Some(::rpc::common::Uuid { value: uuid }),
     });
     client.machine_validation_completed(request).await?;
+    Ok(())
+}
+
+pub(crate) async fn persist(
+    config: &Options,
+    data: Option<rpc::MachineValidationResult>,
+) -> Result<(), CarbideClientError> {
+    let mut client = create_forge_client(config).await?;
+    let request = tonic::Request::new(rpc::MachineValidationResultPostRequest { result: data });
+    client.persist_validation_result(request).await?;
+    Ok(())
+}
+
+pub(crate) async fn run(
+    config: &Options,
+    uuid: String,
+    context: String,
+) -> Result<(), CarbideClientError> {
+    // Sample data
+    let data = Some(rpc::MachineValidationResult {
+        name: "test".to_string(),
+        description: "test".to_string(),
+        command: "echo".to_string(),
+        args: "".to_string(),
+        std_out: "".to_string(),
+        std_err: "".to_string(),
+        context,
+        exit_code: 0,
+        start_time: None,
+        end_time: None,
+        validation_id: Some(::rpc::common::Uuid { value: uuid }),
+    });
+    persist(config, data).await?;
     Ok(())
 }

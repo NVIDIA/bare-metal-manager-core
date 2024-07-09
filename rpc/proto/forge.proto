@@ -322,6 +322,12 @@ service Forge {
 
   rpc RebootCompleted(MachineRebootCompletedRequest) returns (MachineRebootCompletedResponse);
 
+  // Validation result Persist
+  rpc PersistValidationResult(MachineValidationResultPostRequest) returns (google.protobuf.Empty);
+
+  // Machine-Validation result list
+  rpc GetMachineValidationResults(MachineValidationGetRequest) returns (MachineValidationResultList);
+
   // Machine-Validation completed
   rpc MachineValidationCompleted(MachineValidationCompletedRequest) returns (MachineValidationCompletedResponse);
 
@@ -1885,7 +1891,11 @@ message ForgeAgentControlResponse {
 	Action action = 1;
 
 	message ForgeAgentControlExtraInfo {
-		string extraData = 1;
+		message KeyValuePair {
+			string key = 1;
+			string value = 2;
+		}
+		repeated KeyValuePair pair = 1;
 	}
 
 	optional ForgeAgentControlExtraInfo data = 2;
@@ -2481,6 +2491,7 @@ message ExpectedMachineRequest {
 message ExpectedMachineList {
   repeated ExpectedMachine expected_machines = 1;
 }
+
 message MachineRebootCompletedResponse { }
 
 message MachineRebootCompletedRequest {
@@ -2490,7 +2501,35 @@ message MachineRebootCompletedRequest {
 message MachineValidationCompletedRequest {
   common.MachineId machine_id = 1;
   optional string machine_validation_error = 2;
+  common.UUID validation_id = 3;
 }
 
 message MachineValidationCompletedResponse { }
+
+message MachineValidationResult {
+  string name = 1;
+  string description = 2;
+  string command = 3;
+  string args = 4;
+  string std_out = 5;
+  string std_err = 6;
+  string context = 7;
+  int32 exit_code = 8;
+  google.protobuf.Timestamp start_time = 10;
+  google.protobuf.Timestamp end_time = 11;
+  common.UUID validation_id = 12;
+}
+
+message MachineValidationResultPostRequest {
+  	MachineValidationResult result = 1;
+}
+
+message MachineValidationResultList {
+  repeated MachineValidationResult results = 1;
+}
+
+message MachineValidationGetRequest {
+  common.MachineId machine_id = 1;
+  bool include_history = 2;
+}
 

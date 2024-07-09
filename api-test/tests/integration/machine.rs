@@ -70,11 +70,21 @@ pub fn cleanup_completed(addr: SocketAddr, machine_id: &str) -> eyre::Result<()>
 }
 
 pub fn machine_validation_completed(addr: SocketAddr, host_machine_id: &str) -> eyre::Result<()> {
+    let resp = grpcurl(
+        addr,
+        "ForgeAgentControl",
+        Some(&serde_json::json!({
+            "machine_id": {"id": host_machine_id}
+        })),
+    )?;
+    let response: serde_json::Value = serde_json::from_str(&resp)?;
+
     grpcurl(
         addr,
         "MachineValidationCompleted",
         Some(&serde_json::json!({
-            "machine_id": {"id": host_machine_id}
+            "machine_id": {"id": host_machine_id},
+            "validation_id": {"value": response["data"]["pair"][1]["value"]},
         })),
     )?;
     Ok(())

@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub use ::rpc::forge as rpc;
+use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use ::rpc::protos::forge::{
     EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
     InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
@@ -52,7 +53,9 @@ use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::dynamic_settings;
-use crate::handlers::machine_validation::mark_machine_validation_complete;
+use crate::handlers::machine_validation::{
+    get_machine_validation_results, mark_machine_validation_complete, persist_validation_result,
+};
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ip_finder;
 use crate::ipmitool::IPMITool;
@@ -2046,8 +2049,31 @@ impl Forge for Api {
                     machine_state: MachineState::Init,
                 } => (Action::Retry, None),
                 ManagedHostState::HostNotReady {
-                    machine_state: MachineState::MachineValidating { .. },
-                } => (Action::MachineValidation, None),
+                    machine_state:
+                        MachineState::MachineValidating {
+                            context,
+                            id,
+                            completed: _,
+                            total: _,
+                        },
+                } => (
+                    Action::MachineValidation,
+                    Some(
+                        rpc::forge_agent_control_response::ForgeAgentControlExtraInfo {
+                            pair: [
+                                KeyValuePair {
+                                    key: "Context".to_string(),
+                                    value: context,
+                                },
+                                KeyValuePair {
+                                    key: "ValidationId".to_string(),
+                                    value: id.to_string(),
+                                },
+                            ]
+                            .to_vec(),
+                        },
+                    ),
+                ),
                 ManagedHostState::HostNotReady {
                     machine_state: MachineState::WaitingForDiscovery,
                 }
@@ -4383,6 +4409,19 @@ impl Forge for Api {
         })?;
 
         Ok(Response::new(()))
+    }
+    async fn persist_validation_result(
+        &self,
+        request: tonic::Request<rpc::MachineValidationResultPostRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        persist_validation_result(self, request).await
+    }
+
+    async fn get_machine_validation_results(
+        &self,
+        request: tonic::Request<rpc::MachineValidationGetRequest>,
+    ) -> Result<tonic::Response<rpc::MachineValidationResultList>, Status> {
+        get_machine_validation_results(self, request).await
     }
 }
 

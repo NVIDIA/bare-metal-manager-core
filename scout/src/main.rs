@@ -13,6 +13,7 @@ use cfg::{AutoDetect, Command, Mode, Options};
 use clap::CommandFactory;
 use once_cell::sync::Lazy;
 use rpc::forge::forge_agent_control_response::Action;
+use rpc::forge::ForgeAgentControlResponse;
 use rpc::{forge as rpc_forge, ForgeScoutErrorReport};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use std::fs::File;
@@ -106,14 +107,26 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
     // Implement the logic to run as a service here
     let machine_id = initial_setup(config).await?;
     loop {
-        let action = match query_api_with_retries(config, &machine_id).await {
+        let controller_response = match query_api_with_retries(config, &machine_id).await {
             Ok(action) => action,
             Err(e) => {
                 report_scout_error(config, None, config.machine_interface_id, &e).await?;
-                Action::Noop
+                rpc_forge::ForgeAgentControlResponse {
+                    action: Action::Noop as i32,
+                    data: None,
+                }
             }
         };
-        match handle_action(action, &machine_id, config.machine_interface_id, config).await {
+        let action = Action::try_from(controller_response.action)
+            .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
+        match handle_action(
+            controller_response,
+            &machine_id,
+            config.machine_interface_id,
+            config,
+        )
+        .await
+        {
             Ok(_) => tracing::info!("Successfully served {}", action.as_str_name()),
             Err(e) => tracing::info!("Failed to serve {}: Err {}", action.as_str_name(), e),
         };
@@ -132,30 +145,48 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
     };
     let machine_id = initial_setup(config).await?;
     //TODO Could be better; this for backward compatibility. Refactor required
-    let action = match query_api_with_retries(config, &machine_id).await {
-        Ok(action) => action,
+    let controller_response = match query_api_with_retries(config, &machine_id).await {
+        Ok(controller_response) => controller_response,
         Err(e) => {
             report_scout_error(config, None, config.machine_interface_id, &e).await?;
-            Action::Noop
+            ForgeAgentControlResponse {
+                action: Action::Noop as i32,
+                data: None,
+            }
         }
     };
     let action = match subcmd {
-        Command::AutoDetect(AutoDetect { .. }) => action,
-        Command::Deprovision(_) => Action::Reset,
-        Command::Discovery(_) => Action::Discovery,
-        Command::Reset(_) => Action::Reset,
-        Command::Logerror(_) => Action::Logerror,
+        Command::AutoDetect(AutoDetect { .. }) => controller_response,
+        Command::Deprovision(_) => ForgeAgentControlResponse {
+            action: Action::Reset as i32,
+            data: None,
+        },
+        Command::Discovery(_) => ForgeAgentControlResponse {
+            action: Action::Discovery as i32,
+            data: None,
+        },
+        Command::Reset(_) => ForgeAgentControlResponse {
+            action: Action::Reset as i32,
+            data: None,
+        },
+        Command::Logerror(_) => ForgeAgentControlResponse {
+            action: Action::Logerror as i32,
+            data: None,
+        },
     };
 
     handle_action(action, &machine_id, config.machine_interface_id, config).await?;
     Ok(())
 }
 async fn handle_action(
-    action: Action,
+    controller_response: rpc_forge::ForgeAgentControlResponse,
     machine_id: &str,
     machine_interface_id: uuid::Uuid,
     config: &Options,
 ) -> Result<(), CarbideClientError> {
+    let action = Action::try_from(controller_response.action)
+        .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
+
     match action {
         Action::Discovery => {
             // This is temporary. All cleanup must be done when API call Reset.
@@ -183,7 +214,17 @@ async fn handle_action(
         }
         Action::MachineValidation => {
             tracing::info!("Machine validationstub code");
-            machine_validation::completed(config, machine_id, None).await?;
+            let mut context = "Disovery".to_string();
+            let mut id = "".to_string();
+            for item in controller_response.data.unwrap().pair {
+                if item.key == "Context" {
+                    context = item.value;
+                } else if item.key == "ValidationId" {
+                    id = item.value;
+                }
+            }
+            machine_validation::run(config, id.clone(), context).await?;
+            machine_validation::completed(config, machine_id, id, None).await?;
         }
     }
     Ok(())
@@ -250,7 +291,7 @@ async fn query_api(
     machine_id: &str,
     action_attempt: u64,
     query_attempt: u64,
-) -> CarbideClientResult<Action> {
+) -> CarbideClientResult<rpc_forge::ForgeAgentControlResponse> {
     tracing::info!(
         "Sending ForgeAgentControlRequest (attempt:{}.{})",
         action_attempt,
@@ -264,16 +305,20 @@ async fn query_api(
     let response = client.forge_agent_control(request).await?.into_inner();
     let action = Action::try_from(response.action)
         .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
+
     tracing::info!(
         "Received ForgeAgentControlResponse (attempt:{}.{}, action:{})",
         action_attempt,
         query_attempt,
         action.as_str_name()
     );
-    Ok(action)
+    Ok(response)
 }
 
-async fn query_api_with_retries(config: &Options, machine_id: &str) -> CarbideClientResult<Action> {
+async fn query_api_with_retries(
+    config: &Options,
+    machine_id: &str,
+) -> CarbideClientResult<rpc_forge::ForgeAgentControlResponse> {
     let mut action_attempt = 0;
     const MAX_RETRY_COUNT: u64 = 5;
     const RETRY_TIMER: u64 = 30;
@@ -301,7 +346,7 @@ async fn query_api_with_retries(config: &Options, machine_id: &str) -> CarbideCl
         // the purpose of tracing -- it seems helpful to know where in the
         // attempts thing sare.
         let mut query_attempt = 0u64;
-        let action = tryhard::retry_fn(|| {
+        let controller_response = tryhard::retry_fn(|| {
             query_attempt += 1;
             query_api(config, machine_id, action_attempt, query_attempt)
         })
@@ -309,9 +354,11 @@ async fn query_api_with_retries(config: &Options, machine_id: &str) -> CarbideCl
         .await?;
 
         action_attempt += 1;
+        let action = Action::try_from(controller_response.action)
+            .map_err(|err| CarbideClientError::RpcDecodeError(err.to_string()))?;
 
         if action != Action::Retry {
-            return Ok(action);
+            return Ok(controller_response);
         }
 
         // +1 for the initial attempt which happens immediately
