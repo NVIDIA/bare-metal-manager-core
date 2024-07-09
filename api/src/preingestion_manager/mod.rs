@@ -621,11 +621,26 @@ impl PreingestionManagerStatic {
                                         tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
                                         return Ok(());
                                     }
+                                } else {
+                                    tracing::error!("in_upgrade_firmware_wait: Could not find current version {} {:?} {:?}", &endpoint.address, fw_info, *upgrade_type);
                                 }
+                            } else {
+                                tracing::error!(
+                                    "in_upgrade_firmware_wait: Could not find fw_info {} {:?} {:?}",
+                                    &endpoint.address,
+                                    endpoint.report.vendor,
+                                    endpoint.report.systems
+                                )
                             }
+                        } else {
+                            tracing::error!(
+                                "in_upgrade_firmware_wait: Machine ID not found {} {:?}",
+                                &endpoint.address,
+                                endpoint.report.machine_id
+                            )
                         }
                         tracing::info!(
-                            "Marking completion of firmware upgrade for {}",
+                            "Marking completion of Redfish task of firmware upgrade for {}",
                             &endpoint.address
                         );
                         DbExploredEndpoint::set_preingestion_recheck_versions(
@@ -809,7 +824,7 @@ async fn initiate_update(
         }
     };
     tracing::info!(
-        "initiate_update: Started upload of firmware to {}",
+        "initiate_update: Completed upload of firmware to {}",
         endpoint_clone.address
     );
 
