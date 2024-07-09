@@ -43,7 +43,7 @@ pub async fn get_fac_action(
     app_context: &MachineATronContext,
     machine_id: rpc::common::MachineId,
 ) -> rpc::forge::forge_agent_control_response::Action {
-    let response = api_client::forge_agent_control(app_context, machine_id.clone())
+    let response = api_client::forge_agent_control(app_context, machine_id)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!("Error getting control action: {e}");
@@ -54,6 +54,33 @@ pub async fn get_fac_action(
         });
 
     rpc::forge::forge_agent_control_response::Action::try_from(response.action).unwrap()
+}
+
+pub async fn get_validation_id(
+    app_context: &MachineATronContext,
+    machine_id: rpc::common::MachineId,
+) -> Option<rpc::common::Uuid> {
+    let response = api_client::forge_agent_control(app_context, machine_id)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("Error getting control action: {e}");
+            ForgeAgentControlResponse {
+                action: Action::Noop as i32,
+                data: None,
+            }
+        });
+
+    response.data.and_then(|d| {
+        d.pair.iter().find_map(|pair| {
+            if pair.key.eq("ValidationId") {
+                Some(rpc::common::Uuid {
+                    value: pair.value.clone(),
+                })
+            } else {
+                None
+            }
+        })
+    })
 }
 
 pub fn reboot_requested_for_machine(
