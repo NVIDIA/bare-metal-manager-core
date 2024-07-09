@@ -29,13 +29,8 @@ use carbide::{
                 network::{InstanceNetworkConfig, InterfaceFunctionId},
                 InstanceConfig,
             },
-            status::{
-                network::{
-                    InstanceInterfaceStatus, InstanceInterfaceStatusObservation,
-                    InstanceNetworkStatusObservation,
-                },
-                tenant::TenantState,
-                SyncState,
+            status::network::{
+                InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
             },
         },
         machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
@@ -831,19 +826,10 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     // When no network status has been observed, we report an interface
     // list with no IPs and MACs to the user
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
-    let snapshot = Instance::load_snapshot_by_machine_id(
-        &mut txn,
-        &host_machine_id,
-        machine.current_state(),
-        None,
-    )
-    .await
-    .unwrap()
-    .unwrap();
 
     let pf_addr = *snapshot.config.network.interfaces[0]
         .ip_addrs
@@ -866,77 +852,92 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .await
         .unwrap();
 
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
-
-    let snapshot = Instance::load_snapshot_by_machine_id(
-        &mut txn,
-        &host_machine_id,
-        machine.current_state(),
-        None,
-    )
-    .await
-    .unwrap()
-    .unwrap();
 
     assert_eq!(
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
+    txn.commit().await.unwrap();
 
-    let status = snapshot.derive_status().unwrap();
-    assert_eq!(status.configs_synced, SyncState::Synced);
-    assert_eq!(status.network.configs_synced, SyncState::Synced);
-    assert_eq!(status.infiniband.configs_synced, SyncState::Synced);
-    assert_eq!(status.tenant.as_ref().unwrap().state, TenantState::Ready);
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    let status = instance.status.as_ref().unwrap();
+    assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
     assert_eq!(
-        status.network.interfaces,
-        vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::Physical {},
+        status.network.as_ref().unwrap().configs_synced(),
+        rpc::SyncState::Synced
+    );
+    assert_eq!(
+        status.infiniband.as_ref().unwrap().configs_synced(),
+        rpc::SyncState::Synced
+    );
+    assert_eq!(
+        status.tenant.as_ref().unwrap().state(),
+        rpc::TenantState::Ready
+    );
+    assert_eq!(
+        status.network.as_ref().unwrap().interfaces,
+        vec![rpc::InstanceInterfaceStatus {
+            virtual_function_id: None,
             mac_address: None,
-            addresses: vec![pf_addr],
+            addresses: vec![pf_addr.to_string()],
         }]
     );
 
+    let mut txn = env.pool.begin().await.unwrap();
     updated_network_status.interfaces[0].mac_address =
-        Some(MacAddress::new([11, 12, 13, 14, 15, 16]).into());
+        Some(MacAddress::new([0x11, 0x12, 0x13, 0x14, 0x15, 0x16]).into());
     Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
         .await
         .unwrap();
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+
+    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
-    let snapshot = Instance::load_snapshot_by_machine_id(
-        &mut txn,
-        &host_machine_id,
-        machine.current_state(),
-        None,
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
     assert_eq!(
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
-    let status = snapshot.derive_status().unwrap();
-    assert_eq!(status.configs_synced, SyncState::Synced);
-    assert_eq!(status.network.configs_synced, SyncState::Synced);
-    assert_eq!(status.tenant.as_ref().unwrap().state, TenantState::Ready);
+    txn.commit().await.unwrap();
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    let status = instance.status.as_ref().unwrap();
+    assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
     assert_eq!(
-        status.network.interfaces,
-        vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::Physical {},
-            mac_address: Some(MacAddress::new([11, 12, 13, 14, 15, 16])),
-            addresses: vec![pf_addr],
+        status.network.as_ref().unwrap().configs_synced(),
+        rpc::SyncState::Synced
+    );
+    assert_eq!(
+        status.infiniband.as_ref().unwrap().configs_synced(),
+        rpc::SyncState::Synced
+    );
+    assert_eq!(
+        status.tenant.as_ref().unwrap().state(),
+        rpc::TenantState::Ready
+    );
+    assert_eq!(
+        status.network.as_ref().unwrap().interfaces,
+        vec![rpc::InstanceInterfaceStatus {
+            virtual_function_id: None,
+            mac_address: Some("11:12:13:14:15:16".to_string()),
+            addresses: vec![pf_addr.to_string()],
         }]
     );
 
     // Assuming the config would change, the status should become unsynced again
+    let mut txn = env.pool.begin().await.unwrap();
     let next_config_version = snapshot.network_config_version.increment();
     let (_,): (uuid::Uuid,) = sqlx::query_as(
         "UPDATE instances SET network_config_version=$1 WHERE id = $2::uuid returning id",
@@ -946,43 +947,49 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     .fetch_one(&mut *txn)
     .await
     .unwrap();
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
-    let snapshot = Instance::load_snapshot_by_machine_id(
-        &mut txn,
-        &host_machine_id,
-        machine.current_state(),
-        None,
-    )
-    .await
-    .unwrap()
-    .unwrap();
 
     assert_eq!(
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
-    let status = snapshot.derive_status().unwrap();
-    assert_eq!(status.configs_synced, SyncState::Pending);
-    assert_eq!(status.network.configs_synced, SyncState::Pending);
-    // TODO: This is wrong - it should become `Configuring`
+    txn.commit().await.unwrap();
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    let status = instance.status.as_ref().unwrap();
+    assert_eq!(status.configs_synced(), rpc::SyncState::Pending);
     assert_eq!(
-        status.tenant.as_ref().unwrap().state,
-        TenantState::Provisioning
+        status.network.as_ref().unwrap().configs_synced(),
+        rpc::SyncState::Pending
     );
     assert_eq!(
-        status.network.interfaces,
-        vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::Physical {},
+        status.infiniband.as_ref().unwrap().configs_synced(),
+        rpc::SyncState::Synced
+    );
+    // TODO: This is wrong - it should become `Configuring`
+    assert_eq!(
+        status.tenant.as_ref().unwrap().state(),
+        rpc::TenantState::Provisioning
+    );
+    assert_eq!(
+        status.network.as_ref().unwrap().interfaces,
+        vec![rpc::InstanceInterfaceStatus {
+            virtual_function_id: None,
             mac_address: None,
-            addresses: Vec::new(),
+            addresses: vec![],
         }]
     );
 
     // When the observation catches up, we are good again
     // The extra VF is ignored
+    let mut txn = env.pool.begin().await.unwrap();
     updated_network_status.config_version = next_config_version;
     updated_network_status
         .interfaces
@@ -995,38 +1002,44 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
         .await
         .unwrap();
-    let machine = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
-    let snapshot = Instance::load_snapshot_by_machine_id(
-        &mut txn,
-        &host_machine_id,
-        machine.current_state(),
-        None,
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
     assert_eq!(
         snapshot.observations.network.as_ref(),
         Some(&updated_network_status)
     );
-    let status = snapshot.derive_status().unwrap();
-    assert_eq!(status.configs_synced, SyncState::Synced);
-    assert_eq!(status.network.configs_synced, SyncState::Synced);
-    assert_eq!(status.tenant.as_ref().unwrap().state, TenantState::Ready);
+    txn.commit().await.unwrap();
+
+    let instance = env
+        .find_instances(Some(instance_id.into()))
+        .await
+        .instances
+        .remove(0);
+    let status = instance.status.as_ref().unwrap();
+    assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
     assert_eq!(
-        status.network.interfaces,
-        vec![InstanceInterfaceStatus {
-            function_id: InterfaceFunctionId::Physical {},
-            mac_address: Some(MacAddress::new([11, 12, 13, 14, 15, 16])),
-            addresses: vec![pf_addr],
+        status.network.as_ref().unwrap().configs_synced(),
+        rpc::SyncState::Synced
+    );
+    assert_eq!(
+        status.infiniband.as_ref().unwrap().configs_synced(),
+        rpc::SyncState::Synced
+    );
+    assert_eq!(
+        status.tenant.as_ref().unwrap().state(),
+        rpc::TenantState::Ready
+    );
+    assert_eq!(
+        status.network.as_ref().unwrap().interfaces,
+        vec![rpc::InstanceInterfaceStatus {
+            virtual_function_id: None,
+            mac_address: Some("11:12:13:14:15:16".to_string()),
+            addresses: vec![pf_addr.to_string()],
         }]
     );
 
-    txn.commit().await.unwrap();
     delete_instance(&env, instance_id, &dpu_machine_id, &host_machine_id).await;
 }
 

@@ -20,27 +20,26 @@ use crate::{
         },
         instance::{Instance, InstanceId, NewInstance},
         instance_address::InstanceAddress,
-        machine::{Machine, MachineSearchConfig},
         network_segment::NetworkSegment,
         DatabaseError,
     },
     dhcp::allocation::DhcpError,
     model::{
-        instance::{
-            config::{
-                infiniband::InstanceInfinibandConfig,
-                network::{InstanceNetworkConfig, InterfaceFunctionId},
-                InstanceConfig,
-            },
-            snapshot::InstanceSnapshot,
+        instance::config::{
+            infiniband::InstanceInfinibandConfig,
+            network::{InstanceNetworkConfig, InterfaceFunctionId},
+            InstanceConfig,
         },
         machine::{
             machine_id::{try_parse_machine_id, MachineId},
-            ManagedHostState,
+            ManagedHostState, ManagedHostStateSnapshot,
         },
         metadata::Metadata,
         tenant::TenantOrganizationId,
         ConfigValidationError, RpcDataConversionError,
+    },
+    state_controller::snapshot_loader::{
+        DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError,
     },
     CarbideError, CarbideResult,
 };
@@ -99,7 +98,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
 pub async fn allocate_instance(
     request: InstanceAllocationRequest,
     database: &PgPool,
-) -> Result<InstanceSnapshot, CarbideError> {
+) -> Result<ManagedHostStateSnapshot, CarbideError> {
     // Validate the configuration for the instance
     // Note that this basic validation can not cross-check references
     // like `machine_id` or any `network_segments`.
@@ -140,50 +139,46 @@ pub async fn allocate_instance(
         )));
     }
 
-    let machine = Machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| {
-            CarbideError::InvalidArgument(format!("Machine with UUID {} was not found", machine_id))
+    let loader = DbSnapshotLoader {};
+    let mut mh_snapshot = loader
+        .load_machine_snapshot(&mut txn, &machine_id)
+        .await
+        .map_err(|e| match e {
+            SnapshotLoaderError::HostNotFound(_) => CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => CarbideError::from(e),
         })?;
 
     // A new instance can be created only in Ready state.
     // This is possible that a instance is created by user, but still not picked by state machine.
     // To avoid that race condition, need to check if db has any entry with given machine id.
-    let possible_instance = Instance::find_by_machine_id(&mut txn, &machine_id).await?;
-
-    if ManagedHostState::Ready != machine.current_state() || possible_instance.is_some() {
+    if ManagedHostState::Ready != mh_snapshot.managed_state || mh_snapshot.instance.is_some() {
         return Err(CarbideError::InvalidArgument(format!(
             "Could not create instance on machine {} given machine state {:?}, Unprocessed instance: {}",
             machine_id,
-            machine.current_state(),
-            possible_instance.is_some()
+            mh_snapshot.managed_state,
+            mh_snapshot.instance.is_some()
         )));
     }
 
     // HBN must be working on the DPU before we allow an instance
-    let dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
-    if dpus.is_empty() {
+    if mh_snapshot.dpu_snapshots.is_empty() {
         return Err(CarbideError::GenericError(format!(
             "Machine {machine_id} has no DPU. Cannot allocate."
         )));
     }
 
-    let mut reprovision_request = machine.reprovisioning_requested().clone();
-    for dpu in dpus.iter() {
-        if let Ok(false) = dpu.has_healthy_network() {
-            tracing::error!(%machine_id, "DPU {} with unhealthy network. Instance will have issues.", dpu.id());
+    for dpu in mh_snapshot.dpu_snapshots.iter() {
+        if !dpu.has_healthy_network() {
+            tracing::error!(%machine_id, "DPU {} with unhealthy network. Instance will have issues.", dpu.machine_id);
             // TODO(gk) Return this error once this is done: https://jirasw.nvidia.com/browse/FORGE-2243
             //return Err(CarbideError::UnhealthyNetwork);
         }
-
-        // TODO: If multiple DPUs have reprovisioning requested, we might not get
-        // the expected response
-        if let Some(reprovision_requested) = dpu.reprovisioning_requested() {
-            reprovision_request = Some(reprovision_requested);
-        }
     }
 
-    if machine.is_maintenance_mode() {
+    if mh_snapshot.host_snapshot.is_maintenance_mode() {
         return Err(CarbideError::MaintenanceMode);
     }
 
@@ -218,7 +213,7 @@ pub async fn allocate_instance(
         &mut txn,
         *instance.id(),
         &request.config.infiniband,
-        &machine,
+        &mh_snapshot.host_snapshot,
     )
     .await?;
 
@@ -234,24 +229,21 @@ pub async fn allocate_instance(
     .await?;
 
     // Machine will be rebooted once managed resource creation is successful.
-    let snapshot = Instance::load_snapshot_by_machine_id(
-        &mut txn,
-        &machine_id,
-        machine.current_state(),
-        reprovision_request,
-    )
-    .await?
-    .ok_or_else(|| {
-        CarbideError::GenericError(format!(
-            "Newly created instance for {machine_id} was not found"
-        ))
-    })?;
+    mh_snapshot.instance = Some(
+        Instance::load_snapshot_by_machine_id(&mut txn, &machine_id)
+            .await?
+            .ok_or_else(|| {
+                CarbideError::GenericError(format!(
+                    "Newly created instance for {machine_id} was not found"
+                ))
+            })?,
+    );
 
     txn.commit()
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "commit allocate_instance", e))?;
 
-    Ok(snapshot)
+    Ok(mh_snapshot)
 }
 
 pub async fn circuit_id_to_function_id(

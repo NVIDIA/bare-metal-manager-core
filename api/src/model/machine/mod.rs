@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
     bmc_info::BmcInfo, hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
+    RpcDataConversionError,
 };
 use crate::cfg::DpuComponent;
 use crate::db::machine_interface::MachineInterfaceId;
@@ -48,6 +49,38 @@ pub struct ManagedHostStateSnapshot {
     /// it's state
     pub instance: Option<InstanceSnapshot>,
     pub managed_state: ManagedHostState,
+}
+
+impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
+    type Error = RpcDataConversionError;
+
+    fn try_from(mut snapshot: ManagedHostStateSnapshot) -> Result<Self, Self::Error> {
+        let Some(instance) = snapshot.instance.take() else {
+            return Ok(None);
+        };
+
+        // TODO: If multiple DPUs have reprovisioning requested, we might not get
+        // the expected response
+        let mut reprovision_request = snapshot.host_snapshot.reprovision_requested.clone();
+        for dpu in &snapshot.dpu_snapshots {
+            if let Some(reprovision_requested) = dpu.reprovisioning_requested() {
+                reprovision_request = Some(reprovision_requested.clone());
+            }
+        }
+
+        let status = instance.derive_status(snapshot.managed_state.clone(), reprovision_request)?;
+
+        Ok(Some(rpc::Instance {
+            id: Some(instance.instance_id.into()),
+            machine_id: Some(instance.machine_id.to_string().into()),
+            config: Some(instance.config.try_into()?),
+            status: Some(status.try_into()?),
+            config_version: instance.config_version.version_string(),
+            network_config_version: instance.network_config_version.version_string(),
+            ib_config_version: instance.ib_config_version.version_string(),
+            metadata: Some(instance.metadata.try_into()?),
+        }))
+    }
 }
 
 /// Represents the last_reboot_requested data
@@ -123,6 +156,12 @@ pub struct MachineSnapshot {
     pub last_reboot_requested: Option<MachineLastRebootRequested>,
     /// Last cleanup completed message received from scout.
     pub last_cleanup_time: Option<DateTime<Utc>>,
+    /// URL of the reference tracking this machine's maintenance (e.g. JIRA)
+    /// Some(_) means the machine is in maintenance mode.
+    /// None means not in maintenance mode.
+    pub maintenance_reference: Option<String>,
+    /// What time was this machine set into maintenance mode?
+    pub maintenance_start_time: Option<DateTime<Utc>>,
     /// Failure cause. Needed to move machine in failed state.
     pub failure_details: FailureDetails,
     /// Reprovisioning is needed?
@@ -132,23 +171,38 @@ pub struct MachineSnapshot {
     pub last_machine_validation_time: Option<DateTime<Utc>>,
     /// current discovery validation id.
     pub discovery_machine_validation_id: Option<uuid::Uuid>,
-
     /// current cleanup validation id.
     pub cleanup_machine_validation_id: Option<uuid::Uuid>,
+    /// Last time when machine reprovisioning_requested.
+    pub reprovisioning_requested: Option<ReprovisionRequest>,
 }
 
 impl MachineSnapshot {
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
         self.network_config.loopback_ip
     }
+
     pub fn use_admin_network(&self) -> bool {
         self.network_config.use_admin_network.unwrap_or(true)
     }
+
     pub fn has_healthy_network(&self) -> bool {
         match &self.network_status_observation {
             None => false,
             Some(obs) => obs.health_status.is_healthy,
         }
+    }
+
+    pub fn is_maintenance_mode(&self) -> bool {
+        self.maintenance_reference.is_some()
+    }
+
+    pub fn maintenance_reference(&self) -> Option<&str> {
+        self.maintenance_reference.as_deref()
+    }
+
+    pub fn reprovisioning_requested(&self) -> Option<&ReprovisionRequest> {
+        self.reprovisioning_requested.as_ref()
     }
 }
 

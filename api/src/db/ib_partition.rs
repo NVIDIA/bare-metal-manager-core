@@ -23,13 +23,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
 use sqlx::{FromRow, Postgres, Row, Transaction, Type};
 
-use super::machine::Machine;
 use crate::ib::IBFabricManagerConfig;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
 use crate::model::hardware_info::InfinibandInterface;
 use crate::model::instance::config::{
     infiniband::InstanceInfinibandConfig, network::InterfaceFunctionId,
 };
+use crate::model::machine::MachineSnapshot;
 use crate::model::RpcDataConversionError;
 use crate::{
     db::instance::InstanceId,
@@ -642,14 +642,16 @@ pub async fn allocate_port_guid(
     _txn: &mut Transaction<'_, Postgres>,
     _instance_id: InstanceId,
     ib_config: &InstanceInfinibandConfig,
-    machine: &Machine,
+    machine: &MachineSnapshot,
 ) -> CarbideResult<InstanceInfinibandConfig> {
     let mut updated_ib_config = ib_config.clone();
 
-    let ib_hw_info = &machine
-        .hardware_info()
+    let ib_hw_info = machine
+        .hardware_info
+        .as_ref()
         .ok_or(CarbideError::MissingArgument("no hardware info"))?
-        .infiniband_interfaces;
+        .infiniband_interfaces
+        .as_ref();
 
     // the key of ib_hw_map is device name such as "MT28908 Family [ConnectX-6]".
     // the value of ib_hw_map is a sorted vector of InfinibandInterface by slot.

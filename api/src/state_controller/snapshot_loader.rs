@@ -71,6 +71,8 @@ pub async fn get_machine_snapshot(
         last_discovery_time: machine.last_discovery_time(),
         last_reboot_time: machine.last_reboot_time(),
         last_cleanup_time: machine.last_cleanup_time(),
+        maintenance_reference: machine.maintenance_reference(),
+        maintenance_start_time: machine.maintenance_start_time(),
         failure_details: machine.failure_details(),
         reprovision_requested: machine.reprovisioning_requested(),
         last_reboot_requested: machine.last_reboot_requested(),
@@ -78,6 +80,7 @@ pub async fn get_machine_snapshot(
         last_machine_validation_time: machine.last_machine_validation_time(),
         discovery_machine_validation_id: machine.discovery_machine_validation_id(),
         cleanup_machine_validation_id: machine.cleanup_machine_validation_id(),
+        reprovisioning_requested: machine.reprovisioning_requested().clone(),
     };
 
     Ok(snapshot)
@@ -132,23 +135,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             dpu_snapshots.push(get_machine_snapshot(dpu).await?);
         }
 
-        // Determine whether there is any outstanding reprovision request which needs
-        // to be relayed to the instance.
-        // TODO: If there's multiple, it might not be deterinistic which one shows up
-        let mut reprovision_request = host_snapshot.reprovision_requested.clone();
-        for dpu_snapshot in &dpu_snapshots {
-            if let Some(reprovision_requested) = &dpu_snapshot.reprovision_requested {
-                reprovision_request = Some(reprovision_requested.clone());
-            }
-        }
-
-        let instance = Instance::load_snapshot_by_machine_id(
-            txn,
-            host_machine.id(),
-            host_snapshot.current.state.clone(),
-            reprovision_request,
-        )
-        .await?;
+        let instance = Instance::load_snapshot_by_machine_id(txn, host_machine.id()).await?;
 
         let managed_state = host_snapshot.current.state.clone();
         let snapshot = ManagedHostStateSnapshot {
