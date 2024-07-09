@@ -123,9 +123,6 @@ pub enum CarbideError {
     #[error("Database migration error: {0}")]
     DatabaseMigrationError(#[from] sqlx::migrate::MigrateError),
 
-    #[error("Creating a database object returned no rows: table: {0}, column: {1}, key: {2}")]
-    DatabaseCreateReturnedNoRows(String, String, String),
-
     #[error("Multiple network segments defined for relay address: {0}")]
     MultipleNetworkSegmentsForRelay(IpAddr),
 
