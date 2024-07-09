@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::{extract::Path, extract::State, routing::get, routing::post, Router};
@@ -28,7 +29,6 @@ use nonzero_ext::nonzero;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 
 use crate::instance_metadata_fetcher::InstanceMetadata;
-use crate::instance_metadata_fetcher::InstanceMetadataFetcherState;
 use crate::util::{create_forge_client, phone_home};
 
 const PUBLIC_IPV4_CATEGORY: &str = "public-ipv4";
@@ -42,12 +42,12 @@ const PHONE_HOME_RATE_LIMIT: Quota = Quota::per_minute(nonzero!(10u32));
 #[automock]
 #[async_trait]
 pub trait InstanceMetadataRouterState: Sync + Send {
-    fn read(&self) -> Arc<Option<InstanceMetadata>>;
+    fn read(&self) -> Option<Arc<InstanceMetadata>>;
     async fn phone_home(&self) -> Result<(), eyre::Error>;
 }
 
 pub struct InstanceMetadataRouterStateImpl {
-    reader: Arc<InstanceMetadataFetcherState>,
+    latest_instance_data: ArcSwapOption<InstanceMetadata>,
     machine_id: String,
     forge_api: String,
     forge_client_config: ForgeClientConfig,
@@ -59,8 +59,8 @@ pub struct InstanceMetadataRouterStateImpl {
 impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
     /// Reads the latest desired instance metadata obtained from the Forge
     /// Site controller
-    fn read(&self) -> Arc<Option<InstanceMetadata>> {
-        self.reader.read()
+    fn read(&self) -> Option<Arc<InstanceMetadata>> {
+        self.latest_instance_data.load_full()
     }
 
     // Phones home to the site controller.
@@ -90,18 +90,22 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
 
 impl InstanceMetadataRouterStateImpl {
     pub fn new(
-        reader: Arc<InstanceMetadataFetcherState>,
         machine_id: String,
         forge_api: String,
         forge_client_config: ForgeClientConfig,
     ) -> Self {
         Self {
-            reader,
+            latest_instance_data: ArcSwapOption::new(None),
             machine_id,
             forge_api,
             forge_client_config,
             outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
         }
+    }
+
+    /// Updates the instance metadata that should be served by FMDS
+    pub fn update_instance_data(&self, instance_data: Option<Arc<InstanceMetadata>>) {
+        self.latest_instance_data.store(instance_data);
     }
 }
 
@@ -157,8 +161,7 @@ async fn get_metadata_parameter(
 async fn get_machine_id(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
-    let read_guard: Arc<Option<InstanceMetadata>> = state.read();
-    let metadata = match read_guard.as_ref() {
+    let metadata = match state.read() {
         Some(metadata) => metadata,
         None => {
             return (
@@ -181,8 +184,7 @@ async fn get_machine_id(
 async fn get_instance_id(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
-    let read_guard: Arc<Option<InstanceMetadata>> = state.read();
-    let metadata = match read_guard.as_ref() {
+    let metadata = match state.read() {
         Some(metadata) => metadata,
         None => {
             return (
@@ -205,8 +207,7 @@ async fn get_instance_id(
 async fn get_devices(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
 ) -> (StatusCode, String) {
-    let read_guard: Arc<Option<InstanceMetadata>> = state.read();
-    let metadata = match read_guard.as_ref() {
+    let metadata = match state.read() {
         Some(metadata) => metadata,
         None => {
             return (
@@ -232,8 +233,7 @@ async fn get_instances(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path(device_index): Path<usize>,
 ) -> (StatusCode, String) {
-    let read_guard: Arc<Option<crate::instance_metadata_fetcher::InstanceMetadata>> = state.read();
-    let metadata = match read_guard.as_ref() {
+    let metadata = match state.read() {
         Some(metadata) => metadata,
         None => {
             return (
@@ -399,11 +399,12 @@ mod tests {
     async fn setup_server(
         metadata: Option<InstanceMetadata>,
     ) -> (tokio::task::JoinHandle<()>, u16) {
+        let metadata = metadata.map(Arc::new);
         let mut mock_router_state = MockInstanceMetadataRouterState::new();
         mock_router_state
             .expect_read()
             .times(1)
-            .return_const(Arc::new(metadata.clone()));
+            .return_const(metadata.clone());
 
         let arc_mock_router_state = Arc::new(mock_router_state);
 
@@ -461,6 +462,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -485,6 +488,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -509,6 +514,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -563,6 +570,8 @@ mod tests {
                     }],
                 },
             ]),
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -594,6 +603,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -632,6 +643,8 @@ mod tests {
                     },
                 ],
             }]),
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -665,6 +678,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -696,6 +711,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -727,6 +744,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -758,6 +777,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -789,6 +810,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -813,6 +836,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -837,6 +862,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
+            config_version: "V2-T1666644937962267".to_string(),
+            network_config_version: "V1-T1666644937952267".to_string(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
