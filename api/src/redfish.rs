@@ -12,6 +12,7 @@
 
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     path::Path,
     str::FromStr,
     sync::{Arc, Mutex},
@@ -1156,6 +1157,44 @@ pub async fn poll_redfish_job(
     }
 
     Ok(true)
+}
+
+pub async fn build_redfish_client_from_bmc_ip(
+    bmc_addr: Option<SocketAddr>,
+    pool: &Arc<dyn RedfishClientPool>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+    if bmc_addr.is_none() {
+        return Err(RedfishClientCreationError::MissingBmcEndpoint(
+            "No IP address for BMC".to_string(),
+        ));
+    }
+
+    let addr = bmc_addr.unwrap();
+    let machine_interface_target = MachineInterface::find_by_ip(txn, addr.ip())
+        .await?
+        .ok_or_else(|| {
+            RedfishClientCreationError::MissingArgument(format!(
+                "Machine Interface for IP address: {}",
+                addr.ip()
+            ))
+        })?;
+
+    (*pool)
+        .clone()
+        .create_client(
+            addr.ip().to_string().as_str(),
+            Some(addr.port()),
+            RedfishAuth::Key(CredentialKey::BmcCredentials {
+                // TODO(ajf): Change this to Forge Admin user once site explorer
+                // ensures it exist, credentials are done by mac address
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: machine_interface_target.mac_address,
+                },
+            }),
+            true,
+        )
+        .await
 }
 
 #[cfg(test)]
