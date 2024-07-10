@@ -20,6 +20,7 @@ use std::{
 
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
+use managed_host::ManagedHost;
 use sqlx::PgPool;
 use sqlx::{Postgres, Transaction};
 use tokio::{net::lookup_host, sync::oneshot, task::JoinSet};
@@ -61,6 +62,7 @@ mod redfish_endpoint_explorer;
 pub use redfish_endpoint_explorer::RedfishEndpointExplorer;
 mod identify;
 pub use identify::{identify_bmc, IdentifyError};
+mod managed_host;
 
 use self::metrics::exploration_error_to_metric_label;
 
@@ -292,7 +294,7 @@ impl SiteExplorer {
         // We can perform a single query upfront to identify which ManagedHosts don't yet have Machines
         for host in explored_managed_hosts {
             match self
-                .create_managed_host(&host, &self.database_connection)
+                .create_managed_host(host, &self.database_connection)
                 .await
             {
                 Ok(true) => metrics.created_machines += 1,
@@ -309,129 +311,39 @@ impl SiteExplorer {
     /// Returns `true` if new `Machine` objects have been created or `false` otherwise
     pub async fn create_managed_host(
         &self,
-        explored_host: &ExploredManagedHost,
+        explored_host: ExploredManagedHost,
         pool: &PgPool,
     ) -> CarbideResult<bool> {
+        let mut managed_host = ManagedHost::init(explored_host);
         let mut txn = pool.begin().await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "begin load create_machine_pair", e)
+            DatabaseError::new(file!(), line!(), "begin load create_managed_host", e)
         })?;
 
-        let mut host_machine_id: Option<MachineId> = None;
-
-        for (i, dpu_report) in explored_host.dpus.iter().enumerate() {
+        for dpu_report in managed_host.explored_host.dpus.clone().iter() {
+            // can_visit makes sure that all optional fields on dpu_report are actually set (like the machine-id etc)
+            // Thats why we can unwrap the results of dpu_report directly going forward (though, we shouldnt -- TODO (sp))
             self.can_visit(dpu_report)?;
 
-            if !self.create_dpu_machine(&mut txn, dpu_report).await? {
-                // No error is returned but existing machine is found. It is possible that we
-                // updated machine and attached_dpu id in machine_interface table. Commit the
-                // transaction now.
-                txn.commit().await.map_err(|e| {
-                    DatabaseError::new(file!(), line!(), "existing dpu create_machine_pair", e)
-                })?;
-
-                // Site explorer has already created a machine for this DPU previously: no more work to do for this endpoint.
+            if !self.create_dpu(&mut txn, dpu_report).await? {
+                // Site explorer has already created a machine for this DPU previously.
+                //
+                // If the DPU's machine is not attached to its machine interface, do so here.
+                // TODO (sp): is this defensive check really neccessary?
+                if self.configure_dpu_interface(&mut txn, dpu_report).await? {
+                    txn.commit().await.map_err(|e| {
+                        DatabaseError::new(file!(), line!(), "end create_managed_host", e)
+                    })?;
+                }
                 return Ok(false);
             }
 
-            let dpu_hw_info = dpu_report.hardware_info()?;
-            self.update_dpu_topology(&mut txn, dpu_report, &dpu_hw_info)
+            self.attach_dpu_to_host(&mut txn, &mut managed_host, dpu_report)
                 .await?;
-
-            if i == 0 {
-                // Create Host proactively.
-                // In case host interface is created, this method will return existing one, instead
-                // creating new everytime.
-                let machine_interface =
-                    MachineInterface::create_host_machine_interface_proactively(
-                        &mut txn,
-                        Some(&dpu_hw_info),
-                        dpu_report.report.machine_id.as_ref().unwrap(),
-                    )
-                    .await?;
-
-                // Create host machine with temporary ID if no machine is attached.
-                if machine_interface.machine_id.is_some() {
-                    return Err(CarbideError::GenericError(
-                        format!(
-                            "Machine id: {} attached to network interface",
-                            machine_interface.machine_id.unwrap()
-                        )
-                        .to_string(),
-                    ));
-                }
-
-                let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&dpu_hw_info)
-                    .map_err(|e| {
-                        CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
-                    })?;
-                let mi_id = machine_interface.id;
-                let host_machine = Machine::create(
-                    &mut txn,
-                    &predicted_machine_id,
-                    ManagedHostState::DpuDiscoveringState {
-                        discovering_state: DpuDiscoveringState::Initializing,
-                    },
-                )
-                .await?;
-                tracing::info!(
-                    ?mi_id,
-                    machine_id = %host_machine.id(),
-                    "Created host machine proactively in site-explorer",
-                );
-                host_machine_id = Some(host_machine.id().clone());
-
-                machine_interface
-                    .associate_interface_with_machine(&mut txn, host_machine.id())
-                    .await?;
-                let host_hardware_info = HardwareInfo::default();
-                let _topology = MachineTopology::create_or_update(
-                    &mut txn,
-                    &predicted_machine_id,
-                    &host_hardware_info,
-                )
-                .await?;
-
-                // Forge scout will update this topology with a full information.
-                MachineTopology::set_topology_update_needed(&mut txn, &predicted_machine_id, true)
-                    .await?;
-
-                let host_bmc_info = BmcInfo {
-                    ip: Some(explored_host.host_bmc_ip.to_string()),
-                    ..Default::default()
-                };
-
-                let host_bmc_metadata = BmcMetaDataUpdateRequest {
-                    machine_id: predicted_machine_id.clone(),
-                    bmc_info: host_bmc_info,
-                };
-
-                host_bmc_metadata
-                    .update_bmc_network_into_topologies(&mut txn)
-                    .await?;
-            } else {
-                let machine_interface =
-                    MachineInterface::create_host_machine_interface_proactively(
-                        &mut txn,
-                        Some(&dpu_hw_info),
-                        dpu_report.report.machine_id.as_ref().unwrap(),
-                    )
-                    .await?;
-                machine_interface
-                    .set_primary_interface(&mut txn, false)
-                    .await?;
-                let host_id = host_machine_id
-                    .as_ref()
-                    .ok_or(CarbideError::GenericError("No host machine id".to_string()))?
-                    .clone();
-                machine_interface
-                    .associate_interface_with_machine(&mut txn, &host_id)
-                    .await?;
-            }
         }
 
         txn.commit()
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "end create_machine_pair", e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "end create_managed_host", e))?;
 
         Ok(true)
     }
@@ -898,40 +810,37 @@ impl SiteExplorer {
         Ok(())
     }
 
-    // create_dpu_machine creates a machine for the DPU as specified by dpu_machine_id. Returns a boolean indicating whether the function created a new machine (returns false if a machine already existed for this DPU).
-    // if an entry exists in the machines table with a machine ID which matches dpu_machine_id, a machine has already been created for this DPU. There is no further work for the site-explorer for this endpoint: return false.
-    // if an entry doesnt exist in the machine table, the site explorer will add an entry in the machines table for the DPU and update its network config appropriately (allocating a loop ip address etc). Return true.
-    async fn create_dpu_machine(
+    // create_dpu does everything needed to create a DPU as part of a newly discovered managed host.
+    // If the DPU does not exist in the machines table, the function creates a new DPU machine and configures it appropriately. create_dpu returns true.
+    // If the DPU already exists in the machines table, this is a no-op. create_dpu returns false.
+    async fn create_dpu(
         &self,
         txn: &mut Transaction<'_, Postgres>,
         explored_dpu: &ExploredDpu,
     ) -> CarbideResult<bool> {
-        let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
-        let (dpu_machine, new_machine) =
-            match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
-                // Do nothing if machine exists. It'll be reprovisioned via redfish
-                Some(existing_machine) => (existing_machine, false),
-                None => match Machine::create(
-                    txn,
-                    dpu_machine_id,
-                    ManagedHostState::DpuDiscoveringState {
-                        discovering_state: DpuDiscoveringState::Initializing,
-                    },
-                )
-                .await
-                {
-                    Ok(machine) => {
-                        tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
-                        (machine, true)
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %e, "Can't create Machine");
-                        return Err(e);
-                    }
-                },
-            };
+        if let Some(dpu_machine) = self.create_dpu_machine(txn, explored_dpu).await? {
+            self.configure_dpu_interface(txn, explored_dpu).await?;
+            self.update_dpu_network_config(txn, &dpu_machine).await?;
+            let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
+            let dpu_bmc_info = explored_dpu.bmc_info();
+            let dpu_hw_info = explored_dpu.hardware_info()?;
+            self.update_machine_topology(txn, dpu_machine_id, &dpu_bmc_info, &dpu_hw_info)
+                .await?;
+            return Ok(true);
+        }
 
-        // If machine_interface exists for the DPU and machine_id is not updated, do it now.
+        Ok(false)
+    }
+
+    // configure_dpu_interface checks the machine_interfaces table to see if the DPU's machine interface has its machine id set.
+    // If the machine ID is already configured appropriately for the DPU's machine interface, configure_dpu_interface will return false
+    // If the DPU's machine interface was missing the machine ID in the table, configure_dpu_interface will set the machine ID and return true.
+    async fn configure_dpu_interface(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        explored_dpu: &ExploredDpu,
+    ) -> CarbideResult<bool> {
+        let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
         let oob_net0_mac = explored_dpu.report.systems.iter().find_map(|x| {
             x.ethernet_interfaces.iter().find_map(|x| {
                 if x.id == Some("oob_net0".to_string()) {
@@ -942,6 +851,7 @@ impl SiteExplorer {
             })
         });
 
+        // If machine_interface exists for the DPU and machine_id is not updated, do it now.
         if let Some(oob_net0_mac) = oob_net0_mac {
             let mac_address = MacAddress::from_str(&oob_net0_mac)?;
             let mi = MachineInterface::find_by_mac_address(txn, mac_address).await?;
@@ -958,16 +868,45 @@ impl SiteExplorer {
                     interface
                         .associate_interface_with_dpu_machine(txn, dpu_machine_id)
                         .await?;
+                    return Ok(true);
                 }
             }
         }
 
-        if !new_machine {
-            return Ok(false);
-        }
+        Ok(false)
+    }
 
-        self.update_dpu_network_config(txn, &dpu_machine).await?;
-        Ok(true)
+    // create_dpu_machine creates a machine for the DPU as specified by dpu_machine_id. Returns an Optional Machine indicating whether the function created a new machine (returns None if a machine already existed for this DPU).
+    // if an entry exists in the machines table with a machine ID which matches dpu_machine_id, a machine has already been created for this DPU. Returns None.
+    // if an entry doesnt exist in the machine table, the site explorer will add an entry in the machines table for the DPU and update its network config appropriately (allocating a loop ip address etc). Return the newly created machine.
+    async fn create_dpu_machine(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        explored_dpu: &ExploredDpu,
+    ) -> CarbideResult<Option<Machine>> {
+        let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
+        match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
+            // Do nothing if machine exists. It'll be reprovisioned via redfish
+            Some(_existing_machine) => Ok(None),
+            None => match Machine::create(
+                txn,
+                dpu_machine_id,
+                ManagedHostState::DpuDiscoveringState {
+                    discovering_state: DpuDiscoveringState::Initializing,
+                },
+            )
+            .await
+            {
+                Ok(machine) => {
+                    tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
+                    Ok(Some(machine))
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Can't create DPU machine");
+                    Err(e)
+                }
+            },
+        }
     }
 
     async fn update_dpu_network_config(
@@ -993,34 +932,149 @@ impl SiteExplorer {
         Ok(())
     }
 
-    async fn update_dpu_topology(
+    async fn attach_dpu_to_host(
         &self,
         txn: &mut Transaction<'_, Postgres>,
+        explored_host: &mut ManagedHost,
         explored_dpu: &ExploredDpu,
+    ) -> CarbideResult<()> {
+        let dpu_hw_info = explored_dpu.hardware_info()?;
+        // Create Host proactively.
+        // In case host interface is created, this method will return existing one, instead
+        // creating new everytime.
+        let host_machine_interface = MachineInterface::create_host_machine_interface_proactively(
+            txn,
+            Some(&dpu_hw_info),
+            explored_dpu.report.machine_id.as_ref().unwrap(),
+        )
+        .await?;
+
+        if host_machine_interface.machine_id.is_some() {
+            return Err(CarbideError::GenericError(format!(
+                "The host's machine interface for DPU {} already has the machine ID set--something is wrong: {:#?}",
+                explored_dpu.report.machine_id.as_ref().unwrap(),
+                host_machine_interface
+            )));
+        }
+
+        self.configure_host_machine(txn, explored_host, &host_machine_interface, explored_dpu)
+            .await?;
+
+        // configure_host_machine should have setup the machine_id for the host
+        let host_machine_id =
+            explored_host
+                .clone()
+                .machine_id
+                .ok_or(CarbideError::GenericError(format!(
+                    "Failed to set machine ID for host: {:#?}",
+                    explored_host
+                )))?;
+
+        host_machine_interface
+            .associate_interface_with_machine(txn, &host_machine_id)
+            .await?;
+
+        Ok(())
+    }
+
+    // configure_host_machine configures the host's machine with the specific interface. It returns the host's machine ID.
+    //
+    // Normally, a host will have a single machine interface because the majority of hosts (for now) have a single DPU.
+    // If a host has multiple DPUs, the host machine will have a machine interface for each DPU.
+    // However, all of the host machine interfaces must be attached to the same host machine (and host machine-id).
+    // Until this point, all of these interfaces will be marked as the "primary" interface by default.
+    //
+    // configure_host_machine handles two cases:
+    // 1) host_machine_interface is the primary interface for this host: generate the machine ID for this host and use it to actually create the machine for the host.
+    // 2) host_machine_interface is *not* the primary interface for this host: set "primary_interface" to false for this machine interface. Return the host ID generated from (1)
+    //
+    // The first DPU that we attach to the host is designated as the primary DPU; the associate host machine interface is designated is the primary interface.
+    // Therefore, the primary interface is guaranteed to be configured prior to any secondary interface.
+    async fn configure_host_machine(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        explored_host: &mut ManagedHost,
+        host_machine_interface: &MachineInterface,
+        explored_dpu: &ExploredDpu,
+    ) -> CarbideResult<MachineId> {
+        match &explored_host.machine_id {
+            Some(host_machine_id) => {
+                // This is not the primary interface for this host
+                // The primary interface *must* have already been created for this host (otherwise something very bad has happened)
+                host_machine_interface
+                    .set_primary_interface(txn, false)
+                    .await?;
+                Ok(host_machine_id.clone())
+            }
+            None => {
+                // This is the primary interface for the host.
+                // 1. Generate the ID for the host from *this* DPU's hw info
+                // 2. Add an entry for this host in the machines table (with a machine-id from (1)).
+                let host_machine_id = self
+                    .create_host_from_dpu_hw_info(txn, &explored_host.explored_host, explored_dpu)
+                    .await?;
+
+                tracing::info!(
+                    ?host_machine_interface.id,
+                    machine_id = %host_machine_id,
+                    "Created host machine proactively in site-explorer",
+                );
+
+                explored_host.machine_id = Some(host_machine_id.clone());
+                Ok(host_machine_id)
+            }
+        }
+    }
+
+    // 1) Generate the host's machine ID from the DPU's hardware info
+    // 2) Create a machine for this host using the machine ID from (1)
+    // 3) Update the "machine_topologies" table with the bmc info for this host
+    async fn create_host_from_dpu_hw_info(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        explored_host: &ExploredManagedHost,
+        explored_dpu: &ExploredDpu,
+    ) -> CarbideResult<MachineId> {
+        let dpu_hw_info = explored_dpu.hardware_info()?;
+        let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&dpu_hw_info)
+            .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
+        let _host_machine = Machine::create(
+            txn,
+            &predicted_machine_id,
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state: DpuDiscoveringState::Initializing,
+            },
+        )
+        .await?;
+
+        let host_bmc_info = explored_host.bmc_info();
+        let host_hardware_info = HardwareInfo::default();
+        self.update_machine_topology(
+            txn,
+            &predicted_machine_id,
+            &host_bmc_info,
+            &host_hardware_info,
+        )
+        .await?;
+
+        Ok(predicted_machine_id)
+    }
+
+    async fn update_machine_topology(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        bmc_info: &BmcInfo,
         hardware_info: &HardwareInfo,
     ) -> CarbideResult<()> {
-        let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
-
-        let _topology =
-            MachineTopology::create_or_update(txn, dpu_machine_id, hardware_info).await?;
+        let _topology = MachineTopology::create_or_update(txn, machine_id, hardware_info).await?;
 
         // Forge scout will update this topology with a full information.
-        MachineTopology::set_topology_update_needed(txn, dpu_machine_id, true).await?;
-
-        let bmc_info = BmcInfo {
-            ip: Some(explored_dpu.bmc_ip.to_string()),
-            mac: explored_dpu.report.managers.first().and_then(|m| {
-                m.ethernet_interfaces
-                    .first()
-                    .and_then(|e| e.mac_address.clone())
-            }),
-            firmware_version: explored_dpu.bmc_firmware_version()?,
-            ..Default::default()
-        };
+        MachineTopology::set_topology_update_needed(txn, machine_id, true).await?;
 
         let bmc_metadata = BmcMetaDataUpdateRequest {
-            machine_id: dpu_machine_id.clone(),
-            bmc_info,
+            machine_id: machine_id.clone(),
+            bmc_info: bmc_info.clone(),
         };
 
         bmc_metadata.update_bmc_network_into_topologies(txn).await?;

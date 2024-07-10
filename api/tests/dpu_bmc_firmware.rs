@@ -146,7 +146,7 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     };
 
     let handled_uefi_err = match explorer
-        .create_managed_host(&exploration_report, &env.pool)
+        .create_managed_host(exploration_report, &env.pool)
         .await
     {
         Err(CarbideError::UnsupportedFirmwareVersion(_)) => true,
@@ -258,7 +258,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     };
 
     let handled_uefi_err = match explorer
-        .create_managed_host(&exploration_report, &env.pool)
+        .create_managed_host(exploration_report, &env.pool)
         .await
     {
         Err(CarbideError::UnsupportedFirmwareVersion(_)) => true,
@@ -337,7 +337,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     };
 
     let handled_uefi_err = match explorer
-        .create_managed_host(&exploration_report, &env.pool)
+        .create_managed_host(exploration_report, &env.pool)
         .await
     {
         Err(CarbideError::UnsupportedFirmwareVersion(_)) => false,
@@ -496,7 +496,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     assert!(
         explorer
-            .create_managed_host(&exploration_report, &env.pool)
+            .create_managed_host(exploration_report, &env.pool)
             .await?
     );
 
