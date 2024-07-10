@@ -24,7 +24,7 @@ use crate::{
     CarbideError, CarbideResult,
 };
 
-use super::hardware_info::DpuData;
+use super::{bmc_info::BmcInfo, hardware_info::DpuData};
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -232,8 +232,21 @@ impl ExploredDpu {
         Ok(())
     }
 
-    pub fn bmc_firmware_version(&self) -> CarbideResult<Option<String>> {
-        Ok(self.report.dpu_component_version(DpuComponent::Bmc))
+    pub fn bmc_firmware_version(&self) -> Option<String> {
+        self.report.dpu_component_version(DpuComponent::Bmc)
+    }
+
+    pub fn bmc_info(&self) -> BmcInfo {
+        BmcInfo {
+            ip: Some(self.bmc_ip.to_string()),
+            mac: self.report.managers.first().and_then(|m| {
+                m.ethernet_interfaces
+                    .first()
+                    .and_then(|e| e.mac_address.clone())
+            }),
+            firmware_version: self.bmc_firmware_version(),
+            ..Default::default()
+        }
     }
 
     pub fn hardware_info(&self) -> CarbideResult<HardwareInfo> {
@@ -301,6 +314,15 @@ pub struct ExploredManagedHost {
     pub host_bmc_ip: IpAddr,
     /// Attached DPUs
     pub dpus: Vec<ExploredDpu>,
+}
+
+impl ExploredManagedHost {
+    pub fn bmc_info(&self) -> BmcInfo {
+        BmcInfo {
+            ip: Some(self.host_bmc_ip.to_string()),
+            ..Default::default()
+        }
+    }
 }
 
 /// Serialization methods for types which support FromStr/Display

@@ -732,7 +732,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert!(
         explorer
-            .create_managed_host(&exploration_report, &env.pool)
+            .create_managed_host(exploration_report.clone(), &env.pool)
             .await?
     );
 
@@ -811,7 +811,7 @@ async fn test_site_explorer_creates_managed_host(
     // 2nd creation does nothing
     assert!(
         !explorer
-            .create_managed_host(&exploration_report, &env.pool)
+            .create_managed_host(exploration_report, &env.pool)
             .await?
     );
 
@@ -1086,14 +1086,14 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
     assert!(
         explorer
-            .create_managed_host(&exploration_report, &env.pool)
+            .create_managed_host(exploration_report.clone(), &env.pool)
             .await?
     );
 
     // a second create attempt on the same machine should return false.
     assert!(
         !explorer
-            .create_managed_host(&exploration_report, &env.pool)
+            .create_managed_host(exploration_report, &env.pool)
             .await?
     );
 
@@ -1568,11 +1568,11 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
 
     assert!(
         explorer
-            .create_managed_host(&exploration_report, &env.pool)
+            .create_managed_host(exploration_report, &env.pool)
             .await?
     );
 
-    // At this point, create_managed_hostmust have updated the associated machine id in
+    // At this point, create_managed_host must have updated the associated machine id in
     // machine_interfaces table.
     let mut txn = env.pool.begin().await?;
     let macaddr = MacAddress::from_str(&oob_mac)?;
@@ -1721,7 +1721,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
 
     assert!(
         explorer
-            .create_managed_host(&exploration_report, &env.pool)
+            .create_managed_host(exploration_report.clone(), &env.pool)
             .await?
     );
 
@@ -1762,7 +1762,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // Machine is already created, create_managed_host should return false.
     assert!(
         !explorer
-            .create_managed_host(&exploration_report, &env.pool)
+            .create_managed_host(exploration_report, &env.pool)
             .await?
     );
 
