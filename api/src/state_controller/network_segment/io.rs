@@ -24,7 +24,6 @@ use crate::{
     state_controller::{
         io::StateControllerIO, metrics::NoopMetricsEmitter,
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
-        snapshot_loader::SnapshotLoaderError,
     },
 };
 
@@ -47,10 +46,10 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     async fn list_objects(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-    ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
+    ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
         NetworkSegment::list_segment_ids(txn, None)
             .await
-            .map_err(SnapshotLoaderError::from)
+            .map_err(DatabaseError::from)
     }
 
     /// Loads a state snapshot from the database
@@ -58,7 +57,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         segment_id: &Self::ObjectId,
-    ) -> Result<Option<Self::State>, SnapshotLoaderError> {
+    ) -> Result<Option<Self::State>, DatabaseError> {
         let mut segments = NetworkSegment::find(
             txn,
             NetworkSegmentIdKeyedObjectFilter::One(*segment_id),
@@ -80,8 +79,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
                     )
                     .into(),
                 ),
-            )
-            .into());
+            ));
         }
         let segment = segments.swap_remove(0);
         Ok(Some(segment))
@@ -92,7 +90,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _object_id: &Self::ObjectId,
         state: &Self::State,
-    ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError> {
+    ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
         Ok(state.controller_state.clone())
     }
 
@@ -102,7 +100,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: Self::ControllerState,
-    ) -> Result<(), SnapshotLoaderError> {
+    ) -> Result<(), DatabaseError> {
         let _updated =
             NetworkSegment::try_update_controller_state(txn, *object_id, old_version, &new_state)
                 .await?;
