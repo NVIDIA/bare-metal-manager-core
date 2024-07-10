@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use crate::model::tenant::TenantOrganizationId;
 use crate::model::{ConfigValidationError, RpcDataConversionError};
 
+const MAX_KEYSET_IDS: usize = 10;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantConfig {
     /// Identifies the tenant that uses this instance
@@ -66,6 +68,13 @@ impl TenantConfig {
                     keyset_id.into(),
                 ));
             }
+        }
+
+        // check to see if we are over the max IDs or not
+        if self.tenant_keyset_ids.len() > MAX_KEYSET_IDS {
+            return Err(ConfigValidationError::TenantKeysetIdsOverMax(
+                MAX_KEYSET_IDS,
+            ));
         }
 
         Ok(())

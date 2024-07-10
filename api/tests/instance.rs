@@ -1502,5 +1502,64 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         .expect_err("Duplicate TenantKeyset IDs should not be accepted");
 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert_eq!(err.message(), "Duplicate TenantKeyset ID found: bad_id");
+    assert_eq!(err.message(), "Duplicate Tenant KeySet ID found: bad_id");
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+
+    let config = rpc::InstanceConfig {
+        os: Some(default_os_config()),
+        tenant: Some(rpc::TenantConfig {
+            user_data: None,
+            custom_ipxe: "".to_string(),
+            phone_home_enabled: false,
+            always_boot_with_custom_ipxe: false,
+            tenant_organization_id: "Tenant1".to_string(),
+            tenant_keyset_ids: vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+                "e".to_string(),
+                "f".to_string(),
+                "g".to_string(),
+                "h".to_string(),
+                "i".to_string(),
+                "j".to_string(),
+                "k".to_string(),
+            ],
+        }),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        infiniband: None,
+    };
+
+    let instance_id = uuid::Uuid::new_v4();
+    let rpc_instance_id: rpc::Uuid = instance_id.into();
+
+    let err = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: Some(rpc_instance_id.clone()),
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            config: Some(config),
+            metadata: Some(rpc::Metadata {
+                name: "test_instance".to_string(),
+                description: "tests/instance".to_string(),
+                labels: Vec::new(),
+            }),
+        }))
+        .await
+        .expect_err("More than 10 TenantKeyset IDs should not be accepted");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "More than 10 Tenant KeySet IDs are not allowed"
+    );
 }
