@@ -2,16 +2,10 @@
 # For use by pipeline job 'scheduled-test:auto-deploy-site-controller'
 set -euo pipefail
 
-# Sync Argo CD and wait for health
-function sync_argocd() {
-  argocd app get --refresh "argocd/site-controller"
-  argocd app sync "argocd/site-controller"
-  argocd app wait "argocd/site-controller" --sync --timeout 600
-  argocd app wait "argocd/site-controller" --health --timeout 600
-}
-
-# Git commit, merge & wait for pipeline to complete
-function update_git() {
+#
+# Update `forged` repo (git commit, merge, & wait for pipeline to complete)
+#
+function update_forged() {
   echo "Committing and merging changes to forged"
   git remote set-url origin "https://oauth2:${FORGED_PROJECT_ACCESS_TOKEN}@${CI_SERVER_HOST}/nvmetal/forged.git"
   git config user.email "dummy@example.com" && git config user.name "Automated Pipeline ${CI_PIPELINE_IID}"
@@ -46,17 +40,36 @@ function update_git() {
   done
 }
 
+#
+# Sync Argo CD and wait for health
+#
+function sync_argocd() {
+  argocd app get --refresh "argocd/site-controller"
+  argocd app sync "argocd/site-controller"
+  argocd app wait "argocd/site-controller" --sync --timeout 600
+  argocd app wait "argocd/site-controller" --health --timeout 600
+}
+
+# Get the latest build versions of the carbide artifacts and ssh-console
 source .gitlab/get-latest-versions.sh
 
-ARGOCD_SITE_PASSWORD="$(vault kv get -field argo-admin-password "secrets/${SITE_UNDER_TEST}")"
+FORGED_PROJECT_ID="90150"
+FORGED_BRANCH="auto-update-from-carbide-pipeline-${CI_PIPELINE_IID}"
+FORGED_COMMIT_MSG="chore(${SITE_UNDER_TEST}): auto-update site-controller to ${LATEST_COMMON_VERSION}"
 FORGED_PROJECT_ACCESS_TOKEN="$(vault kv get -field forged_project_token secrets/forge/tokens)"
+GITLAB_SERVER_URL_NO_PORT="${CI_SERVER_PROTOCOL}://${CI_SERVER_HOST}"
 
 ARGOCD_SITE_URL="argocd-${SHORT_SITE_NAME}.frg.nvidia.com"
+ARGOCD_SITE_USERNAME="admin"
+ARGOCD_SITE_PASSWORD="$(vault kv get -field argo-admin-password "secrets/${SITE_UNDER_TEST}")"
+
+# Get initial status of Argo CD
 argocd login "${ARGOCD_SITE_URL}" --username "${ARGOCD_SITE_USERNAME}" --password "${ARGOCD_SITE_PASSWORD}"
 echo "Getting initial sync status of Argo CD"
 SYNC_STATUS_CMD="argocd app get --refresh argocd/site-controller | grep -P 'carbide-api|carbide-pxe|carbide-dns|carbide-dhcp|carbide-hardware-health|ssh-console'"
 INITIAL_SYNC_STATUS=$(eval "${SYNC_STATUS_CMD}")
 
+# Clone and make edits to `forged`
 git clone "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/nvmetal/forged.git" && cd forged
 git checkout -b "${FORGED_BRANCH}"
 cd envs/"${SITE_UNDER_TEST}"/site/site-controller
@@ -65,9 +78,10 @@ kustomize edit set image "${ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION}"="${ARTIF
 kustomize edit set image "${ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION}"="${ARTIFACTS_DOCKER_IMAGE_X86_64}":"${LATEST_COMMON_VERSION}"
 kustomize edit set image nvcr.io/nvidian/nvforge/ssh-console=nvcr.io/nvidian/nvforge-devel/ssh-console:"${LATEST_SSH_CONSOLE_VERSION}"
 
+# If git status is dirty, create MR then sync Argo CD. Else just sync Argo CD if needed.
 git_status="$(git status --porcelain)"
 if [[ -n $git_status ]]; then
-  update_git
+  update_forged
   if echo "${INITIAL_SYNC_STATUS}" | grep -q "OutOfSync"; then
     echo "Waiting 5 mins to be sure gitlab-master has synced to gitlab cloud..."
     sleep $((60*5))
@@ -75,14 +89,23 @@ if [[ -n $git_status ]]; then
     echo "Waiting up to 5 mins for Argo CD to go out-of-sync..."
     timeout=$((SECONDS + (60*5)))
     while true; do
-      if [[ $SECONDS -ge $timeout ]]; then echo "Error: Timeout waiting 5 mins for Argo CD to go out-of-sync"; exit 1; fi
+      if [[ $SECONDS -ge $timeout ]]; then
+        echo "Error: Timeout waiting 5 mins for Argo CD to go out-of-sync"
+        exit 1
+      fi
       sync_status=$(eval "${SYNC_STATUS_CMD}")
-      if echo "${sync_status}" | grep -q "OutOfSync"; then echo "Argo CD is now out-of-sync, proceeding to sync..."; break; else sleep 10; fi
+      if echo "${sync_status}" | grep -q "OutOfSync"; then
+        echo "Argo CD is now out-of-sync, proceeding to sync..."
+        break
+      else
+        sleep 10
+      fi
     done
   fi
 else
   if ! echo "${INITIAL_SYNC_STATUS}" | grep -q "OutOfSync"; then
-    echo "${SITE_UNDER_TEST} is already configured for the latest site-controller in forged and Argo CD is in-sync. Nothing to do."; exit 0
+    echo "${SITE_UNDER_TEST} is already configured with the latest site-controller in forged and Argo CD is in-sync. Nothing to do."
+    exit 0
   fi
 fi
 sync_argocd
