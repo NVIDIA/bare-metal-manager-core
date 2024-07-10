@@ -25,12 +25,14 @@ use crate::model::{
 
 /// Represents a snapshot view of an `Instance`
 ///
-/// This snapshot will be transmitted to SiteControllers users as part of
-/// `InstanceInfo`
+/// This snapshot is a state-in-time representation of everything that
+/// carbide knows about an instance.
+/// In order to provide a tenant accurate state of an instance, the state of the
+/// host that is hosting the instance also needs to be known.
 #[derive(Debug, Clone)]
 pub struct InstanceSnapshot {
     /// Instance ID
-    pub instance_id: InstanceId,
+    pub id: InstanceId,
     /// Machine ID
     pub machine_id: MachineId,
 
@@ -54,6 +56,13 @@ pub struct InstanceSnapshot {
 
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
+
+    /// Whether the next boot attempt should run the tenants iPXE script
+    pub use_custom_pxe_on_boot: bool,
+
+    pub requested: chrono::DateTime<chrono::Utc>,
+    pub started: chrono::DateTime<chrono::Utc>,
+    pub finished: Option<chrono::DateTime<chrono::Utc>>,
 
     /// The timestamp when deletion for this instance was requested
     pub deleted: Option<chrono::DateTime<chrono::Utc>>,

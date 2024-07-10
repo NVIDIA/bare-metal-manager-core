@@ -283,7 +283,7 @@ pub(crate) async fn release(
     // TODO: This is racy. If the instance just got deleted we still
     // see an error here that is not returned as `NotFound` error. Ideally
     // we convert this case of the DatabaseError into NotFound too.
-    let _ = delete_instance.mark_as_deleted(&mut txn).await?;
+    delete_instance.mark_as_deleted(&mut txn).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
@@ -363,7 +363,7 @@ pub(crate) async fn update_phone_home_last_contact(
 
     log_machine_id(&instance.machine_id);
 
-    let res = Instance::update_phone_home_last_contact(&mut txn, *instance.id())
+    let res = Instance::update_phone_home_last_contact(&mut txn, instance.id)
         .await
         .map_err(CarbideError::from)?;
 
@@ -580,7 +580,7 @@ pub(crate) async fn update_operating_system(
         None => instance.config_version,
     };
 
-    Instance::update_os(&mut txn, *instance.id(), expected_version, os)
+    Instance::update_os(&mut txn, instance.id, expected_version, os)
         .await
         .map_err(CarbideError::from)?;
 
@@ -655,7 +655,7 @@ pub(crate) async fn update_instance_config(
         None => instance.config_version,
     };
 
-    Instance::update_config(&mut txn, *instance.id(), expected_version, config, metadata)
+    Instance::update_config(&mut txn, instance.id, expected_version, config, metadata)
         .await
         .map_err(CarbideError::from)?;
 

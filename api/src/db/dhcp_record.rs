@@ -17,11 +17,14 @@ use std::net::IpAddr;
 
 use crate::{
     db::{
-        domain::DomainId, instance::Instance, machine::DbMachineId,
-        machine_interface::MachineInterfaceId, network_segment::NetworkSegmentId, DatabaseError,
+        domain::DomainId, machine::DbMachineId, machine_interface::MachineInterfaceId,
+        network_segment::NetworkSegmentId, DatabaseError,
     },
     dhcp::allocation::DhcpError,
-    model::{instance::config::network::InterfaceFunctionId, machine::machine_id::MachineId},
+    model::{
+        instance::{config::network::InterfaceFunctionId, snapshot::InstanceSnapshot},
+        machine::machine_id::MachineId,
+    },
     CarbideError, CarbideResult,
 };
 
@@ -190,7 +193,7 @@ impl InstanceDhcpRecord {
         txn: &mut Transaction<'_, Postgres>,
         mac_address: MacAddress,
         circuit_id: String,
-        instance: Instance,
+        instance: InstanceSnapshot,
     ) -> CarbideResult<InstanceDhcpRecord> {
         let query = "
 SELECT * FROM instance_dhcp_records

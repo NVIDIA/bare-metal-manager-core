@@ -71,7 +71,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
         let status = instance.derive_status(snapshot.managed_state.clone(), reprovision_request)?;
 
         Ok(Some(rpc::Instance {
-            id: Some(instance.instance_id.into()),
+            id: Some(instance.id.into()),
             machine_id: Some(instance.machine_id.to_string().into()),
             config: Some(instance.config.try_into()?),
             status: Some(status.try_into()?),

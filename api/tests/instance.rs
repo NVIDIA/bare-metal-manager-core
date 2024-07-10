@@ -172,7 +172,7 @@ async fn test_allocate_and_release_instance(_: PgPoolOptions, options: PgConnect
         InstanceNetworkConfig::for_segment_id(*FIXTURE_NETWORK_SEGMENT_ID)
     );
 
-    assert!(fetched_instance.network_status_observation.is_some());
+    assert!(fetched_instance.observations.network.is_some());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
     let _ = Instance::use_custom_ipxe_on_next_boot(&host_machine_id, false, &mut txn).await;
