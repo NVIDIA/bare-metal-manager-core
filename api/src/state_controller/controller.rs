@@ -291,7 +291,13 @@ impl<IO: StateControllerIO> StateController<IO> {
                             tokio::time::error::Elapsed,
                         > = tokio::time::timeout(max_object_handling_time, async {
                             let mut txn = services.pool.begin().await?;
-                            let mut snapshot = io.load_object_state(&mut txn, &object_id).await?;
+                            let mut snapshot = io
+                                .load_object_state(&mut txn, &object_id)
+                                .await?
+                                .ok_or_else(|| StateHandlerError::MissingData {
+                                    object_id: object_id.to_string(),
+                                    missing: "object_state",
+                                })?;
                             let mut controller_state = io
                                 .load_controller_state(&mut txn, &object_id, &snapshot)
                                 .await?;

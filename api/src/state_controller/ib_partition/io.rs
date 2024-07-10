@@ -59,21 +59,32 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         partition_id: &Self::ObjectId,
-    ) -> Result<Self::State, SnapshotLoaderError> {
+    ) -> Result<Option<Self::State>, SnapshotLoaderError> {
         let mut partitions = IBPartition::find(
             txn,
             IBPartitionIdKeyedObjectFilter::One(*partition_id),
             IBPartitionSearchConfig::default(),
         )
         .await?;
-        if partitions.len() != 1 {
-            return Err(SnapshotLoaderError::InvalidResult(format!(
-                "Searching for IBPartition {} returned zero or multiple results",
-                partition_id
-            )));
+        if partitions.is_empty() {
+            return Ok(None);
+        } else if partitions.len() != 1 {
+            return Err(DatabaseError::new(
+                file!(),
+                line!(),
+                "IBPartition::find()",
+                sqlx::Error::Decode(
+                    eyre::eyre!(
+                        "Searching for IBPartition {} returned multiple results",
+                        partition_id
+                    )
+                    .into(),
+                ),
+            )
+            .into());
         }
         let partition = partitions.swap_remove(0);
-        Ok(partition)
+        Ok(Some(partition))
     }
 
     async fn load_controller_state(

@@ -42,7 +42,11 @@ async fn validate_dhcp_request(
     let snapshot = DbSnapshotLoader {}
         .load_machine_snapshot(txn, host_machine_id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: host_machine_id.to_string(),
+        })?;
 
     let Some(remote_id) = remote_id else {
         tracing::error!(

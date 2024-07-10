@@ -1086,7 +1086,7 @@ SELECT m.id FROM
     pub async fn find_host_by_dpu_machine_id(
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
-    ) -> CarbideResult<Option<Self>> {
+    ) -> Result<Option<Self>, DatabaseError> {
         let query = r#"SELECT m.* From machines m
                 INNER JOIN machine_interfaces mi
                   ON m.id = mi.machine_id
@@ -1682,16 +1682,20 @@ SELECT m.id FROM
         txn: &mut Transaction<'_, Postgres>,
         host_id: &MachineId,
         new_state: ManagedHostState,
-    ) -> CarbideResult<()> {
+    ) -> Result<(), DatabaseError> {
         let host = Machine::find_one(
             txn,
             host_id,
             crate::db::machine::MachineSearchConfig::default(),
         )
         .await?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "machine",
-            id: host_id.to_string(),
+        .ok_or_else(|| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "Machine::find_one",
+                sqlx::Error::RowNotFound,
+            )
         })?;
 
         let version = host.current_version().increment();

@@ -30,9 +30,7 @@ use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::RpcDataConversionError;
-use crate::state_controller::snapshot_loader::{
-    DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError,
-};
+use crate::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader};
 use crate::{ethernet_virtualization, CarbideError};
 
 /// vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
@@ -64,22 +62,14 @@ pub(crate) async fn get_managed_host_network_config(
         ))
     })?;
 
-    let snapshot = match loader
+    let snapshot = loader
         .load_machine_snapshot(&mut txn, &dpu_machine_id)
         .await
-    {
-        Ok(snap) => snap,
-        Err(SnapshotLoaderError::HostNotFound(_)) => {
-            return Err(CarbideError::NotFoundError {
-                kind: "machine",
-                id: dpu_machine_id.to_string(),
-            }
-            .into());
-        }
-        Err(err) => {
-            return Err(CarbideError::from(err).into());
-        }
-    };
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: dpu_machine_id.to_string(),
+        })?;
 
     let dpu_snapshot = match snapshot
         .dpu_snapshots

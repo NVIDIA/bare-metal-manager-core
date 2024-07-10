@@ -38,9 +38,7 @@ use crate::{
         tenant::TenantOrganizationId,
         ConfigValidationError, RpcDataConversionError,
     },
-    state_controller::snapshot_loader::{
-        DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError,
-    },
+    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideError, CarbideResult,
 };
 
@@ -143,12 +141,10 @@ pub async fn allocate_instance(
     let mut mh_snapshot = loader
         .load_machine_snapshot(&mut txn, &machine_id)
         .await
-        .map_err(|e| match e {
-            SnapshotLoaderError::HostNotFound(_) => CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            },
-            e => CarbideError::from(e),
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
         })?;
 
     // A new instance can be created only in Ready state.

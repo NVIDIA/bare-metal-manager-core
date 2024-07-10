@@ -127,7 +127,11 @@ pub(crate) async fn find_by_ids(
         let mh_snapshot = loader
             .load_machine_snapshot(&mut txn, &instance.machine_id)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance.id.to_string(),
+            })?;
 
         let instance = snapshot_to_instance(mh_snapshot)?;
 
@@ -193,7 +197,11 @@ pub(crate) async fn find(
         let mh_snapshot = loader
             .load_machine_snapshot(&mut txn, &instance.machine_id)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance.id.to_string(),
+            })?;
         let instance = snapshot_to_instance(mh_snapshot)?;
         instances.push(instance);
     }
@@ -222,7 +230,11 @@ pub(crate) async fn find_by_machine_id(
     let mh_snapshot = DbSnapshotLoader {}
         .load_machine_snapshot(&mut txn, &machine_id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
     let maybe_instance =
         Option::<rpc::Instance>::try_from(mh_snapshot).map_err(CarbideError::from)?;
 
@@ -409,7 +421,11 @@ pub(crate) async fn invoke_power(
     let snapshot = loader
         .load_machine_snapshot(&mut txn, &machine_id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
     if snapshot.instance.is_none() {
         return Err(Status::invalid_argument(format!(
             "Supplied invalid UUID: {}",
@@ -587,7 +603,11 @@ pub(crate) async fn update_operating_system(
     let mh_snapshot = DbSnapshotLoader {}
         .load_machine_snapshot(&mut txn, &instance.machine_id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
     let instance = snapshot_to_instance(mh_snapshot)?;
 
     txn.commit().await.map_err(|e| {
@@ -662,7 +682,11 @@ pub(crate) async fn update_instance_config(
     let mh_snapshot = DbSnapshotLoader {}
         .load_machine_snapshot(&mut txn, &instance.machine_id)
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(CarbideError::from)?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
     let instance = snapshot_to_instance(mh_snapshot)?;
 
     txn.commit().await.map_err(|e| {

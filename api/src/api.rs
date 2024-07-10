@@ -1529,7 +1529,8 @@ impl Forge for Api {
             machine.clone()
         } else {
             Machine::find_host_by_dpu_machine_id(&mut txn, &machine_id)
-                .await?
+                .await
+                .map_err(CarbideError::from)?
                 .ok_or(CarbideError::NotFoundError {
                     kind: "machine",
                     id: machine_id.to_string(),
@@ -1704,7 +1705,9 @@ impl Forge for Api {
         let host_machine;
         let dpu_machines;
         if machine.is_dpu() {
-            if let Some(host) = Machine::find_host_by_dpu_machine_id(&mut txn, machine.id()).await?
+            if let Some(host) = Machine::find_host_by_dpu_machine_id(&mut txn, machine.id())
+                .await
+                .map_err(CarbideError::from)?
             {
                 tracing::info!("Found host Machine {:?}", machine.id().to_string());
                 // Get all DPUs attached to this host, in case there are more than one.
@@ -2769,7 +2772,11 @@ impl Forge for Api {
         let snapshot = loader
             .load_machine_snapshot(&mut txn, &machine_id)
             .await
-            .map_err(CarbideError::from)?;
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
 
         let redfish_client = crate::redfish::build_redfish_client_from_machine_snapshot(
             &snapshot.host_snapshot,
