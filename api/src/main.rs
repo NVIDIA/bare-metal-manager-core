@@ -15,7 +15,6 @@ use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use sqlx::PgPool;
 use std::path::Path;
 use std::str::FromStr;
-use tracing::subscriber::NoSubscriber;
 
 use carbide::cfg::{Command, Options};
 
@@ -62,16 +61,7 @@ async fn main() -> eyre::Result<()> {
 
             let (_tx, _rx) = tokio::sync::oneshot::channel();
 
-            carbide::run(
-                debug,
-                config_str,
-                site_config_str,
-                None::<NoSubscriber>,
-                None,
-                None,
-                _rx,
-            )
-            .await?;
+            carbide::run(debug, config_str, site_config_str, None, None, _rx).await?;
         }
     }
     Ok(())

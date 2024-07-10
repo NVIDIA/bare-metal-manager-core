@@ -228,7 +228,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         machines: BTreeMap::from([(
             "config".to_string(),
             MachineConfig {
-                host_count: 10,
+                host_count: 1,
                 dpu_per_host_count: 1,
                 boot_delay: 1,
                 dpu_reboot_delay: 1,

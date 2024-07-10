@@ -21,13 +21,10 @@ use carbide::cfg::{
     NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };
 use carbide::logging::setup::TelemetrySetup;
-use carbide::logging::sqlx_query_tracing;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use carbide::redfish::RedfishClientPool;
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
 use tokio::sync::oneshot::Receiver;
-use tracing::metadata::LevelFilter;
-use tracing_subscriber::{filter::EnvFilter, fmt::TestWriter, prelude::*, util::SubscriberInitExt};
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
 
@@ -220,39 +217,9 @@ pub async fn start(
         0,
         carbide_config_str,
         None,
-        Some(test_logging_subscriber()),
         override_redfish_pool,
         Some(telemetry_setup),
         stop_channel,
     )
     .await
-}
-
-pub fn test_logging_subscriber() -> impl SubscriberInitExt {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy()
-        .add_directive("tower=warn".parse().unwrap())
-        .add_directive("rustify=off".parse().unwrap())
-        .add_directive("rustls=warn".parse().unwrap())
-        .add_directive("hyper=warn".parse().unwrap())
-        .add_directive("h2=warn".parse().unwrap())
-        // Silence permissive mode related messages
-        .add_directive("carbide::auth=error".parse().unwrap());
-
-    // Note: `TestWriter` is required to use the standard behavior of Rust unit tests:
-    // - Successful tests won't show output unless forced by the `--nocapture` CLI argument
-    // - Failing tests will have their output printed
-    Box::new(
-        tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::fmt::Layer::default()
-                    .compact()
-                    .with_ansi(false)
-                    .with_writer(TestWriter::new)
-                    .with_filter(sqlx_query_tracing::block_sqlx_filter()),
-            )
-            .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
-            .with(env_filter),
-    )
 }

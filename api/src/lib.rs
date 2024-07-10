@@ -31,7 +31,7 @@ use model::{
 use state_controller::snapshot_loader::SnapshotLoaderError;
 use tokio::sync::oneshot::Receiver;
 use tonic::Status;
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing::subscriber::NoSubscriber;
 
 use crate::logging::setup::TelemetrySetup;
 use crate::logging::{
@@ -310,7 +310,6 @@ pub async fn run(
     debug: u8,
     config_str: String,
     site_config_str: Option<String>,
-    logging_subscriber: Option<impl SubscriberInitExt>,
     override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
     override_telemetry_setup: Option<TelemetrySetup>,
     stop_channel: Receiver<()>,
@@ -318,7 +317,7 @@ pub async fn run(
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
     let tconf = match override_telemetry_setup {
         Some(t) => t,
-        None => setup_telemetry(debug, logging_subscriber)
+        None => setup_telemetry(debug, None::<NoSubscriber>)
             .await
             .wrap_err("setup_telemetry")?,
     };

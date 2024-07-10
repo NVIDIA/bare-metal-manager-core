@@ -68,10 +68,10 @@ pub async fn run_local(
             tokio::spawn(async move {
                 loop {
                     let mut machine = machine.lock().await;
-                    _ = machine
+                    let work_done = machine
                         .process_state(&mut dhcp_client_clone)
                         .await
-                        .inspect_err(|e| tracing::error!("Error processing state: {e}"));
+                        .inspect_err(|e| tracing::error!("Error processing state: {e}"))?;
 
                     if let MachineState::MachineUp(_) = machine.mat_state {
                         if machine.api_state.eq("Ready") {
@@ -86,7 +86,11 @@ pub async fn run_local(
                         }
                     }
 
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    if work_done {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    } else {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
                 }
                 Ok::<_, eyre::Report>(())
             })

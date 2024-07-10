@@ -11,6 +11,7 @@
  */
 use crate::{api_server, find_prerequisites, vault, vault::Vault};
 use carbide::logging::setup::{setup_telemetry, TelemetrySetup};
+use carbide::logging::sqlx_query_tracing;
 use carbide::redfish::RedfishClientPool;
 use eyre::WrapErr;
 use lazy_static::lazy_static;
@@ -27,7 +28,11 @@ use tokio::sync::oneshot::Sender;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::subscriber::NoSubscriber;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::fmt::TestWriter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
 
 lazy_static! {
     // Note: We can only initialize logging once in a process, or else we get an error:
@@ -80,7 +85,7 @@ impl IntegrationTestEnvironment {
             match locked.as_ref() {
                 Some(t) => t.clone(),
                 None => {
-                    let telemetry_setup = setup_telemetry(0, None::<NoSubscriber>)
+                    let telemetry_setup = setup_telemetry(0, Some(test_logging_subscriber()))
                         .await
                         .wrap_err("try_from_environment().setup_telemetry()")?;
                     _ = locked.insert(telemetry_setup.clone());
@@ -229,4 +234,33 @@ impl ApiServerHandle {
         self.join_handle.await??;
         Ok(())
     }
+}
+
+pub fn test_logging_subscriber() -> impl SubscriberInitExt {
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("tower=warn".parse().unwrap())
+        .add_directive("rustify=off".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("h2=warn".parse().unwrap())
+        // Silence permissive mode related messages
+        .add_directive("carbide::auth=error".parse().unwrap());
+
+    // Note: `TestWriter` is required to use the standard behavior of Rust unit tests:
+    // - Successful tests won't show output unless forced by the `--nocapture` CLI argument
+    // - Failing tests will have their output printed
+    Box::new(
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::fmt::Layer::default()
+                    .compact()
+                    .with_ansi(false)
+                    .with_writer(TestWriter::new)
+                    .with_filter(sqlx_query_tracing::block_sqlx_filter()),
+            )
+            .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
+            .with(env_filter),
+    )
 }
