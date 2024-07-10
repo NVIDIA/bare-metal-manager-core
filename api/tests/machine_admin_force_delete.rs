@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest};
+use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest, InstancesByIdsRequest};
 use carbide::{
     db::{
         explored_endpoints::DbExploredEndpoint,
@@ -33,7 +33,10 @@ use common::api_fixtures::{
     dpu::create_dpu_machine,
     host::host_discover_dhcp,
     ib_partition::{create_ib_partition, DEFAULT_TENANT},
+    instance::create_instance,
     instance::create_instance_with_ib_config,
+    instance::single_interface_network_config,
+    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
     TestEnv,
 };
 use rpc::common::MachineIdList;
@@ -557,4 +560,75 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
     for id in [&[host_id], dpu_db_ids.as_slice()].concat().iter() {
         validate_machine_deletion(&env, id, None).await;
     }
+}
+
+// test_admin_force_delete_tenant_state verifies that an instance containing a host machine in a ForceDeletion state will have a TenantState of Terminating.
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_admin_force_delete_tenant_state(pool: sqlx::PgPool) {
+    // 1) setup
+    let env = create_test_env(pool).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let (instance_id, _instance) = create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
+        vec![],
+    )
+    .await;
+
+    // 2) mock force-delete
+
+    // If we use the RPC API to try to force delete this instance, everything is probably going to be cleaned up and we will likely not be able to retrieve the host's machine.
+    // The simplest solution to test how we map ManagedHostState::ForceDeletion -->  TenantState::Terminating is to manually set the machine's
+    // ManagedHostState to ForceDeletion in the DB.
+
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+
+    let host_machine = Machine::find_one(
+        &mut txn,
+        &host_machine_id,
+        carbide::db::machine::MachineSearchConfig::default(),
+    )
+    .await
+    .expect("Cannot look up the host machine we just created")
+    .unwrap();
+
+    host_machine
+        .advance(&mut txn, ManagedHostState::ForceDeletion, None)
+        .await
+        .unwrap();
+
+    txn.commit().await.unwrap();
+
+    // 3) verify instance's tenant state is rpc::forge::TenantState::Terminating
+    let request_instances = tonic::Request::new(InstancesByIdsRequest {
+        instance_ids: vec![rpc::Uuid::from(instance_id)],
+    });
+    let mut instance_list = env
+        .api
+        .find_instances_by_ids(request_instances)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+
+    assert_eq!(instance_list.instances.len(), 1);
+    let instance = instance_list.instances.pop().unwrap();
+
+    let current_tenant_state = instance
+        .status
+        .as_ref()
+        .unwrap()
+        .tenant
+        .as_ref()
+        .unwrap()
+        .state();
+    let expected_tenant_state = rpc::forge::TenantState::Terminating;
+    assert_eq!(
+        current_tenant_state,
+        expected_tenant_state,
+        "The instance has a tenant state of {current_tenant_state:#?} instead of {expected_tenant_state:#?}"
+    );
 }

@@ -66,7 +66,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
 
 impl InstanceStatus {
     /// Tries to convert Machine state to tenant state.
-    fn tenant_state(
+    pub fn tenant_state(
         machine_state: ManagedHostState,
         phone_home_enrolled: bool,
         phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
@@ -101,6 +101,7 @@ impl InstanceStatus {
                 | InstanceState::WaitingForNetworkReconfig => tenant::TenantState::Terminating,
                 InstanceState::DPUReprovision { .. } => tenant::TenantState::DpuReprovisioning,
             },
+            ManagedHostState::ForceDeletion => tenant::TenantState::Terminating,
             _ => {
                 tracing::error!(%machine_state, "Invalid state during state handling");
                 return Err(RpcDataConversionError::InvalidMachineState(
