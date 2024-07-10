@@ -1036,6 +1036,8 @@ scheduled-test:cloud-api-tests:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS =="false"
       when: never
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS == "true"
+      needs:
+        - job: scheduled-test:verify-site-controller-version
   timeout: 2h
   retry:
     when:
@@ -1100,6 +1102,7 @@ scheduled-test:machine-lifecycle-test:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true" && $RUN_TESTS == "true"
       needs:
         - job: scheduled-test:prepare
+        - job: scheduled-test:verify-site-controller-version
   retry:
     max: 0
   image:
