@@ -63,7 +63,7 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         object_id: &Self::ObjectId,
-    ) -> Result<Self::State, SnapshotLoaderError>;
+    ) -> Result<Option<Self::State>, SnapshotLoaderError>;
 
     /// Loads the object state that is owned by the state controller
     async fn load_controller_state(

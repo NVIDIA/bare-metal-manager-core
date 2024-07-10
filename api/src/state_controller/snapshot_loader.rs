@@ -28,7 +28,7 @@ pub trait MachineStateSnapshotLoader: Send + Sync + std::fmt::Debug {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &MachineId,
-    ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError>;
+    ) -> Result<Option<ManagedHostStateSnapshot>, SnapshotLoaderError>;
 }
 
 /// Enumerates errors that are returned by [`MachineStateSnapshotLoader`]
@@ -36,16 +36,6 @@ pub trait MachineStateSnapshotLoader: Send + Sync + std::fmt::Debug {
 pub enum SnapshotLoaderError {
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] DatabaseError),
-    #[error("Invalid result: {0}")]
-    InvalidResult(String),
-    #[error("Machine with ID {0} was not found.")]
-    MachineNotFound(MachineId),
-    #[error("DPU for host machine with ID {0} was not found.")]
-    DPUNotFound(MachineId),
-    #[error("Host for dpu machine with ID {0} was not found.")]
-    HostNotFound(MachineId),
-    #[error("State handling generic error: {0}")]
-    GenericError(eyre::Report),
 }
 
 /// Load a machine state snapshot from a postgres database
@@ -107,26 +97,23 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &MachineId,
-    ) -> Result<ManagedHostStateSnapshot, SnapshotLoaderError> {
+    ) -> Result<Option<ManagedHostStateSnapshot>, SnapshotLoaderError> {
         let host_machine = if machine_id.machine_type().is_dpu() {
-            Machine::find_host_by_dpu_machine_id(txn, machine_id)
-                .await
-                .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
-                .ok_or_else(|| SnapshotLoaderError::HostNotFound(machine_id.clone()))?
+            Machine::find_host_by_dpu_machine_id(txn, machine_id).await?
         } else {
             Machine::find_one(
                 txn,
                 machine_id,
                 crate::db::machine::MachineSearchConfig::default(),
             )
-            .await
-            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?
-            .ok_or_else(|| SnapshotLoaderError::HostNotFound(machine_id.clone()))?
+            .await?
         };
 
-        let dpus = Machine::find_dpus_by_host_machine_id(txn, host_machine.id())
-            .await
-            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
+        let Some(host_machine) = host_machine else {
+            return Ok(None);
+        };
+
+        let dpus = Machine::find_dpus_by_host_machine_id(txn, host_machine.id()).await?;
 
         let host_snapshot = get_machine_snapshot(&host_machine).await?;
 
@@ -145,6 +132,6 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
             managed_state,
         };
 
-        Ok(snapshot)
+        Ok(Some(snapshot))
     }
 }

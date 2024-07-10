@@ -756,6 +756,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let snapshot = snapshot_loader
         .load_machine_snapshot(&mut txn, &host_machine_id)
         .await
+        .unwrap()
         .unwrap();
 
     handler_host_power_control(
@@ -773,6 +774,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let snapshot1 = snapshot_loader
         .load_machine_snapshot(&mut txn, &host_machine_id)
         .await
+        .unwrap()
         .unwrap();
 
     for i in 0..snapshot.dpu_snapshots.len() {
@@ -805,6 +807,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let snapshot2 = snapshot_loader
         .load_machine_snapshot(&mut txn, &host_machine_id)
         .await
+        .unwrap()
         .unwrap();
 
     for i in 0..snapshot.dpu_snapshots.len() {
@@ -837,6 +840,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let snapshot3 = snapshot_loader
         .load_machine_snapshot(&mut txn, &host_machine_id)
         .await
+        .unwrap()
         .unwrap();
 
     for i in 0..snapshot.dpu_snapshots.len() {

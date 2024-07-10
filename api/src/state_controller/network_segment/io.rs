@@ -58,21 +58,33 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         segment_id: &Self::ObjectId,
-    ) -> Result<Self::State, SnapshotLoaderError> {
+    ) -> Result<Option<Self::State>, SnapshotLoaderError> {
         let mut segments = NetworkSegment::find(
             txn,
             NetworkSegmentIdKeyedObjectFilter::One(*segment_id),
             crate::db::network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await?;
-        if segments.len() != 1 {
-            return Err(SnapshotLoaderError::InvalidResult(format!(
-                "Searching for NetworkSegment {} returned zero or multiple results",
-                segment_id
-            )));
+        if segments.is_empty() {
+            return Ok(None);
+        }
+        if segments.len() > 1 {
+            return Err(DatabaseError::new(
+                file!(),
+                line!(),
+                "NetworkSegment::find()",
+                sqlx::Error::Decode(
+                    eyre::eyre!(
+                        "Searching for NetworkSegment {} returned multiple results",
+                        segment_id
+                    )
+                    .into(),
+                ),
+            )
+            .into());
         }
         let segment = segments.swap_remove(0);
-        Ok(segment)
+        Ok(Some(segment))
     }
 
     async fn load_controller_state(

@@ -66,8 +66,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 exclude_hosts: false,
             },
         )
-        .await
-        .map_err(|x| SnapshotLoaderError::GenericError(x.into()))?)
+        .await?)
     }
 
     /// Loads a state snapshot from the database
@@ -75,7 +74,7 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &Self::ObjectId,
-    ) -> Result<Self::State, SnapshotLoaderError> {
+    ) -> Result<Option<Self::State>, SnapshotLoaderError> {
         self.snapshot_loader
             .load_machine_snapshot(txn, machine_id)
             .await
@@ -99,9 +98,7 @@ impl StateControllerIO for MachineStateControllerIO {
         _old_version: ConfigVersion,
         new_state: Self::ControllerState,
     ) -> Result<(), SnapshotLoaderError> {
-        Machine::update_state(txn, object_id, new_state)
-            .await
-            .map_err(|err| SnapshotLoaderError::GenericError(err.into()))?;
+        Machine::update_state(txn, object_id, new_state).await?;
 
         Ok(())
     }
