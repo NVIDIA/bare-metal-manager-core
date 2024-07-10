@@ -150,33 +150,6 @@ async fn test_preingestion_bmc_upgrade(
     }
     txn.commit().await?;
 
-    // Since we're waiting for site explorer to reevaluate the system, another iteration of the state machine shouldn't change anything.
-    mgr.run_single_iteration().await?;
-
-    let mut txn = pool.begin().await.unwrap();
-    let endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
-    assert!(endpoints.len() == 1);
-    let endpoint = endpoints.first().unwrap();
-    match &endpoint.preingestion_state {
-        PreingestionState::RecheckVersions => {
-            println!("Rechecking versions");
-        }
-        _ => {
-            panic!("Bad preingestion state: {endpoint:?}");
-        }
-    }
-
-    assert!(
-        DbExploredEndpoint::try_update(
-            endpoint.address,
-            endpoint.report_version,
-            &endpoint.report,
-            &mut txn
-        )
-        .await?
-    );
-    txn.commit().await?;
-
     // Now it should go to completion
     mgr.run_single_iteration().await?;
 

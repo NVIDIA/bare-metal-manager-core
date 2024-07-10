@@ -14,7 +14,6 @@ mod metrics;
 
 use std::{default::Default, sync::Arc, time::Duration};
 
-use chrono::{TimeDelta, Utc};
 use forge_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::{model::task::TaskState, SystemPowerControl};
 use opentelemetry::metrics::Meter;
@@ -30,18 +29,11 @@ use crate::{
         CarbideConfig, FirmwareEntry, FirmwareGlobal, FirmwareHost, FirmwareHostComponentType,
         ParsedHosts,
     },
-    db::{
-        explored_endpoints::DbExploredEndpoint,
-        machine::{Machine, MachineSearchConfig},
-        DatabaseError, ObjectFilter,
-    },
+    db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
     firmware_downloader::FirmwareDownloader,
-    model::{
-        machine::MachineLastRebootRequestedMode,
-        site_explorer::{ExploredEndpoint, PreingestionState},
-    },
+    model::site_explorer::{ExploredEndpoint, PreingestionState},
     redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool},
-    CarbideError, MachineId,
+    CarbideError,
 };
 
 /// DatabaseResult is a mirror of CarbideResult, but we should only be bubbling up an error if it was a database error and we need to reconnect.
@@ -404,28 +396,9 @@ impl PreingestionManagerStatic {
             return Ok(false);
         }
 
-        // Determine if auto updates should be enabled for this host.
-        let mut enabled = self.firmware_global.autoupdate;
-        if endpoint.report.machine_id.is_some() {
-            if self
-                .firmware_global
-                .host_enable_autoupdate
-                .iter()
-                .any(|x| *x == endpoint.report.machine_id.as_ref().unwrap().to_string())
-            {
-                enabled = true;
-            }
-            if self
-                .firmware_global
-                .host_disable_autoupdate
-                .iter()
-                .any(|x| *x == endpoint.report.machine_id.as_ref().unwrap().to_string())
-            {
-                enabled = false;
-            }
-        }
-        if !enabled {
-            // Auto updates are disabled, so call everything "good".
+        // Determine if auto updates should be enabled.
+        // We can't check machine IDs here as they may not be available yet, so use the global value only.
+        if !self.firmware_global.autoupdate {
             tracing::info!(
                 "start_firmware_uploads_or_continue {}: Auto updates disabled",
                 endpoint.address
@@ -579,31 +552,24 @@ impl PreingestionManagerStatic {
                     Some(TaskState::Completed) => {
                         // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
                         // First check if we should be rebooting though
-                        if let Some(machine_id) = &endpoint.report.machine_id {
-                            if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
-                                if let Some(current_version) =
-                                    find_version(endpoint, &fw_info, *upgrade_type)
-                                {
-                                    if current_version != final_version {
-                                        // Still not reporting the new version.  If this is the UEFI, we need to request a reset.  Otherwise, we just need to wait a bit.
-                                        if *upgrade_type == FirmwareHostComponentType::Uefi
-                                            && !rebooted_recently(
-                                                machine_id,
-                                                TimeDelta::seconds(300),
-                                                txn,
-                                            )
-                                            .await
-                                        {
+                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
+                            if let Some(current_version) =
+                                find_version(endpoint, &fw_info, *upgrade_type)
+                            {
+                                if current_version != final_version {
+                                    // Still not reporting the new version.
+                                    DbExploredEndpoint::set_waiting_for_explorer_refresh(
+                                        endpoint.address,
+                                        txn,
+                                    )
+                                    .await?;
+                                    //  If this is the UEFI, we need to request a reset.  Otherwise, we just need to wait a bit.
+                                    match *upgrade_type {
+                                        FirmwareHostComponentType::Uefi => {
                                             tracing::info!(
-                                            "Upgrade task has completed for {} but needs reboot",
-                                            &endpoint.address
-                                        );
-                                            Machine::update_reboot_requested_time(
-                                                machine_id,
-                                                txn,
-                                                MachineLastRebootRequestedMode::Reboot,
-                                            )
-                                            .await?;
+                                                "Upgrade task has completed for {} but needs reboot",
+                                                &endpoint.address
+                                            );
                                             match redfish_client
                                                 .power(SystemPowerControl::ForceRestart)
                                                 .await
@@ -616,28 +582,36 @@ impl PreingestionManagerStatic {
                                                     )
                                                 }
                                             }
-                                            return Ok(());
                                         }
-                                        tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
-                                        return Ok(());
+                                        _ => {
+                                            tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
+                                        }
                                     }
-                                } else {
-                                    tracing::error!("in_upgrade_firmware_wait: Could not find current version {} {:?} {:?}", &endpoint.address, fw_info, *upgrade_type);
+                                    return Ok(());
                                 }
+                                // The case where we did match the versions is the sole path where we do not need to wait for site explorer to refresh the info.
                             } else {
-                                tracing::error!(
-                                    "in_upgrade_firmware_wait: Could not find fw_info {} {:?} {:?}",
-                                    &endpoint.address,
-                                    endpoint.report.vendor,
-                                    endpoint.report.systems
+                                tracing::error!("in_upgrade_firmware_wait: Could not find current version {} {:?} {:?}", &endpoint.address, fw_info, *upgrade_type);
+                                // Make sure we wait for the new version
+                                DbExploredEndpoint::set_waiting_for_explorer_refresh(
+                                    endpoint.address,
+                                    txn,
                                 )
+                                .await?;
                             }
                         } else {
                             tracing::error!(
-                                "in_upgrade_firmware_wait: Machine ID not found {} {:?}",
+                                "in_upgrade_firmware_wait: Could not find fw_info {} {:?} {:?}",
                                 &endpoint.address,
-                                endpoint.report.machine_id
+                                endpoint.report.vendor,
+                                endpoint.report.systems
+                            );
+                            // Make sure we wait for the new version
+                            DbExploredEndpoint::set_waiting_for_explorer_refresh(
+                                endpoint.address,
+                                txn,
                             )
+                            .await?;
                         }
                         tracing::info!(
                             "Marking completion of Redfish task of firmware upgrade for {}",
@@ -648,10 +622,6 @@ impl PreingestionManagerStatic {
                             txn,
                         )
                         .await?;
-
-                        // We need site explorer to requery the version
-                        DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
-                            .await?;
                     }
                     Some(TaskState::Exception)
                     | Some(TaskState::Interrupted)
@@ -838,35 +808,4 @@ async fn initiate_update(
     .await?;
 
     Ok(())
-}
-
-async fn rebooted_recently(
-    machine_id: &MachineId,
-    time_limit: TimeDelta,
-    txn: &mut Transaction<'_, Postgres>,
-) -> bool {
-    let machine = match Machine::find(
-        txn,
-        ObjectFilter::One(machine_id.clone()),
-        MachineSearchConfig::default(),
-    )
-    .await
-    {
-        Err(e) => {
-            tracing::error!("rebooted_recently failed to find {machine_id}: {e}");
-            return false;
-        }
-        Ok(machine) => machine,
-    };
-
-    let machine = match machine.first() {
-        None => {
-            tracing::error!("rebooted_recently failed to find {machine_id}");
-            return false;
-        }
-        Some(machine) => machine,
-    };
-
-    Utc::now().signed_duration_since(machine.last_reboot_requested().unwrap_or_default().time)
-        < time_limit
 }
