@@ -150,7 +150,7 @@ pub(crate) async fn get_managed_host_network_config(
                 tenant_interfaces.push(
                     ethernet_virtualization::tenant_network(
                         &mut txn,
-                        instance.instance_id,
+                        instance.id,
                         iface,
                         physical_ip,
                     )
@@ -178,7 +178,7 @@ pub(crate) async fn get_managed_host_network_config(
         instance_id: snapshot
             .instance
             .as_ref()
-            .map(|instance| instance.instance_id.into()),
+            .map(|instance| instance.id.into()),
         asn: api.eth_data.asn,
         dhcp_servers: api.eth_data.dhcp_servers.clone(),
         route_servers: api.eth_data.route_servers.clone(),

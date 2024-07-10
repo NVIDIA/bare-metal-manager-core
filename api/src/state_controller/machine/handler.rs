@@ -2614,7 +2614,7 @@ impl StateHandler for InstanceStateHandler {
                     ib::bind_ib_ports(
                         ctx.services,
                         txn,
-                        instance.instance_id,
+                        instance.id,
                         instance.config.infiniband.ib_interfaces.clone(),
                     )
                     .await?;
@@ -2810,14 +2810,14 @@ impl StateHandler for InstanceStateHandler {
                     ib::unbind_ib_ports(
                         ctx.services,
                         txn,
-                        instance.instance_id,
+                        instance.id,
                         instance.config.infiniband.ib_interfaces.clone(),
                     )
                     .await?;
 
                     // Delete from database now. Once done, reboot and move to next state.
                     DeleteInstance {
-                        instance_id: instance.instance_id,
+                        instance_id: instance.id,
                     }
                     .delete(txn)
                     .await

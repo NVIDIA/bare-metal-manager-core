@@ -42,7 +42,7 @@ pub(crate) async fn record_infiniband_status_observation(
 
     for ib in &ib_interfaces {
         let guid = ib.guid.clone().ok_or(StateHandlerError::MissingData {
-            object_id: instance.instance_id.to_string(),
+            object_id: instance.id.to_string(),
             missing: "GUID of IB Port",
         })?;
 
@@ -56,7 +56,7 @@ pub(crate) async fn record_infiniband_status_observation(
             ib_interfaces: vec![],
             observed_at: Utc::now(),
         };
-        Instance::update_infiniband_status_observation(txn, instance.instance_id, &status).await?;
+        Instance::update_infiniband_status_observation(txn, instance.id, &status).await?;
 
         return Ok(());
     }
@@ -119,7 +119,7 @@ pub(crate) async fn record_infiniband_status_observation(
         ib_interfaces: ib_interfaces_status,
         observed_at: Utc::now(),
     };
-    Instance::update_infiniband_status_observation(txn, instance.instance_id, &status).await?;
+    Instance::update_infiniband_status_observation(txn, instance.id, &status).await?;
 
     Ok(())
 }

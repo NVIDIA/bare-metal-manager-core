@@ -195,7 +195,7 @@ pub async fn allocate_instance(
 
     // Allocate IPs. This also updates the `InstanceNetworkConfig` to store the IPs
     let updated_network_config =
-        InstanceAddress::allocate(&mut txn, *instance.id(), &request.config.network).await?;
+        InstanceAddress::allocate(&mut txn, instance.id, &request.config.network).await?;
 
     // Persist the updated `InstanceNetworkConfig`
     // We need to retain version 1
@@ -211,7 +211,7 @@ pub async fn allocate_instance(
     // Allocate GUID for infiniband interfaces/ports.
     let updated_ib_config = ib_partition::allocate_port_guid(
         &mut txn,
-        *instance.id(),
+        instance.id,
         &request.config.infiniband,
         &mh_snapshot.host_snapshot,
     )
