@@ -182,6 +182,11 @@ pub struct CarbideConfig {
     /// The maximum number of IDs allowed for find_(something)_by_ids APIs
     #[serde(default = "default_max_find_by_ids")]
     pub max_find_by_ids: u32,
+
+    /// The minimum number of functioning links on a dpu for it to be considered healthy
+    /// if not present, all links must be functional.
+    #[serde(default)]
+    pub min_dpu_functioning_links: Option<u32>,
 }
 
 impl CarbideConfig {

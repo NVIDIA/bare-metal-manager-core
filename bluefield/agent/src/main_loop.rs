@@ -228,7 +228,7 @@ pub async fn run(
                     .network_virtualization_type
                     .and_then(|vi| VpcVirtualizationType::try_from(vi).ok())
                     .map(|v| v.into());
-                // If HBN is too old, this will be overriden once we are sure HBN is up
+                // If HBN is too old, this will be overridden once we are sure HBN is up
                 let mut nvt = options
                     .override_network_virtualization_type // dev
                     .or(nvt_from_remote)
@@ -240,8 +240,8 @@ pub async fn run(
                 let tenant_peers = ethernet_virtualization::tenant_peers(conf);
                 if is_hbn_up {
                     tracing::trace!("Desired network config is {conf:?}");
-                    // Generate the fmds interface plan from the config. This doees not apply the plan.
-                    // The plan is applied when the nvue template is written
+                    // Generate the fmds interface plan from the config. This does not apply the plan.
+                    // The plan is applied when the NVUE template is written
                     let fmds_proposed_interfaces = &agent.fmds_armos_networking;
                     let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
                     let fmds_interface_plan = Interface::plan(
@@ -374,6 +374,7 @@ pub async fn run(
                     &tenant_peers,
                     started_at,
                     has_changed_configs,
+                    conf.min_dpu_functioning_links,
                 )
                 .await;
                 is_healthy = health_report.is_healthy();

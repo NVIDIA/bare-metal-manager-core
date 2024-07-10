@@ -143,9 +143,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // One-off health check.
         // Does not take into account tenant ignored peers, so it can fail when the real check would
         // succeed.
+        // Same thing as above with respect to "minimum healthy links" -- we don't have it here so
+        // it may fail when the real one would succeed for single-port setups.
         Some(AgentCommand::Health) => {
             let health_report =
-                health::health_check(&agent.hbn.root_dir, &[], Instant::now(), false).await;
+                health::health_check(&agent.hbn.root_dir, &[], Instant::now(), false, None).await;
             println!("{health_report}");
         }
 

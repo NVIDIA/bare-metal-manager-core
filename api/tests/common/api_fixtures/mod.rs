@@ -463,6 +463,7 @@ pub fn get_config() -> CarbideConfig {
             run_interval: Duration::seconds(30),
         },
         max_find_by_ids: default_max_find_by_ids(),
+        min_dpu_functioning_links: None,
     }
 }
 

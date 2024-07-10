@@ -233,6 +233,7 @@ pub(crate) async fn get_managed_host_network_config(
                 None
             }
         }),
+        min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
     };
 
     // If this all worked, we shouldn't emit a log line

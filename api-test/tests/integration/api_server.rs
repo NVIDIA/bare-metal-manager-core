@@ -207,6 +207,7 @@ pub async fn start(
             run_interval: Duration::seconds(30),
         },
         max_find_by_ids: default_max_find_by_ids(),
+        min_dpu_functioning_links: None,
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");
