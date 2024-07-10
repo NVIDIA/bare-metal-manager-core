@@ -459,7 +459,7 @@ impl DpuMachine {
                     .network_config_response
                     .as_ref()
                     .map(|config| config.managed_host_config_version.clone());
-                if elapsed > Duration::from_secs(120) {
+                if elapsed > Duration::from_secs(10) {
                     if let Err(e) = api_client::record_dpu_network_status(
                         &self.app_context,
                         machine_id.clone(),

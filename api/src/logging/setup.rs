@@ -33,7 +33,7 @@ pub struct TelemetrySetup {
 
 pub async fn setup_telemetry(
     debug: u8,
-    logging_subscriber: Option<impl SubscriberInitExt>,
+    override_logging_subscriber: Option<impl SubscriberInitExt>,
 ) -> eyre::Result<TelemetrySetup> {
     // This configures emission of logs in LogFmt syntax
     // and emission of metrics
@@ -92,7 +92,7 @@ pub async fn setup_telemetry(
 
     let logfmt_stdout_formatter = logfmt::layer();
 
-    if let Some(logging_subscriber) = logging_subscriber {
+    if let Some(logging_subscriber) = override_logging_subscriber {
         logging_subscriber
             .try_init()
             .wrap_err("logging_subscriber.try_init()")?;
