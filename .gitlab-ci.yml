@@ -972,11 +972,6 @@ scheduled-test:auto-deploy-site-controller:
     entrypoint: [ "" ]
   variables:
     VAULT_NAMESPACE: ngc-forge
-    GITLAB_SERVER_URL_NO_PORT: $CI_SERVER_PROTOCOL://$CI_SERVER_HOST
-    FORGED_PROJECT_ID: 90150
-    FORGED_BRANCH: "auto-update-from-carbide-pipeline-${CI_PIPELINE_IID}"
-    FORGED_COMMIT_MSG: "chore: Auto-update ${SITE_UNDER_TEST} to site-controller ${LATEST_COMMON_VERSION}"
-    ARGOCD_SITE_USERNAME: admin
   id_tokens:
     VAULT_JWT_TOKEN:
       aud: $VAULT_ADDR
