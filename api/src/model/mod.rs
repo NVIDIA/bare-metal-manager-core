@@ -121,8 +121,11 @@ pub enum ConfigValidationError {
     #[error("Configuration value cannot be modified: {0}")]
     ConfigCanNotBeModified(String),
 
-    #[error("Duplicate TenantKeyset ID found: {0}")]
+    #[error("Duplicate Tenant KeySet ID found: {0}")]
     DuplicateTenantKeysetId(String),
+
+    #[error("More than {0} Tenant KeySet IDs are not allowed")]
+    TenantKeysetIdsOverMax(usize),
 }
 
 impl ConfigValidationError {

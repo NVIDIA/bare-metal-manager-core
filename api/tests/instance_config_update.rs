@@ -414,26 +414,64 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         "Configuration value cannot be modified: infiniband"
     );
 
-    // // Try to update to duplicated tenant keyset IDs
-    // let mut duplicated_keysets_config = valid_config.clone();
-    // duplicated_keysets_config.tenant.as_mut().unwrap().tenant_keyset_ids = vec!["a".to_string(), "a".to_string()];
-    // let err = env
-    //     .api
-    //     .update_instance_config(tonic::Request::new(
-    //         rpc::forge::InstanceConfigUpdateRequest {
-    //             instance_id: Some(instance_id.into()),
-    //             if_version_match: None,
-    //             config: Some(duplicated_keysets_config),
-    //             metadata: Some(initial_metadata.clone()),
-    //         },
-    //     ))
-    //     .await
-    //     .expect_err("Invalid keyset config should not be accepted");
-    // assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    // assert_eq!(
-    //     err.message(),
-    //     "Invalid value: TBD"
-    // );
+    // Try to update to duplicated tenant keyset IDs
+    let mut duplicated_keysets_config = valid_config.clone();
+    duplicated_keysets_config
+        .tenant
+        .as_mut()
+        .unwrap()
+        .tenant_keyset_ids = vec!["a".to_string(), "b".to_string(), "a".to_string()];
+    let err = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: Some(instance_id.into()),
+                if_version_match: None,
+                config: Some(duplicated_keysets_config),
+                metadata: Some(initial_metadata.clone()),
+            },
+        ))
+        .await
+        .expect_err("Duplicate keyset IDs should not be accepted");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert_eq!(err.message(), "Duplicate Tenant KeySet ID found: a");
+
+    // Try to update to over max tenant keyset IDs
+    let mut maxed_keysets_config = valid_config.clone();
+    maxed_keysets_config
+        .tenant
+        .as_mut()
+        .unwrap()
+        .tenant_keyset_ids = vec![
+        "a".to_string(),
+        "b".to_string(),
+        "c".to_string(),
+        "d".to_string(),
+        "e".to_string(),
+        "f".to_string(),
+        "g".to_string(),
+        "h".to_string(),
+        "i".to_string(),
+        "j".to_string(),
+        "k".to_string(),
+    ];
+    let err = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: Some(instance_id.into()),
+                if_version_match: None,
+                config: Some(maxed_keysets_config),
+                metadata: Some(initial_metadata.clone()),
+            },
+        ))
+        .await
+        .expect_err("Over max keyset config should not be accepted");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        err.message(),
+        "More than 10 Tenant KeySet IDs are not allowed"
+    );
 
     // // Try to update to invalid metadata
     // let invalid_metadata_no_key = rpc::forge::Metadata {
