@@ -19,12 +19,12 @@ use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
+    db::DatabaseError,
     logging::sqlx_query_tracing,
     state_controller::{
         config::IterationConfig,
         io::StateControllerIO,
         metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics},
-        snapshot_loader::SnapshotLoaderError,
         state_handler::{
             ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
             StateHandlerOutcome, StateHandlerServices,
@@ -417,14 +417,14 @@ impl<IO: StateControllerIO> StateController<IO> {
 enum IterationError {
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
+    #[error("Unable to perform database transaction: {0}")]
+    DatabaseError(#[from] DatabaseError),
     #[error("Unable to acquire lock")]
     LockError,
     #[error("A task panicked: {0}")]
     Panic(#[from] tokio::task::JoinError),
     #[error("State handler error: {0}")]
     StateHandlerError(#[from] StateHandlerError),
-    #[error("Snapshot loader error: {0}")]
-    SnapshotLoaderError(#[from] SnapshotLoaderError),
 }
 
 /// A remote handle for the state controller

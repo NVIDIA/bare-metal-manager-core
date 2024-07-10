@@ -15,10 +15,7 @@ use config_version::{ConfigVersion, Versioned};
 use crate::{
     db::DatabaseError,
     model::controller_outcome::PersistentStateHandlerOutcome,
-    state_controller::{
-        metrics::MetricsEmitter, snapshot_loader::SnapshotLoaderError,
-        state_handler::StateHandlerContextObjects,
-    },
+    state_controller::{metrics::MetricsEmitter, state_handler::StateHandlerContextObjects},
 };
 
 /// This trait defines on what objects a state controller instance will act,
@@ -56,14 +53,14 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     async fn list_objects(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-    ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError>;
+    ) -> Result<Vec<Self::ObjectId>, DatabaseError>;
 
     /// Loads a state of an object
     async fn load_object_state(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         object_id: &Self::ObjectId,
-    ) -> Result<Option<Self::State>, SnapshotLoaderError>;
+    ) -> Result<Option<Self::State>, DatabaseError>;
 
     /// Loads the object state that is owned by the state controller
     async fn load_controller_state(
@@ -71,7 +68,7 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         object_id: &Self::ObjectId,
         state: &Self::State,
-    ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError>;
+    ) -> Result<Versioned<Self::ControllerState>, DatabaseError>;
 
     /// Persists the object state that is owned by the state controller
     async fn persist_controller_state(
@@ -80,7 +77,7 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: Self::ControllerState,
-    ) -> Result<(), SnapshotLoaderError>;
+    ) -> Result<(), DatabaseError>;
 
     /// Save the result of the most recent controller iteration
     async fn persist_outcome(

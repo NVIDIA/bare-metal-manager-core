@@ -28,23 +28,14 @@ pub trait MachineStateSnapshotLoader: Send + Sync + std::fmt::Debug {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &MachineId,
-    ) -> Result<Option<ManagedHostStateSnapshot>, SnapshotLoaderError>;
-}
-
-/// Enumerates errors that are returned by [`MachineStateSnapshotLoader`]
-#[derive(Debug, thiserror::Error)]
-pub enum SnapshotLoaderError {
-    #[error("Unable to perform database transaction: {0}")]
-    TransactionError(#[from] DatabaseError),
+    ) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError>;
 }
 
 /// Load a machine state snapshot from a postgres database
 #[derive(Debug, Default)]
 pub struct DbSnapshotLoader;
 
-pub async fn get_machine_snapshot(
-    machine: &Machine,
-) -> Result<MachineSnapshot, SnapshotLoaderError> {
+pub async fn get_machine_snapshot(machine: &Machine) -> Result<MachineSnapshot, DatabaseError> {
     let snapshot = MachineSnapshot {
         machine_id: machine.id().clone(),
         bmc_info: machine.bmc_info().clone(),
@@ -52,7 +43,7 @@ pub async fn get_machine_snapshot(
         hardware_info: machine.hardware_info().cloned(),
         inventory: machine.inventory().cloned().unwrap_or_default(),
         network_config: machine.network_config().clone(),
-        interfaces: interface_to_snapshot(machine.interfaces()).await?,
+        interfaces: interface_to_snapshot(machine.interfaces()),
         network_status_observation: machine.network_status_observation().cloned(),
         current: CurrentMachineState {
             state: machine.current_state(),
@@ -76,9 +67,7 @@ pub async fn get_machine_snapshot(
     Ok(snapshot)
 }
 
-pub async fn interface_to_snapshot(
-    interfaces: &[MachineInterface],
-) -> Result<Vec<MachineInterfaceSnapshot>, SnapshotLoaderError> {
+pub fn interface_to_snapshot(interfaces: &[MachineInterface]) -> Vec<MachineInterfaceSnapshot> {
     let mut out = Vec::new();
     for iface in interfaces {
         out.push(MachineInterfaceSnapshot {
@@ -88,7 +77,7 @@ pub async fn interface_to_snapshot(
             mac_address: iface.mac_address.to_string(),
         });
     }
-    Ok(out)
+    out
 }
 
 #[async_trait::async_trait]
@@ -97,7 +86,7 @@ impl MachineStateSnapshotLoader for DbSnapshotLoader {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &MachineId,
-    ) -> Result<Option<ManagedHostStateSnapshot>, SnapshotLoaderError> {
+    ) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError> {
         let host_machine = if machine_id.machine_type().is_dpu() {
             Machine::find_host_by_dpu_machine_id(txn, machine_id).await?
         } else {

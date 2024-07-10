@@ -25,7 +25,7 @@ use crate::{
     model::ib_partition::IBPartitionControllerState,
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects, io::StateControllerIO,
-        metrics::NoopMetricsEmitter, snapshot_loader::SnapshotLoaderError,
+        metrics::NoopMetricsEmitter,
     },
 };
 
@@ -48,10 +48,8 @@ impl StateControllerIO for IBPartitionStateControllerIO {
     async fn list_objects(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-    ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
-        IBPartition::list_segment_ids(txn)
-            .await
-            .map_err(SnapshotLoaderError::from)
+    ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
+        IBPartition::list_segment_ids(txn).await
     }
 
     /// Loads a state snapshot from the database
@@ -59,7 +57,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         partition_id: &Self::ObjectId,
-    ) -> Result<Option<Self::State>, SnapshotLoaderError> {
+    ) -> Result<Option<Self::State>, DatabaseError> {
         let mut partitions = IBPartition::find(
             txn,
             IBPartitionIdKeyedObjectFilter::One(*partition_id),
@@ -80,8 +78,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
                     )
                     .into(),
                 ),
-            )
-            .into());
+            ));
         }
         let partition = partitions.swap_remove(0);
         Ok(Some(partition))
@@ -92,7 +89,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _object_id: &Self::ObjectId,
         state: &Self::State,
-    ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError> {
+    ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
         Ok(state.controller_state.clone())
     }
 
@@ -102,7 +99,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         object_id: &Self::ObjectId,
         old_version: ConfigVersion,
         new_state: Self::ControllerState,
-    ) -> Result<(), SnapshotLoaderError> {
+    ) -> Result<(), DatabaseError> {
         let _updated =
             IBPartition::try_update_controller_state(txn, *object_id, old_version, &new_state)
                 .await?;

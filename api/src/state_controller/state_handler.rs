@@ -22,7 +22,6 @@ use crate::{
     model::machine::{machine_id::MachineId, ManagedHostState},
     redfish::{RedfishClientCreationError, RedfishClientPool},
     resource_pool::{DbResourcePool, ResourcePoolError},
-    state_controller::snapshot_loader::SnapshotLoaderError,
 };
 
 /// Services that are accessible to the `StateHandler`
@@ -157,8 +156,6 @@ impl<S> std::fmt::Display for StateHandlerOutcome<S> {
 /// Error type for handling a Machine State
 #[derive(Debug, thiserror::Error)]
 pub enum StateHandlerError {
-    #[error("Unable to load state snapshot: {0}")]
-    LoadSnapshotError(#[from] SnapshotLoaderError),
     #[error("Unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
     #[error("Failed to advance state: {0}")]
@@ -211,7 +208,6 @@ impl StateHandlerError {
     /// many metric dimensions.
     pub fn metric_label(&self) -> &'static str {
         match self {
-            StateHandlerError::LoadSnapshotError(_) => "load_snapshot_error",
             StateHandlerError::TransactionError(_) => "transaction_error",
             StateHandlerError::GenericError(_) => "generic_error",
             StateHandlerError::FirmwareUpdateError(_) => "firware_update_error",

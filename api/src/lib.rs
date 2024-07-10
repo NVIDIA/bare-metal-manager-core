@@ -28,7 +28,6 @@ use model::{
     hardware_info::HardwareInfoError, machine::machine_id::MachineId, network_devices::LldpError,
     tenant::TenantError, ConfigValidationError, RpcDataConversionError,
 };
-use state_controller::snapshot_loader::SnapshotLoaderError;
 use tokio::sync::oneshot::Receiver;
 use tonic::Status;
 use tracing::subscriber::NoSubscriber;
@@ -176,9 +175,6 @@ pub enum CarbideError {
 
     #[error("Invalid configuration version - {0}")]
     InvalidConfigurationVersion(#[from] ConfigVersionParseError),
-
-    #[error("Failed to load machine or instance snapshot: {0}")]
-    SnapshotLoaderError(#[from] SnapshotLoaderError),
 
     // TODO: Or VersionMismatchError? Or ObjectNotFoundOrModifiedError?
     #[error(

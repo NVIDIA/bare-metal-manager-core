@@ -29,7 +29,7 @@ use crate::{
     state_controller::{
         io::StateControllerIO,
         machine::{context::MachineStateHandlerContextObjects, metrics::MachineMetricsEmitter},
-        snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader, SnapshotLoaderError},
+        snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     },
 };
 
@@ -54,7 +54,7 @@ impl StateControllerIO for MachineStateControllerIO {
     async fn list_objects(
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
-    ) -> Result<Vec<Self::ObjectId>, SnapshotLoaderError> {
+    ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
         Ok(crate::db::machine::Machine::find_machine_ids(
             txn,
             MachineSearchConfig {
@@ -74,7 +74,7 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &Self::ObjectId,
-    ) -> Result<Option<Self::State>, SnapshotLoaderError> {
+    ) -> Result<Option<Self::State>, DatabaseError> {
         self.snapshot_loader
             .load_machine_snapshot(txn, machine_id)
             .await
@@ -85,7 +85,7 @@ impl StateControllerIO for MachineStateControllerIO {
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _object_id: &Self::ObjectId,
         state: &Self::State,
-    ) -> Result<Versioned<Self::ControllerState>, SnapshotLoaderError> {
+    ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
         let current = state.host_snapshot.current.clone();
 
         Ok(Versioned::new(current.state, current.version))
@@ -97,7 +97,7 @@ impl StateControllerIO for MachineStateControllerIO {
         object_id: &Self::ObjectId,
         _old_version: ConfigVersion,
         new_state: Self::ControllerState,
-    ) -> Result<(), SnapshotLoaderError> {
+    ) -> Result<(), DatabaseError> {
         Machine::update_state(txn, object_id, new_state).await?;
 
         Ok(())
