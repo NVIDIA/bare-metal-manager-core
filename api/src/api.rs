@@ -69,12 +69,12 @@ use crate::redfish::RedfishAuth;
 use crate::redfish::{host_power_control, poll_redfish_job};
 use crate::resource_pool::common::CommonPools;
 use crate::site_explorer::EndpointExplorer;
-use crate::state_controller::snapshot_loader::MachineStateSnapshotLoader;
 #[cfg(feature = "tss-esapi")]
 use crate::{attestation as attest, db::attestation::SecretAkPub};
 use crate::{
     auth,
     db::{
+        self,
         bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         explored_managed_host::DbExploredManagedHost,
         instance::{DeleteInstance, Instance},
@@ -89,7 +89,6 @@ use crate::{
         machine::{machine_id::MachineId, MachineState, MeasuringState},
     },
     redfish::RedfishClientPool,
-    state_controller::snapshot_loader::DbSnapshotLoader,
     CarbideError, CarbideResult,
 };
 use crate::{resource_pool, site_explorer};
@@ -2768,9 +2767,7 @@ impl Forge for Api {
             ));
         }
 
-        let loader = DbSnapshotLoader {};
-        let snapshot = loader
-            .load_machine_snapshot(&mut txn, &machine_id)
+        let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
             .await
             .map_err(CarbideError::from)?
             .ok_or_else(|| CarbideError::NotFoundError {

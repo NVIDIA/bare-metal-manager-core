@@ -12,6 +12,7 @@
 pub mod common;
 
 use carbide::cfg::default_dpu_models;
+use carbide::db;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::measured_boot::dto::records::MeasurementBundleState;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
@@ -20,7 +21,6 @@ use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
 use carbide::state_controller::machine::handler::{
     handler_host_power_control, MachineStateHandler,
 };
-use carbide::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader};
 use common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
 use rpc::forge::forge_server::Forge;
@@ -751,10 +751,8 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
 
-    let snapshot_loader = DbSnapshotLoader;
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot = snapshot_loader
-        .load_machine_snapshot(&mut txn, &host_machine_id)
+    let snapshot = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -771,8 +769,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    let snapshot1 = snapshot_loader
-        .load_machine_snapshot(&mut txn, &host_machine_id)
+    let snapshot1 = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -804,8 +801,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot2 = snapshot_loader
-        .load_machine_snapshot(&mut txn, &host_machine_id)
+    let snapshot2 = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -837,8 +833,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot3 = snapshot_loader
-        .load_machine_snapshot(&mut txn, &host_machine_id)
+    let snapshot3 = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();

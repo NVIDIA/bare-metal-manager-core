@@ -17,5 +17,4 @@ pub mod io;
 pub mod machine;
 pub mod metrics;
 pub mod network_segment;
-pub mod snapshot_loader;
 pub mod state_handler;

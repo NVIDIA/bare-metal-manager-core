@@ -15,6 +15,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     db::{
+        self,
         ib_partition::{
             self, IBPartition, IBPartitionIdKeyedObjectFilter, IBPartitionSearchConfig,
         },
@@ -38,7 +39,6 @@ use crate::{
         tenant::TenantOrganizationId,
         ConfigValidationError, RpcDataConversionError,
     },
-    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideError, CarbideResult,
 };
 
@@ -137,9 +137,7 @@ pub async fn allocate_instance(
         )));
     }
 
-    let loader = DbSnapshotLoader {};
-    let mut mh_snapshot = loader
-        .load_machine_snapshot(&mut txn, &machine_id)
+    let mut mh_snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
@@ -226,7 +224,7 @@ pub async fn allocate_instance(
 
     // Machine will be rebooted once managed resource creation is successful.
     mh_snapshot.instance = Some(
-        Instance::load_snapshot_by_machine_id(&mut txn, &machine_id)
+        Instance::find_by_machine_id(&mut txn, &machine_id)
             .await?
             .ok_or_else(|| {
                 CarbideError::GenericError(format!(

@@ -11,6 +11,7 @@
  */
 
 use crate::api::{log_machine_id, log_request_data, Api};
+use crate::db;
 use crate::db::bmc_metadata::UserRoles;
 use crate::db::instance::{
     DeleteInstance, FindInstanceTypeFilter, Instance, InstanceId, InstanceIdKeyedObjectFilter,
@@ -26,7 +27,6 @@ use crate::model::metadata::Metadata;
 use crate::model::os::OperatingSystem;
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
-use crate::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader};
 use crate::CarbideError;
 use ::rpc::forge as rpc;
 use forge_secrets::credentials::CredentialKey;
@@ -121,11 +121,9 @@ pub(crate) async fn find_by_ids(
     )
     .await?;
 
-    let loader = DbSnapshotLoader {};
     let mut instances = Vec::with_capacity(db_instances.len());
     for instance in db_instances {
-        let mh_snapshot = loader
-            .load_machine_snapshot(&mut txn, &instance.machine_id)
+        let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &instance.machine_id)
             .await
             .map_err(CarbideError::from)?
             .ok_or(CarbideError::NotFoundError {
@@ -191,11 +189,9 @@ pub(crate) async fn find(
         }
     }?;
 
-    let loader = DbSnapshotLoader {};
     let mut instances = Vec::with_capacity(raw_instances.len());
     for instance in raw_instances {
-        let mh_snapshot = loader
-            .load_machine_snapshot(&mut txn, &instance.machine_id)
+        let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &instance.machine_id)
             .await
             .map_err(CarbideError::from)?
             .ok_or(CarbideError::NotFoundError {
@@ -227,8 +223,7 @@ pub(crate) async fn find_by_machine_id(
         ))
     })?;
 
-    let mh_snapshot = DbSnapshotLoader {}
-        .load_machine_snapshot(&mut txn, &machine_id)
+    let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
@@ -417,9 +412,7 @@ pub(crate) async fn invoke_power(
     };
     log_machine_id(&machine_id);
 
-    let loader = DbSnapshotLoader {};
-    let snapshot = loader
-        .load_machine_snapshot(&mut txn, &machine_id)
+    let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
@@ -600,8 +593,7 @@ pub(crate) async fn update_operating_system(
         .await
         .map_err(CarbideError::from)?;
 
-    let mh_snapshot = DbSnapshotLoader {}
-        .load_machine_snapshot(&mut txn, &instance.machine_id)
+    let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &instance.machine_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
@@ -679,8 +671,7 @@ pub(crate) async fn update_instance_config(
         .await
         .map_err(CarbideError::from)?;
 
-    let mh_snapshot = DbSnapshotLoader {}
-        .load_machine_snapshot(&mut txn, &instance.machine_id)
+    let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &instance.machine_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {

@@ -18,6 +18,7 @@ use tonic::{Request, Response};
 
 use crate::{
     db::{
+        self,
         dhcp_entry::DhcpEntry,
         dhcp_record::{DhcpRecord, InstanceDhcpRecord},
         instance::Instance,
@@ -27,7 +28,6 @@ use crate::{
     },
     dhcp::allocation::DhcpError,
     model::machine::machine_id::MachineId,
-    state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     CarbideError, CarbideResult,
 };
 
@@ -39,8 +39,7 @@ async fn validate_dhcp_request(
     remote_id: Option<String>,
     host_machine_id: &MachineId,
 ) -> CarbideResult<()> {
-    let snapshot = DbSnapshotLoader {}
-        .load_machine_snapshot(txn, host_machine_id)
+    let snapshot = db::managed_host::load_snapshot(txn, host_machine_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
