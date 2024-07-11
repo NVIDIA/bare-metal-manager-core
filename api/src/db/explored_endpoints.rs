@@ -268,12 +268,14 @@ WHERE address = $3 AND version=$4";
         task_id: String,
         final_version: &str,
         upgrade_type: &FirmwareHostComponentType,
+        rebooted: bool,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::UpgradeFirmwareWait {
             task_id,
             final_version: final_version.to_owned(),
             upgrade_type: *upgrade_type,
+            rebooted,
         };
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }
