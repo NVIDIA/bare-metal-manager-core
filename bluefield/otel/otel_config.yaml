@@ -29,6 +29,48 @@ receivers:
             - regex: '^ipaddress$'
               action: labeldrop
 
+  prometheus/doca:
+    config:
+      scrape_configs:
+        - job_name: 'doca_telemetry'
+          static_configs:
+            - targets: ['0.0.0.0:9100']
+          metric_relabel_configs:
+            # 'regex: >-' syntax converts newlines into single space, which the
+            # Prometheus regular expression parser can't handle. The multiline
+            # regex needs to be concatenated into a single-line string with no
+            # delimiting whitespace at all.
+            - source_labels: [__name__]
+              regex: "^(?:hw_port_state|\
+                ib_port_state|\
+                link_downed|\
+                link_error_recovery|\
+                .*_eth_(?:rx|tx)(?:_.*)?_errors|\
+                .*_eth_(?:rx|tx)_dropped)$"
+              action: keep
+            # Apply the prefix to a new label called "prefix"
+            - source_labels: [__name__]
+              regex: '^(.*)_eth_(?:rx|tx)(?:_.*)?_errors$'
+              target_label: prefix
+              replacement: '$$1'
+              action: replace
+            - source_labels: [__name__]
+              regex: '^(.*)_eth_(?:rx|tx)_dropped$'
+              target_label: prefix
+              replacement: '$$1'
+              action: replace
+            # Strip the prefix from the metric name
+            - source_labels: [__name__]
+              regex: '^.*_(eth_(?:rx|tx)(?:_.*)?_errors)$'
+              target_label: __name__
+              replacement: '$$1'
+              action: replace
+            - source_labels: [__name__]
+              regex: '^.*_(eth_(?:rx|tx)_dropped)$'
+              target_label: __name__
+              replacement: '$$1'
+              action: replace
+
   hostmetrics:
     collection_interval: 10s
     initial_delay: 5s
@@ -71,6 +113,32 @@ processors:
     metrics:
       metric:
         - 'IsMatch(name, "^process.*")'
+  filter/metrics-doca-eth-dropped:
+    metrics:
+      include:
+        match_type: regexp
+        metric_names:
+          - '^eth_(?:rx|tx)_dropped$'
+  filter/metrics-doca-eth-error:
+    metrics:
+      include:
+        match_type: regexp
+        metric_names:
+          - '^eth_(?:rx|tx)(?:_.*)?_errors$'
+  filter/metrics-doca-flapping:
+    metrics:
+      include:
+        match_type: strict
+        metric_names:
+          - link_downed
+          - link_error_recovery
+  filter/metrics-doca-ports:
+    metrics:
+      include:
+        match_type: strict
+        metric_names:
+          - hw_port_state
+          - ib_port_state
   memory_limiter:
     check_interval: 1s
     limit_percentage: 50
@@ -84,8 +152,28 @@ processors:
       - action: insert
         key: exporter
         value: "forge-dpu"
-  # Add hostname at the resource level
+  resource/metrics-doca-eth-dropped:
+    attributes:
+      - key: group
+        value: doca_eth_dropped
+        action: upsert
+  resource/metrics-doca-eth-error:
+    attributes:
+      - key: group
+        value: doca_eth_error
+        action: upsert
+  resource/metrics-doca-flapping:
+    attributes:
+      - key: group
+        value: doca_flapping
+        action: upsert
+  resource/metrics-doca-ports:
+    attributes:
+      - key: group
+        value: doca_ports
+        action: upsert
   resourcedetection:
+    # Add hostname at the resource level
     detectors: ["system"]
     system:
       hostname_sources: ["os"]
@@ -142,6 +230,42 @@ service:
         - resourcedetection
         - batch/metrics
       exporters: [prometheus]
+    metrics/doca-eth-dropped:
+      receivers: [prometheus/doca]
+      processors:
+        - memory_limiter
+        - filter/metrics-doca-eth-dropped
+        - resourcedetection
+        - resource/metrics-doca-eth-dropped
+        - batch
+      exporters: [otlp/site]
+    metrics/doca-eth-error:
+      receivers: [prometheus/doca]
+      processors:
+        - memory_limiter
+        - filter/metrics-doca-eth-error
+        - resourcedetection
+        - resource/metrics-doca-eth-error
+        - batch
+      exporters: [otlp/site]
+    metrics/doca-flapping:
+      receivers: [prometheus/doca]
+      processors:
+        - memory_limiter
+        - filter/metrics-doca-flapping
+        - resourcedetection
+        - resource/metrics-doca-flapping
+        - batch
+      exporters: [otlp/site]
+    metrics/doca-ports:
+      receivers: [prometheus/doca]
+      processors:
+        - memory_limiter
+        - filter/metrics-doca-ports
+        - resourcedetection
+        - resource/metrics-doca-ports
+        - batch
+      exporters: [otlp/site]
     metrics/site:
       receivers: [prometheus, hostmetrics, hostmetrics/disk]
       processors:
