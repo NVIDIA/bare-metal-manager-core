@@ -331,7 +331,7 @@ impl Instance {
     pub async fn find(
         txn: &mut Transaction<'_, Postgres>,
         filter: FindInstanceTypeFilter<'_>,
-    ) -> Result<Vec<InstanceSnapshot>, CarbideError> {
+    ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
         let base_query_for_id = "SELECT * FROM instances m {where} GROUP BY m.id".to_owned();
 
         let all_instances: Vec<InstanceSnapshot> = match filter {
@@ -371,8 +371,16 @@ impl Instance {
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
                 (true, None) => {
-                    return Err(CarbideError::InvalidArgument(
-                        "finding instances based on label needs either key or a value.".to_string(),
+                    // TODO: This is really an invalid argument error - which we can't return from here
+                    // However the whole argument validation story should happen outside the scope of this method
+                    return Err(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "Instance::find",
+                        sqlx::Error::Protocol(
+                            "finding instances based on label needs either key or a value."
+                                .to_string(),
+                        ),
                     ));
                 }
 

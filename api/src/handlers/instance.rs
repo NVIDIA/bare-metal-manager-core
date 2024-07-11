@@ -80,14 +80,6 @@ pub(crate) async fn find_by_ids(
     request: Request<rpc::InstancesByIdsRequest>,
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
-    let mut txn = api.database_connection.begin().await.map_err(|e| {
-        CarbideError::from(DatabaseError::new(
-            file!(),
-            line!(),
-            "begin instance::find_by_ids",
-            e,
-        ))
-    })?;
 
     let instance_ids: Result<Vec<InstanceId>, CarbideError> = request
         .into_inner()
@@ -115,26 +107,22 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let db_instances = Instance::find(
-        &mut txn,
-        FindInstanceTypeFilter::Id(&InstanceIdKeyedObjectFilter::List(&instance_ids)),
-    )
-    .await?;
-
-    let mut instances = Vec::with_capacity(db_instances.len());
-    for instance in db_instances {
-        let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &instance.machine_id)
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "instance",
-                id: instance.id.to_string(),
-            })?;
-
-        let instance = snapshot_to_instance(mh_snapshot)?;
-
-        instances.push(instance);
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin instance::find_by_ids",
+            e,
+        ))
+    })?;
+    let snapshots = db::managed_host::load_by_instance_ids(&mut txn, instance_ids.as_ref())
+        .await
+        .map_err(CarbideError::from)?;
+    let mut instances = Vec::with_capacity(snapshots.len());
+    for snapshot in snapshots.into_iter() {
+        instances.push(snapshot_to_instance(snapshot)?);
     }
+    let _ = txn.rollback().await;
 
     Ok(Response::new(rpc::InstanceList { instances }))
 }
@@ -156,9 +144,7 @@ pub(crate) async fn find(
     })?;
 
     let rpc::InstanceSearchQuery { id, label, .. } = request.into_inner();
-    // TODO: We load more information here than necessary - Instance::find()
-    // and InstanceSnapshotLoader do redundant jobs
-    let raw_instances = match (id, label) {
+    let instance_snapshots = match (id, label) {
         (Some(id), None) => {
             let uuid = match InstanceId::try_from(id) {
                 Ok(uuid) => InstanceIdKeyedObjectFilter::One(uuid),
@@ -189,18 +175,14 @@ pub(crate) async fn find(
         }
     }?;
 
-    let mut instances = Vec::with_capacity(raw_instances.len());
-    for instance in raw_instances {
-        let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &instance.machine_id)
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "instance",
-                id: instance.id.to_string(),
-            })?;
-        let instance = snapshot_to_instance(mh_snapshot)?;
-        instances.push(instance);
+    let snapshots = db::managed_host::load_by_instance_snapshots(&mut txn, instance_snapshots)
+        .await
+        .map_err(CarbideError::from)?;
+    let mut instances = Vec::with_capacity(snapshots.len());
+    for snapshot in snapshots.into_iter() {
+        instances.push(snapshot_to_instance(snapshot)?);
     }
+    let _ = txn.rollback().await;
 
     Ok(Response::new(rpc::InstanceList { instances }))
 }
@@ -705,7 +687,7 @@ fn snapshot_to_instance(
         .map_err(CarbideError::from)?
         .ok_or_else(|| {
             CarbideError::GenericError(format!(
-                "Instance not found for {} after update",
+                "Instance on Machine {} can be converted from snapshot",
                 machine_id
             ))
         })
