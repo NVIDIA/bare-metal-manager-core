@@ -57,7 +57,9 @@ use carbide::{
     },
 };
 use chrono::Duration;
-use forge_secrets::credentials::{CredentialKey, CredentialProvider, CredentialType, Credentials};
+use forge_secrets::credentials::{
+    CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
+};
 use ipnetwork::IpNetwork;
 use rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
@@ -72,7 +74,6 @@ use crate::common::{
     },
     mac_address_pool,
     test_certificates::TestCertificateProvider,
-    test_credentials::TestCredentialProvider,
     test_meter::TestMeter,
 };
 
@@ -501,7 +502,7 @@ pub async fn create_test_env_with_config(
 ) -> TestEnv {
     let db_pool = create_pool(db_pool).await;
     let test_meter = TestMeter::default();
-    let credential_provider = Arc::new(TestCredentialProvider::new());
+    let credential_provider = Arc::new(TestCredentialProvider::default());
     populate_default_credentials(credential_provider.as_ref()).await;
     let certificate_provider = Arc::new(TestCertificateProvider::new());
     let redfish_sim = Arc::new(RedfishSim::default());

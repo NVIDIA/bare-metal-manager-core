@@ -232,6 +232,7 @@ dependencies = [
  "forge-host-support",
  "forge-tls",
  "forge-version",
+ "forge_secrets",
  "http 0.2.12",
  "ipnetwork",
  "lazy_static",

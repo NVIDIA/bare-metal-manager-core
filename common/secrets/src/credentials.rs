@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use mac_address::MacAddress;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tokio::sync::Mutex;
 
 const PASSWORD_LEN: usize = 16;
 
@@ -73,7 +75,6 @@ impl Credentials {
 }
 
 #[async_trait]
-///
 /// Abstract over a credentials provider that functions as a kv map between "key" -> "cred"
 pub trait CredentialProvider: Send + Sync {
     // TODO: Should this take CredentialKey by ref? It's not Copy
@@ -83,6 +84,47 @@ pub trait CredentialProvider: Send + Sync {
         key: CredentialKey,
         credentials: Credentials,
     ) -> Result<(), eyre::Report>;
+}
+
+#[derive(Debug, Default)]
+pub struct TestCredentialProvider {
+    credentials: Mutex<HashMap<String, Credentials>>,
+    fallback_credentials: Option<Credentials>,
+}
+
+impl TestCredentialProvider {
+    /// Construct a TestCredentialProvider which falls back on a default set of credentials if we
+    /// can't find matching ones set via set_credentials()
+    pub fn new(fallback_credentials: Credentials) -> Self {
+        Self {
+            credentials: Mutex::new(HashMap::new()),
+            fallback_credentials: Some(fallback_credentials),
+        }
+    }
+}
+
+#[async_trait]
+impl CredentialProvider for TestCredentialProvider {
+    async fn get_credentials(&self, key: CredentialKey) -> Result<Credentials, eyre::Report> {
+        let credentials = self.credentials.lock().await;
+        let cred = credentials
+            .get(key.to_key_str().as_str())
+            .or(self.fallback_credentials.as_ref())
+            .ok_or_else(|| eyre::eyre!("missing key in test credentials provider"))?;
+
+        Ok(cred.clone())
+    }
+
+    async fn set_credentials(
+        &self,
+        key: CredentialKey,
+        credentials: Credentials,
+    ) -> Result<(), eyre::Report> {
+        let mut data = self.credentials.lock().await;
+        let _ = data.insert(key.to_key_str(), credentials);
+
+        Ok(())
+    }
 }
 
 #[allow(clippy::enum_variant_names)]
