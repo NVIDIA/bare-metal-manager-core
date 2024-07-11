@@ -134,8 +134,16 @@ pub async fn send_pxe_boot_request(
     } else {
         let url = format!(
             "http://{}:{}/api/v0/pxe/boot?uuid={}&buildarch={}",
-            app_context.app_config.pxe_server_host,
-            app_context.app_config.pxe_server_port,
+            app_context
+                .app_config
+                .pxe_server_host
+                .as_ref()
+                .expect("Config error: use_pxe_api is false but pxe_server_host is not set"),
+            app_context
+                .app_config
+                .pxe_server_port
+                .as_ref()
+                .expect("Config error: use_pxe_api is false but pxe_server_port is not set"),
             interface_id,
             match arch {
                 MachineArchitecture::X86 => "x86_64",

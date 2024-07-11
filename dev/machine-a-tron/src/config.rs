@@ -38,6 +38,7 @@ pub struct MachineConfig {
     pub boot_delay: u32,
     pub dpu_reboot_delay: u64,  // in units of seconds
     pub host_reboot_delay: u64, // in units of seconds
+    #[serde(default = "default_template_dir")]
     pub template_dir: String,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
@@ -50,21 +51,25 @@ pub struct MachineATronConfig {
     pub carbide_api_url: Option<String>,
     pub log_file: Option<String>,
     pub interface: String,
+    #[serde(default = "default_true")]
     pub tui_enabled: bool,
 
+    #[serde(default = "default_true")]
     pub use_dhcp_api: bool,
-    pub dhcp_server_address: String,
+    pub dhcp_server_address: Option<String>,
 
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
+    #[serde(default = "default_false")]
     pub bmc_mock_dynamic_ports: bool,
     #[serde(default = "default_bmc_mock_host_tar")]
     pub bmc_mock_host_tar: String,
     #[serde(default = "default_bmc_mock_dpu_tar")]
     pub bmc_mock_dpu_tar: String,
+    #[serde(default = "default_false")]
     pub use_pxe_api: bool,
-    pub pxe_server_host: String,
-    pub pxe_server_port: String,
+    pub pxe_server_host: Option<String>,
+    pub pxe_server_port: Option<String>,
     pub sudo_command: Option<String>,
 }
 
@@ -76,6 +81,18 @@ fn default_bmc_mock_host_tar() -> String {
 }
 fn default_bmc_mock_dpu_tar() -> String {
     String::from("dev/bmc-mock/nvidia_dpu.tar.gz")
+}
+
+fn default_template_dir() -> String {
+    String::from("dev/machine-a-tron/templates")
+}
+
+fn default_false() -> bool {
+    false
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone)]

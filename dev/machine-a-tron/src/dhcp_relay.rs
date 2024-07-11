@@ -474,7 +474,6 @@ impl DhcpRelayService {
         udp_socket: &tokio::net::UdpSocket,
         request_info: DhcpRequestInfo,
     ) -> DhcpRelayResult {
-        let dest_ip = self.app_config.dhcp_server_address.clone() + ":10067";
         let server_address = request_info.server_address.ok_or_else(|| {
             DhcpRelayError::InvalidDhcpRecord("missing server address".to_string())
         })?;
@@ -524,7 +523,7 @@ impl DhcpRelayService {
         let mut buf = Vec::default();
         let mut e = Encoder::new(&mut buf);
         msg.encode(&mut e)?;
-        udp_socket.send_to(&buf, dest_ip).await?;
+        udp_socket.send_to(&buf, self.dest_ip()).await?;
         Ok(())
     }
 
@@ -533,7 +532,6 @@ impl DhcpRelayService {
         udp_socket: &tokio::net::UdpSocket,
         request_info: &mut DhcpRequestInfo,
     ) -> DhcpRelayResult {
-        let dest_ip = self.app_config.dhcp_server_address.clone() + ":10067";
         let xid = request_info.xid.unwrap_or_else(|| {
             let xid = NEXT_XID.fetch_add(1, Ordering::Acquire);
             request_info.xid = Some(xid);
@@ -581,8 +579,16 @@ impl DhcpRelayService {
         let mut buf = Vec::default();
         let mut e = Encoder::new(&mut buf);
         msg.encode(&mut e)?;
-        udp_socket.send_to(&buf, dest_ip).await?;
+        udp_socket.send_to(&buf, self.dest_ip()).await?;
         Ok(())
+    }
+
+    fn dest_ip(&self) -> String {
+        self.app_config
+            .dhcp_server_address
+            .clone()
+            .expect("Config error: use_dhcp_api is false but dhcp_server_address is not set")
+            + ":10067"
     }
 }
 

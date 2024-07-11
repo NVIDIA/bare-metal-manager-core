@@ -258,12 +258,12 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
             root_dir.to_string_lossy()
         ),
         use_pxe_api: true,
+        pxe_server_host: None,
+        pxe_server_port: None,
         bmc_mock_dynamic_ports: true,
-        pxe_server_host: String::from("UNUSED"), // unused, we're using pxe_api
-        pxe_server_port: String::from("UNUSED"), // unused, we're using pxe_api
-        bmc_mock_port: 0,                        // unused, we're using dynamic ports on localhost
-        dhcp_server_address: String::from("UNUSED"), // unused, we're using dhcp API
-        interface: String::from("UNUSED"),       // unused, we're using dynamic ports on localhost
+        bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
+        dhcp_server_address: None,
+        interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
         sudo_command: None,
         use_dhcp_api: true,

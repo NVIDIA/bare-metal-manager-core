@@ -595,17 +595,18 @@ impl HostMachine {
         } else {
             Ok(false)
         }?;
-
-        if let Some(ui_event_tx) = self.ui_event_tx.as_ref() {
-            if work_done {
-                let details = HostDetails::from(self as &HostMachine);
-                _ = ui_event_tx
-                    .send(UiEvent::MachineUpdate(details))
-                    .await
-                    .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
-            }
-        }
         Ok(work_done)
+    }
+
+    pub async fn update_tui(&self) {
+        let Some(ui_event_tx) = self.ui_event_tx.as_ref() else {
+            return;
+        };
+        let details = HostDetails::from(self as &HostMachine);
+        _ = ui_event_tx
+            .send(UiEvent::MachineUpdate(details))
+            .await
+            .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
     }
 
     pub fn get_machine_id(&self) -> Result<rpc::common::MachineId, MachineStateError> {
