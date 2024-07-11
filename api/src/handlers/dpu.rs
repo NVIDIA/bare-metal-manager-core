@@ -17,6 +17,7 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_machine_id, log_request_data, Api};
+use crate::db;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::{Instance, InstanceId};
 use crate::db::machine::{Machine, MachineSearchConfig};
@@ -30,7 +31,6 @@ use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::model::machine::network::MachineNetworkStatusObservation;
 use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::RpcDataConversionError;
-use crate::state_controller::snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader};
 use crate::{ethernet_virtualization, CarbideError};
 
 /// vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
@@ -52,7 +52,6 @@ pub(crate) async fn get_managed_host_network_config(
     };
     log_machine_id(&dpu_machine_id);
 
-    let loader = DbSnapshotLoader {};
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
@@ -62,8 +61,7 @@ pub(crate) async fn get_managed_host_network_config(
         ))
     })?;
 
-    let snapshot = loader
-        .load_machine_snapshot(&mut txn, &dpu_machine_id)
+    let snapshot = db::managed_host::load_snapshot(&mut txn, &dpu_machine_id)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {

@@ -16,6 +16,7 @@ use config_version::{ConfigVersion, Versioned};
 
 use crate::{
     db::{
+        self,
         machine::{Machine, MachineSearchConfig},
         DatabaseError,
     },
@@ -29,15 +30,12 @@ use crate::{
     state_controller::{
         io::StateControllerIO,
         machine::{context::MachineStateHandlerContextObjects, metrics::MachineMetricsEmitter},
-        snapshot_loader::{DbSnapshotLoader, MachineStateSnapshotLoader},
     },
 };
 
 /// State Controller IO implementation for Machines
 #[derive(Default, Debug)]
-pub struct MachineStateControllerIO {
-    snapshot_loader: DbSnapshotLoader,
-}
+pub struct MachineStateControllerIO {}
 
 #[async_trait::async_trait]
 impl StateControllerIO for MachineStateControllerIO {
@@ -75,9 +73,7 @@ impl StateControllerIO for MachineStateControllerIO {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        self.snapshot_loader
-            .load_machine_snapshot(txn, machine_id)
-            .await
+        db::managed_host::load_snapshot(txn, machine_id).await
     }
 
     async fn load_controller_state(

@@ -412,13 +412,6 @@ impl Instance {
         Ok(instance)
     }
 
-    pub async fn load_snapshot_by_machine_id(
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-        machine_id: &MachineId,
-    ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-        Self::find_by_machine_id(txn, machine_id).await
-    }
-
     pub async fn find_id_by_machine_id(
         txn: &mut sqlx::Transaction<'_, Postgres>,
         machine_id: &MachineId,

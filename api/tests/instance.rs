@@ -826,7 +826,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     // When no network status has been observed, we report an interface
     // list with no IPs and MACs to the user
-    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
+    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -852,7 +852,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .await
         .unwrap();
 
-    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
+    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -898,7 +898,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .await
         .unwrap();
 
-    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
+    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -947,7 +947,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     .fetch_one(&mut *txn)
     .await
     .unwrap();
-    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
+    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();
@@ -1002,7 +1002,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     Instance::update_network_status_observation(&mut txn, instance_id, &updated_network_status)
         .await
         .unwrap();
-    let snapshot = Instance::load_snapshot_by_machine_id(&mut txn, &host_machine_id)
+    let snapshot = Instance::find_by_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap()
         .unwrap();

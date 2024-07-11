@@ -38,8 +38,9 @@ use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    FailureDetails, MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineState,
-    ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    CurrentMachineState, FailureDetails, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineSnapshot, MachineState, ManagedHostState,
+    ReprovisionRequest, UpgradeDecision,
 };
 use crate::resource_pool::common::CommonPools;
 use crate::{resource_pool, CarbideError, CarbideResult};
@@ -255,6 +256,51 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             cleanup_machine_validation_id: row.try_get("cleanup_machine_validation_id")?,
         })
     }
+}
+
+impl From<Machine> for MachineSnapshot {
+    fn from(machine: Machine) -> Self {
+        MachineSnapshot {
+            machine_id: machine.id().clone(),
+            bmc_info: machine.bmc_info().clone(),
+            bmc_vendor: machine.bmc_vendor(),
+            hardware_info: machine.hardware_info().cloned(),
+            inventory: machine.inventory().cloned().unwrap_or_default(),
+            network_config: machine.network_config().clone(),
+            interfaces: interface_to_snapshot(machine.interfaces()),
+            network_status_observation: machine.network_status_observation().cloned(),
+            current: CurrentMachineState {
+                state: machine.current_state(),
+                version: machine.current_version(),
+            },
+            last_discovery_time: machine.last_discovery_time(),
+            last_reboot_time: machine.last_reboot_time(),
+            last_cleanup_time: machine.last_cleanup_time(),
+            maintenance_reference: machine.maintenance_reference(),
+            maintenance_start_time: machine.maintenance_start_time(),
+            failure_details: machine.failure_details(),
+            reprovision_requested: machine.reprovisioning_requested(),
+            last_reboot_requested: machine.last_reboot_requested(),
+            bios_password_set_time: machine.bios_password_set_time(),
+            last_machine_validation_time: machine.last_machine_validation_time(),
+            discovery_machine_validation_id: machine.discovery_machine_validation_id(),
+            cleanup_machine_validation_id: machine.cleanup_machine_validation_id(),
+            reprovisioning_requested: machine.reprovisioning_requested().clone(),
+        }
+    }
+}
+
+fn interface_to_snapshot(interfaces: &[MachineInterface]) -> Vec<MachineInterfaceSnapshot> {
+    let mut out = Vec::new();
+    for iface in interfaces {
+        out.push(MachineInterfaceSnapshot {
+            id: iface.id,
+            hostname: iface.hostname().to_string(),
+            is_primary: iface.primary_interface(),
+            mac_address: iface.mac_address.to_string(),
+        });
+    }
+    out
 }
 
 /// A wrapper around `MachineId` that implements `sqlx::Decode` and `sqlx::FromRow`

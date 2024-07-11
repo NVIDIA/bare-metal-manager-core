@@ -30,6 +30,7 @@ pub mod machine_interface_address;
 pub mod machine_state_history;
 pub mod machine_topology;
 pub mod machine_validation;
+pub mod managed_host;
 pub mod migrations;
 pub mod network_devices;
 pub mod network_prefix;
