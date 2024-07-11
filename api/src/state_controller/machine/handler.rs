@@ -1595,14 +1595,17 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 }
 
-                if let Err(e) = dpu_redfish_client.forge_setup().await {
-                    tracing::error!(%e, "Failed to run forge_setup call");
-                    return Err(StateHandlerError::RedfishError {
-                        operation: "forge_setup",
-                        error: e,
-                    });
-                }
-
+                //
+                // The Redfish calls here MUST be available without assistance from UEFI.
+                //
+                // On a newly reset DPU/BMC or brand new device, UEFI, nor the OS on the ARM cores may not
+                // have booted yet.
+                //
+                // Any redfish here that relies on UEFI having POSTed will fail.
+                //
+                //
+                // Disabling SecureBoot is required for iPXE to boot.
+                //
                 if let Err(e) = dpu_redfish_client.disable_secure_boot().await {
                     tracing::error!(%e, "Failed to run disable_secure_boot call");
                     return Err(StateHandlerError::RedfishError {
@@ -1611,77 +1614,25 @@ impl StateHandler for DpuMachineStateHandler {
                     });
                 }
 
-                // If we have OOB mac - set explicitly to boot from OOB mac,
-                // otherwise set boot to HttpBoot
-                if let Some(oob_mac) = state.dpu_snapshots[0]
-                    .hardware_info
-                    .as_ref()
-                    .and_then(|h| h.network_interfaces.first().map(|n| n.mac_address.clone()))
-                {
-                    let oob_boot_pattern = format!(
-                        "UEFI HTTPv4 (MAC:{})",
-                        oob_mac.replace(':', "").to_uppercase()
-                    );
-                    let boot_order = dpu_redfish_client
-                        .get_system()
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "get_system",
-                            error: e,
-                        })
-                        .await?
-                        .boot
-                        .boot_order;
+                // This configures the DPU to boot once from UEFI HTTP.
+                //
+                // NOTE: since we don't have interface names yet (see comment about UEFI not
+                // guaranteed to have POSTed), it will loop through all the interfaces between
+                // IPv4, IPv6 so it may take a while.
+                //
+                dpu_redfish_client
+                    .boot_once(Boot::UefiHttp)
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "boot_once",
+                        error: e,
+                    })
+                    .await?;
 
-                    let mut new_boot_order: Vec<String> = Vec::new();
-                    let mut found = false;
-
-                    for member in boot_order {
-                        let b = dpu_redfish_client
-                            .get_boot_option(member.as_str())
-                            .map_err(|e| StateHandlerError::RedfishError {
-                                operation: "get_boot_option",
-                                error: e,
-                            })
-                            .await?;
-                        if b.display_name
-                            .to_uppercase()
-                            .starts_with(oob_boot_pattern.as_str())
-                        {
-                            found = true;
-                            new_boot_order.insert(0, b.id);
-                        } else {
-                            new_boot_order.push(b.id);
-                        }
-                    }
-
-                    // If we couldn't find boot order by patter, still try to boot from UEFI http.
-                    if !found {
-                        dpu_redfish_client
-                            .boot_once(Boot::UefiHttp)
-                            .map_err(|e| StateHandlerError::RedfishError {
-                                operation: "boot_once",
-                                error: e,
-                            })
-                            .await?;
-                    } else {
-                        dpu_redfish_client
-                            .change_boot_order(new_boot_order)
-                            .map_err(|e| StateHandlerError::RedfishError {
-                                operation: "change_boot_order",
-                                error: e,
-                            })
-                            .await?;
-                    }
-                } else {
-                    dpu_redfish_client
-                        .boot_once(Boot::UefiHttp)
-                        .map_err(|e| StateHandlerError::RedfishError {
-                            operation: "boot_once",
-                            error: e,
-                        })
-                        .await?;
-                }
-
+                //
+                // Next just do a ForceRestart to netboot without secureboot.
+                //
+                // This will kick off the ARM OS install since we move to DPU/Init next.
+                //
                 if let Err(e) = dpu_redfish_client
                     .power(SystemPowerControl::ForceRestart)
                     .await
@@ -1809,6 +1760,14 @@ impl StateHandler for DpuMachineStateHandler {
                         )))
                     }
                 };
+
+                if let Err(e) = dpu_redfish_client.forge_setup().await {
+                    tracing::error!(%e, "Failed to run forge_setup call");
+                    return Err(StateHandlerError::RedfishError {
+                        operation: "forge_setup",
+                        error: e,
+                    });
+                }
 
                 if let Err(e) = ctx
                     .services
