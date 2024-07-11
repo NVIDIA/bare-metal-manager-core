@@ -257,9 +257,17 @@ async fn one_endpoint(
             task_id,
             final_version,
             upgrade_type,
+            rebooted,
         } => {
             static_info
-                .in_upgrade_firmware_wait(&mut txn, &endpoint, task_id, final_version, upgrade_type)
+                .in_upgrade_firmware_wait(
+                    &mut txn,
+                    &endpoint,
+                    task_id,
+                    final_version,
+                    upgrade_type,
+                    rebooted,
+                )
                 .await?;
             false
         }
@@ -512,6 +520,7 @@ impl PreingestionManagerStatic {
         task_id: &str,
         final_version: &str,
         upgrade_type: &FirmwareHostComponentType,
+        rebooted: &bool,
     ) -> DatabaseResult<()> {
         let redfish_client = match self
             .redfish_client_pool
@@ -563,30 +572,39 @@ impl PreingestionManagerStatic {
                                         txn,
                                     )
                                     .await?;
-                                    //  If this is the UEFI, we need to request a reset.  Otherwise, we just need to wait a bit.
-                                    match *upgrade_type {
-                                        FirmwareHostComponentType::Uefi => {
-                                            tracing::info!(
-                                                "Upgrade task has completed for {} but needs reboot",
+                                    // If this is the UEFI, we need to request a reboot if we haven't before.  Otherwise, we just need to keep waiting.
+                                    // The version reported doesn't update until the end of the UEFI portion of the boot, which can be quite a wait.
+                                    if !rebooted && *upgrade_type == FirmwareHostComponentType::Uefi
+                                    {
+                                        tracing::info!(
+                                                "Upgrade task has completed for {} but needs reboot, initiating one",
                                                 &endpoint.address
                                             );
-                                            match redfish_client
-                                                .power(SystemPowerControl::ForceRestart)
-                                                .await
-                                            {
-                                                Ok(()) => {}
-                                                Err(e) => {
-                                                    tracing::error!(
-                                                        "Failed to reboot {}: {e}",
-                                                        &endpoint.address
-                                                    )
-                                                }
+                                        match redfish_client
+                                            .power(SystemPowerControl::ForceRestart)
+                                            .await
+                                        {
+                                            Ok(()) => {}
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    "Failed to reboot {}: {e}",
+                                                    &endpoint.address
+                                                );
+                                                return Ok(());
                                             }
                                         }
-                                        _ => {
-                                            tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
-                                        }
+                                        // Same state but with the rebooted flag set, it can take a long itme to reboot in some cases so we do not retry.
+                                        DbExploredEndpoint::set_preingestion_waittask(
+                                            endpoint.address,
+                                            task_id.to_string(),
+                                            final_version,
+                                            upgrade_type,
+                                            true,
+                                            txn,
+                                        )
+                                        .await?;
                                     }
+                                    tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
                                     return Ok(());
                                 }
                                 // The case where we did match the versions is the sole path where we do not need to wait for site explorer to refresh the info.
@@ -803,6 +821,7 @@ async fn initiate_update(
         task,
         &to_install.version,
         firmware_type,
+        false,
         txn,
     )
     .await?;

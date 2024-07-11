@@ -111,6 +111,7 @@ async fn test_preingestion_bmc_upgrade(
             task_id,
             final_version,
             upgrade_type,
+            ..
         } => {
             println!("Waiting on {task_id} {upgrade_type:?} {final_version}");
         }
