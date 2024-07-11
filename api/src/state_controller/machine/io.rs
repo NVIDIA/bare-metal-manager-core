@@ -115,6 +115,7 @@ impl StateControllerIO for MachineStateControllerIO {
             match machine_state {
                 MachineState::Init => "init",
                 MachineState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
+                MachineState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
                 MachineState::WaitingForNetworkInstall => "waitingfornetworkinstall",
                 MachineState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 MachineState::UefiSetup { .. } => "uefisetup",

@@ -192,7 +192,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         4,
         &mut txn,
         ManagedHostState::DPUNotReady {
-            machine_state: carbide::model::machine::MachineState::WaitingForNetworkInstall,
+            machine_state: carbide::model::machine::MachineState::WaitingForNetworkConfig,
         },
     )
     .await;

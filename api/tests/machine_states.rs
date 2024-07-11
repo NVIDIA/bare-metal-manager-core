@@ -67,7 +67,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
             1,
         ),
         (
-            r#"{state="dpunotready",substate="waitingfornetworkinstall"}"#,
+            r#"{state="dpunotready",substate="waitingforplatformconfiguration"}"#,
             1,
         ),
         (r#"{state="hostnotready",substate="discovered"}"#, 1),
@@ -104,7 +104,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
             1,
         ),
         (
-            "{state=\"dpunotready\",substate=\"waitingfornetworkinstall\"}",
+            "{state=\"dpunotready\",substate=\"waitingforplatformconfiguration\"}",
             1,
         ),
         ("{state=\"hostnotready\",substate=\"discovered\"}", 1),
@@ -556,43 +556,6 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     let (dpu_machine_id, _host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(&env, host_config).await;
 
-    // Setup code did Transition to WaitingForNetworkInstall
-    let mut txn = env.pool.begin().await.unwrap();
-    let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
-    txn.rollback().await.unwrap();
-    assert!(matches!(
-        host_machine.current_state(),
-        ManagedHostState::DPUNotReady {
-            machine_state: MachineState::WaitingForNetworkInstall
-        }
-    ));
-    assert!(
-        matches!(
-            host_machine.current_state_iteration_outcome(),
-            Some(PersistentStateHandlerOutcome::Transition)
-        ),
-        "Machine should have just transitioned into WaitingForNetworkInstall"
-    );
-
-    // Scout does it's thing
-
-    let _ = forge_agent_control(&env, dpu_machine_id.to_string().into()).await;
-
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        default_dpu_models(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
-
-    // Transition to WaitingForNetworkConfig
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
     let mut txn = env.pool.begin().await.unwrap();
     let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
@@ -610,7 +573,20 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
             host_machine.current_state_iteration_outcome(),
             Some(PersistentStateHandlerOutcome::Transition)
         ),
-        "Second state controller iteration should also change state"
+        "Machine should have just transitioned into WaitingForNetworkConfig"
+    );
+
+    // Scout does it's thing
+
+    let _ = forge_agent_control(&env, dpu_machine_id.to_string().into()).await;
+
+    let handler = MachineStateHandler::new(
+        chrono::Duration::minutes(5),
+        true,
+        true,
+        default_dpu_models(),
+        env.reachability_params,
+        env.attestation_enabled,
     );
 
     // Now we're stuck waiting for DPU agent to run

@@ -15,7 +15,7 @@ use std::{net::SocketAddr, thread, time};
 use crate::grpcurl::{grpcurl, grpcurl_for};
 
 // This is set by Site Explorer so we populate it here
-const BMC_CREDENTIALS55: &str = r#"{
+pub const BMC_CREDENTIALS55: &str = r#"{
   "credential_type": 8,
   "username": "admin",
   "password": "notforprod",
@@ -28,7 +28,7 @@ const BMC_CREDENTIALS66: &str = r#"{
   "mac_address": "00:11:22:33:44:66"
 }"#;
 
-const BMC_METADATA: &str = r#"{
+pub const BMC_METADATA: &str = r#"{
   "machine_id": {
     "id": "$HOST_MACHINE_ID"
   },
@@ -79,7 +79,7 @@ pub fn bootstrap(addr: SocketAddr) -> eyre::Result<String> {
     Ok(host_machine_id)
 }
 
-fn discover_dhcp(addr: SocketAddr) -> eyre::Result<(String, String)> {
+pub fn discover_dhcp(addr: SocketAddr) -> eyre::Result<(String, String)> {
     // Find the admin network segment's circuit id
     let resp = grpcurl::<&str>(addr, "FindNetworkSegments", None)?;
     let response: serde_json::Value = serde_json::from_str(&resp)?;

@@ -30,6 +30,7 @@ use libredfish::{
     },
     Chassis, Endpoint, JobState, PowerState, Redfish, RedfishError, RoleId, SystemPowerControl,
 };
+use mac_address::MacAddress;
 
 use crate::{
     db::{machine::Machine, machine_interface::MachineInterface},
@@ -85,6 +86,12 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         port: Option<u16>,
         auth: RedfishAuth,
         initialize: bool, // fetch some initial values like system id and manager id
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
+
+    async fn create_client_from_machine_snapshot(
+        &self,
+        target: &MachineSnapshot,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 
     async fn create_client_with_custom_headers(
@@ -277,6 +284,52 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         }
     }
 
+    async fn create_client_from_machine_snapshot(
+        &self,
+        target: &MachineSnapshot,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        let machine_id = &target.machine_id;
+
+        let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
+            RedfishClientCreationError::MissingBmcEndpoint(format!(
+                "BMC Endpoint Information (bmc_info.ip) is missing for {}",
+                machine_id
+            ))
+        })?;
+
+        let ip = maybe_ip.parse().map_err(|_| {
+            RedfishClientCreationError::InvalidArgument(
+                format!("Invalid IP address for {}", machine_id),
+                maybe_ip.into(),
+            )
+        })?;
+
+        let machine_interface_target =
+            MachineInterface::find_by_ip(txn, ip)
+                .await?
+                .ok_or_else(|| {
+                    RedfishClientCreationError::MissingArgument(format!(
+                        "Machine Interface for IP address: {}",
+                        ip
+                    ))
+                })?;
+
+        self.create_client(
+            ip.to_string().as_str(),
+            target.bmc_info.port,
+            RedfishAuth::Key(CredentialKey::BmcCredentials {
+                // TODO(ajf): Change this to Forge Admin user once site explorer
+                // ensures it exist, credentials are done by mac address
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: machine_interface_target.mac_address,
+                },
+            }),
+            true,
+        )
+        .await
+    }
+
     async fn create_forge_admin_user(
         &self,
         client: &dyn Redfish,
@@ -320,18 +373,35 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         client: &dyn Redfish,
         dpu: bool,
     ) -> Result<Option<String>, RedfishClientCreationError> {
-        let mut job_id = None;
         let bios_attrs = client
             .bios()
             .await
             .map_err(RedfishClientCreationError::RedfishError)?;
-        // If the attribute field is empty we couldn't change a UEFI password.
-        if bios_attrs
-            .get("Attributes")
-            .map_or(true, |v| v.as_object().is_none())
-        {
-            tracing::warn!("Bios attributes don't have CurrentUefiPassword.");
-            return Ok(job_id);
+
+        //
+        // This should be changed to be an actual failure once we make it this far since we don't
+        // want to leave machines lying around in the datacenter without UEFI credentials.
+        //
+        // But adding logs here so that we know when it happens
+        //
+        match bios_attrs.get("Attributes") {
+            None => {
+                tracing::warn!("BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting");
+                return Ok(None);
+            }
+            Some(attrs) => match attrs.as_object() {
+                None => {
+                    tracing::warn!("BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting");
+                    return Ok(None);
+                }
+                Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
+                    tracing::warn!("BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting");
+                    return Ok(None);
+                }
+                _ => {
+                    tracing::info!("BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting");
+                }
+            },
         }
 
         let mut current_password = String::new();
@@ -390,12 +460,10 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             };
         }
 
-        job_id = client
+        client
             .change_uefi_password(current_password.as_str(), new_password.as_str())
             .await
-            .map_err(RedfishClientCreationError::RedfishError)?;
-
-        Ok(job_id)
+            .map_err(RedfishClientCreationError::RedfishError)
     }
 }
 
@@ -964,6 +1032,24 @@ impl RedfishClientPool for RedfishSim {
         }))
     }
 
+    async fn create_client_from_machine_snapshot(
+        &self,
+        _target: &MachineSnapshot,
+        _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        self.create_client(
+            "fake",
+            Some(443),
+            RedfishAuth::Key(CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: MacAddress::default(),
+                },
+            }),
+            true,
+        )
+        .await
+    }
+
     async fn create_forge_admin_user(
         &self,
         client: &dyn Redfish,
@@ -1111,54 +1197,6 @@ pub async fn poll_redfish_job(
     }
 
     Ok(true)
-}
-
-pub async fn build_redfish_client_from_machine_snapshot(
-    target: &MachineSnapshot,
-    pool: &Arc<dyn RedfishClientPool>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-    let machine_id = &target.machine_id;
-
-    let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
-        RedfishClientCreationError::MissingBmcEndpoint(format!(
-            "BMC Endpoint Information (bmc_info.ip) is missing for {}",
-            machine_id
-        ))
-    })?;
-
-    let ip = maybe_ip.parse().map_err(|_| {
-        RedfishClientCreationError::InvalidArgument(
-            format!("Invalid IP address for {}", machine_id),
-            maybe_ip.into(),
-        )
-    })?;
-
-    let machine_interface_target =
-        MachineInterface::find_by_ip(txn, ip)
-            .await?
-            .ok_or_else(|| {
-                RedfishClientCreationError::MissingArgument(format!(
-                    "Machine Interface for IP address: {}",
-                    ip
-                ))
-            })?;
-
-    (*pool)
-        .clone()
-        .create_client(
-            ip.to_string().as_str(),
-            target.bmc_info.port,
-            RedfishAuth::Key(CredentialKey::BmcCredentials {
-                // TODO(ajf): Change this to Forge Admin user once site explorer
-                // ensures it exist, credentials are done by mac address
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: machine_interface_target.mac_address,
-                },
-            }),
-            true,
-        )
-        .await
 }
 
 #[cfg(test)]

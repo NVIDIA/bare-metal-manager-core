@@ -166,9 +166,6 @@ exit ||
 
             match &machine.current_state() {
                 ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::WaitingForNetworkInstall,
-                }
-                | ManagedHostState::DPUNotReady {
                     machine_state: MachineState::Init,
                 } => {
                     return Ok(PxeInstructions::get_pxe_instruction_for_arch(
