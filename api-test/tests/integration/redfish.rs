@@ -11,12 +11,12 @@
  */
 
 use async_trait::async_trait;
-use carbide::model::machine::MachineSnapshot;
 use carbide::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+use forge_secrets::credentials::{CredentialProvider, Credentials, TestCredentialProvider};
 use http::HeaderName;
 use libredfish::{Endpoint, Redfish};
 use machine_a_tron::host_machine::HostMachine;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::{net::Ipv4Addr, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -68,47 +68,6 @@ impl MachineATronBackedRedfishClientPool {
 
 #[async_trait]
 impl RedfishClientPool for MachineATronBackedRedfishClientPool {
-    async fn create_client(
-        &self,
-        host: &str,
-        port: Option<u16>,
-        auth: RedfishAuth,
-        initialize: bool,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_client_with_custom_headers(host, port, &[], auth, initialize)
-            .await
-    }
-
-    async fn create_client_from_machine_snapshot(
-        &self,
-        target: &MachineSnapshot,
-        _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let machine_id = &target.machine_id;
-
-        let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
-            RedfishClientCreationError::MissingBmcEndpoint(format!(
-                "BMC Endpoint Information (bmc_info.ip) is missing for {}",
-                machine_id
-            ))
-        })?;
-
-        let ip: IpAddr = maybe_ip.parse().map_err(|_| {
-            RedfishClientCreationError::InvalidArgument(
-                format!("Invalid IP address for {}", machine_id),
-                maybe_ip.into(),
-            )
-        })?;
-
-        self.create_client(
-            ip.to_string().as_str(),
-            target.bmc_info.port,
-            RedfishAuth::Anonymous,
-            true,
-        )
-        .await
-    }
-
     /// Create a client, but instead of connecting to the requested ip:port, look for the machine
     /// (or DPU) in the list of machine-a-tron mocks that has that particular IP, and connect to its
     /// BMC mock instead (which may be listening on a different port, to avoid allocating IP's in
@@ -154,19 +113,10 @@ impl RedfishClientPool for MachineATronBackedRedfishClientPool {
             .map_err(RedfishClientCreationError::RedfishError)
     }
 
-    async fn create_forge_admin_user(
-        &self,
-        _client: &dyn Redfish,
-        _machine_id: String,
-    ) -> Result<(), RedfishClientCreationError> {
-        Ok(())
-    }
-
-    async fn uefi_setup(
-        &self,
-        _client: &dyn Redfish,
-        _dpu: bool,
-    ) -> Result<Option<String>, RedfishClientCreationError> {
-        Ok(None)
+    fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
+        Arc::new(TestCredentialProvider::new(Credentials::UsernamePassword {
+            username: "user".to_string(),
+            password: "password".to_string(),
+        }))
     }
 }

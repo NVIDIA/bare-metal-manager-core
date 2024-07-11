@@ -155,34 +155,15 @@ impl IPMITool for IPMIToolTestImpl {
 
 #[cfg(test)]
 mod test {
+    use forge_secrets::credentials::{Credentials, TestCredentialProvider};
     use std::sync::Arc;
-
-    use async_trait::async_trait;
-    use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
-
-    struct TestCredentialProvider {}
-
-    #[async_trait]
-    impl CredentialProvider for TestCredentialProvider {
-        async fn get_credentials(&self, _key: CredentialKey) -> Result<Credentials, eyre::Report> {
-            Ok(Credentials::UsernamePassword {
-                username: "user".to_owned(),
-                password: "password".to_owned(),
-            })
-        }
-
-        async fn set_credentials(
-            &self,
-            _key: CredentialKey,
-            _credentials: Credentials,
-        ) -> Result<(), eyre::Report> {
-            Ok(())
-        }
-    }
 
     #[test]
     pub fn test_ipmitool_new() {
-        let cp = Arc::new(TestCredentialProvider {});
+        let cp = Arc::new(TestCredentialProvider::new(Credentials::UsernamePassword {
+            username: "user".to_string(),
+            password: "password".to_string(),
+        }));
         let tool = super::IPMIToolImpl::new(cp, &Some(1));
 
         assert_eq!(tool.attempts, 1);

@@ -18,9 +18,16 @@ use std::{
     time::Duration,
 };
 
+use crate::{
+    db::{machine::Machine, machine_interface::MachineInterface},
+    ipmitool::IPMITool,
+    model::machine::MachineSnapshot,
+    CarbideError, CarbideResult,
+};
 use async_trait::async_trait;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
+    TestCredentialProvider,
 };
 use http::{header::InvalidHeaderName, HeaderName, StatusCode};
 use libredfish::{
@@ -31,13 +38,6 @@ use libredfish::{
     Chassis, Endpoint, JobState, PowerState, Redfish, RedfishError, RoleId, SystemPowerControl,
 };
 use mac_address::MacAddress;
-
-use crate::{
-    db::{machine::Machine, machine_interface::MachineInterface},
-    ipmitool::IPMITool,
-    model::machine::MachineSnapshot,
-    CarbideError, CarbideResult,
-};
 use tokio::time;
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
@@ -78,22 +78,10 @@ pub enum RedfishAuth {
 /// Create Redfish clients for a certain Redfish BMC endpoint
 #[async_trait]
 pub trait RedfishClientPool: Send + Sync + 'static {
-    /// Creates a new Redfish client for a Machines BMC
-    /// `host` is the IP address or hostname of the BMC
-    async fn create_client(
-        &self,
-        host: &str,
-        port: Option<u16>,
-        auth: RedfishAuth,
-        initialize: bool, // fetch some initial values like system id and manager id
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
+    // MARK: - Required methods
 
-    async fn create_client_from_machine_snapshot(
-        &self,
-        target: &MachineSnapshot,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
-
+    /// Creates a new Redfish client to talk to a given host/port, with optional custom headers to
+    /// send with each request.
     async fn create_client_with_custom_headers(
         &self,
         host: &str,
@@ -103,17 +91,205 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         initialize: bool, // fetch some initial values like system id and manager id
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 
+    /// Returns a CredentialProvider for use in setting credentials in the UEFI/BMC.
+    fn credential_provider(&self) -> Arc<dyn CredentialProvider>;
+
+    // MARK: - Default (helper) methods
+
+    /// Creates a new Redfish client for a Machines BMC
+    /// `host` is the IP address or hostname of the BMC
+    async fn create_client(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        auth: RedfishAuth,
+        initialize: bool, // fetch some initial values like system id and manager id
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        self.create_client_with_custom_headers(host, port, &[], auth, initialize)
+            .await
+    }
+
+    async fn create_client_from_machine_snapshot(
+        &self,
+        target: &MachineSnapshot,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        let machine_id = &target.machine_id;
+
+        let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
+            RedfishClientCreationError::MissingBmcEndpoint(format!(
+                "BMC Endpoint Information (bmc_info.ip) is missing for {}",
+                machine_id
+            ))
+        })?;
+
+        let ip = maybe_ip.parse().map_err(|_| {
+            RedfishClientCreationError::InvalidArgument(
+                format!("Invalid IP address for {}", machine_id),
+                maybe_ip.into(),
+            )
+        })?;
+
+        let machine_interface_target =
+            MachineInterface::find_by_ip(txn, ip)
+                .await?
+                .ok_or_else(|| {
+                    RedfishClientCreationError::MissingArgument(format!(
+                        "Machine Interface for IP address: {}",
+                        ip
+                    ))
+                })?;
+
+        self.create_client(
+            ip.to_string().as_str(),
+            target.bmc_info.port,
+            RedfishAuth::Key(CredentialKey::BmcCredentials {
+                // TODO(ajf): Change this to Forge Admin user once site explorer
+                // ensures it exist, credentials are done by mac address
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: machine_interface_target.mac_address,
+                },
+            }),
+            true,
+        )
+        .await
+    }
+
     async fn create_forge_admin_user(
         &self,
         client: &dyn Redfish,
         machine_id: String,
-    ) -> Result<(), RedfishClientCreationError>;
+    ) -> Result<(), RedfishClientCreationError> {
+        let username = FORGE_DPU_BMC_USERNAME;
+        let password = Credentials::generate_password();
+        let credential_key = CredentialKey::DpuRedfish {
+            credential_type: CredentialType::Machine { machine_id },
+        };
+        self.credential_provider()
+            .set_credentials(
+                credential_key.clone(),
+                Credentials::UsernamePassword {
+                    username: username.to_string(),
+                    password: password.clone(),
+                },
+            )
+            .await
+            .map_err(|cause| RedfishClientCreationError::SetCredentials {
+                key: credential_key.to_key_str(),
+                cause,
+            })?;
+        if let Err(e) = client
+            .create_user(username, password.as_str(), RoleId::Administrator)
+            .await
+        {
+            if e.to_string().to_uppercase().contains("ALREADY EXISTS") {
+                return client
+                    .change_password(username, password.as_str())
+                    .await
+                    .map_err(RedfishClientCreationError::RedfishError);
+            }
+            return Err(RedfishClientCreationError::RedfishError(e));
+        }
+        Ok(())
+    }
 
     async fn uefi_setup(
         &self,
         client: &dyn Redfish,
         dpu: bool,
-    ) -> Result<Option<String>, RedfishClientCreationError>;
+    ) -> Result<Option<String>, RedfishClientCreationError> {
+        let bios_attrs = client
+            .bios()
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        //
+        // This should be changed to be an actual failure once we make it this far since we don't
+        // want to leave machines lying around in the datacenter without UEFI credentials.
+        //
+        // But adding logs here so that we know when it happens
+        //
+        match bios_attrs.get("Attributes") {
+            None => {
+                tracing::warn!("BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting");
+                return Ok(None);
+            }
+            Some(attrs) => match attrs.as_object() {
+                None => {
+                    tracing::warn!("BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting");
+                    return Ok(None);
+                }
+                Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
+                    tracing::warn!("BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting");
+                    return Ok(None);
+                }
+                _ => {
+                    tracing::info!("BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting");
+                }
+            },
+        }
+
+        let mut current_password = String::new();
+        let new_password: String;
+        if dpu {
+            // Replace DPU UEFI default password with site default
+            // default password is taken from DpuUefi:factory_default key
+            // site password is taken from DpuUefi:site_default key
+            //
+            let credentials = self
+                .credential_provider()
+                .get_credentials(CredentialKey::DpuUefi {
+                    credential_type: CredentialType::DpuHardwareDefault,
+                })
+                .await
+                .unwrap_or(Credentials::UsernamePassword {
+                    username: "".to_string(),
+                    password: "bluefield".to_string(),
+                });
+
+            (_, current_password) = match credentials {
+                Credentials::UsernamePassword { username, password } => (username, password),
+            };
+
+            let credential_key = CredentialKey::DpuUefi {
+                credential_type: CredentialType::SiteDefault,
+            };
+            let credentials = self
+                .credential_provider()
+                .get_credentials(credential_key.clone())
+                .await
+                .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                    key: credential_key.to_key_str(),
+                    cause,
+                })?;
+
+            (_, new_password) = match credentials {
+                Credentials::UsernamePassword { username, password } => (username, password),
+            };
+        } else {
+            // the current password is always an empty string for the host uefi
+            let credential_key = CredentialKey::HostUefi {
+                credential_type: CredentialType::SiteDefault,
+            };
+            let credentials = self
+                .credential_provider()
+                .get_credentials(credential_key.clone())
+                .await
+                .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                    key: credential_key.to_key_str(),
+                    cause,
+                })?;
+
+            (_, new_password) = match credentials {
+                Credentials::UsernamePassword { username, password } => (username, password),
+            };
+        }
+
+        client
+            .change_uefi_password(current_password.as_str(), new_password.as_str())
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)
+    }
 }
 
 pub struct RedfishClientPoolImpl {
@@ -188,17 +364,6 @@ impl RedfishClientPoolImpl {
 
 #[async_trait]
 impl RedfishClientPool for RedfishClientPoolImpl {
-    async fn create_client(
-        &self,
-        host: &str,
-        port: Option<u16>,
-        auth: RedfishAuth,
-        initialize: bool,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_client_with_custom_headers(host, port, &Vec::default(), auth, initialize)
-            .await
-    }
-
     async fn create_client_with_custom_headers(
         &self,
         host: &str,
@@ -284,186 +449,8 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         }
     }
 
-    async fn create_client_from_machine_snapshot(
-        &self,
-        target: &MachineSnapshot,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let machine_id = &target.machine_id;
-
-        let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
-            RedfishClientCreationError::MissingBmcEndpoint(format!(
-                "BMC Endpoint Information (bmc_info.ip) is missing for {}",
-                machine_id
-            ))
-        })?;
-
-        let ip = maybe_ip.parse().map_err(|_| {
-            RedfishClientCreationError::InvalidArgument(
-                format!("Invalid IP address for {}", machine_id),
-                maybe_ip.into(),
-            )
-        })?;
-
-        let machine_interface_target =
-            MachineInterface::find_by_ip(txn, ip)
-                .await?
-                .ok_or_else(|| {
-                    RedfishClientCreationError::MissingArgument(format!(
-                        "Machine Interface for IP address: {}",
-                        ip
-                    ))
-                })?;
-
-        self.create_client(
-            ip.to_string().as_str(),
-            target.bmc_info.port,
-            RedfishAuth::Key(CredentialKey::BmcCredentials {
-                // TODO(ajf): Change this to Forge Admin user once site explorer
-                // ensures it exist, credentials are done by mac address
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: machine_interface_target.mac_address,
-                },
-            }),
-            true,
-        )
-        .await
-    }
-
-    async fn create_forge_admin_user(
-        &self,
-        client: &dyn Redfish,
-        machine_id: String,
-    ) -> Result<(), RedfishClientCreationError> {
-        let username = FORGE_DPU_BMC_USERNAME;
-        let password = Credentials::generate_password();
-        let credential_key = CredentialKey::DpuRedfish {
-            credential_type: CredentialType::Machine { machine_id },
-        };
-        self.credential_provider
-            .set_credentials(
-                credential_key.clone(),
-                Credentials::UsernamePassword {
-                    username: username.to_string(),
-                    password: password.clone(),
-                },
-            )
-            .await
-            .map_err(|cause| RedfishClientCreationError::SetCredentials {
-                key: credential_key.to_key_str(),
-                cause,
-            })?;
-        if let Err(e) = client
-            .create_user(username, password.as_str(), RoleId::Administrator)
-            .await
-        {
-            if e.to_string().to_uppercase().contains("ALREADY EXISTS") {
-                return client
-                    .change_password(username, password.as_str())
-                    .await
-                    .map_err(RedfishClientCreationError::RedfishError);
-            }
-            return Err(RedfishClientCreationError::RedfishError(e));
-        }
-        Ok(())
-    }
-
-    async fn uefi_setup(
-        &self,
-        client: &dyn Redfish,
-        dpu: bool,
-    ) -> Result<Option<String>, RedfishClientCreationError> {
-        let bios_attrs = client
-            .bios()
-            .await
-            .map_err(RedfishClientCreationError::RedfishError)?;
-
-        //
-        // This should be changed to be an actual failure once we make it this far since we don't
-        // want to leave machines lying around in the datacenter without UEFI credentials.
-        //
-        // But adding logs here so that we know when it happens
-        //
-        match bios_attrs.get("Attributes") {
-            None => {
-                tracing::warn!("BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting");
-                return Ok(None);
-            }
-            Some(attrs) => match attrs.as_object() {
-                None => {
-                    tracing::warn!("BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting");
-                    return Ok(None);
-                }
-                Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
-                    tracing::warn!("BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting");
-                    return Ok(None);
-                }
-                _ => {
-                    tracing::info!("BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting");
-                }
-            },
-        }
-
-        let mut current_password = String::new();
-        let new_password: String;
-        if dpu {
-            // Replace DPU UEFI default password with site default
-            // default password is taken from DpuUefi:factory_default key
-            // site password is taken from DpuUefi:site_default key
-            //
-            let credentials = self
-                .credential_provider
-                .get_credentials(CredentialKey::DpuUefi {
-                    credential_type: CredentialType::DpuHardwareDefault,
-                })
-                .await
-                .unwrap_or(Credentials::UsernamePassword {
-                    username: "".to_string(),
-                    password: "bluefield".to_string(),
-                });
-
-            (_, current_password) = match credentials {
-                Credentials::UsernamePassword { username, password } => (username, password),
-            };
-
-            let credential_key = CredentialKey::DpuUefi {
-                credential_type: CredentialType::SiteDefault,
-            };
-            let credentials = self
-                .credential_provider
-                .get_credentials(credential_key.clone())
-                .await
-                .map_err(|cause| RedfishClientCreationError::MissingCredentials {
-                    key: credential_key.to_key_str(),
-                    cause,
-                })?;
-
-            (_, new_password) = match credentials {
-                Credentials::UsernamePassword { username, password } => (username, password),
-            };
-        } else {
-            // the current password is always an empty string for the host uefi
-            let credential_key = CredentialKey::HostUefi {
-                credential_type: CredentialType::SiteDefault,
-            };
-            let credentials = self
-                .credential_provider
-                .get_credentials(credential_key.clone())
-                .await
-                .map_err(|cause| RedfishClientCreationError::MissingCredentials {
-                    key: credential_key.to_key_str(),
-                    cause,
-                })?;
-
-            (_, new_password) = match credentials {
-                Credentials::UsernamePassword { username, password } => (username, password),
-            };
-        }
-
-        client
-            .change_uefi_password(current_password.as_str(), new_password.as_str())
-            .await
-            .map_err(RedfishClientCreationError::RedfishError)
+    fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
+        self.credential_provider.clone()
     }
 }
 
@@ -996,16 +983,6 @@ impl Redfish for RedfishSimClient {
 
 #[async_trait]
 impl RedfishClientPool for RedfishSim {
-    async fn create_client(
-        &self,
-        host: &str,
-        port: Option<u16>,
-        auth: RedfishAuth,
-        initialize: bool,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_client_with_custom_headers(host, port, &Vec::default(), auth, initialize)
-            .await
-    }
     async fn create_client_with_custom_headers(
         &self,
         host: &str,
@@ -1032,6 +1009,10 @@ impl RedfishClientPool for RedfishSim {
         }))
     }
 
+    fn credential_provider(&self) -> Arc<dyn CredentialProvider> {
+        Arc::new(TestCredentialProvider::default())
+    }
+
     async fn create_client_from_machine_snapshot(
         &self,
         _target: &MachineSnapshot,
@@ -1048,28 +1029,6 @@ impl RedfishClientPool for RedfishSim {
             true,
         )
         .await
-    }
-
-    async fn create_forge_admin_user(
-        &self,
-        client: &dyn Redfish,
-        _machine_id: String,
-    ) -> Result<(), RedfishClientCreationError> {
-        let username = FORGE_DPU_BMC_USERNAME;
-        let password = Credentials::generate_password();
-        if let Err(e) = client
-            .create_user(username, password.as_str(), RoleId::Administrator)
-            .await
-        {
-            if e.to_string().to_uppercase().contains("ALREADY EXISTS") {
-                return client
-                    .change_password(username, password.as_str())
-                    .await
-                    .map_err(RedfishClientCreationError::RedfishError);
-            }
-            return Err(RedfishClientCreationError::RedfishError(e));
-        }
-        Ok(())
     }
 
     async fn uefi_setup(
