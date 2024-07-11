@@ -104,6 +104,7 @@ impl MachineATron {
             machine_ids.push(machine.get_machine_id_str());
 
             let join_handle = tokio::spawn(async move {
+                machine.update_tui().await;
                 while running.as_ref().load(Ordering::Relaxed) {
                     let work_done = machine
                         .process_state(&mut dhcp_client_clone)
@@ -111,6 +112,7 @@ impl MachineATron {
                         .inspect_err(|e| tracing::error!("Error processing state: {e}"))
                         .unwrap_or(false);
                     if work_done {
+                        machine.update_tui().await;
                         tokio::time::sleep(Duration::from_secs(5)).await;
                     } else {
                         tokio::time::sleep(Duration::from_secs(30)).await;
