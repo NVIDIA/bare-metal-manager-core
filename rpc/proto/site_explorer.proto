@@ -82,6 +82,7 @@ message ComputerSystem {
     ComputerSystemAttributes attributes = 5;
 
     repeated EthernetInterface ethernet_interfaces = 11;
+    repeated PCIeDevice pcie_devices = 12;
 }
 
 // `Manager` definition. Matches redfish definition
@@ -129,4 +130,22 @@ message Inventory {
     optional string description = 2;
     optional string version = 3;
     optional string release_date = 4;
+}
+
+message PCIeDevice {
+  optional string description = 1;
+  optional string firmware_version = 2;
+  optional string gpu_vendor = 3;
+  optional string id = 4;
+  optional string manufacturer = 5;
+  optional string name = 6;
+  optional string part_number = 7;
+  optional string serial_number = 8;
+  optional SystemStatus status = 9;
+}
+
+message SystemStatus {
+  optional string health = 1;
+  optional string health_rollup = 2;
+  string state = 3;
 }

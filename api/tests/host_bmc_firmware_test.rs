@@ -10,7 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-pub mod common;
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    str::FromStr,
+};
+
+use sqlx::{Postgres, Transaction};
 
 use carbide::{
     db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
@@ -23,11 +28,8 @@ use carbide::{
     },
     preingestion_manager::PreingestionManager,
 };
-use sqlx::{Postgres, Transaction};
-use std::{
-    net::{IpAddr, Ipv4Addr},
-    str::FromStr,
-};
+
+pub mod common;
 
 #[ctor::ctor]
 fn setup() {
@@ -260,6 +262,7 @@ fn build_exploration_report(
             manufacturer: Some(vendor.to_string()),
             serial_number: None,
             attributes: ComputerSystemAttributes { nic_mode: None },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             model: Some(model.to_string()),

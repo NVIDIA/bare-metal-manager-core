@@ -18,6 +18,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use itertools::Itertools;
+use mac_address::MacAddress;
+use tonic::Request;
+
 use carbide::{
     cfg::{default_dpu_models, SiteExplorerConfig},
     db::{
@@ -41,18 +45,13 @@ use carbide::{
     site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
     state_controller::machine::handler::MachineStateHandler,
 };
-use itertools::Itertools;
-use mac_address::MacAddress;
+use common::api_fixtures::TestEnv;
 use rpc::{
     forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
     site_explorer::ExploredDpu as RpcExploredDpu,
     site_explorer::ExploredManagedHost as RpcExploredManagedHost,
     BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
-
-mod common;
-use common::api_fixtures::TestEnv;
-use tonic::Request;
 
 use crate::common::{
     api_fixtures::{
@@ -62,6 +61,7 @@ use crate::common::{
     test_meter::TestMeter,
 };
 
+mod common;
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
@@ -182,6 +182,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                     attributes: ComputerSystemAttributes {
                         nic_mode: Some(NicMode::Dpu),
                     },
+                    pcie_devices: vec![],
                 }],
                 chassis: vec![Chassis {
                     id: "Card1".to_string(),
@@ -452,6 +453,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                     },
                 ],
                 attributes: ComputerSystemAttributes::default(),
+                pcie_devices: vec![],
             }],
             chassis: vec![Chassis {
                 id: "1".to_string(),
@@ -662,6 +664,7 @@ async fn test_site_explorer_creates_managed_host(
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
             },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -1016,6 +1019,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
                 },
+                pcie_devices: vec![],
             }],
             chassis: vec![Chassis {
                 id: "Card1".to_string(),
@@ -1247,6 +1251,7 @@ async fn test_site_explorer_clear_last_known_error(
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
             },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -1469,6 +1474,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
             },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -1622,6 +1628,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
             },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
