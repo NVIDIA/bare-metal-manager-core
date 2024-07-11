@@ -11,11 +11,12 @@
  */
 
 use async_trait::async_trait;
+use carbide::model::machine::MachineSnapshot;
 use carbide::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 use http::HeaderName;
 use libredfish::{Endpoint, Redfish};
 use machine_a_tron::host_machine::HostMachine;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::{net::Ipv4Addr, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -76,6 +77,36 @@ impl RedfishClientPool for MachineATronBackedRedfishClientPool {
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         self.create_client_with_custom_headers(host, port, &[], auth, initialize)
             .await
+    }
+
+    async fn create_client_from_machine_snapshot(
+        &self,
+        target: &MachineSnapshot,
+        _txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        let machine_id = &target.machine_id;
+
+        let maybe_ip = target.bmc_info.ip.as_ref().ok_or_else(|| {
+            RedfishClientCreationError::MissingBmcEndpoint(format!(
+                "BMC Endpoint Information (bmc_info.ip) is missing for {}",
+                machine_id
+            ))
+        })?;
+
+        let ip: IpAddr = maybe_ip.parse().map_err(|_| {
+            RedfishClientCreationError::InvalidArgument(
+                format!("Invalid IP address for {}", machine_id),
+                maybe_ip.into(),
+            )
+        })?;
+
+        self.create_client(
+            ip.to_string().as_str(),
+            target.bmc_info.port,
+            RedfishAuth::Anonymous,
+            true,
+        )
+        .await
     }
 
     /// Create a client, but instead of connecting to the requested ip:port, look for the machine

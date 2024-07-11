@@ -108,7 +108,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     assert_eq!(
         machine.current_state(),
         ManagedHostState::DPUNotReady {
-            machine_state: MachineState::WaitingForNetworkInstall
+            machine_state: MachineState::WaitingForNetworkConfig
         }
     );
 
@@ -118,8 +118,9 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
         rpc::forge::MachineArchitecture::Arm,
     )
     .await;
-    assert_ne!(instructions.pxe_script, "exit".to_string());
-    assert!(instructions.pxe_script.contains("aarch64/carbide.root"));
+
+    assert_eq!(instructions.pxe_script, "exit".to_string());
+    assert!(!instructions.pxe_script.contains("aarch64/carbide.root"));
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]

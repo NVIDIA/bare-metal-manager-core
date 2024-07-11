@@ -53,7 +53,8 @@ const BMC_METADATA: &str = r#"{
       "id": "$HOST_MACHINE_ID"
     },
     "bmc_info": {
-      "ip": "127.0.0.1"
+      "ip": "127.0.0.1",
+      "port": 1266
     },
     "data": [
       {
@@ -84,6 +85,21 @@ pub async fn bootstrap(
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
     grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
 
+    // Complete hack until we affirmatively disable the legacy flow
+    // This is the host that gets it's BMC updated
+    let (_machine_interface_id, address) = crate::host::discover_dhcp(carbide_api_addr)?;
+
+    let host_machine_id = crate::host::discover_machine(carbide_api_addr, address.as_str())?;
+
+    grpcurl(
+        carbide_api_addr,
+        "CreateCredential",
+        Some(crate::host::BMC_CREDENTIALS55),
+    )?;
+    let data = crate::host::BMC_METADATA.replace("$HOST_MACHINE_ID", host_machine_id.as_str());
+    grpcurl(carbide_api_addr, "UpdateBMCMetaData", Some(data))?;
+
+    //
     /* Disabled until firmware fix is released
     wait_for_state(
         carbide_api_addr,

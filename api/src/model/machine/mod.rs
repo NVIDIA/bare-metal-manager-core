@@ -380,9 +380,19 @@ pub enum DpuDiscoveringState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
+pub enum PerformPowerOperation {
+    Off,
+    On,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
 pub enum MachineState {
     Init,
     WaitingForPlatformConfiguration,
+    WaitingForPlatformPowercycle {
+        substate: PerformPowerOperation,
+    },
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
     UefiSetup {

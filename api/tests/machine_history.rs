@@ -45,7 +45,9 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         text_history(machine.history()),
         vec![
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"init\"}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkinstall\"}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformpowercycle\", \"substate\": {\"state\": \"off\"}}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformpowercycle\", \"substate\": {\"state\": \"on\"}}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkconfig\"}}",
             "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
             "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}"]
@@ -134,7 +136,9 @@ async fn test_old_machine_state_history(
         states,
         vec![
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"init\"}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkinstall\"}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformpowercycle\", \"substate\": {\"state\": \"off\"}}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformpowercycle\", \"substate\": {\"state\": \"on\"}}}",
+            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
             "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkconfig\"}}",
             "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
             "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}",
