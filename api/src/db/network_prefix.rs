@@ -164,7 +164,7 @@ impl NetworkPrefix {
         txn: &mut Transaction<'_, Postgres>,
         vpc_id: VpcId,
     ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
-        let query = "SELECT np.* FROM network_prefixes np INNER JOIN network_segments ns ON np.segment_id = ns.id WHERE ns.vpc_id = $1";
+        let query = "SELECT np.* FROM network_prefixes np INNER JOIN network_segments ns ON np.segment_id = ns.id WHERE ns.vpc_id = $1 ORDER BY ns.created";
 
         let prefixes = sqlx::query_as::<_, NetworkPrefix>(query)
             .bind(vpc_id)
