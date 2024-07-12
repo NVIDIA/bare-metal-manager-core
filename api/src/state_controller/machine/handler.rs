@@ -24,13 +24,11 @@ use libredfish::{
 };
 use tokio::fs::File;
 
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
-
 use crate::{
     cfg::{DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel},
     db::{
-        instance::DeleteInstance, machine::Machine, machine_interface::MachineInterface,
-        machine_topology::MachineTopology, machine_validation::MachineValidation,
+        instance::DeleteInstance, machine::Machine, machine_topology::MachineTopology,
+        machine_validation::MachineValidation,
     },
     measured_boot::{
         dto::records::{MeasurementBundleState, MeasurementMachineState},
@@ -2936,46 +2934,31 @@ async fn restart_dpu(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    let maybe_ip =
-        machine_snapshot
-            .bmc_info
-            .ip
-            .clone()
-            .ok_or_else(|| StateHandlerError::MissingData {
-                object_id: machine_snapshot.machine_id.to_string(),
-                missing: "bmc_info.ip",
-            })?;
+    let dpu_redfish_client_result = services
+        .redfish_client_pool
+        .create_client_from_machine_snapshot(machine_snapshot, txn)
+        .await;
 
-    let ip = maybe_ip
-        .parse()
-        .map_err(|_| StateHandlerError::MissingData {
-            object_id: machine_snapshot.machine_id.to_string(),
-            missing: "bmc_info.ip is not an ip address",
-        })?;
-
-    let machine_interface_target =
-        MachineInterface::find_by_ip(txn, ip)
-            .await?
-            .ok_or_else(|| StateHandlerError::MissingData {
-                object_id: machine_snapshot.machine_id.to_string(),
-                missing: "machine interface for bmc_info.ip",
-            })?;
-
-    let credential_key = CredentialKey::BmcCredentials {
-        // TODO(ajf): Change this to Forge Admin user once site explorer
-        // ensures it exist, credentials are done by mac address
-        credential_type: BmcCredentialType::BmcRoot {
-            bmc_mac_address: machine_interface_target.mac_address,
-        },
+    let dpu_redfish_client = match dpu_redfish_client_result {
+        Ok(redfish_client) => redfish_client,
+        Err(e) => {
+            return Err(StateHandlerError::GenericError(eyre::eyre!(
+                "Failed in creating redfish client/restart_dpu: {}",
+                e
+            )));
+        }
     };
 
-    services
-        .ipmi_tool
-        .restart(&machine_snapshot.machine_id, ip, true, credential_key)
+    if let Err(e) = dpu_redfish_client
+        .power(SystemPowerControl::ForceRestart)
         .await
-        .map_err(|e: eyre::ErrReport| {
-            StateHandlerError::GenericError(eyre!("IPMI failed to restart machine: {}", e))
-        })?;
+    {
+        tracing::error!(%e, "Failed to reboot a DPU");
+        return Err(StateHandlerError::RedfishError {
+            operation: "reboot dpu",
+            error: e,
+        });
+    }
 
     Ok(())
 }
