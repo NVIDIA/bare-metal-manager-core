@@ -2298,8 +2298,15 @@ impl StateHandler for HostMachineStateHandler {
                                 }
                             })?;
 
-                            // Rely on the next_state being WaitingForDiscovery which performs a
-                            // reboot of the host to pick up the changes
+                            // Host needs to be rebooted to pick up the changes
+                            handler_host_power_control(
+                                state,
+                                ctx.services,
+                                SystemPowerControl::ForceRestart,
+                                txn,
+                            )
+                            .await?;
+
                             Ok(StateHandlerOutcome::Transition(next_state))
                         }
                         Err(RedfishClientCreationError::MissingBmcEndpoint(_)) => {
@@ -2323,7 +2330,8 @@ impl StateHandler for HostMachineStateHandler {
                         state.host_snapshot.current.version,
                         state.host_snapshot.last_discovery_time,
                     ) {
-                        tracing::trace!(
+                        tracing::debug!(
+                            machine_id = %host_machine_id,
                             "Waiting for forge-scout to report host online. \
                                          Host last seen {:?}, must come after DPU's {}",
                             state.host_snapshot.last_discovery_time,
