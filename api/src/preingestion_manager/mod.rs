@@ -12,12 +12,12 @@
 
 mod metrics;
 
-use std::{default::Default, sync::Arc, time::Duration};
-
 use forge_secrets::credentials::{CredentialKey, CredentialType};
-use libredfish::{model::task::TaskState, SystemPowerControl};
+use http::StatusCode;
+use libredfish::{model::task::TaskState, RedfishError, SystemPowerControl};
 use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, Postgres, Transaction};
+use std::{default::Default, sync::Arc, time::Duration};
 use tokio::{
     sync::{oneshot, Mutex},
     task::JoinSet,
@@ -677,9 +677,33 @@ impl PreingestionManagerStatic {
                     }
                 };
             }
-            Err(e) => {
-                tracing::error!("Getting Redfish task from {} failed: {e}", endpoint.address);
-            }
+            Err(e) => match e {
+                RedfishError::HTTPErrorCode { status_code, .. } => {
+                    if status_code == StatusCode::NOT_FOUND {
+                        // Dells (maybe others) have been observed to not have report the job any more after completing a host reboot for a UEFI upgrade.  If we get a 404 but see that we're at the right version, we're done with that upgrade.
+                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
+                            if let Some(current_version) =
+                                find_version(endpoint, &fw_info, *upgrade_type)
+                            {
+                                if current_version == final_version {
+                                    tracing::info!(
+                                        "Marking completion of Redfish task of firmware upgrade for {} with missing task",
+                                        &endpoint.address
+                                    );
+                                    DbExploredEndpoint::set_preingestion_recheck_versions(
+                                        endpoint.address,
+                                        txn,
+                                    )
+                                    .await?;
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    tracing::error!("Getting Redfish task from {} failed: {e}", endpoint.address);
+                }
+            },
         };
         Ok(())
     }
