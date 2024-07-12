@@ -338,9 +338,57 @@ pub async fn run(
                             status_out.network_config_version =
                                 Some(conf.managed_host_config_version.clone());
                             status_out.instance_id = conf.instance_id.clone();
+                            // On the admin network we don't have to report the instance network config version
                             if !conf.instance_network_config_version.is_empty() {
-                                status_out.instance_network_config_version =
-                                    Some(conf.instance_network_config_version.clone());
+                                status_out.instance_network_config_version = Some(
+                                    match conf
+                                        .instance_network_config_version
+                                        .parse::<config_version::ConfigVersion>()
+                                    {
+                                        Ok(managed_host_instance_network_config_version) => {
+                                            match instance_data
+                                                .as_ref()
+                                                .map(|instance| instance.network_config_version)
+                                            {
+                                                Some(instance_metadata_network_config_version) => {
+                                                    // Report the older version of the versions received via 2 path
+                                                    // That makes sure we don't report progress if we haven't received the newest version
+                                                    // via both path.
+                                                    let reported_instance_network_config_version =
+                                                        managed_host_instance_network_config_version
+                                                            .min_by_timestamp(
+                                                                &instance_metadata_network_config_version,
+                                                            );
+                                                    if instance_metadata_network_config_version
+                                                        != managed_host_instance_network_config_version
+                                                    {
+                                                        tracing::warn!("Different instance network config version received. GetManagedHostNetworkConfig: {}, FindInstanceByMachineId: {}, Reporting: {}",
+                                                        managed_host_instance_network_config_version,
+                                                    instance_metadata_network_config_version,
+                                                    reported_instance_network_config_version,
+                                                );
+                                                    }
+                                                    reported_instance_network_config_version
+                                                        .version_string()
+                                                }
+                                                None => {
+                                                    // TODO: Maybe we want to wait until both receive path provide the same data?
+                                                    tracing::warn!("Received instance_network_config_version via GetManagedHostNetworkConfig, but not via FindInstanceByMachineId. Acknowledging received version");
+                                                    conf.instance_network_config_version.clone()
+                                                }
+                                            }
+                                        }
+                                        Err(err) => {
+                                            // We can't compare the 2 received versions since the first is not parseable
+                                            // This isn't really supposed to happen.
+                                            // However to avoid breaking the system in that case,
+                                            // we still report the version received via GetManagedHostNetworkConfig,
+                                            // because that is also what we did in the past.
+                                            tracing::error!(error = %err, "Failed to parse instance_network_config_version received via GetManagedHostNetworkConfig");
+                                            conf.instance_network_config_version.clone()
+                                        }
+                                    },
+                                );
                             }
                             current_host_network_config_version =
                                 status_out.network_config_version.clone();
@@ -366,7 +414,7 @@ pub async fn run(
                 instance_metadata_state.update_instance_data(instance_data.clone());
                 status_out.instance_config_version = instance_data
                     .as_ref()
-                    .map(|instance| instance.config_version.clone());
+                    .map(|instance| instance.config_version.version_string());
                 current_instance_config_version = status_out.instance_config_version.clone();
 
                 let health_report = health::health_check(

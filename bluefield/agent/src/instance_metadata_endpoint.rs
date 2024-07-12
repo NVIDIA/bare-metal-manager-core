@@ -462,8 +462,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -488,8 +488,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -514,8 +514,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -570,8 +570,8 @@ mod tests {
                     }],
                 },
             ]),
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -603,8 +603,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -643,8 +643,8 @@ mod tests {
                     },
                 ],
             }]),
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -678,8 +678,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -711,8 +711,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -744,8 +744,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -777,8 +777,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -810,8 +810,8 @@ mod tests {
                     lid: 0,
                 }],
             }]),
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -836,8 +836,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;
@@ -862,8 +862,8 @@ mod tests {
             hostname: "localhost".to_string(),
             user_data: "\"userData\": {\"data\": 0}".to_string(),
             ib_devices: None,
-            config_version: "V2-T1666644937962267".to_string(),
-            network_config_version: "V1-T1666644937952267".to_string(),
+            config_version: "V2-T1666644937962267".parse().unwrap(),
+            network_config_version: "V1-T1666644937952267".parse().unwrap(),
         };
 
         let (server, server_port) = setup_server(Some(metadata.clone())).await;

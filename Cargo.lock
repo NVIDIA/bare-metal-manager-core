@@ -59,6 +59,7 @@ dependencies = [
  "blake3",
  "chrono",
  "clap 4.5.4",
+ "config-version",
  "ctor",
  "data-encoding",
  "diff",

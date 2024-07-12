@@ -147,6 +147,20 @@ impl ConfigVersion {
     pub fn since_state_change_humanized(&self) -> String {
         format_duration(self.since_state_change())
     }
+
+    /// Returns the smaller version of 2 version fields, purely based on the
+    /// timestamp encoded in the version
+    pub fn min_by_timestamp(&self, other: &Self) -> Self {
+        match self.timestamp.cmp(&other.timestamp) {
+            std::cmp::Ordering::Less => *self,
+            std::cmp::Ordering::Equal => match self.version_nr.cmp(&other.version_nr) {
+                std::cmp::Ordering::Less => *self,
+                std::cmp::Ordering::Equal => *self,
+                std::cmp::Ordering::Greater => *other,
+            },
+            std::cmp::Ordering::Greater => *other,
+        }
+    }
 }
 
 /// Returns the current timestamp rounded to the next microsecond
@@ -378,5 +392,28 @@ mod tests {
     fn it_formats_zero_seconds() {
         let td = TimeDelta::from_std(Duration::from_secs(0)).unwrap();
         assert_eq!(format_duration(td), "0 seconds");
+    }
+
+    #[test]
+    fn test_min_by_timestamp() {
+        // Same timestamp, same version
+        let v1 = ConfigVersion::initial();
+        assert_eq!(v1.min_by_timestamp(&v1), v1);
+
+        // Difference is only in timestamp
+        let v2 = ConfigVersion {
+            version_nr: v1.version_nr,
+            timestamp: v1.timestamp + chrono::Duration::milliseconds(1),
+        };
+        assert_eq!(v1.min_by_timestamp(&v2), v1);
+        assert_eq!(v2.min_by_timestamp(&v1), v1);
+
+        // Same timestamp, different version
+        let v3 = ConfigVersion {
+            version_nr: v1.version_nr + 1,
+            timestamp: v1.timestamp,
+        };
+        assert_eq!(v1.min_by_timestamp(&v3), v1);
+        assert_eq!(v3.min_by_timestamp(&v1), v1);
     }
 }

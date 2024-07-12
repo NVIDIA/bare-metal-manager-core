@@ -16,6 +16,8 @@ use std::{
 };
 
 use arc_swap::ArcSwapOption;
+use config_version::ConfigVersion;
+use eyre::Context;
 use tracing::{error, info, trace};
 
 use ::rpc::forge_tls_client::ForgeClientConfig;
@@ -35,8 +37,8 @@ pub struct InstanceMetadata {
     pub machine_id: Option<MachineId>,
     pub user_data: String,
     pub ib_devices: Option<Vec<IBDeviceConfig>>,
-    pub config_version: String,
-    pub network_config_version: String,
+    pub config_version: ConfigVersion,
+    pub network_config_version: ConfigVersion,
 }
 
 #[derive(Clone, Debug)]
@@ -213,8 +215,14 @@ async fn fetch_latest_ip_addresses(
         machine_id,
         user_data,
         ib_devices: devices,
-        config_version: instance.config_version,
-        network_config_version: instance.network_config_version,
+        config_version: instance
+            .config_version
+            .parse()
+            .wrap_err("Failed to parse instance config_version")?,
+        network_config_version: instance
+            .network_config_version
+            .parse()
+            .wrap_err("Failed to parse instance network_config_version")?,
     }))
 }
 
