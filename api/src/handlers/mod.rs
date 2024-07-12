@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+pub mod bmc_metadata;
 pub mod boot_override;
 pub mod credential;
 pub mod dns;

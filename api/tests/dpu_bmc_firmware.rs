@@ -357,7 +357,6 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let env = common::api_fixtures::create_test_env(pool).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
-
     let endpoint_explorer = Arc::new(FakeEndpointExplorer {
         reports: Arc::new(Mutex::new(HashMap::new())),
     });
@@ -490,8 +489,39 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     assert!(dpu_report.machine_id.as_ref().is_some());
 
+    let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:96")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: host_bmc_mac.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
     let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: vec![ExploredDpu {
             bmc_ip: IpAddr::from_str(response.address.as_str())?,
             host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),

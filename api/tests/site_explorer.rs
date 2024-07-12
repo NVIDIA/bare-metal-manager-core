@@ -981,8 +981,40 @@ async fn test_site_explorer_creates_managed_host(
         "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg".to_string(),
     );
 
+    let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:98")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: host_bmc_mac.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
+
     let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: vec![ExploredDpu {
             bmc_ip: IpAddr::from_str(response.address.as_str())?,
             host_pf_mac_address: Some(MacAddress::from_str("a0:88:c2:08:80:72")?),
@@ -1340,8 +1372,40 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         })
     }
 
+    let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:99")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: host_bmc_mac.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
+
     let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: explored_dpus.clone(),
     };
 
@@ -1683,7 +1747,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-
+    let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
     let oob_mac = "b8:3f:d2:90:97:a6".to_string();
 
@@ -1791,8 +1855,40 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         report: dpu_report.clone(),
     }];
 
+    let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:97")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: host_bmc_mac.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
+
     let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: explored_dpus.clone(),
     };
 
@@ -1852,7 +1948,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-
+    let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
     let oob_mac = "b8:3f:d2:90:97:a6".to_string();
     let serial_number = "MT2328XZ180R".to_string();
@@ -1946,8 +2042,40 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         report: dpu_report.clone(),
     }];
 
+    let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:97")?;
+    let response = env
+        .api
+        .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+            mac_address: host_bmc_mac.to_string(),
+            relay_address: "192.0.1.1".to_string(),
+            link_address: None,
+            vendor_string: Some("NVIDIA/OOB".to_string()),
+            circuit_id: None,
+            remote_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!response.address.is_empty());
+
+    let interface_id = response.machine_interface_id;
+    let mut ifaces = env
+        .api
+        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+            id: Some(interface_id.unwrap()),
+            ip: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(ifaces.interfaces.len(), 1);
+    let iface = ifaces.interfaces.remove(0);
+    let mut addresses = iface.address;
+    let host_bmc_ip = addresses.remove(0);
+
     let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str("192.168.1.1")?,
+        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: explored_dpus.clone(),
     };
 

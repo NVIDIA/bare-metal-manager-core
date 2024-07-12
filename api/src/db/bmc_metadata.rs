@@ -13,15 +13,12 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
-};
-use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Postgres, Transaction};
 
 use super::{machine::DbMachineId, DatabaseError};
+use crate::db::machine_interface::MachineInterface;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::{CarbideError, CarbideResult};
@@ -107,57 +104,10 @@ impl TryFrom<rpc::BmcMetaDataGetRequest> for BmcMetaDataGetRequest {
 }
 
 impl BmcMetaDataGetRequest {
-    async fn get_bmc_credentials(
-        &self,
-        bmc_mac_address: MacAddress,
-        credential_provider: &dyn CredentialProvider,
-    ) -> CarbideResult<(String, String)> {
-        let credentials = credential_provider
-            .get_credentials(CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-            })
-            .await
-            .map_err(|err| {
-                CarbideError::GenericError(format!("Error getting credentials for BMC: {:?}", err))
-            })?;
-
-        let (username, password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        Ok((username, password))
-    }
-
     pub async fn get_bmc_meta_data(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-        credential_provider: &dyn CredentialProvider,
-    ) -> CarbideResult<rpc::BmcMetaDataGetResponse> {
-        let bmc_info = self.get_bmc_information(txn).await?;
-        let bmc_mac_str = bmc_info.mac.ok_or(CarbideError::GenericError(format!(
-            "BMC Info in machine_topologies does not have a MAC address for machine {}",
-            self.machine_id
-        )))?;
-        let bmc_mac_address = bmc_mac_str
-            .parse::<MacAddress>()
-            .map_err(CarbideError::from)?;
-        let (username, password) = self
-            .get_bmc_credentials(bmc_mac_address, credential_provider)
-            .await?;
-
-        Ok(rpc::BmcMetaDataGetResponse {
-            ip: bmc_info.ip.unwrap_or_default(),
-            port: bmc_info.port.map(|p| p as u32),
-            mac: bmc_mac_str,
-            user: username,
-            password,
-        })
-    }
-
-    pub async fn get_bmc_information(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<BmcInfo, DatabaseError> {
+    ) -> CarbideResult<BmcMetaDataInfo> {
         let query = r#"SELECT machine_topologies.topology->>'bmc_info' as bmc_info FROM machine_topologies WHERE machine_id=$1"#;
         let bmc_info = sqlx::query_as::<_, BmcInfo>(query)
             .bind(self.machine_id.to_string())
@@ -165,13 +115,14 @@ impl BmcMetaDataGetRequest {
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(bmc_info)
+        Ok(BmcMetaDataInfo { bmc_info })
     }
 }
 
+#[derive(Debug)]
 pub struct BmcMetaDataUpdateRequest {
     pub machine_id: MachineId,
-    pub bmc_info: BmcInfo,
+    bmc_metadata: BmcMetaDataInfo,
 }
 
 impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
@@ -184,22 +135,37 @@ impl TryFrom<rpc::BmcMetaDataUpdateRequest> for BmcMetaDataUpdateRequest {
                     return Err(CarbideError::GenericError("Machine id is null".to_string()));
                 }
             },
-            bmc_info: request.bmc_info.unwrap_or_default().into(),
+            bmc_metadata: BmcMetaDataInfo {
+                bmc_info: request.bmc_info.unwrap_or_default().into(),
+            },
         })
     }
 }
 
 impl BmcMetaDataUpdateRequest {
-    pub async fn update_bmc_network_into_topologies(
+    pub fn new(machine_id: MachineId, bmc_info: BmcInfo) -> BmcMetaDataUpdateRequest {
+        BmcMetaDataUpdateRequest {
+            machine_id,
+            bmc_metadata: BmcMetaDataInfo { bmc_info },
+        }
+    }
+
+    async fn update_bmc_network_into_topologies(
         &self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<(), DatabaseError> {
+    ) -> CarbideResult<()> {
+        let bmc_info: BmcInfo = self.bmc_metadata.bmc_info.clone();
+        if bmc_info.mac.is_none() {
+            return Err(CarbideError::GenericError(format!(
+                "BMC Info in machine_topologies does not have a MAC address for machine {}",
+                self.machine_id
+            )));
+        }
+        tracing::info!("put bmc_info: {:?}", bmc_info);
+
         // A entry with same machine id is already created by discover_machine call.
         // Just update json by adding a ipmi_ip entry.
         let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}', $1, true) WHERE machine_id=$2 RETURNING machine_id";
-        let bmc_info: BmcInfo = self.bmc_info.clone();
-        tracing::info!("put bmc_info: {:?}", bmc_info);
-
         let _: Option<(DbMachineId,)> = sqlx::query_as(query)
             .bind(&json!(bmc_info))
             .bind(self.machine_id.to_string())
@@ -211,10 +177,78 @@ impl BmcMetaDataUpdateRequest {
     }
 
     pub async fn update_bmc_meta_data(
-        &self,
+        &mut self,
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<rpc::BmcMetaDataUpdateResponse> {
+    ) -> CarbideResult<()> {
+        self.bmc_metadata
+            .enrich_mac_address(
+                "update_bmc_meta_data".to_string(),
+                txn,
+                &self.machine_id,
+                false,
+            )
+            .await?;
         self.update_bmc_network_into_topologies(txn).await?;
-        Ok(rpc::BmcMetaDataUpdateResponse {})
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct BmcMetaDataInfo {
+    pub bmc_info: BmcInfo,
+}
+
+impl BmcMetaDataInfo {
+    // enrich_mac_address queries the MachineInterfaces table to populate the BMC mac address of the BmcMetaDataInfo structure in memory if it does not exist
+    // If this function populates the BMC mac address, and persist is speciifed as true, the function will update the machine_topologies table
+    // with the mac address for that BMC
+    pub async fn enrich_mac_address(
+        &mut self,
+        caller: String,
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        persist: bool,
+    ) -> CarbideResult<()> {
+        if self.bmc_info.ip.is_none() {
+            return Err(CarbideError::GenericError(format!(
+                "{} cannot enrich BMC Info without a valid BMC IP address for machine {}: {:#?}",
+                caller, machine_id, self.bmc_info
+            )));
+        }
+
+        let bmc_ip_address = self.bmc_info.ip.clone().unwrap().parse()?;
+        if self.bmc_info.mac.is_none() {
+            if let Some(bmc_machine_interface) =
+                MachineInterface::find_by_ip(txn, bmc_ip_address).await?
+            {
+                let bmc_mac_address = bmc_machine_interface.mac_address;
+
+                tracing::info!(
+                    "{} is enriching BMC Info for machine {} with a BMC mac address of {:#?}",
+                    caller,
+                    machine_id,
+                    bmc_machine_interface.mac_address,
+                );
+                self.bmc_info.mac = Some(bmc_mac_address.to_string());
+                if persist {
+                    BmcMetaDataUpdateRequest {
+                        machine_id: machine_id.clone(),
+                        bmc_metadata: BmcMetaDataInfo {
+                            bmc_info: self.bmc_info.clone(),
+                        },
+                    }
+                    .update_bmc_network_into_topologies(txn)
+                    .await?;
+                }
+            } else {
+                // This should never happen. Should we return an error here?
+                tracing::info!(
+                    "{} failed to enrich the BMC Info for machine {} with a MAC: cannot cannot find a machine interface with IP address {bmc_ip_address}",
+                    caller,
+                    machine_id
+                );
+            }
+        }
+        Ok(())
     }
 }
