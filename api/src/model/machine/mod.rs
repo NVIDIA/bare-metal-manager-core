@@ -23,7 +23,9 @@ use super::{
     RpcDataConversionError,
 };
 use crate::cfg::DpuComponent;
+use crate::db::domain::DomainId;
 use crate::db::machine_interface::MachineInterfaceId;
+use crate::db::network_segment::NetworkSegmentId;
 use crate::model::hardware_info::HardwareInfo;
 
 pub mod machine_id;
@@ -628,6 +630,13 @@ pub struct MachineInterfaceSnapshot {
     pub hostname: String,
     pub is_primary: bool,
     pub mac_address: String,
+    pub attached_dpu_machine_id: Option<MachineId>,
+    pub domain_id: Option<DomainId>,
+    pub machine_id: Option<MachineId>,
+    pub segment_id: NetworkSegmentId,
+    pub vendors: Vec<String>,
+    pub created: DateTime<Utc>,
+    pub last_dhcp: Option<DateTime<Utc>>,
 }
 
 pub struct InstanceNextStateResolver;

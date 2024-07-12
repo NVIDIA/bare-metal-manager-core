@@ -328,6 +328,14 @@ impl MachineInterface {
         &self.attached_dpu_machine_id
     }
 
+    pub fn created(&self) -> chrono::DateTime<chrono::Utc> {
+        self.created
+    }
+
+    pub fn last_dhcp(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.last_dhcp
+    }
+
     pub async fn find_by_mac_address(
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,

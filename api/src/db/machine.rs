@@ -298,6 +298,13 @@ fn interface_to_snapshot(interfaces: &[MachineInterface]) -> Vec<MachineInterfac
             hostname: iface.hostname().to_string(),
             is_primary: iface.primary_interface(),
             mac_address: iface.mac_address.to_string(),
+            attached_dpu_machine_id: iface.attached_dpu_machine_id().clone(),
+            domain_id: iface.domain_id,
+            machine_id: iface.machine_id.clone(),
+            segment_id: iface.segment_id(),
+            vendors: iface.vendors().clone(),
+            created: iface.created(),
+            last_dhcp: iface.last_dhcp(),
         });
     }
     out
