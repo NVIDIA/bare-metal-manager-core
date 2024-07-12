@@ -150,13 +150,27 @@ pub struct ManagedHostOutput {
     pub host_last_reboot_time: Option<String>,
     pub host_last_reboot_requested_time_and_mode: Option<String>,
     pub is_network_healthy: bool,
-    pub network_err_message: Option<String>,
     pub dpus: Vec<ManagedHostAttachedDpu>,
 }
 
 impl From<&Machine> for ManagedHostOutput {
     fn from(machine: &Machine) -> ManagedHostOutput {
-        let primary_interface = machine.interfaces.iter().find(|i| i.primary_interface);
+        let primary_interface = machine.interfaces.iter().find(|x| x.primary_interface);
+
+        let (ip_address, mac): (Vec<String>, Vec<String>) = machine
+            .interfaces
+            .iter()
+            .map(|x| {
+                if x.primary_interface {
+                    (
+                        format!("{}(P)", x.address.join("/")),
+                        format!("{}(P)", x.mac_address.clone()),
+                    )
+                } else {
+                    (x.address.join("/"), x.mac_address.clone())
+                }
+            })
+            .unzip();
 
         ManagedHostOutput {
             discovery_info: machine.discovery_info.clone().unwrap_or_default(),
@@ -178,8 +192,8 @@ impl From<&Machine> for ManagedHostOutput {
             host_bmc_mac: get_bmc_info_from_machine!(machine, mac),
             host_bmc_version: get_bmc_info_from_machine!(machine, version),
             host_bmc_firmware_version: get_bmc_info_from_machine!(machine, firmware_version),
-            host_admin_ip: primary_interface.map(|i| i.address.join(",")),
-            host_admin_mac: primary_interface.map(|i| i.mac_address.to_string()),
+            host_admin_ip: Some(ip_address.join(", ")),
+            host_admin_mac: Some(mac.join(", ")),
             host_gpu_count: machine
                 .discovery_info
                 .as_ref()
@@ -218,6 +232,7 @@ impl From<&Machine> for ManagedHostOutput {
 pub struct ManagedHostAttachedDpu {
     pub discovery_info: DiscoveryInfo,
     pub machine_id: Option<String>,
+    pub state: Option<String>,
     pub serial_number: Option<String>,
     pub bios_version: Option<String>,
     pub bmc_ip: Option<String>,
@@ -230,6 +245,9 @@ pub struct ManagedHostAttachedDpu {
     pub last_reboot_requested_time_and_mode: Option<String>,
     pub last_observation_time: Option<String>,
     pub switch_connections: Vec<DpuSwitchConnection>,
+    pub is_primary: bool,
+    pub is_network_healthy: bool,
+    pub network_error_msg: Option<String>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -258,6 +276,7 @@ impl ManagedHostAttachedDpu {
         dpu_machine: &Machine,
         connected_devices: &[ConnectedDevice],
         network_device_map: &HashMap<String, NetworkDevice>,
+        is_primary: bool,
     ) -> Option<Self> {
         let (oob_ip, oob_mac) = match dpu_machine.interfaces.iter().find(|x| x.primary_interface) {
             Some(primary_interface) => (
@@ -272,9 +291,26 @@ impl ManagedHostAttachedDpu {
             return None;
         };
 
+        let (is_network_healthy, network_error_msg) = match &dpu_machine.network_health {
+            Some(h) => (
+                h.is_healthy,
+                Some(if !h.is_healthy {
+                    format!(
+                        "Message: {}, Failed: {}",
+                        h.message.clone().unwrap_or_default(),
+                        h.failed.join(", ")
+                    )
+                } else {
+                    "".to_string()
+                }),
+            ),
+            None => (false, Some("Unknown Status".to_string())),
+        };
+
         let result = ManagedHostAttachedDpu {
             discovery_info: dpu_machine.discovery_info.clone().unwrap_or_default(),
             machine_id: Some(dpu_machine_id.to_string()),
+            state: Some(dpu_machine.state.clone()),
             serial_number: get_dmi_data_from_machine!(dpu_machine, product_serial),
             bios_version: get_dmi_data_from_machine!(dpu_machine, bios_version),
             bmc_ip: get_bmc_info_from_machine!(dpu_machine, ip),
@@ -308,6 +344,9 @@ impl ManagedHostAttachedDpu {
                     )
                 })
                 .collect(),
+            is_primary,
+            is_network_healthy,
+            network_error_msg,
         };
 
         Some(result)
@@ -373,6 +412,8 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                 .unwrap_or(vec![])
         };
 
+        let mut is_network_healthy = true;
+
         for dpu_machine_id in dpu_machine_ids {
             let Some(dpu_machine) = dpu_map.get(&dpu_machine_id.id) else {
                 tracing::warn!(
@@ -382,15 +423,23 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                 continue;
             };
 
+            let is_primary = machine.interfaces.iter().find_map(|x| {
+                if let Some(id) = &x.attached_dpu_machine_id {
+                    if id == &dpu_machine_id {
+                        Some(x.primary_interface)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
+
             // Network health is in observation, on DPU, but it relates to
             // the managed host as a whole.
-            managed_host_output.is_network_healthy = match &dpu_machine.network_health {
+            is_network_healthy &= match &dpu_machine.network_health {
                 Some(h) => h.is_healthy,
                 None => false,
-            };
-            managed_host_output.network_err_message = match &dpu_machine.network_health {
-                Some(h) => h.message.clone(),
-                None => None,
             };
 
             if let Some(attached_dpu) = ManagedHostAttachedDpu::new_from_dpu_machine(
@@ -399,6 +448,8 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                     .get(&dpu_machine_id.id)
                     .unwrap_or(&vec![]),
                 &network_device_map,
+                // This should always have value. If no, lets crash to find out why.
+                is_primary.expect("Interface type is missing for host."),
             ) {
                 if let Some(dpu_bmc_ip) = &attached_dpu.bmc_ip {
                     if let Some(host_bmc_ip) = &managed_host_output.host_bmc_ip {
@@ -419,6 +470,8 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                 dpus.push(attached_dpu);
             }
         }
+
+        managed_host_output.is_network_healthy = is_network_healthy;
 
         managed_host_output.dpus = dpus;
         result.push(managed_host_output);
