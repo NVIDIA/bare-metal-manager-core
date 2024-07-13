@@ -23,6 +23,7 @@ pub mod network_segment;
 pub mod pxe;
 pub mod resource_pool;
 pub mod route_server;
+pub mod site_explorer;
 pub mod tenant;
 pub mod tenant_keyset;
 pub mod vpc;
