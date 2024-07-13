@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -20,18 +20,14 @@ use crate::{
     model::site_explorer::SiteExplorationReport,
 };
 
-#[derive(Debug, Clone)]
-pub struct DbSiteExplorationReport {}
-
-impl DbSiteExplorationReport {
-    pub async fn fetch(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<SiteExplorationReport, DatabaseError> {
-        let endpoints = DbExploredEndpoint::find_all(txn).await?;
-        let managed_hosts = DbExploredManagedHost::find_all(txn).await?;
-        Ok(SiteExplorationReport {
-            endpoints,
-            managed_hosts,
-        })
-    }
+/// Fetches the latest site exploration report from the database
+pub async fn fetch(
+    txn: &mut Transaction<'_, Postgres>,
+) -> Result<SiteExplorationReport, DatabaseError> {
+    let endpoints = DbExploredEndpoint::find_all(txn).await?;
+    let managed_hosts = DbExploredManagedHost::find_all(txn).await?;
+    Ok(SiteExplorationReport {
+        endpoints,
+        managed_hosts,
+    })
 }

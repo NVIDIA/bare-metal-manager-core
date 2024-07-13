@@ -30,9 +30,7 @@ use forge_secrets::credentials::{
 };
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
-use mac_address::MacAddress;
 use sqlx::{Postgres, Transaction};
-use tokio::net::lookup_host;
 use tokio::time::{sleep, Instant};
 use tonic::{Request, Response, Status};
 #[cfg(feature = "tss-esapi")]
@@ -49,7 +47,6 @@ use crate::db::ib_partition::{IBPartition, IBPartitionId};
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
-use crate::db::site_exploration_report::DbSiteExplorationReport;
 use crate::dynamic_settings;
 use crate::handlers::machine_validation::{
     get_machine_validation_results, mark_machine_validation_complete, persist_validation_result,
@@ -68,7 +65,6 @@ use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
 use crate::redfish::{host_power_control, poll_redfish_job};
 use crate::resource_pool::common::CommonPools;
-use crate::site_explorer::EndpointExplorer;
 #[cfg(feature = "tss-esapi")]
 use crate::{attestation as attest, db::attestation::SecretAkPub};
 use crate::{
@@ -1422,35 +1418,18 @@ impl Forge for Api {
         crate::handlers::pxe::get_cloud_init_instructions(self, request).await
     }
 
+    async fn clear_site_exploration_error(
+        &self,
+        request: Request<rpc::ClearSiteExplorationErrorRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::site_explorer::clear_site_exploration_error(self, request).await
+    }
+
     async fn get_site_exploration_report(
         &self,
         request: tonic::Request<::rpc::forge::GetSiteExplorationRequest>,
     ) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
-        log_request_data(&request);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_site_exploration_report",
-                e,
-            ))
-        })?;
-
-        let report = DbSiteExplorationReport::fetch(&mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.rollback().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "end get_site_exploration_report",
-                e,
-            ))
-        })?;
-
-        Ok(tonic::Response::new(report.into()))
+        crate::handlers::site_explorer::get_site_exploration_report(self, request).await
     }
 
     // Ad-hoc BMC exploration
@@ -1458,45 +1437,7 @@ impl Forge for Api {
         &self,
         request: tonic::Request<::rpc::forge::ExploreRequest>,
     ) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-        let address = if req.address.contains(':') {
-            req.address.clone()
-        } else {
-            format!("{}:443", req.address)
-        };
-
-        let mut addrs = lookup_host(address).await?;
-        let Some(bmc_addr) = addrs.next() else {
-            return Err(tonic::Status::invalid_argument(format!(
-                "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
-                req.address
-            )));
-        };
-
-        let bmc_mac_address: MacAddress;
-        if let Some(mac_str) = req.mac_address {
-            bmc_mac_address = mac_str.parse::<MacAddress>().map_err(CarbideError::from)?;
-        } else {
-            return Err(tonic::Status::invalid_argument(format!(
-                "request did not specify mac address: {req:#?}"
-            )));
-        };
-
-        let explorer = crate::site_explorer::RedfishEndpointExplorer::new(
-            self.redfish_pool.clone(),
-            self.credential_provider.clone(),
-        );
-        let expected_machine =
-            crate::handlers::expected_machine::query(self, bmc_mac_address).await?;
-        let machine_interface = MachineInterface::mock_with_mac(bmc_mac_address);
-
-        let report = explorer
-            .explore_endpoint(bmc_addr, &machine_interface, expected_machine, None)
-            .await
-            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
-
-        Ok(tonic::Response::new(report.into()))
+        crate::handlers::site_explorer::explore(self, request).await
     }
 
     #[allow(rustdoc::invalid_html_tags)]
@@ -3799,39 +3740,6 @@ impl Forge for Api {
         mark_machine_validation_complete(self, request).await
     }
 
-    async fn clear_site_exploration_error(
-        &self,
-        request: Request<rpc::ClearSiteExplorationErrorRequest>,
-    ) -> Result<Response<()>, tonic::Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
-
-        let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin clear_last_known_error",
-                e,
-            ))
-        })?;
-
-        DbExploredEndpoint::clear_last_known_error(bmc_ip, &mut txn)
-            .await
-            .map_err(CarbideError::from)?;
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit clear_last_known_error",
-                e,
-            ))
-        })?;
-
-        Ok(Response::new(()))
-    }
     async fn persist_validation_result(
         &self,
         request: tonic::Request<rpc::MachineValidationResultPostRequest>,
