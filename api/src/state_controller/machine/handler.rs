@@ -2480,6 +2480,18 @@ impl StateHandler for HostMachineStateHandler {
                         completed,
                         total
                     );
+                    if !rebooted(&state.host_snapshot) {
+                        let status = trigger_reboot_if_needed(
+                            &state.host_snapshot,
+                            state,
+                            None,
+                            &self.host_handler_params.reachability_params,
+                            ctx.services,
+                            txn,
+                        )
+                        .await?;
+                        return Ok(StateHandlerOutcome::Wait(status.status));
+                    }
                     // Host validation completed
                     if machine_validation_completed(&state.host_snapshot) {
                         if state.host_snapshot.failure_details.cause == FailureCause::NoError {
@@ -2487,6 +2499,7 @@ impl StateHandler for HostMachineStateHandler {
                                 "{} machine validation completed",
                                 state.host_snapshot.machine_id
                             );
+
                             handler_host_power_control(
                                 state,
                                 ctx.services,
@@ -2512,7 +2525,7 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     } else {
                         tracing::info!(
-                            "{} machine validation failed",
+                            "{} machine validation is in progress",
                             state.host_snapshot.machine_id
                         );
                     }
