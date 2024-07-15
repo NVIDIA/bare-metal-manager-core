@@ -29,7 +29,8 @@ use carbide::{
 };
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
-use tokio::fs::{self, File};
+use tempdir::TempDir;
+use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
 mod common;
@@ -517,6 +518,13 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
+    // Fake FW files
+    let bmc_fw_filename = "bf3-bmc.fwpkg";
+    let tmp_path = TempDir::new("bmc-fw-test")?;
+    let bmc_fw_path = tmp_path.path().join(bmc_fw_filename);
+    let mut bmc_fw = File::create(bmc_fw_path.clone()).await?;
+    bmc_fw.write_all(b"Fake BMC FW").await?;
+
     let handler = MachineStateHandler::new(
         chrono::Duration::minutes(1),
         true,
@@ -535,7 +543,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                         DpuComponent::Bmc,
                         DpuComponentUpdate {
                             version: Some("23.10-5".to_string()),
-                            path: "./bf3-bmc.fwpkg".to_string(),
+                            path: bmc_fw_path.as_path().to_str().unwrap().to_string(),
                         },
                     )])),
                     ..Default::default()
@@ -574,11 +582,6 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             discovering_state: DpuDiscoveringState::Configuring,
         }
     );
-
-    // Fake FW files
-    let bmc_fw_filename = "bf3-bmc.fwpkg";
-    let mut bmc_fw = File::create(bmc_fw_filename).await?;
-    bmc_fw.write_all(b"Fake BMC FW").await?;
 
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -651,7 +654,8 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         }
     );
 
-    fs::remove_file(bmc_fw_filename).await?;
+    drop(bmc_fw);
+    tmp_path.close()?;
     Ok(())
 }
 
