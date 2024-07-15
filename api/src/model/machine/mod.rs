@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::net::SocketAddr;
 use std::{fmt::Display, net::Ipv4Addr};
 
 use chrono::{DateTime, Utc};
@@ -205,6 +206,13 @@ impl MachineSnapshot {
 
     pub fn reprovisioning_requested(&self) -> Option<&ReprovisionRequest> {
         self.reprovisioning_requested.as_ref()
+    }
+    pub fn bmc_addr(&self) -> Option<SocketAddr> {
+        self.bmc_info
+            .ip
+            .as_ref()
+            .and_then(|ip| ip.parse().ok())
+            .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
     }
 }
 

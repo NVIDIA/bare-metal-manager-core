@@ -2716,17 +2716,19 @@ impl Forge for Api {
                 id: machine_id.to_string(),
             })?;
 
-        let redfish_client = self
-            .redfish_pool
-            .create_client_from_machine_snapshot(&snapshot.host_snapshot, &mut txn)
-            .await
-            .map_err(|e| {
-                tracing::error!("unable to create redfish client: {}", e);
-                tonic::Status::internal(format!(
-                    "Could not create connection to Redfish API to {}, check logs",
-                    machine_id
-                ))
-            })?;
+        let redfish_client = crate::redfish::build_redfish_client_from_bmc_ip(
+            snapshot.host_snapshot.bmc_addr(),
+            &self.redfish_pool,
+            &mut txn,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("unable to create redfish client: {}", e);
+            tonic::Status::internal(format!(
+                "Could not create connection to Redfish API to {}, check logs",
+                machine_id
+            ))
+        })?;
 
         let job_id = crate::redfish::set_host_uefi_password(
             redfish_client.as_ref(),
