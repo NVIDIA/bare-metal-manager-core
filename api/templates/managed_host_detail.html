@@ -59,6 +59,9 @@
 <h2>DPU {{loop.index}}</h2>
 <table>
 	<tr><th>ID</th><td>{{ dpu.machine_id|machine_id_link|safe }}</td></tr>
+	<tr><th>Primary</th><td>{{ dpu.is_primary }}</td></tr>
+	<tr><th>Healthy</th>
+    <td>{% if dpu.is_network_healthy %}Yes{% else %}{{ dpu.network_error_msg.clone().unwrap_or("".to_string()) }}{% endif %}</td>
 	<tr><th>Last reboot</th><td>{{ dpu.last_reboot_time }}</td></tr>
 	<tr><th>Last seen</th><td>{{ dpu.last_observation_time }}</td></tr>
 	<tr><th>Serial Number</th><td>{{ dpu.serial_number }}</td></tr>

@@ -53,14 +53,44 @@ impl From<ManagedHostOutputWrapper> for Row {
         let machine_ids = concat_host_and_dpu_props!(value, machine_id, machine_id);
         let bmc_ip = concat_host_and_dpu_props!(value, host_bmc_ip, bmc_ip);
         let bmc_mac = concat_host_and_dpu_props!(value, host_bmc_mac, bmc_mac);
+
         let ips = concat_host_and_dpu_props!(value, host_admin_ip, oob_ip);
         let macs = concat_host_and_dpu_props!(value, host_admin_mac, oob_mac);
 
-        let state = value
-            .state
-            .split_once(' ')
-            .map(|(x, y)| format!("{x}\n{y}"))
-            .unwrap_or(value.state);
+        let mut states = vec![value.state];
+
+        let dpu_state = value
+            .dpus
+            .first()
+            .map(|x| x.state.clone().unwrap_or_default())
+            .unwrap_or_default();
+
+        if states[0] != dpu_state {
+            let dpu_states = value
+                .dpus
+                .iter()
+                .enumerate()
+                .map(|(i, x)| {
+                    format!(
+                        "DPU{}:{}",
+                        i,
+                        x.state.clone().unwrap_or("Unknown State".to_string())
+                    )
+                })
+                .collect::<Vec<String>>();
+
+            states.extend(dpu_states);
+        }
+
+        let state = states
+            .iter()
+            .map(|x| {
+                x.split_once(' ')
+                    .map(|(x, y)| format!("{x}\n{y}"))
+                    .unwrap_or(x.clone())
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
 
         let mut row_data = vec![
             value.hostname.unwrap_or(UNKNOWN.to_owned()),
@@ -257,11 +287,11 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         ("  Admin MAC", m.host_admin_mac.clone()),
     ];
     if m.is_network_healthy {
-        data.push(("  Network is healthy", Some("".to_string())));
+        data.push(("  Network is Healthy", Some("".to_string())));
     } else {
         data.push((
-            "  Network unhealthy",
-            Some(m.network_err_message.clone().unwrap_or_default()),
+            "  Network Unhealthy. Check DPU for specific details.",
+            Some("".to_string()),
         ));
     }
     let mut bmc_details = vec![
@@ -286,19 +316,30 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
         }
     }
 
-    for dpu in m.dpus {
+    for (i, dpu) in m.dpus.iter().enumerate() {
         writeln!(
             &mut lines,
-            "\nDPU:\n----------------------------------------"
+            "\nDPU{}:\n----------------------------------------",
+            i
         )?;
         let data = vec![
             ("  ID", dpu.machine_id.clone()),
-            ("  Last reboot", dpu.last_reboot_time),
+            ("  State", dpu.state.clone()),
+            ("  Primary", Some(dpu.is_primary.to_string())),
+            (
+                "  Healthy",
+                Some(format!(
+                    "{}/{}",
+                    dpu.is_network_healthy,
+                    dpu.network_error_msg.clone().unwrap_or("".to_string())
+                )),
+            ),
+            ("  Last reboot", dpu.last_reboot_time.clone()),
             (
                 "  Last reboot requested",
-                dpu.last_reboot_requested_time_and_mode,
+                dpu.last_reboot_requested_time_and_mode.clone(),
             ),
-            ("  Last seen", dpu.last_observation_time),
+            ("  Last seen", dpu.last_observation_time.clone()),
             ("  Serial Number", dpu.serial_number.clone()),
             ("  BIOS Version", dpu.bios_version.clone()),
             ("  Admin IP", dpu.oob_ip.clone()),

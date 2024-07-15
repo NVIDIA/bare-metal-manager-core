@@ -43,7 +43,6 @@ struct ManagedHostRowDisplay {
     time_in_state: String,
     state_reason: String,
     is_network_healthy: bool,
-    network_err_message: String,
     host_admin_ip: String,
     host_admin_mac: String,
     host_bmc_ip: String,
@@ -54,6 +53,7 @@ struct ManagedHostRowDisplay {
     is_link_ref: bool, // is maintenance_reference a URL?
     maintenance_reference: String,
     maintenance_start_time: String,
+    network_err_message: String,
     dpus: Vec<AttachedDpuRowDisplay>,
 }
 
@@ -116,7 +116,6 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             time_in_state: o.time_in_state,
             state_reason: o.state_reason,
             is_network_healthy: o.is_network_healthy,
-            network_err_message: o.network_err_message.unwrap_or_default(),
             host_bmc_ip: o.host_bmc_ip.unwrap_or_default(),
             host_bmc_mac: o.host_bmc_mac.unwrap_or_default(),
             host_admin_ip: o.host_admin_ip.unwrap_or_default(),
@@ -127,6 +126,12 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             is_link_ref: maint_ref.starts_with("http"),
             maintenance_reference: maint_ref,
             maintenance_start_time: o.maintenance_start_time.unwrap_or_default(),
+            network_err_message: o
+                .dpus
+                .iter()
+                .filter_map(|x| x.network_error_msg.as_ref().cloned())
+                .collect_vec()
+                .join(", "),
             dpus: o.dpus.into_iter().map_into().collect(),
         }
     }
@@ -260,6 +265,9 @@ struct ManagedHostAttachedDpuDetail {
     pub last_reboot_time: String,
     pub last_observation_time: String,
     pub switch_connections: Vec<DpuSwitchConnectionDetail>,
+    pub is_primary: bool,
+    pub is_network_healthy: bool,
+    pub network_error_msg: Option<String>,
 }
 
 impl ManagedHostAttachedDpuDetail {
@@ -304,7 +312,12 @@ impl From<utils::ManagedHostOutput> for ManagedHostDetail {
             maintenance_start_time: m.maintenance_start_time.unwrap_or_default(),
             host_last_reboot_time: m.host_last_reboot_time.unwrap_or(UNKNOWN.to_string()),
             is_network_healthy: m.is_network_healthy,
-            network_err_message: m.network_err_message.unwrap_or(UNKNOWN.to_string()),
+            network_err_message: m
+                .dpus
+                .iter()
+                .filter_map(|x| x.network_error_msg.as_ref().cloned())
+                .collect_vec()
+                .join(", "),
 
             dpus: m
                 .dpus
@@ -334,6 +347,9 @@ impl From<ManagedHostAttachedDpu> for ManagedHostAttachedDpuDetail {
                 .into_iter()
                 .map(DpuSwitchConnectionDetail::from)
                 .collect_vec(),
+            is_primary: d.is_primary,
+            is_network_healthy: d.is_network_healthy,
+            network_error_msg: d.network_error_msg,
         }
     }
 }
