@@ -5,6 +5,34 @@ extensions:
     fsync: true
 
 receivers:
+  filelog:
+    include:
+      - /var/log/doca/hbn/frr/frr.log
+    start_at: beginning
+    storage: file_storage/cursors
+    operators:
+      - type: regex_parser
+        regex: "^(?P<timestamp>\\w{3}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2})\\s+\
+          (?P<hostname>\\S+)\\s+\
+          (?P<program>\\S+)\\[(?P<pid>\\d+)\\]:\\s+\
+          (?P<identifiers>(\\[[^\\]]+\\])+)\\s*\
+          (?:\
+            (?P<frr_record_type>%\\w+):\
+            |\
+            (?:(?P<device>\\S+)\\s+(?P<severity>\\[(?:Error|Warn|Info|Debug)\\]))\
+          )?\\s*\
+          (?P<message>.*)$"
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%b %e %H:%M:%S'
+        severity:
+          parse_from: attributes.severity
+          mapping:
+            error: '[Error]'
+            warn: '[Warn]'
+            info: '[Info]'
+            debug: '[Debug]'
+
   journald:
     directory: /var/log/journal
     units:
@@ -147,11 +175,6 @@ processors:
     check_interval: 1s
     limit_mib: 512
     spike_limit_mib: 128
-  resource:
-    attributes:
-      - action: insert
-        key: exporter
-        value: "forge-dpu"
   resource/metrics-doca-eth-dropped:
     attributes:
       - key: group
@@ -185,13 +208,30 @@ processors:
         host.id:
           enabled: false
   # Remove all but the "MESSAGE" and "_SYSTEMD_UNIT" keys from each log record
-  transform:
+  transform/journald:
     error_mode: ignore
     log_statements:
       - context: log
         statements:
           - keep_keys(body, ["MESSAGE", "_SYSTEMD_UNIT"])
           - set(attributes["systemd.unit"], body["_SYSTEMD_UNIT"])
+          - set(body, body["MESSAGE"])
+  transform/frr:
+    # - Omit optional log fields when the value is empty.
+    # - Always delete the temporary "severity" attribute because it was already
+    #   mapped by the filelog receiver to a standard OpenTelemetry
+    #   severityNumber, and the mapping preserved the original text as
+    #   severityText.
+    # - Always delete the temporary "timestamp" attribute because it was
+    #   translated to timeUnixNano by the filelog receiver.
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - delete_key(attributes, "device") where attributes["device"] == ""
+          - delete_key(attributes, "frr_record_type") where attributes["frr_record_type"] == ""
+          - delete_key(attributes, "timestamp")
+          - delete_key(attributes, "severity")
   # Avoid "duplicate label name" errors on the site controller
   transform/internal-telemetry:
     error_mode: ignore
@@ -214,13 +254,20 @@ exporters:
 
 service:
   pipelines:
-    logs:
+    logs/journald:
       receivers: [journald]
       processors:
         - memory_limiter
         - resourcedetection
-        - resource
-        - transform
+        - transform/journald
+        - batch
+      exporters: [otlp/site]
+    logs/frr:
+      receivers: [filelog]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - transform/frr
         - batch
       exporters: [otlp/site]
     metrics:
