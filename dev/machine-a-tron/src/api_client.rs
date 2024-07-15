@@ -1,6 +1,7 @@
 use base64::prelude::*;
 use std::future::Future;
 use std::net::Ipv4Addr;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::config::MachineATronContext;
 use rpc::forge::PxeInstructions;
@@ -382,26 +383,24 @@ pub async fn force_delete_machine(
     .await
 }
 
-static mut VPC_COUNTER: u16 = 0;
+static VPC_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 pub async fn create_vpc(app_context: &MachineATronContext) -> ClientApiResult<rpc::forge::Vpc> {
-    unsafe {
-        VPC_COUNTER += 1;
-        with_forge_client(app_context, |mut client| async move {
-            client
-                .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
-                    id: None,
-                    name: format!("vpc_{}", VPC_COUNTER),
-                    tenant_organization_id: String::new(),
-                    tenant_keyset_id: None,
-                    network_virtualization_type: None,
-                }))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientApiError::InvocationError)
-        })
-        .await
-    }
+    let vpc_count = VPC_COUNTER.fetch_add(1, Ordering::Acquire);
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
+                id: None,
+                name: format!("vpc_{}", vpc_count),
+                tenant_organization_id: String::new(),
+                tenant_keyset_id: None,
+                network_virtualization_type: None,
+            }))
+            .await
+            .map(|response| response.into_inner())
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
 }
 
 pub async fn delete_vpc(
