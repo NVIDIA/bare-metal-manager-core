@@ -1426,6 +1426,7 @@ mod tests {
             deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
             enable_dhcp: false,
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
+            min_dpu_functioning_links: None,
         }
     }
 
@@ -1703,6 +1704,7 @@ mod tests {
             deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
             enable_dhcp: true,
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
+            min_dpu_functioning_links: None,
         };
 
         let f = tempfile::NamedTempFile::new()?;

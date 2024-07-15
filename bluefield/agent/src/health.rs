@@ -9,12 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::time::{Duration, Instant};
-use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
+
+use std::time::{Duration, Instant};
+use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 
 use crate::hbn;
 
@@ -41,6 +42,7 @@ pub async fn health_check(
     host_routes: &[&str],
     _process_started_at: Instant,
     has_changed_configs: bool,
+    min_healthy_links: Option<u32>,
 ) -> HealthReport {
     let mut hr = HealthReport::new();
 
@@ -66,7 +68,7 @@ pub async fn health_check(
     check_ifreload(&mut hr, &container_id).await;
     let hbn_daemons_file = hbn_root.join(HBN_DAEMONS_FILE);
     check_bgp_daemon_enabled(&mut hr, &hbn_daemons_file.to_string_lossy());
-    check_network_stats(&mut hr, &container_id, host_routes).await;
+    check_network_stats(&mut hr, &container_id, host_routes, min_healthy_links).await;
     check_files(&mut hr, hbn_root, &EXPECTED_FILES);
 
     if has_changed_configs {
@@ -192,7 +194,12 @@ async fn check_dhcp_relay_and_server(hr: &mut HealthReport, container_id: &str) 
 }
 
 // Check HBN BGP stats
-async fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_routes: &[&str]) {
+async fn check_network_stats(
+    hr: &mut HealthReport,
+    container_id: &str,
+    host_routes: &[&str],
+    min_healthy_links: Option<u32>,
+) {
     // `vtysh` is HBN's shell.
     let bgp_stats = match hbn::run_in_container(
         container_id,
@@ -208,7 +215,7 @@ async fn check_network_stats(hr: &mut HealthReport, container_id: &str, host_rou
             return;
         }
     };
-    match check_bgp(&bgp_stats, host_routes) {
+    match check_bgp(&bgp_stats, host_routes, min_healthy_links) {
         Ok(_) => hr.passed(HealthCheck::BgpStats),
         Err(err) => {
             tracing::warn!("check_network_stats bgp: {err}");
@@ -327,15 +334,33 @@ fn check_bgp_daemon_enabled(hr: &mut HealthReport, hbn_daemons_file: &str) {
     hr.passed(HealthCheck::BgpDaemonEnabled);
 }
 
-fn check_bgp(bgp_json: &str, host_routes: &[&str]) -> eyre::Result<()> {
+fn check_bgp(
+    bgp_json: &str,
+    host_routes: &[&str],
+    min_healthy_links: Option<u32>,
+) -> eyre::Result<()> {
     let networks: BgpNetworks = serde_json::from_str(bgp_json)?;
-    check_bgp_stats("ipv4_unicast", &networks.ipv4_unicast, host_routes)?;
-    check_bgp_stats("l2_vpn_evpn", &networks.l2_vpn_evpn, &[])
+    check_bgp_stats(
+        "ipv4_unicast",
+        &networks.ipv4_unicast,
+        host_routes,
+        min_healthy_links,
+    )?;
+    check_bgp_stats("l2_vpn_evpn", &networks.l2_vpn_evpn, &[], min_healthy_links)
 }
 
-fn check_bgp_stats(name: &str, s: &BgpStats, ignored_peers: &[&str]) -> eyre::Result<()> {
+//when min_healthy_links is not specified, all links must be up and connected for the DPU to be considered healthy
+//otherwise, we will only require this number of connected links to be considered healthy.
+fn check_bgp_stats(
+    name: &str,
+    s: &BgpStats,
+    ignored_peers: &[&str],
+    min_healthy_links: Option<u32>,
+) -> eyre::Result<()> {
     let num_ignored = ignored_peers.len() as u32;
-    if s.failed_peers > num_ignored {
+    let max_unhealthy_peers =
+        num_ignored + (s.total_peers - min_healthy_links.unwrap_or(s.total_peers));
+    if s.failed_peers > max_unhealthy_peers {
         return Err(eyre::eyre!(
             "{name} failed peers is {} should be at most {}",
             s.failed_peers,
@@ -356,16 +381,17 @@ fn check_bgp_stats(name: &str, s: &BgpStats, ignored_peers: &[&str]) -> eyre::Re
             s.dynamic_peers
         ));
     }
-    for (peer_name, peer) in s.peers.iter() {
-        if ignored_peers.contains(&peer_name.as_str()) {
-            continue;
-        }
-        if peer.state != "Established" {
-            return Err(eyre::eyre!(
-                "{name} {peer_name} state is '{}' should be 'Established'",
-                peer.state
-            ));
-        }
+    type NamePeer<'a> = (&'a String, &'a BgpPeer);
+    let (not_established_links, established_links): (Vec<NamePeer>, Vec<NamePeer>) =
+        s.peers.iter().partition(|(peer_name, peer)| {
+            !ignored_peers.contains(&peer_name.as_str()) && peer.state != "Established"
+        });
+
+    if (established_links.len() as u32) < min_healthy_links.unwrap_or(s.total_peers) {
+        return Err(eyre::eyre!(
+            "{name} has the following peer(s) with state not \"Established\":  '{:?}'",
+            not_established_links,
+        ));
     }
 
     Ok(())
@@ -749,12 +775,12 @@ disable_counter_rd            : TRUE
 
     #[test]
     fn test_check_bgp_success() -> eyre::Result<()> {
-        check_bgp(BGP_SUMMARY_JSON_SUCCESS, &[])
+        check_bgp(BGP_SUMMARY_JSON_SUCCESS, &[], None)
     }
 
     #[test]
     fn test_check_bgp_fail() -> eyre::Result<()> {
-        let out = check_bgp(BGP_SUMMARY_JSON_FAIL, &[]);
+        let out = check_bgp(BGP_SUMMARY_JSON_FAIL, &[], None);
         assert!(out.is_err());
 
         let s_err = out.unwrap_err().to_string();
@@ -768,7 +794,7 @@ disable_counter_rd            : TRUE
 
     #[test]
     fn test_check_bgp_with_ignore() -> eyre::Result<()> {
-        check_bgp(BGP_SUMMARY_JSON_WITH_IGNORE, &["10.217.4.78"])
+        check_bgp(BGP_SUMMARY_JSON_WITH_IGNORE, &["10.217.4.78"], None)
     }
 
     #[test]

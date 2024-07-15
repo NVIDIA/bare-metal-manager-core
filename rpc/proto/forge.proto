@@ -1670,6 +1670,10 @@ message ManagedHostNetworkConfigResponse {
 
   // Host primary interface id
   optional string host_interface_id = 102;
+
+  // temporary flag for telling a DPU how many links it needs to have up to be considered healthy.
+  // if not set, all links must be up.
+  optional uint32 min_dpu_functioning_links = 103;
 }
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge

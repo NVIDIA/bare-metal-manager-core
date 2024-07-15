@@ -312,6 +312,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         deny_prefixes: vec![],
         enable_dhcp: false,
         host_interface_id: None,
+        min_dpu_functioning_links: None,
     };
     common::respond(netconf)
 }

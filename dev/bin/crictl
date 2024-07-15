@@ -7,7 +7,7 @@
 #
 # The integration tests puts this path, hence this script, on the front of the PATH to ensure they do.
 #
-
+set -ex
 PS_OUT='{
   "containers": [
     {
