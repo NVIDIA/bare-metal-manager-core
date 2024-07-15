@@ -1,14 +1,14 @@
-use base64::prelude::*;
-use std::future::Future;
-use std::net::Ipv4Addr;
-use std::sync::atomic::{AtomicU32, Ordering};
-
 use crate::config::MachineATronContext;
+use base64::prelude::*;
+use mac_address::MacAddress;
 use rpc::forge::PxeInstructions;
 use rpc::{
     forge::{MachineSearchConfig, MachineType},
     forge_tls_client::{self, ApiConfig, ForgeClientT},
 };
+use std::future::Future;
+use std::net::Ipv4Addr;
+use std::sync::atomic::{AtomicU32, Ordering};
 use uuid::Uuid;
 
 #[derive(thiserror::Error, Debug)]
@@ -102,15 +102,28 @@ pub async fn discover_dhcp(
     .await
 }
 
+// Simple wrapper around the inputs to discover_machine so that callers can see the field names
+pub struct MockDiscoveryData {
+    pub machine_interface_id: rpc::Uuid,
+    pub network_interface_macs: Vec<String>,
+    pub product_serial: Option<String>,
+    pub chassis_serial: Option<String>,
+    pub host_mac_address: Option<String>,
+}
+
 pub async fn discover_machine(
     app_context: &MachineATronContext,
     template_dir: &str,
     machine_type: MachineType,
-    machine_interface_id: rpc::Uuid,
-    network_interface_macs: Vec<String>,
-    product_serial: String,
-    host_mac_address: String,
+    discovery_data: MockDiscoveryData,
 ) -> ClientApiResult<rpc::forge::MachineDiscoveryResult> {
+    let MockDiscoveryData {
+        machine_interface_id,
+        network_interface_macs,
+        product_serial,
+        chassis_serial,
+        host_mac_address,
+    } = discovery_data;
     /*
     tracing::info!(
         "sending discover info for {:?} {} ({:?})",
@@ -135,14 +148,21 @@ pub async fn discover_machine(
         })?;
 
     if let Some(ref mut dmi_data) = discovery_data.dmi_data {
-        dmi_data.product_serial = product_serial;
+        if let Some(product_serial) = product_serial {
+            dmi_data.product_serial = product_serial;
+        }
+        if let Some(chassis_serial) = chassis_serial {
+            dmi_data.chassis_serial = chassis_serial;
+        }
     }
     if machine_type == MachineType::Host {
         discovery_data.tpm_ek_certificate =
             Some(BASE64_STANDARD.encode(machine_interface_id.to_string()));
         discovery_data.dpu_info = None;
     } else if let Some(ref mut dpu_info) = discovery_data.dpu_info {
-        dpu_info.factory_mac_address = host_mac_address;
+        if let Some(host_mac_address) = host_mac_address {
+            dpu_info.factory_mac_address = host_mac_address;
+        }
     }
     discovery_data.network_interfaces = network_interface_macs
         .iter()
@@ -177,6 +197,7 @@ pub async fn update_bmc_metadata(
     machine_type: MachineType,
     machine_id: rpc::MachineId,
     bmc_host: Ipv4Addr,
+    bmc_mac: MacAddress,
 ) -> ClientApiResult<rpc::forge::BmcMetaDataUpdateResponse> {
     let json_path = if machine_type == MachineType::Dpu {
         format!("{}/dpu_metadata_update.json", template_dir)
@@ -199,6 +220,7 @@ pub async fn update_bmc_metadata(
     default_data.bmc_info = Some(rpc::forge::BmcInfo {
         ip: Some(bmc_host.to_string()),
         port: Some(app_context.app_config.bmc_mock_port.into()),
+        mac: Some(bmc_mac.to_string()),
         ..Default::default()
     });
 

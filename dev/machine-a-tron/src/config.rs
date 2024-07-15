@@ -77,7 +77,7 @@ fn default_bmc_mock_port() -> u16 {
     2000
 }
 fn default_bmc_mock_host_tar() -> String {
-    String::from("dev/bmc-mock/lenovo_thinksystem_sr670.tar.gz")
+    String::from("dev/bmc-mock/dell_poweredge_r750.tar.gz")
 }
 fn default_bmc_mock_dpu_tar() -> String {
     String::from("dev/bmc-mock/nvidia_dpu.tar.gz")

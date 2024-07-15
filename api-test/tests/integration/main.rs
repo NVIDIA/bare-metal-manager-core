@@ -71,7 +71,13 @@ async fn test_integration() -> eyre::Result<()> {
     );
     tokio::spawn(bmc_mock::run_combined_mock::<String>(routers, None, None));
 
-    let server_handle = utils::start_api_server(test_env, None).await?;
+    let server_handle = utils::start_api_server(
+        test_env, None,
+        // TODO: enabling create_machines in site explorer causes failures
+        // it appears parts of this test were written without create_machines in mind
+        false,
+    )
+    .await?;
 
     // And now.. Behold! The Test!
 
@@ -239,7 +245,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
                     .unwrap()
                     .to_string(),
                 admin_dhcp_relay_address: Ipv4Addr::new(172, 20, 0, 2),
-                oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 0, 2),
+                oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
                 vpc_count: 0,
             },
         )]),
@@ -250,7 +256,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         )),
         log_file: None,
         bmc_mock_host_tar: format!(
-            "{}/dev/bmc-mock/lenovo_thinksystem_sr670.tar.gz",
+            "{}/dev/bmc-mock/dell_poweredge_r750.tar.gz",
             root_dir.to_string_lossy()
         ),
         bmc_mock_dpu_tar: format!(
@@ -274,7 +280,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     // API server with it, then start machine-a-tron, *then* we can add the machines to the pool.
     let mock_redfish_pool = Arc::new(MachineATronBackedRedfishClientPool::new());
     let server_handle =
-        utils::start_api_server(test_env.clone(), Some(mock_redfish_pool.clone())).await?;
+        utils::start_api_server(test_env.clone(), Some(mock_redfish_pool.clone()), true).await?;
 
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
     subnet::create(carbide_api_addr, &tenant1_vpc)?;

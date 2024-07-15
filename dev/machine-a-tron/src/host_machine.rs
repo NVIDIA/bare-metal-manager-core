@@ -1,4 +1,4 @@
-use crate::api_client::ClientApiError;
+use crate::api_client::{ClientApiError, MockDiscoveryData};
 use crate::bmc_mock_wrapper::{BmcMockWrapper, HostBmcInfo, ListenMode, MockBmcInfo};
 use crate::machine_utils::get_validation_id;
 use crate::{
@@ -368,7 +368,13 @@ impl HostMachine {
                     }
                 }
                 MachineState::Init => {
-                    if self.machine_dhcp_info.is_none() {
+                    if self.machine_dhcp_info.is_none()
+                        || self
+                            .machine_dhcp_info
+                            .as_ref()
+                            .and_then(|i| i.machine_id.as_ref())
+                            .is_none()
+                    {
                         let Some(mac_address) =
                             self.dpu_machines.first().map(|d| d.host_mac_address)
                         else {
@@ -420,13 +426,7 @@ impl HostMachine {
                     Ok(true)
                 }
                 MachineState::DhcpComplete => {
-                    let Some(first_mac_address) =
-                        self.dpu_machines.first().map(|d| d.host_mac_address)
-                    else {
-                        tracing::warn!("Machine {} has no dpu_machines", self.mat_id);
-                        return Ok(false);
-                    };
-                    let mac_addresses = self
+                    let network_interface_macs = self
                         .dpu_machines
                         .iter()
                         .map(|dpus| dpus.host_mac_address.to_string())
@@ -458,6 +458,7 @@ impl HostMachine {
                     {
                         PXEresponse::Exit => {
                             self.mat_state = MachineState::MachineUp(SendRebootCompleted(true));
+                            return Ok(true);
                         }
                         PXEresponse::Error => {
                             tracing::warn!("PXE request failed. Retrying...");
@@ -468,15 +469,19 @@ impl HostMachine {
                         }
                     }
 
+                    let bmc_info = self.bmc_info();
                     let start = Instant::now();
                     let machine_discovery_result = match api_client::discover_machine(
                         &self.app_context,
                         &template_dir,
                         rpc::forge::MachineType::Host,
-                        machine_interface_id,
-                        mac_addresses,
-                        first_mac_address.to_string().replace(':', ""),
-                        "".to_owned(),
+                        MockDiscoveryData {
+                            machine_interface_id,
+                            network_interface_macs,
+                            product_serial: Some(bmc_info.serial.clone()),
+                            chassis_serial: Some(bmc_info.serial.clone()),
+                            host_mac_address: None,
+                        },
                     )
                     .await
                     {
@@ -509,6 +514,7 @@ impl HostMachine {
                         rpc::forge::MachineType::Host,
                         machine_id,
                         dhcp_info.ip_address,
+                        self.bmc_mac_address,
                     )
                     .await
                     {

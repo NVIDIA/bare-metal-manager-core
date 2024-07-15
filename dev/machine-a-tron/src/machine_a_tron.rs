@@ -42,7 +42,7 @@ impl MachineATron {
             None,
         )?;
 
-        Ok(self
+        let machines = self
             .app_context
             .app_config
             .machines
@@ -59,7 +59,15 @@ impl MachineATron {
                     )
                 })
             })
-            .collect())
+            .collect::<Vec<_>>();
+
+        // Useful for comparing values in logs with machine-a-tron's state
+        tracing::info!(
+            "Machine-a-tron using machines: {:?}",
+            machines.iter().map(|m| m.bmc_info()).collect::<Vec<_>>()
+        );
+
+        Ok(machines)
     }
 
     pub async fn run(
