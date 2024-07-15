@@ -187,11 +187,7 @@ pub(crate) async fn get_managed_host_network_config(
             HBN_SINGLE_VLAN_DEVICE.to_string()
         },
         managed_host_config: Some(network_config),
-        // TODO: multidpu: Fix it for multiple dpus.
-        managed_host_config_version: snapshot.dpu_snapshots[0]
-            .network_config
-            .version
-            .version_string(),
+        managed_host_config_version: dpu_snapshot.network_config.version.version_string(),
         use_admin_network,
         admin_interface: Some(admin_interface_rpc),
         tenant_interfaces,
