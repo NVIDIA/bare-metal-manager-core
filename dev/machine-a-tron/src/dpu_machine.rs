@@ -1,3 +1,4 @@
+use crate::api_client::MockDiscoveryData;
 use crate::bmc_mock_wrapper::{BmcMockWrapper, DpuBmcInfo, ListenMode, MockBmcInfo};
 use crate::host_machine::SendRebootCompleted;
 use crate::{
@@ -226,7 +227,13 @@ impl DpuMachine {
                 }
             }
             MachineState::Init => {
-                if self.machine_dhcp_info.is_none() {
+                if self.machine_dhcp_info.is_none()
+                    || self
+                        .machine_dhcp_info
+                        .as_ref()
+                        .and_then(|i| i.machine_id.as_ref())
+                        .is_none()
+                {
                     if self.last_dhcp_request.elapsed() > Duration::from_secs(5) {
                         self.last_dhcp_request = Instant::now();
                         let log = format!(
@@ -299,7 +306,7 @@ impl DpuMachine {
             }
             MachineState::DhcpComplete => {
                 let Some(machine_interface_id) = self
-                    .bmc_dhcp_info
+                    .machine_dhcp_info
                     .as_ref()
                     .and_then(|i| i.interface_id)
                     .as_ref()
@@ -326,6 +333,7 @@ impl DpuMachine {
                 match pxe_response {
                     PXEresponse::Exit => {
                         self.mat_state = MachineState::MachineUp(SendRebootCompleted(true));
+                        return Ok(true);
                     }
                     PXEresponse::Error => {
                         tracing::warn!("PXE request failed. Retrying...");
@@ -336,14 +344,19 @@ impl DpuMachine {
                     }
                 }
 
+                let bmc_info = self.bmc_info();
+
                 match api_client::discover_machine(
                     &self.app_context,
                     template_dir,
                     rpc::forge::MachineType::Dpu,
-                    machine_interface_id,
-                    vec![self.mac_address.to_string()],
-                    self.mac_address.to_string().replace(':', ""),
-                    self.host_mac_address.to_string(),
+                    MockDiscoveryData {
+                        machine_interface_id,
+                        network_interface_macs: vec![bmc_info.oob_mac_address.to_string()],
+                        product_serial: Some(bmc_info.serial.clone()),
+                        chassis_serial: None,
+                        host_mac_address: Some(bmc_info.host_mac_address.to_string()),
+                    },
                 )
                 .await
                 {
@@ -382,6 +395,7 @@ impl DpuMachine {
                     rpc::forge::MachineType::Dpu,
                     machine_id,
                     dhcp_info.ip_address,
+                    self.bmc_mac_address,
                 )
                 .await
                 {

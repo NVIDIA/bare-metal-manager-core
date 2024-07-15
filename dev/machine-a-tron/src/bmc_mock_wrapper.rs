@@ -66,16 +66,23 @@ impl HostBmcInfo {
         self.dpus.first()
     }
 
-    pub fn system_mac_addresss(&self) -> Option<MacAddress> {
+    pub fn system_mac_address(&self) -> Option<MacAddress> {
         self.primary_dpu().map(|d| d.host_mac_address)
     }
 }
 
 impl MockBmcInfo {
-    pub fn serial(&self) -> String {
+    pub fn chassis_serial(&self) -> Option<String> {
         match self {
-            Self::Host(h) => h.serial.clone(),
-            Self::Dpu(d) => d.serial.clone(),
+            Self::Host(h) => Some(h.serial.clone()),
+            Self::Dpu(d) => Some(d.serial.clone()),
+        }
+    }
+
+    pub fn product_serial(&self) -> Option<String> {
+        match self {
+            Self::Host(h) => Some(h.serial.clone()),
+            Self::Dpu(_) => None,
         }
     }
 

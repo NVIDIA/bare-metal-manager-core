@@ -28,15 +28,30 @@ use tokio::sync::oneshot::Receiver;
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
 
-pub async fn start(
-    addr: SocketAddr,
-    root_dir: String,
-    db_url: String,
-    vault_token: String,
-    override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
-    telemetry_setup: TelemetrySetup,
-    stop_channel: Receiver<()>,
-) -> eyre::Result<()> {
+// Use a struct for the args to start() so that callers can see argument names
+pub struct StartArgs {
+    pub addr: SocketAddr,
+    pub root_dir: String,
+    pub db_url: String,
+    pub vault_token: String,
+    pub override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
+    pub telemetry_setup: TelemetrySetup,
+    pub site_explorer_create_machines: bool,
+    pub stop_channel: Receiver<()>,
+}
+
+pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
+    let StartArgs {
+        addr,
+        root_dir,
+        db_url,
+        vault_token,
+        override_redfish_pool,
+        telemetry_setup,
+        site_explorer_create_machines,
+        stop_channel,
+    } = start_args;
+
     let mut dpu_nic_firmware_update_versions = HashMap::new();
     dpu_nic_firmware_update_versions.insert("product_x".to_owned(), "v1".to_owned());
 
@@ -146,6 +161,16 @@ pub async fn start(
                     reserve_first: 0,
                 },
             ),
+            (
+                "DEV1-C09-DPU-01".to_string(),
+                NetworkDefinition {
+                    segment_type: NetworkDefinitionSegmentType::Underlay,
+                    prefix: "172.20.1.0/24".to_string(),
+                    gateway: "172.20.1.1".to_string(),
+                    mtu: 1490,
+                    reserve_first: 5,
+                },
+            ),
         ])),
         dpu_ipmi_tool_impl: Some("test".to_owned()),
         dpu_ipmi_reboot_attempts: None,
@@ -159,7 +184,9 @@ pub async fn start(
             run_interval: std::time::Duration::from_secs(5),
             concurrent_explorations: 5,
             explorations_per_run: 10,
-            create_machines: carbide::dynamic_settings::create_machines(false),
+            create_machines: carbide::dynamic_settings::create_machines(
+                site_explorer_create_machines,
+            ),
             override_target_ip: None,
             override_target_port: None,
         },

@@ -9,20 +9,22 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use crate::api_server::StartArgs;
 use crate::{api_server, find_prerequisites, vault, vault::Vault};
 use carbide::logging::setup::{setup_telemetry, TelemetrySetup};
 use carbide::logging::sqlx_query_tracing;
 use carbide::redfish::RedfishClientPool;
-use eyre::WrapErr;
+use carbide::setup;
+use eyre::{Report, WrapErr};
+use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
 use lazy_static::lazy_static;
 use sqlx::{migrate::MigrateDatabase, Pool, Postgres};
-use std::time::Duration;
 use std::{
     env,
     net::{SocketAddr, TcpListener},
     path::PathBuf,
     sync::Arc,
-    time,
+    time::Duration,
 };
 use tokio::sync::oneshot::Sender;
 use tokio::sync::Mutex;
@@ -147,6 +149,7 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
 pub async fn start_api_server(
     test_env: IntegrationTestEnvironment,
     override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
+    site_explorer_create_machines: bool,
 ) -> eyre::Result<ApiServerHandle> {
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
     env::set_var("IGNORE_MGMT_VRF", "true");
@@ -190,27 +193,29 @@ pub async fn start_api_server(
     // Dependencies: Postgres, Vault and a Redfish BMC
     m.run(&db_pool).await?;
     let vault = vault::start(bins.get("vault").unwrap())?;
-
     let vault_token = vault.token().to_string();
     let root_dir_clone = root_dir.to_str().unwrap().to_string();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let telemetry_setup_clone = telemetry_setup.clone();
     let join_handle = tokio::spawn(async move {
-        api_server::start(
-            carbide_api_addr,
-            root_dir_clone,
+        api_server::start(StartArgs {
+            addr: carbide_api_addr,
+            root_dir: root_dir_clone,
             db_url,
             vault_token,
             override_redfish_pool,
-            telemetry_setup,
-            stop_rx,
-        )
+            telemetry_setup: telemetry_setup_clone,
+            site_explorer_create_machines,
+            stop_channel: stop_rx,
+        })
         .await
         .inspect_err(|e| {
             eprintln!("Failed to start API server: {:#}", e);
         })
     });
 
-    sleep(time::Duration::from_secs(5)).await;
+    sleep(Duration::from_secs(5)).await;
+    populate_initial_vault_secrets(&telemetry_setup).await?;
 
     Ok(ApiServerHandle {
         stop_channel: Some(stop_tx),
@@ -263,4 +268,22 @@ pub fn test_logging_subscriber() -> impl SubscriberInitExt {
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .with(env_filter),
     )
+}
+
+pub async fn populate_initial_vault_secrets(
+    telemetry_setup: &TelemetrySetup,
+) -> Result<(), Report> {
+    let vault_client = setup::create_vault_client(telemetry_setup.meter.clone()).await?;
+    vault_client
+        .set_credentials(
+            CredentialKey::BmcCredentials {
+                credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
+            },
+            Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "password".to_string(),
+            },
+        )
+        .await?;
+    Ok(())
 }
