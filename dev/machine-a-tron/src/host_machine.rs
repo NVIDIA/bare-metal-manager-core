@@ -268,6 +268,7 @@ impl HostMachine {
                         validation_id,
                     )
                     .await?;
+                    api_client::reboot_completed(&self.app_context, machine_id.clone()).await?;
                     work_done = true;
                 } else {
                     tracing::error!("api state is MachineValidating, but ForgeAgentControl did not return a validation_id. Cannot send MachineValidationComplete, machine will likely be stuck.")

@@ -149,5 +149,13 @@ pub fn machine_validation_completed(
             "validation_id": {"value": response["data"]["pair"][1]["value"]}
         })),
     )?;
+
+    grpcurl(
+        addr,
+        "RebootCompleted",
+        Some(&serde_json::json!({
+            "machine_id": {"id": host_machine_id}
+        })),
+    )?;
     Ok(host_machine_id.to_string())
 }
