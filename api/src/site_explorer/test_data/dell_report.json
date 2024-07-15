@@ -41,6 +41,22 @@
                     "InterfaceEnabled": false,
                     "MacAddress": "b8:3f:d2:90:95:f4"
                 }
+            ],
+            "PcieDevices": [
+                {
+                    "Id": "",
+                    "Description": "",
+                    "FirmwareVersion": "1.2.3.4",
+                    "Manufacturer": "Acme",
+                    "Name": "Integrated Matrox G200EW3 Graphics",
+                    "PartNumber": "12345",
+                    "SerialNumber": "abcde123",
+                    "Status": {
+                        "State": "Enabled",
+                        "Health": "OK",
+                        "HealthRollup": "OK"
+                    }
+                }
             ]
         }
     ],

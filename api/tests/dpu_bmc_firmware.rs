@@ -100,6 +100,7 @@ async fn test_bmc_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
             },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -212,6 +213,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
             },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -291,6 +293,7 @@ async fn test_uefi_fw_version(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
             },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),
@@ -425,6 +428,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
             },
+            pcie_devices: vec![],
         }],
         chassis: vec![Chassis {
             id: "Card1".to_string(),

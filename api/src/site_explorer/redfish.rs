@@ -9,20 +9,23 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use crate::model::site_explorer::{
-    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter,
-    NicMode, Service,
-};
-use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
-use bmc_vendor::BMCVendor;
-use forge_secrets::credentials::Credentials;
-use libredfish::{Redfish, RedfishError, RoleId};
-use regex::Regex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+
+use libredfish::{Redfish, RedfishError, RoleId};
+use regex::Regex;
+
+use bmc_vendor::BMCVendor;
+use forge_secrets::credentials::Credentials;
+
+use crate::model::site_explorer::{
+    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
+    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NetworkAdapter,
+    NicMode, PCIeDevice, Service, SystemStatus,
+};
+use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
@@ -291,6 +294,8 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
         }
     };
 
+    let pcie_devices = fetch_pcie_devices(client).await?;
+
     let nic_mode: Option<NicMode> = if is_dpu {
         bios_attributes
             .get("NicMode")
@@ -306,6 +311,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
         model: system.model,
         serial_number: system.serial_number,
         attributes: ComputerSystemAttributes { nic_mode },
+        pcie_devices,
     })
 }
 
@@ -464,6 +470,76 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
     }
 
     Ok(chassis)
+}
+
+impl From<libredfish::PCIeDevice> for PCIeDevice {
+    fn from(device: libredfish::PCIeDevice) -> Self {
+        PCIeDevice {
+            description: device.description,
+            firmware_version: device.firmware_version,
+            id: device.id,
+            manufacturer: device.manufacturer,
+            name: device.name,
+            part_number: device.part_number,
+            serial_number: device.serial_number,
+            status: device.status.map(|s| s.into()),
+            gpu_vendor: device.gpu_vendor,
+        }
+    }
+}
+impl From<PCIeDevice> for libredfish::PCIeDevice {
+    fn from(device: PCIeDevice) -> Self {
+        libredfish::PCIeDevice {
+            description: device.description,
+            firmware_version: device.firmware_version,
+            id: device.id,
+            manufacturer: device.manufacturer,
+            name: device.name,
+            part_number: device.part_number,
+            serial_number: device.serial_number,
+            status: device.status.map(|s| s.into()),
+            gpu_vendor: device.gpu_vendor,
+        }
+    }
+}
+
+impl From<SystemStatus> for libredfish::model::SystemStatus {
+    fn from(status: SystemStatus) -> Self {
+        libredfish::model::SystemStatus {
+            health: status.health,
+            health_rollup: status.health_rollup,
+            state: status.state,
+        }
+    }
+}
+impl From<libredfish::model::SystemStatus> for SystemStatus {
+    fn from(status: libredfish::model::SystemStatus) -> Self {
+        SystemStatus {
+            health: status.health,
+            health_rollup: status.health_rollup,
+            state: status.state.to_string(),
+        }
+    }
+}
+
+async fn fetch_pcie_devices(client: &dyn Redfish) -> Result<Vec<PCIeDevice>, RedfishError> {
+    let pci_device_list = client.pcie_devices().await?;
+    let mut pci_devices: Vec<PCIeDevice> = Vec::new();
+
+    for pci_device in pci_device_list {
+        pci_devices.push(PCIeDevice {
+            description: pci_device.description,
+            firmware_version: pci_device.firmware_version,
+            id: pci_device.id.clone(),
+            manufacturer: pci_device.manufacturer,
+            gpu_vendor: pci_device.gpu_vendor,
+            name: pci_device.name,
+            part_number: pci_device.part_number,
+            serial_number: pci_device.serial_number,
+            status: pci_device.status.map(|s| s.into()),
+        });
+    }
+    Ok(pci_devices)
 }
 
 async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishError> {

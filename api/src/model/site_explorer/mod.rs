@@ -11,9 +11,10 @@
  */
 use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
 
-use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
+
+use config_version::ConfigVersion;
 
 use crate::{
     cfg::{DpuComponent, DpuDesc, DpuModel, FirmwareHostComponentType},
@@ -125,6 +126,54 @@ pub enum PreingestionState {
         rebooted: bool,
     },
     Complete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub struct PCIeDevice {
+    pub description: Option<String>,
+    pub firmware_version: Option<String>,
+    pub gpu_vendor: Option<String>,
+    pub id: Option<String>,
+    pub manufacturer: Option<String>,
+    pub name: Option<String>,
+    pub part_number: Option<String>,
+    pub serial_number: Option<String>,
+    pub status: Option<SystemStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub struct SystemStatus {
+    pub health: Option<String>,
+    pub health_rollup: Option<String>,
+    pub state: String,
+}
+
+impl From<SystemStatus> for rpc::site_explorer::SystemStatus {
+    fn from(status: SystemStatus) -> Self {
+        rpc::site_explorer::SystemStatus {
+            health: status.health,
+            health_rollup: status.health_rollup,
+            state: status.state,
+        }
+    }
+}
+
+impl From<PCIeDevice> for rpc::site_explorer::PcIeDevice {
+    fn from(device: PCIeDevice) -> Self {
+        rpc::site_explorer::PcIeDevice {
+            description: device.description,
+            firmware_version: device.firmware_version,
+            gpu_vendor: device.gpu_vendor,
+            id: device.id,
+            manufacturer: device.manufacturer,
+            name: device.name,
+            part_number: device.part_number,
+            serial_number: device.serial_number,
+            status: device.status.map(Into::into),
+        }
+    }
 }
 
 impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
@@ -652,6 +701,8 @@ pub struct ComputerSystem {
     pub serial_number: Option<String>,
     #[serde(default)]
     pub attributes: ComputerSystemAttributes,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pcie_devices: Vec<PCIeDevice>,
 }
 
 impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
@@ -669,6 +720,7 @@ impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
             attributes: Some(rpc::site_explorer::ComputerSystemAttributes::from(
                 system.attributes,
             )),
+            pcie_devices: system.pcie_devices.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -938,6 +990,7 @@ mod tests {
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
                 },
+                pcie_devices: vec![],
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
@@ -985,6 +1038,7 @@ mod tests {
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
                 },
+                pcie_devices: vec![],
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
