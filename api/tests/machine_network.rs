@@ -44,6 +44,48 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
+    // Given: A managed host with 2 DPUs
+    let env = api_fixtures::create_test_env(pool).await;
+    let managed_host_id = api_fixtures::managed_host::create_managed_host_multi_dpu(&env, 2).await;
+    let host_machine = env
+        .api
+        .get_machine(tonic::Request::new(rpc::MachineId {
+            id: managed_host_id.to_string(),
+        }))
+        .await
+        .expect("Cannot look up the machine we just created")
+        .into_inner();
+
+    let dpu_1_id = host_machine.associated_dpu_machine_ids[0].clone();
+    let dpu_2_id = host_machine.associated_dpu_machine_ids[1].clone();
+
+    // Then: Get the managed host network config version via DPU 1's ID and DPU 2's ID
+    let dpu_1_network_config = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_1_id),
+        }))
+        .await
+        .expect("Error getting DPU1 network config")
+        .into_inner();
+    let dpu_2_network_config = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_2_id),
+        }))
+        .await
+        .expect("Error getting DPU1 network config")
+        .into_inner();
+
+    // Assert: They should not have the same config version, since the managed_host_config_version
+    // represents the health of that particular DPU.
+    assert!(dpu_1_network_config
+        .managed_host_config_version
+        .ne(&dpu_2_network_config.managed_host_config_version));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
