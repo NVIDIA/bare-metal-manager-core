@@ -34,6 +34,8 @@ pub struct DbExploredEndpoint {
     preingestion_state: PreingestionState,
     /// Indicates that preingestion is waiting for site explorer to refresh the state
     waiting_for_explorer_refresh: bool,
+    /// Whether the endpoint will be explored in the next site-explorer run
+    exploration_requested: bool,
 }
 
 impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
@@ -47,6 +49,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
         let preingestion_state: sqlx::types::Json<PreingestionState> =
             row.try_get("preingestion_state")?;
         let waiting_for_explorer_refresh = row.try_get("waiting_for_explorer_refresh")?;
+        let exploration_requested = row.try_get("exploration_requested")?;
 
         Ok(DbExploredEndpoint {
             address: row.try_get("address")?,
@@ -54,6 +57,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
             report_version,
             preingestion_state: preingestion_state.0,
             waiting_for_explorer_refresh,
+            exploration_requested,
         })
     }
 }
@@ -66,6 +70,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
             report_version: endpoint.report_version,
             preingestion_state: endpoint.preingestion_state,
             waiting_for_explorer_refresh: endpoint.waiting_for_explorer_refresh,
+            exploration_requested: endpoint.exploration_requested,
         }
     }
 }
@@ -182,7 +187,7 @@ impl DbExploredEndpoint {
     ) -> Result<bool, DatabaseError> {
         let new_version = old_version.increment();
         let query = "
-UPDATE explored_endpoints SET version=$1, exploration_report=$2, waiting_for_explorer_refresh = false
+UPDATE explored_endpoints SET version=$1, exploration_report=$2, waiting_for_explorer_refresh = false, exploration_requested = false
 WHERE address = $3 AND version=$4";
         let query_result = sqlx::query(query)
             .bind(new_version.version_string())
@@ -208,6 +213,32 @@ WHERE address = $3 AND version=$4";
         }
 
         Ok(())
+    }
+
+    /// Sets the `exploration_requested` flag on an explored_endpoint
+    ///
+    /// Returns Ok(`true`) if the endpoint record is updated and Ok(`false`) if no
+    /// record with the given version exists.
+    pub async fn re_explore_if_version_matches(
+        address: IpAddr,
+        version: ConfigVersion,
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<bool, DatabaseError> {
+        let query =
+            "UPDATE explored_endpoints SET exploration_requested = true WHERE address = $1 AND version = $2 RETURNING address;";
+        let query_result: Result<(IpAddr,), _> = sqlx::query_as(query)
+            .bind(address)
+            .bind(version.version_string())
+            .fetch_one(&mut **txn)
+            .await;
+
+        match query_result {
+            Ok((_address,)) => Ok(true),
+            Err(e) => match e {
+                sqlx::Error::RowNotFound => Ok(false),
+                e => Err(DatabaseError::new(file!(), line!(), query, e)),
+            },
+        }
     }
 
     /// set_waiting_for_explorer_refresh sets a flag that will be cleared next time try_update runs.
@@ -294,8 +325,8 @@ WHERE address = $3 AND version=$4";
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let query = "
-        INSERT INTO explored_endpoints (address, exploration_report, version, preingestion_state)
-        VALUES ($1, $2::json, $3, '{\"state\":\"initial\"}')
+        INSERT INTO explored_endpoints (address, exploration_report, version, exploration_requested, preingestion_state)
+        VALUES ($1, $2::json, $3, false, '{\"state\":\"initial\"}')
         ON CONFLICT DO NOTHING";
         let version = ConfigVersion::initial();
         let _result = sqlx::query(query)

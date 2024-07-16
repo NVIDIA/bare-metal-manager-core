@@ -99,6 +99,8 @@ pub struct ExploredEndpoint {
     pub preingestion_state: PreingestionState,
     /// Indicates that preingestion is waiting for site explorer to refresh the state
     pub waiting_for_explorer_refresh: bool,
+    /// Whether the endpoint will be explored in the next site-explorer run
+    pub exploration_requested: bool,
 }
 
 impl Display for ExploredEndpoint {
@@ -182,6 +184,7 @@ impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
             address: endpoint.address.to_string(),
             report: Some(endpoint.report.into()),
             report_version: endpoint.report_version.to_string(),
+            exploration_requested: endpoint.exploration_requested,
         }
     }
 }

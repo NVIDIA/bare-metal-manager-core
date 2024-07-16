@@ -11,6 +11,7 @@
  */
 
 use ::rpc::forge as rpc;
+use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use std::{net::IpAddr, str::FromStr};
 use tokio::net::lookup_host;
@@ -129,6 +130,72 @@ pub(crate) async fn clear_site_exploration_error(
             file!(),
             line!(),
             "commit clear_last_known_error",
+            e,
+        ))
+    })?;
+
+    Ok(Response::new(()))
+}
+
+pub(crate) async fn re_explore_endpoint(
+    api: &Api,
+    request: Request<rpc::ReExploreEndpointRequest>,
+) -> Result<Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
+    let if_version_match = req
+        .if_version_match
+        .map(|v| v.parse::<ConfigVersion>())
+        .transpose()
+        .map_err(CarbideError::from)?;
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin re_explore_endpoint",
+            e,
+        ))
+    })?;
+
+    let eps = DbExploredEndpoint::find_all_by_ip(bmc_ip, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
+    if eps.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "explored_endpoint",
+            id: bmc_ip.to_string(),
+        }
+        .into());
+    }
+
+    for ep in eps.iter() {
+        let expected_version = match if_version_match {
+            Some(v) => v,
+            None => ep.report_version,
+        };
+        match DbExploredEndpoint::re_explore_if_version_matches(bmc_ip, expected_version, &mut txn)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(CarbideError::ConcurrentModificationError(
+                    "explored_endpoint",
+                    expected_version,
+                )
+                .into());
+            }
+            Err(e) => return Err(CarbideError::from(e).into()),
+        }
+    }
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit re_explore_endpoint",
             e,
         ))
     })?;

@@ -35,6 +35,8 @@ message ExploredEndpoint {
     // The version of `report`.
     // Will increase every time the report gets updated.
     string report_version = 3;
+    /// Whether the endpoint will be explored in the next site-explorer run
+    bool exploration_requested = 4;
 }
 
 // Information about explored DPU that was discovered via Site Exploration

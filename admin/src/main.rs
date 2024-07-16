@@ -681,6 +681,9 @@ async fn main() -> color_eyre::Result<()> {
                 let report = rpc::explore(api_config, &opts.address, opts.mac).await?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
             }
+            SiteExplorer::ReExplore(opts) => {
+                rpc::re_explore_endpoint(api_config, &opts.address).await?;
+            }
             SiteExplorer::ClearError(opts) => {
                 rpc::clear_site_explorer_last_known_error(api_config, opts.address).await?;
             }
