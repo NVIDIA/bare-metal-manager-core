@@ -42,6 +42,9 @@ pub enum AgentCommand {
     #[clap(about = "One-off health check")]
     Health,
 
+    #[clap(about = "One-off network monitor")]
+    Network,
+
     #[clap(about = "Write a templated config file", subcommand)]
     Write(WriteTarget),
 }

@@ -11,6 +11,7 @@
  */
 
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Instant;
 
 use ::rpc::forge_tls_client::ForgeClientConfig;
@@ -19,11 +20,11 @@ use ::rpc::DiscoveryInfo;
 use command_line::NetworkVirtualizationType;
 pub use command_line::{AgentCommand, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
-use forge_host_support::{
-    agent_config::AgentConfig, hardware_enumeration::enumerate_hardware,
-    registration::register_machine,
-};
+use forge_host_support::agent_config::AgentConfig;
+use forge_host_support::hardware_enumeration::enumerate_hardware;
+use forge_host_support::registration::register_machine;
 use forge_tls::client_config::ClientCert;
+use network_monitor::Pinger;
 
 use crate::frr::FrrVlanConfig;
 
@@ -42,13 +43,14 @@ mod hbn;
 mod health;
 mod instance_metadata_endpoint;
 mod instance_metadata_fetcher;
-mod instrumentation;
+pub mod instrumentation;
 mod interfaces;
 
 mod machine_inventory_updater;
 mod main_loop;
 mod mtu;
 mod network_config_fetcher;
+pub mod network_monitor;
 pub mod nvue; // pub so that integration tests can read nvue::PATH
 mod systemd;
 pub mod upgrade;
@@ -149,6 +151,32 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             let health_report =
                 health::health_check(&agent.hbn.root_dir, &[], Instant::now(), false, None).await;
             println!("{health_report}");
+        }
+
+        // One-off network monitor check.
+        // dumps JSON-formatted peer DPU network reachability and latency status
+        Some(AgentCommand::Network) => {
+            let machine_id = register(&agent)
+                .await
+                .wrap_err("network check machine registration error")?
+                .machine_id;
+
+            let peer_dpus = network_monitor::find_peer_dpu_machines(
+                &machine_id,
+                &agent.forge_system.api_server,
+                forge_client_config.clone(),
+            )
+            .await?;
+
+            // Initialize network monitor and perform network check once
+            let mut network_monitor = network_monitor::NetworkMonitor::new(
+                machine_id.to_string(),
+                peer_dpus,
+                None,
+                Arc::new(Pinger),
+            );
+
+            network_monitor.run_onetime(true).await;
         }
 
         // Output a templated file

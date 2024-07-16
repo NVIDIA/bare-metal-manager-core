@@ -10,12 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::{env, fs};
 
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
@@ -24,39 +23,10 @@ use axum::routing::{get, post};
 use axum::Router;
 use chrono::{DateTime, TimeZone, Utc};
 use eyre::WrapErr;
+use rpc::forge::DpuInfo;
 use tokio::sync::Mutex;
 
 mod common;
-
-// TODO: Add settings to config file and switch this to true
-// Then assert that it works
-const TEST_METADATA_SERVICE: bool = false;
-
-const AGENT_CONFIG: &str = r#"
-[forge-system]
-api-server = "https://$API_SERVER"
-pxe-server = "http://127.0.0.1:8080"
-root-ca = "$ROOT_DIR/dev/certs/forge_root.pem"
-
-[machine]
-is-fake-dpu = true
-interface-id = "f377ed72-d912-4879-958a-8d1f82a50d62"
-mac-address = "11:22:33:44:55:66"
-hostname = "abc.forge.example.com"
-
-[hbn]
-root-dir = "$HBN_ROOT"
-skip-reload = true
-
-[period]
-main-loop-active-secs = 1
-network-config-fetch-secs = 1
-main-loop-idle-secs = 30
-version-check-secs = 600
-inventory-update-secs = 3600
-discovery-retry-secs = 1
-discovery-retries-max = 1000
-"#;
 
 #[derive(Default, Debug)]
 struct State {
@@ -65,6 +35,7 @@ struct State {
     has_checked_for_upgrade: bool,
     num_netconf_fetches: AtomicUsize,
     num_health_reports: AtomicUsize,
+    num_get_dpu_ips: AtomicUsize,
 }
 
 #[derive(Default, Debug)]
@@ -126,29 +97,6 @@ async fn test_nvue() -> eyre::Result<()> {
 // Most of the test is shared between ETV files and ETV NVUE
 async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
     forge_host_support::init_logging()?;
-    env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
-    env::set_var("IGNORE_MGMT_VRF", "true");
-    env::set_var("NO_DPU_CONTAINERS", "true");
-
-    let Ok(repo_root) = env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")) else {
-        tracing::warn!(
-            "Either REPO_ROOT or CONTAINER_REPO_ROOT need to be set to run this test. Skipping."
-        );
-        return Ok(TestOut {
-            is_skip: true,
-            ..Default::default()
-        });
-    };
-    let root_dir = PathBuf::from(repo_root);
-
-    let td = tempfile::tempdir()?;
-    let hbn_root = td.path();
-    tracing::info!("Using hbn_root: {:?}", hbn_root);
-    fs::create_dir_all(hbn_root.join("etc/frr"))?;
-    fs::create_dir_all(hbn_root.join("etc/network"))?;
-    fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
-    fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
-    fs::create_dir_all(hbn_root.join("var/support"))?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
     state.lock().await.is_nvue = is_nvue;
@@ -173,36 +121,28 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
             "/forge.Forge/UpdateAgentReportedInventory",
             post(handle_update_agent_reported_inventory),
         )
+        .route(
+            "/forge.Forge/GetDpuInfoList",
+            post(handle_get_dpu_info_list),
+        )
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;
 
-    let cfg = AGENT_CONFIG
-        .replace("$ROOT_DIR", &root_dir.display().to_string())
-        .replace("$HBN_ROOT", &hbn_root.display().to_string())
-        .replace("$API_SERVER", &addr.to_string());
-
+    let td: tempfile::TempDir = tempfile::tempdir()?;
     let agent_config_file = tempfile::NamedTempFile::new()?;
-    fs::write(agent_config_file.path(), cfg)?;
-    let opts = agent::Options {
-        version: false,
-        config_path: Some(agent_config_file.path().to_path_buf()),
-        cmd: Some(agent::AgentCommand::Run(agent::RunOptions {
-            enable_metadata_service: TEST_METADATA_SERVICE,
-            override_machine_id: None,
-            override_network_virtualization_type: None,
-            skip_upgrade_check: false,
-        })),
+    let opts = match common::setup_agent_run_env(&addr, &td, &agent_config_file) {
+        Ok(Some(opts)) => opts,
+        Ok(None) => {
+            return Ok(TestOut {
+                is_skip: true,
+                ..Default::default()
+            });
+        }
+        Err(e) => {
+            return Err(e);
+        }
     };
-
-    // Put our fake `crictl` on front of path so that HBN health checks succeed
-    let dev_bin = root_dir.join("dev/bin");
-    if let Some(path) = env::var_os("PATH") {
-        let mut paths = env::split_paths(&path).collect::<Vec<_>>();
-        paths.insert(0, dev_bin);
-        let new_path = env::join_paths(paths)?;
-        env::set_var("PATH", new_path);
-    }
 
     // Start forge-dpu-agent
     tokio::spawn(async move {
@@ -241,6 +181,7 @@ async fn run_common_parts(is_nvue: bool) -> eyre::Result<TestOut> {
     // Since Network config fetching runs in a separate task, it might not have
     // happened 2 times but just a single time
     assert!(statel.num_netconf_fetches.load(Ordering::SeqCst) > 0);
+    assert!(statel.num_get_dpu_ips.load(Ordering::SeqCst) > 0);
     Ok(TestOut {
         is_skip: false,
         hbn_root_dir: Some(td),
@@ -343,6 +284,30 @@ async fn handle_dpu_agent_upgrade_check(
 
 async fn handle_update_agent_reported_inventory() -> impl axum::response::IntoResponse {
     common::respond(())
+}
+
+async fn handle_get_dpu_info_list(
+    AxumState(state): AxumState<Arc<Mutex<State>>>,
+) -> impl axum::response::IntoResponse {
+    {
+        state
+            .lock()
+            .await
+            .num_get_dpu_ips
+            .fetch_add(1, Ordering::SeqCst);
+    }
+    common::respond(rpc::forge::GetDpuInfoListResponse {
+        dpu_list: vec![
+            DpuInfo {
+                id: "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg".to_string(),
+                loopback_ip: "172.20.0.119".to_string(),
+            },
+            DpuInfo {
+                id: "fm100dsjd1vuk6gklgvh0ao8t7r7tk1pt101ub5ck0g3j7lqcm8h3rf1p8g".to_string(),
+                loopback_ip: "172.20.0.200".to_string(),
+            },
+        ],
+    })
 }
 
 async fn handler(uri: Uri) -> impl IntoResponse {

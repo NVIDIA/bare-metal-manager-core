@@ -1,0 +1,298 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use ::rpc::forge::{self as rpc};
+use ::rpc::forge_tls_client::ForgeClientConfig;
+use agent::instrumentation::create_metrics;
+use agent::network_monitor::{self, DpuInfo, DpuPingResult, NetworkMonitor, Ping};
+use axum::extract::State as AxumState;
+use axum::http::{StatusCode, Uri};
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
+use axum::{async_trait, Router};
+use eyre::{Context, Result};
+use forge_host_support::agent_config::AgentConfig;
+use forge_tls::client_config::ClientCert;
+use opentelemetry::metrics::{Meter, MeterProvider};
+use prometheus::{Encoder, TextEncoder};
+use tokio::sync::{watch, Mutex};
+use tokio::time::sleep;
+use tracing::info;
+
+mod common;
+
+// DPU machine ids for testing purposes
+const DPU_ID: &str = "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg";
+const DEST_DPU_ID: &str = "fm100dsjd1vuk6gklgvh0ao8t7r7tk1pt101ub5ck0g3j7lqcm8h3rf1p8g";
+
+#[derive(Default, Debug)]
+struct State {
+    num_get_dpu_ips: AtomicUsize,
+}
+
+#[tokio::test]
+pub async fn test_network_monitor() -> eyre::Result<()> {
+    forge_host_support::init_logging()?;
+
+    let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
+
+    // Start carbide API
+    let app = Router::new()
+        .route("/up", get(handle_up))
+        .route(
+            "/forge.Forge/GetDpuInfoList",
+            post(handle_get_dpu_info_list),
+        )
+        .fallback(handler)
+        .with_state(state.clone());
+    let (addr, join_handle) = common::run_grpc_server(app).await?;
+
+    let td = tempfile::tempdir()?;
+    let agent_config_file = tempfile::NamedTempFile::new()?;
+    let opts = match common::setup_agent_run_env(&addr, &td, &agent_config_file) {
+        Ok(Some(opts)) => opts,
+        Ok(None) => {
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(e);
+        }
+    };
+
+    let (agent, _path) = match opts.config_path {
+        // normal production case
+        None => (AgentConfig::default(), "default".to_string()),
+        // development overrides
+        Some(config_path) => (
+            AgentConfig::load_from(&config_path).wrap_err(format!(
+                "Error loading agent configuration from {}",
+                config_path.display()
+            ))?,
+            config_path.display().to_string(),
+        ),
+    };
+
+    let forge_client_config = ForgeClientConfig::new(
+        agent.forge_system.root_ca.clone(),
+        Some(ClientCert {
+            cert_path: agent.forge_system.client_cert.clone(),
+            key_path: agent.forge_system.client_key.clone(),
+        }),
+    )
+    .use_mgmt_vrf()?;
+
+    let forge_api = agent.forge_system.api_server;
+
+    // Initialize the test metric meter
+    info!("Initializing test meter");
+    let test_meter = TestMeter::default();
+    let metrics_states = create_metrics(test_meter.meter());
+
+    // Initialize network monitor
+    let machine_id = DPU_ID;
+
+    let forge_api_clone = forge_api.clone();
+    let client_config_clone = forge_client_config.clone();
+    let (close_sender, mut close_receiver) = watch::channel(false);
+
+    info!("Initializing peer dpus");
+    let peer_dpus = network_monitor::find_peer_dpu_machines(
+        machine_id,
+        &forge_api_clone,
+        forge_client_config.clone(),
+    )
+    .await?;
+
+    info!("Initializing network monitor");
+    let mut network_monitor = NetworkMonitor::new(
+        machine_id.to_string(),
+        peer_dpus,
+        Some(metrics_states.clone()),
+        Arc::new(MockPinger),
+    );
+
+    info!("Starting network monitor");
+    tokio::spawn(async move {
+        network_monitor
+            .run(&forge_api_clone, client_config_clone, &mut close_receiver)
+            .await
+    });
+
+    sleep(Duration::from_secs(10)).await;
+    info!("Sending close signal");
+    let _ = close_sender.send(true);
+
+    join_handle.abort();
+
+    verify_metrics(&test_meter);
+    Ok(())
+}
+
+async fn handle_up() -> &'static str {
+    "OK"
+}
+
+async fn handle_get_dpu_info_list(
+    AxumState(state): AxumState<Arc<Mutex<State>>>,
+) -> impl axum::response::IntoResponse {
+    {
+        state
+            .lock()
+            .await
+            .num_get_dpu_ips
+            .fetch_add(1, Ordering::SeqCst);
+    }
+    common::respond(rpc::GetDpuInfoListResponse {
+        dpu_list: vec![
+            rpc::DpuInfo {
+                id: DPU_ID.to_string(),
+                loopback_ip: "172.20.0.119".to_string(),
+            },
+            rpc::DpuInfo {
+                id: DEST_DPU_ID.to_string(),
+                loopback_ip: "172.20.0.200".to_string(),
+            },
+        ],
+    })
+}
+
+async fn handler(uri: Uri) -> impl IntoResponse {
+    tracing::debug!("general handler: {:?}", uri);
+    StatusCode::NOT_FOUND
+}
+
+fn verify_metrics(test_meter: &TestMeter) {
+    let attribute = format!(
+        "{{dest_dpu_id=\"{}\",source_dpu_id=\"{}\"}}",
+        DEST_DPU_ID, DPU_ID
+    );
+
+    let expected_network_latency_count = format!("{} 1", attribute);
+    let expected_network_reachable_count = format!("{} 1", attribute);
+    let expected_network_loss_percentage_sum = format!("{} 0.8", attribute);
+
+    // Verify network_latency_count
+    match test_meter.formatted_metric("network_latency_count") {
+        Some(network_latency_count) => {
+            assert_eq!(
+                network_latency_count, expected_network_latency_count,
+                "network_latency_count does not match"
+            );
+        }
+        None => panic!("network_latency_count metric not found"),
+    }
+
+    // Verify network_reachable_count
+    match test_meter.formatted_metric("network_reachable_count") {
+        Some(network_reachable_count) => {
+            assert_eq!(
+                network_reachable_count, expected_network_reachable_count,
+                "network_reachable_count does not match"
+            );
+        }
+        None => panic!("network_reachable_count metric not found"),
+    }
+
+    // Verify network_loss_percentage_sum
+    match test_meter.formatted_metric("network_loss_percentage_sum") {
+        Some(network_loss_percentage_sum) => {
+            assert_eq!(
+                network_loss_percentage_sum, expected_network_loss_percentage_sum,
+                "network_loss_percentage_sum does not match"
+            );
+        }
+        None => panic!("network_loss_percentage_sum metric not found"),
+    }
+}
+
+pub struct TestMeter {
+    meter: Meter,
+    registry: prometheus::Registry,
+}
+
+impl TestMeter {
+    /// Returns the latest accumulated metrics in prometheus format
+    pub fn export_metrics(&self) -> String {
+        let mut buffer = vec![];
+        let encoder = TextEncoder::new();
+        let metric_families = self.registry.gather();
+        encoder.encode(&metric_families, &mut buffer).unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+
+    pub fn meter(&self) -> Meter {
+        self.meter.clone()
+    }
+
+    /// Returns the value of a single metric with a given name
+    pub fn formatted_metric(&self, metric_name: &str) -> Option<String> {
+        let mut metrics = self.formatted_metrics(metric_name);
+        match metrics.len() {
+             0 => None,
+             1 => metrics.pop(),
+             n => panic!("Expected to find a single metric with name \"{metric_name}\", but found {n}. Full metrics:\n{:?}", metrics),
+         }
+    }
+
+    /// Returns the value of multiple metrics with the given name
+    /// This can be used if the metric is duplicated due to attributes
+    pub fn formatted_metrics(&self, metric_name: &str) -> Vec<String> {
+        let formatted = self.export_metrics();
+        let mut result = Vec::new();
+        for line in formatted.lines() {
+            // Metrics look like "metric_name $value" if without attributes
+            // and "metric_name{$attrs} value" if with attributes
+            if !line.starts_with(metric_name) {
+                continue;
+            }
+            let line = line.trim_start_matches(metric_name);
+            if line.starts_with('{') {
+                result.push(line.to_string());
+            } else {
+                result.push(line.strip_prefix(' ').unwrap_or(line).to_string());
+            }
+        }
+        result.sort();
+        result
+    }
+}
+
+impl Default for TestMeter {
+    /// Builds an OpenTelemetry `Meter` for unit-testing purposes
+    fn default() -> Self {
+        // Note: This configures metrics bucket between 5.0 and 10000.0, which are best suited
+        // for tracking milliseconds
+        // See https://github.com/open-telemetry/opentelemetry-rust/blob/495330f63576cfaec2d48946928f3dc3332ba058/opentelemetry-sdk/src/metrics/reader.rs#L155-L158
+        let prometheus_registry = prometheus::Registry::new();
+        let metrics_exporter = opentelemetry_prometheus::exporter()
+            .with_registry(prometheus_registry.clone())
+            .without_scope_info()
+            .without_target_info()
+            .build()
+            .unwrap();
+        let meter_provider = opentelemetry_sdk::metrics::MeterProvider::builder()
+            .with_reader(metrics_exporter)
+            .build();
+
+        TestMeter {
+            meter: meter_provider.meter("dpu-agent"),
+            registry: prometheus_registry,
+        }
+    }
+}
+
+pub struct MockPinger;
+#[async_trait]
+impl Ping for MockPinger {
+    async fn ping_dpu(&self, dpu_info: DpuInfo) -> Result<DpuPingResult> {
+        info!("Received ping request for {}", dpu_info);
+        let ping_result = DpuPingResult {
+            dpu_info,
+            success_count: 1,
+            average_latency: Some(Duration::from_millis(1)),
+        };
+
+        Ok(ping_result)
+    }
+}
