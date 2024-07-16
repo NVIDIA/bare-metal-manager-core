@@ -14,12 +14,13 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::extract::{Path as AxumPath, State as AxumState};
-use axum::response::{Html, IntoResponse, Response};
-use axum::Json;
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::{Form, Json};
 use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 use rpc::site_explorer::{ExploredEndpoint, SiteExplorationReport};
+use serde::Deserialize;
 
 use super::filters;
 use crate::api::Api;
@@ -265,4 +266,31 @@ pub async fn detail(
 
     let display = ExploredEndpointDetail::from(endpoint);
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
+}
+
+pub async fn re_explore(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+    Form(form): Form<ReExploreEndpointAction>,
+) -> impl IntoResponse {
+    let view_url = format!("/admin/explored_endpoint/{endpoint_ip}");
+
+    if let Err(err) = state
+        .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
+            ip_address: endpoint_ip.clone(),
+            if_version_match: form.if_version_match,
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        tracing::error!(%err, endpoint_ip, "re_explore_endpoint");
+        return Redirect::to(&view_url);
+    }
+
+    Redirect::to(&view_url)
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ReExploreEndpointAction {
+    if_version_match: Option<String>,
 }

@@ -926,6 +926,25 @@ pub async fn explore(
     .await
 }
 
+pub async fn re_explore_endpoint(
+    api_config: &ApiConfig<'_>,
+    address: &str,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ReExploreEndpointRequest {
+            ip_address: address.to_string(),
+            if_version_match: None,
+        });
+        client
+            .re_explore_endpoint(request)
+            .await
+            .map_err(CarbideCliError::ApiInvocationError)?
+            .into_inner();
+        Ok(())
+    })
+    .await
+}
+
 pub async fn clear_site_explorer_last_known_error(
     api_config: &ApiConfig<'_>,
     ip_address: String,

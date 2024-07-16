@@ -1425,6 +1425,13 @@ impl Forge for Api {
         crate::handlers::site_explorer::clear_site_exploration_error(self, request).await
     }
 
+    async fn re_explore_endpoint(
+        &self,
+        request: Request<rpc::ReExploreEndpointRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::site_explorer::re_explore_endpoint(self, request).await
+    }
+
     async fn get_site_exploration_report(
         &self,
         request: tonic::Request<::rpc::forge::GetSiteExplorationRequest>,

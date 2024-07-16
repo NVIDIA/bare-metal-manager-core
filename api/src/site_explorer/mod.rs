@@ -538,11 +538,16 @@ impl SiteExplorer {
         // we can delete knowledge about it. Otherwise we might try to refresh the
         // information about the endpoint
         let mut delete_endpoints = Vec::new();
+        let mut priority_update_endpoints = Vec::new();
         let mut update_endpoints = Vec::with_capacity(explored_endpoints_by_address.len());
         for (address, endpoint) in &explored_endpoints_by_address {
             match underlay_interfaces_by_address.get(address) {
                 Some(iface) => {
-                    update_endpoints.push((*address, *iface, endpoint));
+                    if endpoint.exploration_requested {
+                        priority_update_endpoints.push((*address, *iface, endpoint));
+                    } else {
+                        update_endpoints.push((*address, *iface, endpoint));
+                    }
                 }
                 None => delete_endpoints.push(*address),
             }
@@ -585,12 +590,29 @@ impl SiteExplorer {
             .min(unexplored_endpoints.len() + update_endpoints.len());
         #[allow(clippy::type_complexity)]
         let mut explore_endpoint_data = Vec::with_capacity(num_explore_endpoints);
-        // We prioritize all endpoints that we've never looked at
-        for (address, iface) in unexplored_endpoints.iter().take(num_explore_endpoints) {
+
+        // We prioritize existing endpoints which have the `exploration_requested` flag set
+        for (address, iface, endpoint) in
+            priority_update_endpoints.iter().take(num_explore_endpoints)
+        {
+            explore_endpoint_data.push(Endpoint::new(
+                *address,
+                (*iface).clone(),
+                Some((endpoint.report_version, endpoint.report.clone())),
+            ));
+        }
+
+        // Next priority are all endpoints that we've never looked at
+        let remaining_explore_endpoints = num_explore_endpoints - explore_endpoint_data.len();
+        for (address, iface) in unexplored_endpoints
+            .iter()
+            .take(remaining_explore_endpoints)
+        {
             explore_endpoint_data.push(Endpoint::new(*address, (*iface).clone(), None))
         }
-        let remaining_explore_endpoints = num_explore_endpoints - explore_endpoint_data.len();
+
         // If we have any capacity available, we update knowledge about endpoints we looked at earlier on
+        let remaining_explore_endpoints = num_explore_endpoints - explore_endpoint_data.len();
         if remaining_explore_endpoints != 0 {
             // Sort endpoints so that we will replace the oldest report first
             update_endpoints.sort_by_key(|(_address, _machine_interface, endpoint)| {
@@ -1220,6 +1242,7 @@ mod tests {
             report_version: ConfigVersion::initial(),
             preingestion_state: PreingestionState::Initial,
             waiting_for_explorer_refresh: false,
+            exploration_requested: false,
         };
 
         assert_eq!(

@@ -586,6 +586,263 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_site_explorer_reexplore(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let underlay_segment = create_underlay_network_segment(&env).await;
+
+    let mut machines = vec![
+        FakeMachine {
+            mac: "B8:3F:D2:90:97:A6".to_string(),
+            dhcp_vendor: "Vendor1".to_string(),
+            segment: underlay_segment,
+            ip: String::new(),
+        },
+        FakeMachine {
+            mac: "AA:AB:AC:AD:AA:02".to_string(),
+            dhcp_vendor: "Vendor2".to_string(),
+            segment: underlay_segment,
+            ip: String::new(),
+        },
+    ];
+
+    for machine in &mut machines {
+        let response = env
+            .api
+            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+                mac_address: machine.mac.clone(),
+                relay_address: "192.0.1.1".to_string(),
+                link_address: None,
+                vendor_string: Some(machine.dhcp_vendor.clone()),
+                circuit_id: None,
+                remote_id: None,
+            }))
+            .await?
+            .into_inner();
+        machine.ip = response.address;
+    }
+
+    let mut txn = env.pool.begin().await?;
+    assert_eq!(
+        MachineInterface::count_by_segment_id(&mut txn, &underlay_segment)
+            .await
+            .unwrap(),
+        2
+    );
+    txn.commit().await.unwrap();
+
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    {
+        let mut guard = endpoint_explorer.reports.lock().unwrap();
+        guard.insert(
+            machines[0].ip.parse().unwrap(),
+            Ok(EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                last_exploration_error: None,
+                vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+                machine_id: None,
+                managers: vec![Manager {
+                    id: "bmc".to_string(),
+                    ethernet_interfaces: vec![EthernetInterface {
+                        id: Some("eth0".to_string()),
+                        description: Some("Management Network Interface".to_string()),
+                        interface_enabled: Some(true),
+                        mac_address: Some("b8:3f:d2:90:97:a6".to_string()),
+                    }],
+                }],
+                systems: vec![ComputerSystem {
+                    id: "Bluefield".to_string(),
+                    ethernet_interfaces: Vec::new(),
+                    manufacturer: None,
+                    model: None,
+                    serial_number: Some("MT2333XZ0X5W".to_string()),
+                    attributes: ComputerSystemAttributes {
+                        nic_mode: Some(NicMode::Dpu),
+                    },
+                    pcie_devices: vec![],
+                }],
+                chassis: vec![Chassis {
+                    id: "Card1".to_string(),
+                    manufacturer: Some("Nvidia".to_string()),
+                    model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+                    part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+                    serial_number: Some("MT2333XZ0X5W".to_string()),
+                    network_adapters: vec![],
+                }],
+                service: vec![Service {
+                    id: "FirmwareInventory".to_string(),
+                    inventories: vec![
+                        Inventory {
+                            id: "DPU_NIC".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("32.38.1002".to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "DPU_BSP".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("4.5.0.12984".to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "BMC_Firmware".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("BF-23.10-3".to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "DPU_OFED".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "DPU_OS".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some(
+                                "DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string(),
+                            ),
+                            release_date: None,
+                        },
+                        Inventory {
+                            id: "DPU_SYS_IMAGE".to_string(),
+                            description: Some("Host image".to_string()),
+                            version: Some("b83f:d203:0090:97a4".to_string()),
+                            release_date: None,
+                        },
+                    ],
+                }],
+            }),
+        );
+        guard.insert(
+            machines[1].ip.parse().unwrap(),
+            Err(EndpointExplorationError::Unauthorized {
+                details: "Not authorized".to_string(),
+            }),
+        );
+    }
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: carbide::dynamic_settings::create_machines(false),
+        override_target_ip: None,
+        override_target_port: None,
+    };
+    let dpu_config = default_dpu_models();
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        &dpu_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        env.common_pools.clone(),
+    );
+
+    explorer.run_single_iteration().await.unwrap();
+    // Since we configured a limit of 1 entries, we should have 1 results now
+    let mut txn = env.pool.begin().await?;
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+    txn.commit().await?;
+    assert_eq!(explored.len(), 1);
+    let explored_ip = explored[0].address;
+
+    for report in &explored {
+        assert_eq!(report.report_version.version_nr(), 1);
+        assert!(!report.exploration_requested);
+    }
+
+    // Re-exploring the first endpoint should prioritize it over exploring another endpoint
+    env.api
+        .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
+            ip_address: explored_ip.to_string(),
+            if_version_match: None,
+        }))
+        .await
+        .unwrap();
+
+    // Calling the API should set the `exploration_requested` flag on the endpoint
+    let mut txn = env.pool.begin().await?;
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+    txn.commit().await?;
+    for report in &explored {
+        assert!(report.exploration_requested);
+    }
+
+    // The 2nd iteration should just update the version number of the initial explored
+    // endpoint - but not find anything new
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+    txn.commit().await?;
+    assert_eq!(explored.len(), 1);
+
+    for report in &explored {
+        assert_eq!(report.address, explored_ip);
+        assert_eq!(report.report_version.version_nr(), 2);
+        assert!(!report.exploration_requested);
+    }
+    let current_version = explored[0].report_version;
+
+    // Using if_version_match with an incorrect version does nothing
+    let unexpected_version = current_version.increment();
+    let e = env
+        .api
+        .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
+            ip_address: explored_ip.to_string(),
+            if_version_match: Some(unexpected_version.version_string()),
+        }))
+        .await
+        .expect_err("Should fail due to invalid version");
+    assert_eq!(e.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        e.message(),
+        format!("An object of type explored_endpoint was intended to be modified did not have the expected version {}",
+        unexpected_version.version_string()));
+
+    let mut txn = env.pool.begin().await?;
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+    txn.commit().await?;
+    for report in &explored {
+        assert!(!report.exploration_requested);
+    }
+
+    // Using if_version_match with correct version string does flag the endpoint again
+    env.api
+        .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
+            ip_address: explored_ip.to_string(),
+            if_version_match: Some(current_version.version_string()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let mut txn = env.pool.begin().await?;
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+    txn.commit().await?;
+    for report in &explored {
+        assert!(report.exploration_requested);
+    }
+
+    // 3rd iteration still yields 1 result
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+    txn.commit().await?;
+    assert_eq!(explored.len(), 1);
+
+    Ok(())
+}
+
 #[sqlx::test(fixtures("create_domain", "create_vpc",))]
 async fn test_site_explorer_creates_managed_host(
     pool: sqlx::PgPool,

@@ -160,7 +160,11 @@ service Forge {
   // Clear the last known error for the BMC
   rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty); 
   // Explore an individual BMC and show the report
+  // The results of this exploration call will not be persisted in the database
   rpc Explore(ExploreRequest) returns (site_explorer.EndpointExplorationReport);
+  // Prioritizes the exploration of a certain endpoint in the next regular site-explorer run
+  // The results of this run will be persisted in the database
+  rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty); 
 
   // Force deletes a Machine and the associated DPU from Forge databases,
   // with the intention of rediscovering the host later on.
@@ -1614,6 +1618,14 @@ message GetSiteExplorationRequest {
 message ClearSiteExplorationErrorRequest {
   // The IP address of the BMC whose error should be cleared from the explored_endpoints table 
   string ip_address = 1;
+}
+
+message ReExploreEndpointRequest {
+  // The IP address of the BMC endpoint which should be explored again
+  string ip_address = 1;
+  // If this is set, it will schedule re-exploration of the endpoint only if the
+  // report version number is equivalent to the version in the request
+  optional string if_version_match = 2;
 }
 
 message ExploreRequest {

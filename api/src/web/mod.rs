@@ -60,6 +60,10 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
                 "/explored_endpoint/:endpoint_ip",
                 get(explored_endpoint::detail),
             )
+            .route(
+                "/explored_endpoint/:endpoint_ip/reexplore",
+                post(explored_endpoint::re_explore),
+            )
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))
