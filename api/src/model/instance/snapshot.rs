@@ -77,12 +77,12 @@ impl InstanceSnapshot {
         reprovision_request: Option<ReprovisionRequest>,
     ) -> Result<InstanceStatus, RpcDataConversionError> {
         InstanceStatus::from_config_and_observation(
+            Versioned::new(&self.config, self.config_version),
             Versioned::new(&self.config.network, self.network_config_version),
             Versioned::new(&self.config.infiniband, self.ib_config_version),
             &self.observations,
             managed_host_state,
             self.deleted.is_some(),
-            self.config.os.phone_home_enabled,
             reprovision_request,
         )
     }

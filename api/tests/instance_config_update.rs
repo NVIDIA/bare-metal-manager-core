@@ -17,6 +17,7 @@ use common::api_fixtures::{
     instance::{
         create_instance_with_config, default_tenant_config, single_interface_network_config,
     },
+    network_configured,
     network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 
@@ -113,6 +114,11 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let instance = instances.remove(0);
 
     assert_eq!(
+        instance.status.as_ref().unwrap().configs_synced(),
+        rpc::forge::SyncState::Synced
+    );
+
+    assert_eq!(
         instance
             .status
             .as_ref()
@@ -165,10 +171,91 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .await
         .unwrap()
         .into_inner();
+
     assert_config_equals(instance.config.as_ref().unwrap(), &updated_config_1);
     assert_metadata_equals(instance.metadata.as_ref().unwrap(), &updated_metadata_1);
     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
     assert_eq!(updated_config_version.version_nr(), 2);
+
+    assert_eq!(
+        instance.status.as_ref().unwrap().configs_synced(),
+        rpc::forge::SyncState::Pending
+    );
+
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::forge::TenantState::Provisioning
+    );
+
+    // Phone home to transition from provisioning to configuring state
+    env.api
+        .update_instance_phone_home_last_contact(tonic::Request::new(
+            rpc::forge::InstancePhoneHomeLastContactRequest {
+                instance_id: Some(instance_id.into()),
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Find our instance details again, which should now
+    // be updated.
+    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+    assert_eq!(instances.len(), 1);
+    let instance = instances.remove(0);
+
+    // Post-phone-home, sync should still be pending, but state Configuring.
+    assert_eq!(
+        instance.status.as_ref().unwrap().configs_synced(),
+        rpc::forge::SyncState::Pending
+    );
+
+    // And we should be ready from the tenant's perspective.
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::forge::TenantState::Configuring
+    );
+
+    // Update the network
+    network_configured(&env, &dpu_machine_id).await;
+
+    // Find our instance details again, which should now
+    // be updated.
+    let mut instances = env.find_instances(Some(instance_id.into())).await.instances;
+    assert_eq!(instances.len(), 1);
+    let instance = instances.remove(0);
+
+    // Post-configure, we should now be synced.
+    assert_eq!(
+        instance.status.as_ref().unwrap().configs_synced(),
+        rpc::forge::SyncState::Synced
+    );
+
+    // And we should be ready from the tenant's perspective.
+    assert_eq!(
+        instance
+            .status
+            .as_ref()
+            .unwrap()
+            .tenant
+            .as_ref()
+            .unwrap()
+            .state(),
+        rpc::forge::TenantState::Ready
+    );
 
     let updated_os_2 = rpc::forge::OperatingSystem {
         phone_home_enabled: false,
