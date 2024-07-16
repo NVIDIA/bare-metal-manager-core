@@ -49,6 +49,36 @@
 			</tbody>
 		</table>
 	</td></tr>
+  <tr><th>PCIe Devices</th><td style="padding: 0;">
+    <table style="width: 100;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Manufacturer</th>
+        <th>Description</th>
+        <th>Firmware Version</th>
+        <th>GPU Vendor</th>
+        <th>Part Number</th>
+        <th>Serial Number</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for pci in system.pcie_devices %}
+      <tr>
+        <td>{% match pci.id %}{% when Some with (id) %} {{ id }} {% else %}{% endmatch %}</td>
+        <td>{% match pci.name %}{% when Some with (name) %} {{ name }} {% else %}{% endmatch %}</td>
+        <td>{% match pci.manufacturer %}{% when Some with (manufacturer) %} {{ manufacturer }} {% else %}{% endmatch %}</td>
+        <td>{% match pci.description %}{% when Some with (description) %} {{ description }} {% else %}{% endmatch %}</td>
+        <td>{% match pci.firmware_version %}{% when Some with (firmware_version) %} {{ firmware_version }} {% else %}{% endmatch %}</td>
+        <td>{% match pci.gpu_vendor %}{% when Some with (gpu_vendor) %} {{ gpu_vendor }} {% else %}{% endmatch %}</td>
+        <td>{% match pci.part_number %}{% when Some with (part_number) %} {{ part_number }} {% else %}{% endmatch %}</td>
+        <td>{% match pci.serial_number %}{% when Some with (serial_number) %} {{ serial_number }} {% else %}{% endmatch %}</td>
+      </tr>
+    {% endfor %}
+      </tbody>
+    </table>
+  </td></tr>
 </table>
 {% endfor %}
 
