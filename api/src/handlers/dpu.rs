@@ -18,9 +18,13 @@ use tonic::{Request, Response, Status};
 
 use crate::api::{log_machine_id, log_request_data, Api};
 use crate::db;
+use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::{Instance, InstanceId};
 use crate::db::machine::{Machine, MachineSearchConfig};
+use crate::db::network_segment::{
+    NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
+};
 use crate::db::vpc::Vpc;
 use crate::db::DatabaseError;
 use crate::model::hardware_info::MachineInventory;
@@ -111,7 +115,7 @@ pub(crate) async fn get_managed_host_network_config(
 
             let mut tenant_interfaces = Vec::with_capacity(interfaces.len());
 
-            //Get IP address of physical interface
+            //Get Physical interface
             let physical_iface = interfaces.iter().find(|x| {
                 rpc::InterfaceFunctionType::from(x.function_id.function_type())
                     == rpc::InterfaceFunctionType::Physical
@@ -124,6 +128,7 @@ pub(crate) async fn get_managed_host_network_config(
                 .into());
             };
 
+            //Get Physical IP
             let physical_ip: IpAddr = match physical_iface.ip_addrs.iter().next() {
                 Some((_, ip_addr)) => *ip_addr,
                 None => {
@@ -134,13 +139,56 @@ pub(crate) async fn get_managed_host_network_config(
                 }
             };
 
+            //Get Domain
+            let segments = &NetworkSegment::find(
+                &mut txn,
+                NetworkSegmentIdKeyedObjectFilter::One(interfaces[0].network_segment_id),
+                NetworkSegmentSearchConfig::default(),
+            )
+            .await
+            .map_err(CarbideError::from)?;
+            let Some(segment) = segments.first() else {
+                return Err(Status::internal(format!(
+                    "Tenant network segment id '{}' matched more than one segment",
+                    interfaces[0].network_segment_id
+                )));
+            };
+
+            let domain = match segment.subdomain_id {
+                Some(domain_id) => {
+                    Domain::find_by_uuid(&mut txn, domain_id)
+                        .await
+                        .map_err(CarbideError::from)?
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "domain",
+                            id: domain_id.to_string(),
+                        })?
+                        .name
+                }
+                None => "unknowndomain".to_string(),
+            };
+
+            //Set FQDN
+            let instance_hostname = &instance.config.tenant.hostname;
+            let fqdn: String;
+            if let Some(hostname) = instance_hostname.clone() {
+                fqdn = format!("{}.{}", hostname.clone(), domain);
+            } else {
+                let dashed_ip: String = physical_ip
+                    .to_string()
+                    .split('.')
+                    .collect::<Vec<&str>>()
+                    .join("-");
+                fqdn = format!("{}.{}", dashed_ip, domain);
+            }
+
             for iface in interfaces {
                 tenant_interfaces.push(
                     ethernet_virtualization::tenant_network(
                         &mut txn,
                         instance.id,
                         iface,
-                        physical_ip,
+                        fqdn.clone(),
                     )
                     .await?,
                 );

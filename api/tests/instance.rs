@@ -42,9 +42,9 @@ use chrono::Utc;
 use common::api_fixtures::{
     create_managed_host, create_test_env, dpu,
     instance::{
-        advance_created_instance_into_ready_state, create_instance, create_instance_with_labels,
-        default_os_config, default_tenant_config, delete_instance, single_interface_network_config,
-        FIXTURE_CIRCUIT_ID,
+        advance_created_instance_into_ready_state, create_instance, create_instance_with_hostname,
+        create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
+        single_interface_network_config, FIXTURE_CIRCUIT_ID,
     },
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
@@ -368,6 +368,191 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
     );
 
     assert_eq!(instance_matched_by_label.metadata, Some(instance_metadata));
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_hostname_creation(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    txn.commit().await.unwrap();
+
+    let instance_hostname = "test-hostname";
+
+    let (_instance_id, _instance) = create_instance_with_hostname(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
+        vec![],
+        instance_hostname.to_string(),
+        "org-nebulon".to_string(),
+    )
+    .await;
+
+    let mut txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+
+    let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
+    let fetched_instance = Instance::find_by_relay_ip(&mut txn, dpu_loopback_ip)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| {
+            panic!("find_by_relay_ip for loopback {dpu_loopback_ip} didn't find any instances")
+        });
+
+    let returned_hostname = fetched_instance.config.tenant.hostname;
+
+    assert_eq!(returned_hostname.unwrap(), instance_hostname);
+
+    //Check for duplicate hostnames
+    let txn = env
+        .pool
+        .begin()
+        .await
+        .expect("Unable to create transaction on database pool");
+    txn.commit().await.unwrap();
+
+    let (new_host_machine_id, new_dpu_machine_id) = create_managed_host(&env).await;
+    let (_instance_id, _instance) = create_instance_with_hostname(
+        &env,
+        &new_dpu_machine_id,
+        &new_host_machine_id,
+        Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        None,
+        vec![],
+        instance_hostname.to_string(),
+        "org-nvidia".to_string(), //different org, should fail on the same one
+    )
+    .await;
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let api = &env.api;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    let network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+            },
+            rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
+            },
+        ],
+    });
+
+    //Create instance with hostname
+    let (_instance_id, _instance) = create_instance_with_hostname(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        network,
+        None,
+        vec![],
+        "test-hostname".to_string(),
+        "nvidia-org".to_string(),
+    )
+    .await;
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    //DNS record domain always uses IP Address (for now)
+    let dns_record = api
+        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+            q_name: Some("192-0-2-3.dwrt1.com.".to_string()),
+            q_type: Some(1),
+            q_class: Some(1),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!("192.0.2.3", &dns_record.rrs[0].rdata.clone().unwrap());
+
+    //DHCP response uses hostname set during allocation
+    assert_eq!(
+        "test-hostname.dwrt1.com",
+        response.tenant_interfaces[0].fqdn
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let api = &env.api;
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
+
+    //Create instance with no hostname set
+    let mut tenant_config = default_tenant_config();
+    tenant_config.hostname = None;
+    let instance_config = rpc::InstanceConfig {
+        tenant: Some(tenant_config),
+        os: Some(default_os_config()),
+        network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
+        infiniband: None,
+    };
+
+    let (_instance_id, _instance) = create_instance_with_config(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        instance_config,
+        None,
+    )
+    .await;
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    //DNS record domain always uses dashed IP (for now)
+    let dns_record = api
+        .lookup_record(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+            q_name: Some("192-0-2-3.dwrt1.com.".to_string()),
+            q_type: Some(1),
+            q_class: Some(1),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!("192.0.2.3", &dns_record.rrs[0].rdata.clone().unwrap());
+
+    //DHCP response uses dashed IP
+    assert_eq!("192-0-2-3.dwrt1.com", response.tenant_interfaces[0].fqdn);
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
@@ -1413,49 +1598,6 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
     );
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
-async fn test_instance_hostname(db_pool: sqlx::PgPool) {
-    let env = create_test_env(db_pool.clone()).await;
-    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-
-    let network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
-            },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID_1).into()),
-            },
-        ],
-    });
-
-    let (_instance_id, _instance) = create_instance(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        network,
-        None,
-        vec![],
-    )
-    .await;
-
-    let response = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(
-            rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
-            },
-        ))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!("192-0-2-3", response.tenant_interfaces[0].fqdn);
-    assert_eq!("192-0-2-3", response.tenant_interfaces[1].fqdn);
-}
-
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
@@ -1476,6 +1618,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
                 "c".to_string(),
                 "bad_id".to_string(),
             ],
+            hostname: Some("test-instance".to_string()),
         }),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,
@@ -1532,6 +1675,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
                 "j".to_string(),
                 "k".to_string(),
             ],
+            hostname: Some("test-hostname".to_string()),
         }),
         network: Some(single_interface_network_config(*FIXTURE_NETWORK_SEGMENT_ID)),
         infiniband: None,

@@ -36,7 +36,7 @@ pub fn create(
                 "user_data": "hello",
                 "custom_ipxe": "chain --autofree https://boot.netboot.xyz",
                 "phone_home_enabled": phone_home_enable,
-
+                "hostname": "test",
             },
             "network": {
                 "interfaces": [{
@@ -48,7 +48,7 @@ pub fn create(
         "metadata": {
              "name": "test_instance",
              "description": "tests/integration/instance"
-        }
+        },
     });
     let instance_id = grpcurl_id(addr, "AllocateInstance", &data.to_string())?;
     tracing::info!("Instance created with ID {instance_id}");

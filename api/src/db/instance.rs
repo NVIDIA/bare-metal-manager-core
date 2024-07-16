@@ -202,6 +202,7 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
         let tenant_config = TenantConfig {
             tenant_organization_id: tenant_org,
             tenant_keyset_ids: row.try_get("keyset_ids")?,
+            hostname: row.try_get("hostname")?,
         };
 
         let network_config_version_str: &str = row.try_get("network_config_version")?;
@@ -788,9 +789,10 @@ impl<'a> NewInstance<'a> {
                         name,
                         description,
                         labels,
-                        config_version
+                        config_version,
+                        hostname
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17::json, $18)
+                    VALUES ($1, $2, $3, $4, $5, $6, true, $7::json, $8, $9::json, $10::json, $11, $12::json, $13, $14, $15, $16, $17::json, $18, $19)
                     RETURNING *";
         sqlx::query_as::<_, InstanceSnapshot>(query)
             .bind(self.instance_id)
@@ -811,6 +813,7 @@ impl<'a> NewInstance<'a> {
             .bind(&self.metadata.description)
             .bind(sqlx::types::Json(&self.metadata.labels))
             .bind(&self.config_version.version_string())
+            .bind(&self.config.tenant.hostname)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))

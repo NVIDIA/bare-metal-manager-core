@@ -173,7 +173,7 @@ pub async fn create_instance(
     host_machine_id: &MachineId,
     run_provisioning_instructions_on_every_boot: bool,
 ) -> (InstanceId, rpc::Instance) {
-    let mut os = default_os_config();
+    let mut os: rpc::forge::OperatingSystem = default_os_config();
     os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
 
     let config = rpc::InstanceConfig {
