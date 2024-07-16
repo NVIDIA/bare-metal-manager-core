@@ -32,6 +32,8 @@ tryhard = "0.5.1"
 tss-esapi = "7.5.0"
 uname = "0.1"
 uuid = "1.0"
+reqwest = { version = "*", default-features = false, features = ["rustls-tls", "stream" ] }
+futures-util = "0.3"
 
 # [local-dependencies]
 rpc = { path = "../rpc" }
@@ -39,6 +41,7 @@ forge-host-support = { path = "../common/host-support" }
 forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }
 utils = { path = "../common/utils" }
+machine-validation = { path = "../common/machine-validation" }
 
 [build-dependencies]
 forge-version = { path = "../common/version" }

@@ -100,7 +100,7 @@ pub(crate) struct Options {
     pub tpm_path: String,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 pub(crate) enum Command {
     #[clap(about = "Fetch command from Forge API server")]
     AutoDetect(AutoDetect),
@@ -114,19 +114,19 @@ pub(crate) enum Command {
     Reset(Reset),
 }
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 pub struct AutoDetect {}
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 pub struct Deprovision {}
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 pub struct Reset {}
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 pub struct Discovery {}
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 pub struct Rebuild {}
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 pub struct Logerror {
     // This is a machine_INTERFACE_id, not a machine_id
     #[clap(short, long, require_equals(true))]

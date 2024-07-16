@@ -213,8 +213,8 @@ async fn handle_action(
             attestation::run(config, machine_id).await?;
         }
         Action::MachineValidation => {
-            tracing::info!("Machine validationstub code");
-            let mut context = "Disovery".to_string();
+            tracing::info!("Machine validation");
+            let mut context = "Discovery".to_string();
             let mut id = "".to_string();
             for item in controller_response.data.unwrap().pair {
                 if item.key == "Context" {
@@ -223,8 +223,16 @@ async fn handle_action(
                     id = item.value;
                 }
             }
-            machine_validation::run(config, id.clone(), context).await?;
+            let ret = match machine_validation::run(config, id.clone(), context).await {
+                Ok(_) => {
+                    tracing::info!("Machine validation completed");
+                    Ok(())
+                }
+                Err(err) => Err(err),
+            };
+            //Completed message is must irrespective of error
             machine_validation::completed(config, machine_id, id, None).await?;
+            return ret;
         }
     }
     Ok(())
