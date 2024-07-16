@@ -38,6 +38,20 @@ receivers:
     units:
       - forge-dpu-agent
     storage: file_storage/cursors
+    operators:
+      # If you want to extract more than a few key=value pairs, use
+      # key_value_parser in place of regex_parser to just parse them all then
+      # drop unwanted pairs in the transform processor.
+      - type: regex_parser
+        regex: 'level=(?P<level>\w+)'
+        parse_from: body.MESSAGE
+        severity:
+          parse_from: attributes.level
+          mapping:
+            error: 'ERROR'
+            warn: 'WARN'
+            info: 'INFO'
+            debug: 'DEBUG'
 
   prometheus:
     config:
@@ -175,6 +189,16 @@ processors:
     check_interval: 1s
     limit_mib: 512
     spike_limit_mib: 128
+  resource/logs-journald:
+    attributes:
+      - key: log
+        value: journald
+        action: upsert
+  resource/logs-frr:
+    attributes:
+      - key: log
+        value: frr
+        action: upsert
   resource/metrics-doca-eth-dropped:
     attributes:
       - key: group
@@ -216,6 +240,7 @@ processors:
           - keep_keys(body, ["MESSAGE", "_SYSTEMD_UNIT"])
           - set(attributes["systemd.unit"], body["_SYSTEMD_UNIT"])
           - set(body, body["MESSAGE"])
+          - delete_key(attributes, "level")
   transform/frr:
     # - Omit optional log fields when the value is empty.
     # - Always delete the temporary "severity" attribute because it was already
@@ -259,6 +284,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - resource/logs-journald
         - transform/journald
         - batch
       exporters: [otlp/site]
@@ -267,6 +293,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
+        - resource/logs-frr
         - transform/frr
         - batch
       exporters: [otlp/site]
