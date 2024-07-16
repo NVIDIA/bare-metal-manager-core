@@ -242,6 +242,8 @@ pub struct DpuVersionOptions {
 pub enum HostAction {
     #[clap(about = "Set Host UEFI password")]
     SetUefiPassword(MachineQuery),
+    #[clap(about = "Clear Host UEFI password")]
+    ClearUefiPassword(MachineQuery),
     #[clap(about = "Generates a string that can be a site-default host UEFI password in Vault")]
     /// - the generated string will meet the uefi password requirements of all vendors
     GenerateHostUefiPassword,
@@ -517,6 +519,8 @@ pub enum RedfishCommand {
     GetTask(Task),
     // Get a list of Redfish tasks
     GetTasks,
+    /// Clear UEFI password
+    ClearUefiPassword(UefiPassword),
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
