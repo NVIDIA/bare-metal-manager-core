@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::tenant::TenantOrganizationId;
 use crate::model::{ConfigValidationError, RpcDataConversionError};
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 const MAX_KEYSET_IDS: usize = 10;
 
@@ -25,18 +27,32 @@ pub struct TenantConfig {
     pub tenant_organization_id: TenantOrganizationId,
 
     pub tenant_keyset_ids: Vec<String>,
+
+    pub hostname: Option<String>,
 }
+
+pub static HOSTNAME_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$").unwrap());
 
 impl TryFrom<rpc::TenantConfig> for TenantConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: rpc::TenantConfig) -> Result<Self, Self::Error> {
+        let truncated_hostname = config.hostname.map(|mut name| {
+            if name.len() > 63 {
+                name.truncate(63);
+                tracing::warn!("Hostname has been truncated to 63 characters.")
+            }
+            name
+        });
+
         Ok(Self {
             tenant_organization_id: TenantOrganizationId::try_from(
                 config.tenant_organization_id.clone(),
             )
             .map_err(|_| RpcDataConversionError::InvalidTenantOrg(config.tenant_organization_id))?,
             tenant_keyset_ids: config.tenant_keyset_ids,
+            hostname: truncated_hostname,
         })
     }
 }
@@ -52,6 +68,7 @@ impl TryFrom<TenantConfig> for rpc::TenantConfig {
             tenant_keyset_ids: config.tenant_keyset_ids,
             always_boot_with_custom_ipxe: false,
             phone_home_enabled: false,
+            hostname: config.hostname,
         })
     }
 }
@@ -66,6 +83,13 @@ impl TenantConfig {
             if !unique_keyset_ids.insert(keyset_id) {
                 return Err(ConfigValidationError::DuplicateTenantKeysetId(
                     keyset_id.into(),
+                ));
+            }
+        }
+        if let Some(hostname) = &self.hostname {
+            if !HOSTNAME_RE.is_match(hostname) {
+                return Err(ConfigValidationError::InvalidValue(
+                    "Hostname does not meet DNS requirements (lowercase alphanumeric characters and dashes). Valid examples: test, test-hostname, host-1".to_string()
                 ));
             }
         }
@@ -100,12 +124,13 @@ mod tests {
         let config = TenantConfig {
             tenant_organization_id: TenantOrganizationId::try_from("TenantA".to_string()).unwrap(),
             tenant_keyset_ids: vec![],
+            hostname: Some("test-instance".to_string()),
         };
 
         let serialized = serde_json::to_string(&config).unwrap();
         assert_eq!(
             serialized,
-            "{\"tenant_organization_id\":\"TenantA\",\"tenant_keyset_ids\":[]}"
+            "{\"tenant_organization_id\":\"TenantA\",\"tenant_keyset_ids\":[],\"hostname\":\"test-instance\"}"
         );
         assert_eq!(
             serde_json::from_str::<TenantConfig>(&serialized).unwrap(),
@@ -123,6 +148,7 @@ mod tests {
                 "c".to_string(),
                 "a".to_string(),
             ],
+            hostname: Some("test-instance".to_string()),
         };
 
         assert!(matches!(
@@ -136,6 +162,7 @@ mod tests {
         let config = TenantConfig {
             tenant_organization_id: TenantOrganizationId::try_from("TenantA".to_string()).unwrap(),
             tenant_keyset_ids: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            hostname: Some("test-instance".to_string()),
         };
 
         config.validate().unwrap()

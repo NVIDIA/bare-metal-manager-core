@@ -952,6 +952,8 @@ message TenantConfig {
   // InstancePhoneHomeLastContact is updated
   bool phone_home_enabled = 14;
 
+  optional string hostname = 15;
+
   //TODO: make an API that allows these to be updated.  For now, they're set only at instance allocation.
   repeated string tenantKeysetIds = 8; // this may be empty
 }
@@ -1173,7 +1175,7 @@ message Instance {
   // The ID of the host machine which is utilized for this Instance (host_machine_id)
   common.MachineId machine_id = 2;
   Metadata metadata = 3;
-
+  
   // The desired configuration on the instance
   InstanceConfig config = 103;
 

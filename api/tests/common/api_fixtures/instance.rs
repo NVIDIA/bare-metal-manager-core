@@ -81,6 +81,30 @@ pub async fn create_instance_with_labels(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn create_instance_with_hostname(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+    host_machine_id: &MachineId,
+    network: Option<rpc::InstanceNetworkConfig>,
+    infiniband: Option<rpc::InstanceInfinibandConfig>,
+    keyset_ids: Vec<String>,
+    hostname: String,
+    tenant_org: String,
+) -> (InstanceId, rpc::Instance) {
+    let mut tenant_config = default_tenant_config();
+    tenant_config.tenant_keyset_ids = keyset_ids;
+    tenant_config.tenant_organization_id = tenant_org;
+    tenant_config.hostname = Some(hostname);
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(tenant_config),
+        os: Some(default_os_config()),
+        network,
+        infiniband,
+    };
+    create_instance_with_config(env, dpu_machine_id, host_machine_id, config, None).await
+}
 pub async fn create_instance_with_ib_config(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
@@ -122,6 +146,7 @@ pub fn default_tenant_config() -> rpc::TenantConfig {
         always_boot_with_custom_ipxe: false,
         tenant_organization_id: "Tenant1".to_string(),
         tenant_keyset_ids: vec![],
+        hostname: None,
     }
 }
 
