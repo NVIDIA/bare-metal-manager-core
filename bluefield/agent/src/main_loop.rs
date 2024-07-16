@@ -16,41 +16,37 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::rpc::forge as rpc;
 use ::rpc::forge::VpcVirtualizationType;
-use ::rpc::forge_tls_client;
 use ::rpc::forge_tls_client::ApiConfig;
+use ::rpc::{forge as rpc, forge_tls_client};
 use axum::Router;
 use eyre::WrapErr;
 use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::registration;
 use ipnetwork::IpNetwork;
-use opentelemetry_sdk as sdk;
 use opentelemetry_sdk::metrics;
-use opentelemetry_semantic_conventions as semcov;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
+use tokio::sync::watch;
 use version_compare::Version;
+use {opentelemetry_sdk as sdk, opentelemetry_semantic_conventions as semcov};
 
 use crate::command_line::NetworkVirtualizationType;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::dpu::DpuNetworkInterfaces;
-use crate::instance_metadata_endpoint;
 use crate::instance_metadata_endpoint::{
     get_instance_metadata_router, InstanceMetadataRouterStateImpl,
 };
-use crate::instance_metadata_fetcher;
-use crate::instrumentation::{create_metrics, get_metrics_router, WithTracingLayer};
+use crate::instrumentation::{create_metrics, get_metrics_router, MetricsState, WithTracingLayer};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
-use crate::mtu;
-use crate::network_config_fetcher;
-use crate::systemd;
-use crate::upgrade;
+use crate::network_monitor::{self, Pinger};
 use crate::util::UrlResolver;
-use crate::{command_line, machine_inventory_updater};
-use crate::{ethernet_virtualization, hbn};
-use crate::{health, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION};
+use crate::{
+    command_line, ethernet_virtualization, hbn, health, instance_metadata_endpoint,
+    instance_metadata_fetcher, machine_inventory_updater, mtu, network_config_fetcher, systemd,
+    upgrade, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION,
+};
 
 // Main loop when running in daemon mode
 pub async fn run(
@@ -86,15 +82,18 @@ pub async fn run(
         ),
     );
 
-    if options.enable_metadata_service {
-        if let Err(e) = spawn_metadata_service(
-            agent.metadata_service.address.clone(),
-            agent.telemetry.metrics_address.clone(),
-            instance_metadata_state.clone(),
-        ) {
-            return Err(eyre::eyre!("Failed to run metadata service: {:#}", e));
-        }
-    }
+    let metrics = options
+        .enable_metadata_service
+        .then(|| {
+            spawn_metadata_service(
+                agent.metadata_service.address.clone(),
+                agent.telemetry.metrics_address.clone(),
+                instance_metadata_state.clone(),
+            )
+            .map_err(|e| eyre::eyre!("Failed to run metadata service: {:#}", e))
+            .ok()
+        })
+        .flatten();
 
     let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
         "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to Version"
@@ -119,6 +118,7 @@ pub async fn run(
         },
     )
     .await;
+
     let network_config_reader = network_config_fetcher.reader();
 
     let min_cert_renewal_time = 5 * 24 * 60 * 60; // 5 days
@@ -179,6 +179,28 @@ pub async fn run(
         forge_api: forge_api.to_string(),
         forge_client_config: forge_client_config.clone(),
     };
+
+    // Get all DPU Ip addresses via gRPC call
+    let (close_sender, mut close_receiver) = watch::channel(false);
+    // @TODO(Felicity): Start with empty list instead of exiting
+    let peer_dpus =
+        network_monitor::find_peer_dpu_machines(machine_id, forge_api, forge_client_config.clone())
+            .await?;
+    // Initialize network monitor and perform network check once
+    let mut network_monitor = network_monitor::NetworkMonitor::new(
+        machine_id.to_string(),
+        peer_dpus,
+        metrics,
+        Arc::new(Pinger),
+    );
+
+    let forge_api_clone = forge_api.clone();
+    let client_config_clone = forge_client_config.clone();
+    let network_monitor_handle = tokio::spawn(async move {
+        network_monitor
+            .run(&forge_api_clone, client_config_clone, &mut close_receiver)
+            .await
+    });
 
     loop {
         let loop_start = Instant::now();
@@ -549,6 +571,8 @@ pub async fn run(
             biased;
             _ = term_signal.recv() => {
                 systemd::notify_stop().await?;
+                let _ = close_sender.send(true);
+                let _ = network_monitor_handle.await;
                 tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
                 return Ok(());
             }
@@ -686,7 +710,7 @@ fn spawn_metadata_service(
     metadata_service_address: String,
     metrics_address: String,
     state: Arc<InstanceMetadataRouterStateImpl>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Arc<MetricsState>, Box<dyn std::error::Error>> {
     // This defines attributes that are set on the exported logs **and** metrics
     let service_telemetry_attributes = sdk::Resource::new(vec![
         semcov::resource::SERVICE_NAME.string("dpu-agent"),
@@ -742,7 +766,7 @@ fn spawn_metadata_service(
         Router::new().nest("/metrics", get_metrics_router(prometheus_registry)),
     )?;
 
-    Ok(())
+    Ok(metrics_state)
 }
 
 /// Spawns a background task to run an axum server listening on given socket, and returns.
