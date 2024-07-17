@@ -378,6 +378,7 @@ pub(crate) async fn record_dpu_network_status(
         machine_id = %dpu_machine_id,
         machine_network_config = ?request.network_config_version,
         instance_network_config = ?request.instance_network_config_version,
+        instance_config_version = ?request.instance_config_version,
         agent_version = machine_obs.agent_version,
         "Applied network configs",
     );
@@ -449,6 +450,22 @@ pub(crate) async fn record_dpu_network_status(
 
     // We already persisted the machine parts of applied_config in
     // update_network_status_observation above. Now do the instance parts.
+
+    // We're going to piggy-back on InstanceNetworkStatusObservation
+    // to get the instance_config_version for now.
+    let instance_config_version = match request.instance_config_version {
+        Some(version_string) => match version_string.as_str().parse() {
+            Ok(version) => Some(version),
+            _ => {
+                return Err(CarbideError::InvalidArgument(
+                    "applied_config.instance_config_version".to_string(),
+                )
+                .into())
+            }
+        },
+        _ => None,
+    };
+
     if let Some(version_string) = request.instance_network_config_version {
         let Ok(version) = version_string.as_str().parse() else {
             return Err(CarbideError::InvalidArgument(
@@ -463,6 +480,7 @@ pub(crate) async fn record_dpu_network_status(
         }
         let instance_obs = InstanceNetworkStatusObservation {
             config_version: version,
+            instance_config_version,
             observed_at,
             interfaces,
         };

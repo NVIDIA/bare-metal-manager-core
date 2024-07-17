@@ -212,6 +212,10 @@ pub struct InstanceNetworkStatusObservation {
     /// the ones that are currently required by the networking config.
     pub config_version: ConfigVersion,
 
+    /// Observed status of the instance config version
+    #[serde(default)]
+    pub instance_config_version: Option<ConfigVersion>,
+
     /// Observed status for each configured interface
     #[serde(default)]
     pub interfaces: Vec<InstanceInterfaceStatusObservation>,
@@ -250,6 +254,7 @@ impl TryFrom<rpc::InstanceNetworkStatusObservation> for InstanceNetworkStatusObs
         };
 
         Ok(Self {
+            instance_config_version: None, // Reported by rpc::DpuNetworkStatus not rpc::InstanceNetworkStatusObservation
             config_version: observation.config_version.parse().map_err(|_| {
                 RpcDataConversionError::InvalidConfigVersion(observation.config_version)
             })?,
@@ -327,12 +332,40 @@ mod tests {
     use crate::model::instance::config::network::InstanceInterfaceConfig;
 
     #[test]
-    fn serialize_network_status_observation() {
+    fn deserialize_old_network_status_observation() {
         let timestamp: DateTime<Utc> = Utc::now();
         let serialized_timestamp = format!("{:?}", timestamp);
         let version = ConfigVersion::initial();
 
+        let observation = InstanceNetworkStatusObservation {
+            instance_config_version: None,
+            config_version: version,
+            interfaces: Vec::new(),
+            observed_at: timestamp,
+        };
+
+        // Let's make sure the one without the instance_config_version
+        // doesn't cause an issue.
+        let serialized = format!(
+            "{{\"config_version\":\"{}\",\"interfaces\":[],\"observed_at\":\"{}\"}}",
+            version, serialized_timestamp
+        );
+
+        assert_eq!(
+            serde_json::from_str::<InstanceNetworkStatusObservation>(&serialized).unwrap(),
+            observation
+        );
+    }
+
+    #[test]
+    fn serialize_network_status_observation() {
+        let timestamp: DateTime<Utc> = Utc::now();
+        let serialized_timestamp = format!("{:?}", timestamp);
+        let version = ConfigVersion::initial();
+        let instance_version = version;
+
         let mut observation = InstanceNetworkStatusObservation {
+            instance_config_version: Some(instance_version),
             config_version: version,
             interfaces: Vec::new(),
             observed_at: timestamp,
@@ -341,7 +374,8 @@ mod tests {
         assert_eq!(
             serialized,
             format!(
-                "{{\"config_version\":\"{}\",\"interfaces\":[],\"observed_at\":\"{}\"}}",
+                "{{\"config_version\":\"{}\",\"instance_config_version\":\"{}\",\"interfaces\":[],\"observed_at\":\"{}\"}}",
+                instance_version.version_string(),
                 version.version_string(),
                 serialized_timestamp
             )
@@ -367,7 +401,8 @@ mod tests {
             });
         let serialized = serde_json::to_string(&observation).unwrap();
         let mut expected = format!(
-            "{{\"config_version\":\"{}\",\"interfaces\":[",
+            "{{\"config_version\":\"{}\",\"instance_config_version\":\"{}\",\"interfaces\":[",
+            instance_version.version_string(),
             version.version_string()
         );
         write!(
@@ -425,6 +460,7 @@ mod tests {
         // Note that the interfaces are reordered to make sure we actually can
         // look up the matching status
         InstanceNetworkStatusObservation {
+            instance_config_version: None, // Reported by rpc::DpuNetworkStatus not rpc::InstanceNetworkStatusObservation
             config_version,
             observed_at: Utc::now(),
             interfaces: vec![

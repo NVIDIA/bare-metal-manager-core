@@ -14,7 +14,9 @@ use config_version::Versioned;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    instance::config::{infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig},
+    instance::config::{
+        infiniband::InstanceInfinibandConfig, network::InstanceNetworkConfig, InstanceConfig,
+    },
     machine::{InstanceState, ManagedHostState, ReprovisionRequest},
     RpcDataConversionError,
 };
@@ -68,11 +70,12 @@ impl InstanceStatus {
     /// Tries to convert Machine state to tenant state.
     pub fn tenant_state(
         machine_state: ManagedHostState,
+        configs_synced: SyncState,
         phone_home_enrolled: bool,
         phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<tenant::TenantState, RpcDataConversionError> {
         // At this point, we are sure that instance is created.
-        // If machine state is still ready, means state mahcine has not processed this instance
+        // If machine state is still ready, means state machine has not processed this instance
         // yet.
 
         let tenant_state = match machine_state {
@@ -81,19 +84,25 @@ impl InstanceStatus {
                 InstanceState::Init | InstanceState::WaitingForNetworkConfig => {
                     tenant::TenantState::Provisioning
                 }
-
                 InstanceState::Ready => {
-                    match (phone_home_enrolled, phone_home_last_contact) {
-                        // If tenant is not enrolled in phone_home
+                    let phone_home_pending =
+                        phone_home_enrolled && phone_home_last_contact.is_none();
+
+                    // TODO phone_home_last_contact window? e.g. must have been received in last 10 minutes
+
+                    match (phone_home_pending, configs_synced) {
+                        // If there is no pending phone-home, but configs are
+                        // not synced, configs must have changed after provisioning finished
+                        // since we entered Ready state.
+                        (false, SyncState::Pending) => tenant::TenantState::Configuring,
+
+                        // If there is no pending phone-home,
                         // return Ready (this was the default before phone_home)
-                        (false, _) => tenant::TenantState::Ready,
-                        // If a tenant is enrolled in phone home and last_contact is None,
-                        // return Provisioning for TenantState
-                        (true, None) => tenant::TenantState::Provisioning,
-                        // If a tenant is enrolled and last_contact is Some() the instance
-                        // has phoned home. Return ready
-                        // TODO phone_home_last_contact window? e.g. must have been received in last 10 minutes
-                        (true, Some(..)) => tenant::TenantState::Ready,
+                        (false, SyncState::Synced) => tenant::TenantState::Ready,
+
+                        // If there is a pending phone-home, we're still
+                        // provisioning.
+                        (true, _) => tenant::TenantState::Provisioning,
                     }
                 }
                 InstanceState::SwitchToAdminNetwork
@@ -122,14 +131,32 @@ impl InstanceStatus {
     /// because the observation might have been related to a different config,
     /// and the interfaces therefore won't match.
     pub fn from_config_and_observation(
+        instance_config: Versioned<&InstanceConfig>,
         network_config: Versioned<&InstanceNetworkConfig>,
         ib_config: Versioned<&InstanceInfinibandConfig>,
         observations: &InstanceStatusObservations,
         machine_state: ManagedHostState,
         delete_requested: bool,
-        phone_home_enabled: bool,
         reprovision_request: Option<ReprovisionRequest>,
     ) -> Result<Self, RpcDataConversionError> {
+        let instance_config_synced = match observations.network {
+            Some(ref network_obs) => match network_obs.instance_config_version {
+                Some(version_obs) => {
+                    if instance_config.version == version_obs {
+                        SyncState::Synced
+                    } else {
+                        SyncState::Pending
+                    }
+                }
+                // TODO(bcavanagh): Switch to SyncState::Pending or
+                //                  return Err(RpcDataConversionError::InvalidConfigVersion)
+                //                  after all dpu-agents have been updated to support/report the field.
+                // If observations.network.instance_config_version was None, then "ignore"
+                _ => SyncState::Synced,
+            },
+            _ => SyncState::Pending,
+        };
+
         let network = network::InstanceNetworkStatus::from_config_and_observation(
             network_config,
             observations.network.as_ref(),
@@ -142,20 +169,24 @@ impl InstanceStatus {
         let phone_home_last_contact = observations.phone_home_last_contact;
 
         // If additional configs are added, they need to be incorporated here
-        let configs_synced = match (network.configs_synced, infiniband.configs_synced) {
-            (SyncState::Synced, SyncState::Synced) => SyncState::Synced,
+        let configs_synced = match (
+            network.configs_synced,
+            infiniband.configs_synced,
+            instance_config_synced,
+        ) {
+            (SyncState::Synced, SyncState::Synced, SyncState::Synced) => SyncState::Synced,
             _ => SyncState::Pending,
         };
 
         let tenant = tenant::InstanceTenantStatus {
-            state: match (delete_requested, configs_synced) {
-                (false, SyncState::Synced) => InstanceStatus::tenant_state(
+            state: match delete_requested {
+                false => InstanceStatus::tenant_state(
                     machine_state,
-                    phone_home_enabled,
+                    configs_synced,
+                    instance_config.os.phone_home_enabled,
                     phone_home_last_contact,
                 )?,
-                (false, SyncState::Pending) => tenant::TenantState::Provisioning,
-                (true, _) => {
+                true => {
                     // If instance deletion was requested, we always confirm the
                     // tenant that the instance is actually in progress of shutting down.
                     // The instance might however still first need to run through

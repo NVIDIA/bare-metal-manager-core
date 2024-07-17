@@ -1024,6 +1024,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .1;
 
     let mut updated_network_status = InstanceNetworkStatusObservation {
+        instance_config_version: Some(snapshot.config_version),
         config_version: snapshot.network_config_version,
         interfaces: vec![InstanceInterfaceStatusObservation {
             function_id: InterfaceFunctionId::Physical {},
@@ -1158,10 +1159,10 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         status.infiniband.as_ref().unwrap().configs_synced(),
         rpc::SyncState::Synced
     );
-    // TODO: This is wrong - it should become `Configuring`
+
     assert_eq!(
         status.tenant.as_ref().unwrap().state(),
-        rpc::TenantState::Provisioning
+        rpc::TenantState::Configuring
     );
     assert_eq!(
         status.network.as_ref().unwrap().interfaces,
