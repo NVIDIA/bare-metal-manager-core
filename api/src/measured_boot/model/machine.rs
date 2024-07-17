@@ -16,15 +16,14 @@
 */
 
 use crate::measured_boot::dto::keys::UuidEmptyStringError;
-use crate::measured_boot::dto::records::{
-    MeasurementBundleState, MeasurementJournalRecord, MeasurementMachineState,
-};
+use crate::measured_boot::dto::records::{MeasurementBundleState, MeasurementMachineState};
 use crate::measured_boot::interface::bundle::get_measurement_bundle_by_id;
 use crate::measured_boot::interface::common;
 use crate::measured_boot::interface::common::ToTable;
 use crate::measured_boot::interface::machine::{
     get_candidate_machine_record_by_id, get_candidate_machine_records, get_candidate_machine_state,
 };
+use crate::measured_boot::model::journal::{get_latest_journal_for_id, MeasurementJournal};
 use crate::model::machine::machine_id::MachineId;
 use rpc::protos::measured_boot::{CandidateMachinePb, MeasurementMachineStatePb};
 use serde::Serialize;
@@ -39,6 +38,7 @@ use std::str::FromStr;
 pub struct CandidateMachine {
     pub machine_id: MachineId,
     pub state: MeasurementMachineState,
+    pub journal: Option<MeasurementJournal>,
     pub attrs: HashMap<String, String>,
     pub created_ts: chrono::DateTime<Utc>,
     pub updated_ts: chrono::DateTime<Utc>,
@@ -50,6 +50,7 @@ impl From<CandidateMachine> for CandidateMachinePb {
         Self {
             machine_id: val.machine_id.to_string(),
             state: pb_state.into(),
+            journal: val.journal.map(|journal| journal.into()),
             attrs: val.attrs,
             created_ts: Some(val.created_ts.into()),
             updated_ts: Some(val.updated_ts.into()),
@@ -68,6 +69,10 @@ impl TryFrom<CandidateMachinePb> for CandidateMachine {
         Ok(Self {
             machine_id: MachineId::from_str(&msg.machine_id)?,
             state: MeasurementMachineState::from(state),
+            journal: match msg.journal {
+                Some(journal_pb) => Some(MeasurementJournal::try_from(journal_pb)?),
+                None => None,
+            },
             attrs: msg.attrs,
             created_ts: chrono::DateTime::<chrono::Utc>::try_from(msg.created_ts.unwrap())?,
             updated_ts: chrono::DateTime::<chrono::Utc>::try_from(msg.updated_ts.unwrap())?,
@@ -78,6 +83,14 @@ impl TryFrom<CandidateMachinePb> for CandidateMachine {
 impl ToTable for CandidateMachine {
     fn to_table(&self) -> eyre::Result<String> {
         let mut table = prettytable::Table::new();
+        let journal_table = match &self.journal {
+            Some(journal) => journal.to_nested_prettytable(),
+            None => {
+                let mut not_found = prettytable::Table::new();
+                not_found.add_row(prettytable::row!["<no journal found>"]);
+                not_found
+            }
+        };
         let mut attrs_table = prettytable::Table::new();
         attrs_table.add_row(prettytable::row!["name", "value"]);
         for (key, value) in self.attrs.iter() {
@@ -87,6 +100,7 @@ impl ToTable for CandidateMachine {
         table.add_row(prettytable::row!["state", self.state]);
         table.add_row(prettytable::row!["created_ts", self.created_ts]);
         table.add_row(prettytable::row!["updated_ts", self.updated_ts]);
+        table.add_row(prettytable::row!["journal", journal_table]);
         table.add_row(prettytable::row!["attrs", attrs_table]);
         Ok(table.to_string())
     }
@@ -100,9 +114,18 @@ impl ToTable for Vec<CandidateMachine> {
             "state",
             "created_ts",
             "updated_ts",
+            "journal",
             "attributes",
         ]);
         for record in self.iter() {
+            let journal_table = match &record.journal {
+                Some(journal) => journal.to_nested_prettytable(),
+                None => {
+                    let mut not_found = prettytable::Table::new();
+                    not_found.add_row(prettytable::row!["<no journal found>"]);
+                    not_found
+                }
+            };
             let mut attrs_table = prettytable::Table::new();
             attrs_table.add_row(prettytable::row!["name", "value"]);
             for (key, value) in record.attrs.iter() {
@@ -113,6 +136,7 @@ impl ToTable for Vec<CandidateMachine> {
                 record.state,
                 record.created_ts,
                 record.updated_ts,
+                journal_table,
                 attrs_table,
             ]);
         }
@@ -161,13 +185,16 @@ impl CandidateMachine {
             None => Err(eyre::eyre!("machine missing dmi data")),
         }?;
 
-        let latest_state = get_candidate_machine_state(txn, machine_id.clone()).await?;
+        let journal = get_latest_journal_for_id(txn, machine_id.clone()).await?;
+        let state = machine_state_from_journal(&journal);
+
         Ok(Self {
             machine_id: record.machine_id.clone(),
             created_ts: record.created,
             updated_ts: record.updated,
             attrs,
-            state: latest_state,
+            state,
+            journal,
         })
     }
 
@@ -206,12 +233,7 @@ pub async fn get_measurement_machine_state(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
 ) -> eyre::Result<MeasurementMachineState> {
-    Ok(
-        match internal_get_latest_journal_for_id(&mut *txn, machine_id).await? {
-            Some(record) => record.state,
-            None => MeasurementMachineState::Discovered,
-        },
-    )
+    get_candidate_machine_state(txn, machine_id).await
 }
 
 /// get_measurement_bundle_state returns the state of the current bundle
@@ -220,7 +242,7 @@ pub async fn get_measurement_bundle_state(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: &MachineId,
 ) -> eyre::Result<Option<MeasurementBundleState>> {
-    let result = internal_get_latest_journal_for_id(&mut *txn, machine_id.clone()).await?;
+    let result = get_latest_journal_for_id(&mut *txn, machine_id.clone()).await?;
     if let Some(journal_record) = result {
         if let Some(bundle_id) = journal_record.bundle_id {
             if let Some(bundle) = get_measurement_bundle_by_id(txn, bundle_id).await? {
@@ -229,19 +251,6 @@ pub async fn get_measurement_bundle_state(
         }
     }
     Ok(None)
-}
-
-/// get_latest_journal_for_id returns the latest journal record for the
-/// provided machine ID.
-async fn internal_get_latest_journal_for_id(
-    txn: &mut Transaction<'_, Postgres>,
-    machine_id: MachineId,
-) -> eyre::Result<Option<MeasurementJournalRecord>> {
-    let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
-    Ok(sqlx::query_as::<_, MeasurementJournalRecord>(query)
-        .bind(machine_id)
-        .fetch_optional(&mut **txn)
-        .await?)
 }
 
 /// get_candidate_machines returns all populated CandidateMachine instances.
@@ -260,14 +269,26 @@ async fn get_candidate_machines(
             None => Err(eyre::eyre!("machine missing dmi data")),
         }?;
 
-        let latest_state = get_candidate_machine_state(txn, record.machine_id.clone()).await?;
+        let journal = get_latest_journal_for_id(txn, record.machine_id.clone()).await?;
+        let state = machine_state_from_journal(&journal);
+
         res.push(CandidateMachine {
             machine_id: record.machine_id.clone(),
             created_ts: record.created,
             updated_ts: record.updated,
             attrs,
-            state: latest_state,
+            state,
+            journal,
         });
     }
     Ok(res)
+}
+
+/// machine_state_from_journal returns the computed machine
+/// state for a given journal record.
+pub fn machine_state_from_journal(journal: &Option<MeasurementJournal>) -> MeasurementMachineState {
+    match journal {
+        Some(record) => record.state,
+        None => MeasurementMachineState::Discovered,
+    }
 }

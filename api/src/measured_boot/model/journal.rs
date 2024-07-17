@@ -192,6 +192,29 @@ impl MeasurementJournal {
     ) -> eyre::Result<Option<MeasurementJournal>> {
         get_latest_journal_for_id(txn, machine_id).await
     }
+
+    /// to_nested_prettytable converts a MeasurementJournal into a small
+    /// prettytable::Table for the purpose of displaying as a nested
+    /// table for a CandidateMachine (showing just the basics).
+    pub fn to_nested_prettytable(&self) -> prettytable::Table {
+        let mut journal_table = prettytable::Table::new();
+        journal_table.add_row(prettytable::row!["report_id", self.report_id]);
+        journal_table.add_row(prettytable::row![
+            "profile_id",
+            match self.profile_id {
+                Some(profile_id) => profile_id.to_string(),
+                None => "<none>".to_string(),
+            }
+        ]);
+        journal_table.add_row(prettytable::row![
+            "bundle_id",
+            match self.bundle_id {
+                Some(bundle_id) => bundle_id.to_string(),
+                None => "<none>".to_string(),
+            }
+        ]);
+        journal_table
+    }
 }
 
 // When `journal show <journal-id>` gets called, and the output format is

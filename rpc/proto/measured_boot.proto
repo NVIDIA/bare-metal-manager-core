@@ -1053,6 +1053,7 @@ message CandidateMachinePb {
     MeasurementMachineStatePb state = 3;
     google.protobuf.Timestamp created_ts = 4;
     google.protobuf.Timestamp updated_ts = 5;
+    MeasurementJournalPb journal = 6;
 }
 
 message CandidateMachineSummaryPb {
