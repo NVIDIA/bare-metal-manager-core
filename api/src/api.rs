@@ -1806,61 +1806,73 @@ impl Forge for Api {
 
         if let Some(machine) = &host_machine {
             if let Some(ip) = machine.bmc_info().ip.as_deref() {
-                tracing::info!(
-                    ip,
-                    machine_id = %machine.id(),
-                    "BMC ip for machine was found. Trying to perform Bios unlock",
-                );
-
-                match self
-                    .redfish_pool
-                    .create_client(
+                if let Some(mac) = machine.bmc_info().mac.as_deref() {
+                    let bmc_mac_address = mac.parse::<MacAddress>().map_err(CarbideError::from)?;
+                    tracing::info!(
                         ip,
-                        machine.bmc_info().port,
-                        RedfishAuth::Key(CredentialKey::Bmc {
-                            machine_id: machine.id().to_string(),
-                            user_role: UserRoles::Administrator.to_string(),
-                        }),
-                        true,
-                    )
-                    .await
-                {
-                    Ok(client) => {
-                        let machine_id = machine.id().clone();
-                        match client.lockdown_status().await {
-                            Ok(status) if status.is_fully_disabled() => {
-                                tracing::info!(%machine_id, "Bios is not locked down");
-                                response.initial_lockdown_state = status.to_string();
-                                response.machine_unlocked = false;
-                            }
-                            Ok(status) => {
-                                tracing::info!(%machine_id, ?status, "Unlocking BIOS");
-                                if let Err(e) =
-                                    client.lockdown(libredfish::EnabledDisabled::Disabled).await
-                                {
-                                    tracing::warn!(%machine_id, error = %e, "Failed to unlock");
+                        machine_id = %machine.id(),
+                        "BMC IP and MAC address for machine was found. Trying to perform Bios unlock",
+                    );
+
+                    match self
+                        .redfish_pool
+                        .create_client(
+                            ip,
+                            machine.bmc_info().port,
+                            RedfishAuth::Key(CredentialKey::BmcCredentials {
+                                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
+                            }),
+                            true,
+                        )
+                        .await
+                    {
+                        Ok(client) => {
+                            let machine_id = machine.id().clone();
+                            match client.lockdown_status().await {
+                                Ok(status) if status.is_fully_disabled() => {
+                                    tracing::info!(%machine_id, "Bios is not locked down");
                                     response.initial_lockdown_state = status.to_string();
                                     response.machine_unlocked = false;
-                                } else {
-                                    response.initial_lockdown_state = status.to_string();
-                                    response.machine_unlocked = true;
+                                }
+                                Ok(status) => {
+                                    tracing::info!(%machine_id, ?status, "Unlocking BIOS");
+                                    if let Err(e) =
+                                        client.lockdown(libredfish::EnabledDisabled::Disabled).await
+                                    {
+                                        tracing::warn!(%machine_id, error = %e, "Failed to unlock");
+                                        response.initial_lockdown_state = status.to_string();
+                                        response.machine_unlocked = false;
+                                    } else {
+                                        response.initial_lockdown_state = status.to_string();
+                                        response.machine_unlocked = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(%machine_id, error = %e, "Failed to fetch lockdown status");
+                                    response.initial_lockdown_state = "".to_string();
+                                    response.machine_unlocked = false;
                                 }
                             }
-                            Err(e) => {
-                                tracing::warn!(%machine_id, error = %e, "Failed to fetch lockdown status");
-                                response.initial_lockdown_state = "".to_string();
-                                response.machine_unlocked = false;
-                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                machine_id = %machine.id(),
+                                error = %e,
+                                "Failed to create Redfish client. Skipping bios unlock",
+                            );
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            machine_id = %machine.id(),
-                            error = %e,
-                            "Failed to create Redfish client. Skipping bios unlock",
-                        );
-                    }
+                } else {
+                    tracing::warn!(
+                        "Failed to unlock this host because Forge could not retrieve the BMC MAC address for machine {}",
+                        machine.id()
+                    );
                 }
+            } else {
+                tracing::warn!(
+                    "Failed to unlock this host because Forge could not retrieve the BMC IP address for machine {}",
+                    machine.id()
+                );
             }
         }
 
