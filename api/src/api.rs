@@ -586,7 +586,7 @@ impl Forge for Api {
                 .is_none()
             {
                 tracing::error!(
-                    "Machine id {stable_machine_id}/interface: {} is not discovered by site-explorer.", interface.id
+                    "Machine id {stable_machine_id}/interface: {} does not exist. Wait for site-explorer.", interface.id
                 );
             }
 

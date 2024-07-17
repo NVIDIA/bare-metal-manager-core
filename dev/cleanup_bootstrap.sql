@@ -17,3 +17,7 @@ DELETE FROM machine_interface_addresses;
 DELETE FROM machine_interfaces;
 DELETE FROM machine_state_history;
 DELETE FROM machines;
+DELETE FROM explored_endpoints;
+DELETE FROM explored_managed_hosts;
+DELETE FROM bmc_machine;
+DELETE FROM dhcp_entries;

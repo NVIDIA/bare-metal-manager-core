@@ -2340,7 +2340,7 @@ impl StateHandler for HostMachineStateHandler {
                         state.host_snapshot.current.version,
                         state.host_snapshot.last_discovery_time,
                     ) {
-                        tracing::debug!(
+                        tracing::trace!(
                             machine_id = %host_machine_id,
                             "Waiting for forge-scout to report host online. \
                                          Host last seen {:?}, must come after DPU's {}",
@@ -2464,7 +2464,10 @@ impl StateHandler for HostMachineStateHandler {
                             txn,
                         )
                         .await?;
-                        Ok(StateHandlerOutcome::Wait(status.status))
+                        Ok(StateHandlerOutcome::Wait(format!(
+                            "Waiting for scout to call RebootCompleted grpc. {}",
+                            status.status
+                        )))
                     }
                 }
                 MachineState::WaitingForNetworkInstall => {
@@ -2483,7 +2486,7 @@ impl StateHandler for HostMachineStateHandler {
                     completed,
                     total,
                 } => {
-                    tracing::info!(
+                    tracing::trace!(
                         "context = {} id = {} completed = {} total = {}",
                         context,
                         id,
