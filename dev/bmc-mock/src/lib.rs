@@ -18,6 +18,7 @@ use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpListener};
 
 use axum::body::Body;
+use libredfish::model::service_root::ServiceRoot;
 use std::path::Path;
 use std::pin::Pin;
 use std::process::Command;
@@ -233,10 +234,19 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
 }
 
 async fn get_root() -> impl IntoResponse {
-    let mut out = HashMap::new();
-    out.insert("Vendor", "Dell");
-    out.insert("RedfishVersion", "1.13.1");
-    (StatusCode::OK, Json(out))
+    let service_root = ServiceRoot {
+        vendor: Some("Dell".to_string()),
+        redfish_version: "1.13.1".to_string(),
+        odata: libredfish::model::OData {
+            odata_context: Some("odata_context".to_string()),
+            odata_id: "123".to_string(),
+            odata_type: "odata_type".to_string(),
+            odata_etag: Some("odata_etag".to_string()),
+        },
+        ..Default::default()
+    };
+
+    (StatusCode::OK, Json(service_root))
 }
 
 async fn get_system_id() -> impl IntoResponse {
@@ -245,6 +255,7 @@ async fn get_system_id() -> impl IntoResponse {
         odata_id: "123".to_string(),
         odata_type: "odata_type".to_string(),
         links: None,
+        odata_etag: Some("odata_etag".to_string()),
     };
     let systems = libredfish::Systems {
         odata,
@@ -264,6 +275,7 @@ async fn get_manager_id() -> impl IntoResponse {
         odata_id: "123".to_string(),
         odata_type: "odata_type".to_string(),
         links: None,
+        odata_etag: Some("odata_etag".to_string()),
     };
     let managers = libredfish::model::Systems {
         odata,
@@ -330,6 +342,7 @@ async fn get_bios() -> impl IntoResponse {
         odata_id: "/redfish/v1/Systems/System.Embedded.1/Bios".to_string(),
         odata_type: "#Bios.v1_2_1.Bios".to_string(),
         links: None,
+        odata_etag: Some("W/\"8A194014\"".to_string()),
     };
 
     (StatusCode::OK, Json(odata))

@@ -29,9 +29,7 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
 use itertools::Itertools;
-use libredfish::SystemPowerControl;
 use sqlx::{Postgres, Transaction};
-use tokio::time::{sleep, Instant};
 use tonic::{Request, Response, Status};
 #[cfg(feature = "tss-esapi")]
 use tss_esapi::{
@@ -63,7 +61,6 @@ use crate::model::machine::{
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
-use crate::redfish::{host_power_control, poll_redfish_job};
 use crate::resource_pool::common::CommonPools;
 #[cfg(feature = "tss-esapi")]
 use crate::{attestation as attest, db::attestation::SecretAkPub};
@@ -2687,6 +2684,63 @@ impl Forge for Api {
         Ok(tonic::Response::new(()))
     }
 
+    async fn clear_host_uefi_password(
+        &self,
+        request: tonic::Request<rpc::ClearHostUefiPasswordRequest>,
+    ) -> Result<tonic::Response<rpc::ClearHostUefiPasswordResponse>, tonic::Status> {
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin clear_host_uefi_password",
+                e,
+            ))
+        })?;
+
+        let request = request.into_inner();
+        let machine_id = match &request.host_id {
+            Some(id) => try_parse_machine_id(id).map_err(CarbideError::from)?,
+            None => {
+                return Err(Status::invalid_argument("A machine UUID is required"));
+            }
+        };
+        log_machine_id(&machine_id);
+
+        if !machine_id.machine_type().is_host() {
+            return Err(Status::invalid_argument(
+                "Carbide only supports clearing the UEFI password on discovered hosts",
+            ));
+        }
+
+        let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
+
+        let redfish_client = self
+            .redfish_pool
+            .create_client_from_machine_snapshot(&snapshot.host_snapshot, &mut txn)
+            .await
+            .map_err(|e| {
+                tracing::error!("unable to create redfish client: {}", e);
+                tonic::Status::internal(format!(
+                    "Could not create connection to Redfish API to {}, check logs",
+                    machine_id
+                ))
+            })?;
+
+        let job_id: Option<String> = crate::redfish::clear_host_uefi_password(
+            redfish_client.as_ref(),
+            self.redfish_pool.clone(),
+        )
+        .await?;
+
+        Ok(Response::new(rpc::ClearHostUefiPasswordResponse { job_id }))
+    }
+
     async fn set_host_uefi_password(
         &self,
         request: tonic::Request<rpc::SetHostUefiPasswordRequest>,
@@ -2743,64 +2797,7 @@ impl Forge for Api {
         )
         .await?;
 
-        let mut start = Instant::now();
-        let mut sleep_duration: Duration = tokio::time::Duration::from_secs(5);
-        let mut timeout: Duration = tokio::time::Duration::from_secs(60);
-        if let Some(jid) = job_id.clone() {
-            loop {
-                sleep(sleep_duration).await;
-                if poll_redfish_job(
-                    redfish_client.as_ref(),
-                    jid.clone(),
-                    libredfish::JobState::Scheduled,
-                )
-                .await?
-                {
-                    break;
-                }
-            }
-
-            if start.elapsed() > timeout {
-                return Err(Status::invalid_argument(format!(
-                    "timed out waiting for uefi password change job {jid} to be scheduled"
-                )));
-            }
-        }
-
-        host_power_control(
-            redfish_client.as_ref(),
-            &snapshot.host_snapshot,
-            SystemPowerControl::ForceRestart,
-            self.ipmi_tool.clone(),
-            &mut txn,
-        )
-        .await?;
-
-        start = Instant::now();
-        sleep_duration = tokio::time::Duration::from_secs(30);
-        timeout = tokio::time::Duration::from_secs(600);
-        if let Some(jid) = job_id.clone() {
-            loop {
-                sleep(sleep_duration).await;
-                if poll_redfish_job(
-                    redfish_client.as_ref(),
-                    jid.clone(),
-                    libredfish::JobState::Completed,
-                )
-                .await?
-                {
-                    break;
-                }
-
-                if start.elapsed() > timeout {
-                    return Err(Status::invalid_argument(
-                    format!("timed out waiting (since {start:#?}) for uefi password change job {jid} to complete")
-                    ));
-                }
-            }
-        }
-
-        Ok(Response::new(rpc::SetHostUefiPasswordResponse {}))
+        Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
     }
 
     /// Identify BMC vendor for given IP address

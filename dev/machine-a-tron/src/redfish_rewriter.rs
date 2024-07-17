@@ -137,6 +137,17 @@ fn generate_network_adapters_response(
         model: Some("BlueField-2 SmartNIC Main Card".to_string()),
         part_number: Some("MBF2H5".to_string()),
         serial_number: Some(dpu.serial.clone()),
+        odata: libredfish::OData {
+            odata_id: "odata_id".to_owned(),
+            odata_type: "odata_type".to_owned(),
+            odata_etag: None,
+            odata_context: None,
+        },
+        ports: None,
+        network_device_functions: None,
+        name: None,
+        status: None,
+        controllers: None,
     };
     Some(
         Response::builder()

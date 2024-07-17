@@ -316,6 +316,12 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             let task = redfish.get_task(&details.taskid).await?;
             println!("Task info: {task:?}");
         }
+        ClearUefiPassword(uefi_password) => {
+            let job = redfish
+                .clear_uefi_password(&uefi_password.current_password)
+                .await?;
+            println!("Clear UEFI password Job ID: {:?}", job.unwrap_or_default());
+        }
     }
     Ok(())
 }
@@ -511,7 +517,10 @@ async fn show_all_ports(
     let mut netdev_funcs_info: Vec<NetworkDeviceFunction> = Vec::new();
 
     for n in netdev_funcs.iter() {
-        match redfish.get_network_device_function(&chassis_id, n).await {
+        match redfish
+            .get_network_device_function(&chassis_id, n, None)
+            .await
+        {
             Ok(netdev) => {
                 netdev_funcs_info.push(netdev);
             }

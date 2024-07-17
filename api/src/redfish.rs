@@ -35,8 +35,10 @@ use libredfish::{
     model::{
         service_root::{RedfishVendor, ServiceRoot},
         task::Task,
+        ODataId, ODataLinks,
     },
-    Chassis, Endpoint, JobState, PowerState, Redfish, RedfishError, RoleId, SystemPowerControl,
+    Chassis, Collection, Endpoint, JobState, PowerState, Redfish, RedfishError, Resource, RoleId,
+    SystemPowerControl,
 };
 use mac_address::MacAddress;
 use tokio::time;
@@ -192,6 +194,35 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             return Err(RedfishClientCreationError::RedfishError(e));
         }
         Ok(())
+    }
+
+    // clear_host_uefi_password updates the UEFI password from Forge's sitewide password to an empty string
+    // The assumption is that this function will only be called on a machine that already updated the UEFI password to match the Forge sitewide password.
+    async fn clear_host_uefi_password(
+        &self,
+        client: &dyn Redfish,
+    ) -> Result<Option<String>, RedfishClientCreationError> {
+        let credential_key = CredentialKey::HostUefi {
+            credential_type: CredentialType::SiteDefault,
+        };
+
+        let credentials = self
+            .credential_provider()
+            .get_credentials(credential_key.clone())
+            .await
+            .map_err(|cause| RedfishClientCreationError::MissingCredentials {
+                key: credential_key.to_key_str(),
+                cause,
+            })?;
+
+        let (_, current_password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        client
+            .clear_uefi_password(current_password.as_str())
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)
     }
 
     async fn uefi_setup(
@@ -757,20 +788,32 @@ impl Redfish for RedfishSimClient {
         &self,
         _chassis_id: &str,
     ) -> Result<Vec<std::string::String>, RedfishError> {
-        todo!()
+        Ok(Vec::new())
     }
 
     async fn get_network_device_function(
         &self,
         _chassis_id: &str,
         _id: &str,
+        _port: Option<&str>,
     ) -> Result<libredfish::model::network_device_function::NetworkDeviceFunction, RedfishError>
     {
-        todo!()
+        Ok(
+            libredfish::model::network_device_function::NetworkDeviceFunction {
+                odata: None,
+                description: None,
+                id: None,
+                ethernet: None,
+                name: None,
+                net_dev_func_capabilities: Vec::new(),
+                net_dev_func_type: None,
+                links: None,
+            },
+        )
     }
 
     async fn get_ports(&self, _chassis_id: &str) -> Result<Vec<std::string::String>, RedfishError> {
-        todo!()
+        Ok(Vec::new())
     }
 
     async fn get_port(
@@ -778,7 +821,15 @@ impl Redfish for RedfishSimClient {
         _chassis_id: &str,
         _id: &str,
     ) -> Result<libredfish::model::port::NetworkPort, RedfishError> {
-        todo!()
+        Ok(libredfish::model::port::NetworkPort {
+            odata: None,
+            description: None,
+            id: None,
+            name: None,
+            link_status: None,
+            link_network_technology: None,
+            current_speed_gbps: None,
+        })
     }
 
     async fn change_uefi_password(
@@ -790,7 +841,7 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn change_boot_order(&self, _boot_array: Vec<String>) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
 
     async fn create_user(
@@ -841,11 +892,11 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn get_systems(&self) -> Result<Vec<String>, RedfishError> {
-        todo!()
+        Ok(Vec::new())
     }
 
     async fn get_managers(&self) -> Result<Vec<String>, RedfishError> {
-        todo!()
+        Ok(Vec::new())
     }
 
     async fn get_manager(&self) -> Result<libredfish::model::Manager, RedfishError> {
@@ -934,29 +985,44 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn bmc_reset_to_defaults(&self) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
 
     async fn get_system_event_log(
         &self,
     ) -> Result<Vec<libredfish::model::sel::LogEntry>, RedfishError> {
-        todo!()
+        Ok(Vec::new())
     }
 
     async fn get_tasks(&self) -> Result<Vec<String>, RedfishError> {
-        todo!()
+        Ok(Vec::new())
     }
 
     async fn add_secure_boot_certificate(&self, _: &str) -> Result<Task, RedfishError> {
-        todo!()
+        Ok(Task {
+            odata: ODataLinks {
+                odata_context: None,
+                odata_id: "odata_id".to_string(),
+                odata_type: "odata_type".to_string(),
+                odata_etag: None,
+                links: None,
+            },
+            id: "".to_string(),
+            messages: Vec::new(),
+            name: None,
+            task_state: None,
+            task_status: None,
+            task_monitor: None,
+            percent_complete: None,
+        })
     }
 
     async fn enable_secure_boot(&self) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
 
     async fn change_username(&self, _old_name: &str, _new_name: &str) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
     async fn get_accounts(
         &self,
@@ -964,7 +1030,7 @@ impl Redfish for RedfishSimClient {
         todo!()
     }
     async fn set_forge_password_policy(&self) -> Result<(), RedfishError> {
-        todo!()
+        Ok(())
     }
     async fn update_firmware_multipart(
         &self,
@@ -979,6 +1045,34 @@ impl Redfish for RedfishSimClient {
 
     async fn get_job_state(&self, _job_id: &str) -> Result<JobState, RedfishError> {
         Ok(JobState::Unknown)
+    }
+
+    async fn get_collection(&self, _id: ODataId) -> Result<Collection, RedfishError> {
+        Ok(Collection {
+            url: String::new(),
+            body: HashMap::new(),
+        })
+    }
+
+    async fn get_resource(&self, _id: ODataId) -> Result<Resource, RedfishError> {
+        Ok(Resource {
+            url: String::new(),
+            raw: Default::default(),
+        })
+    }
+
+    async fn set_boot_order_dpu_first(
+        &self,
+        _mac_address: Option<String>,
+    ) -> Result<(), RedfishError> {
+        Ok(())
+    }
+
+    async fn clear_uefi_password(
+        &self,
+        _current_uefi_password: &str,
+    ) -> Result<Option<String>, RedfishError> {
+        Ok(None)
     }
 }
 
@@ -1132,6 +1226,22 @@ pub async fn set_host_uefi_password(
         .map_err(|e| {
             tracing::error!(%e, "Failed to run uefi_setup call");
             CarbideError::GenericError(format!("Failed redfish uefi_setup subtask: {}", e))
+        })
+}
+
+pub async fn clear_host_uefi_password(
+    redfish_client: &dyn Redfish,
+    redfish_client_pool: Arc<dyn RedfishClientPool>,
+) -> CarbideResult<Option<String>> {
+    redfish_client_pool
+        .clear_host_uefi_password(redfish_client)
+        .await
+        .map_err(|e| {
+            tracing::error!(%e, "Failed to run clear_host_uefi_password call");
+            CarbideError::GenericError(format!(
+                "Failed redfish clear_host_uefi_password subtask: {}",
+                e
+            ))
         })
 }
 

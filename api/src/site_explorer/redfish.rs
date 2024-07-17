@@ -499,6 +499,13 @@ impl From<PCIeDevice> for libredfish::PCIeDevice {
             serial_number: device.serial_number,
             status: device.status.map(|s| s.into()),
             gpu_vendor: device.gpu_vendor,
+            odata: libredfish::OData {
+                odata_id: "odata_id".to_owned(),
+                odata_type: "odata_type".to_owned(),
+                odata_etag: None,
+                odata_context: None,
+            },
+            pcie_functions: None,
         }
     }
 }
