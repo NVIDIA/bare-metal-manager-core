@@ -92,7 +92,7 @@
 			<td>{{ ns.mtu }}</td>
 			<td>{{ ns.prefixes }}</td>
 			<td>{{ ns.circuit_ids }}</td>
-			<td>{{ ns.version }}</td>
+			<td>{{ ns.version|config_version|safe }}</td>
 		</tr>
 		{% endfor %}
 	</tbody>
