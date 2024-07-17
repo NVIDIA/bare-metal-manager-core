@@ -244,6 +244,14 @@ div#json a {
 				attachJsonLink();
 				setURLs();
 			});
+
+			// Updates the title of spans to render the localized version
+			// of the timestamp stored inside a span
+			function setTitleToLocalizedTime(element) {
+				let date = new Date(element.innerText);
+				// TODO: This format is not exactly equal to the non-localized format
+				element.title = date.toString();
+			}
 		</script>
 	</body>
 </html>

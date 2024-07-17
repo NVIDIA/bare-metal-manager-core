@@ -71,3 +71,16 @@ pub fn label_list_fmt(labels: &[rpc::forge::Label]) -> ::askama::Result<String> 
     }
     Ok(result)
 }
+
+/// Generates HTML links to the Managed Host page for Machine IDs
+pub fn config_version<T: std::fmt::Display>(version: T) -> ::askama::Result<String> {
+    let string_version = version.to_string();
+    let version = match string_version.parse::<config_version::ConfigVersion>() {
+        Ok(version) => version,
+        Err(_) => return Ok(string_version),
+    };
+
+    let utc_time = version.timestamp();
+    let formatted_utc_time = utc_time.to_rfc3339();
+    Ok(format!("{string_version}<br>[<span title=\"{}\" onmouseover=\"setTitleToLocalizedTime(this)\">{}</span>]", formatted_utc_time, formatted_utc_time))
+}
