@@ -29,6 +29,7 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
 use itertools::Itertools;
+use mac_address::MacAddress;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
 #[cfg(feature = "tss-esapi")]
@@ -1905,6 +1906,10 @@ impl Forge for Api {
                         .map_err(CarbideError::from)?;
                 }
             }
+
+            if request.delete_bmc_credentials {
+                self.clear_bmc_credentials(machine).await?;
+            }
         }
 
         txn.commit().await.map_err(|e| {
@@ -1978,6 +1983,10 @@ impl Forge for Api {
                         .await
                         .map_err(CarbideError::from)?;
                 }
+            }
+
+            if request.delete_bmc_credentials {
+                self.clear_bmc_credentials(dpu_machine).await?;
             }
 
             txn.commit().await.map_err(|e| {
@@ -3938,6 +3947,22 @@ impl Api {
             }
         }
         Ok(None)
+    }
+
+    async fn clear_bmc_credentials(&self, machine: &Machine) -> Result<(), CarbideError> {
+        if let Some(mac_str) = machine.bmc_info().mac.clone() {
+            tracing::info!(
+                "Cleaning up BMC credentials in vault at {mac_str} for machine {}",
+                machine.id()
+            );
+            if let Ok(mac_address) = mac_str.parse::<MacAddress>() {
+                crate::handlers::credential::delete_bmc_root_credentials_by_mac(self, mac_address)
+                    .await
+                    .map_err(CarbideError::from)?;
+            }
+        }
+
+        Ok(())
     }
 }
 

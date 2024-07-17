@@ -88,6 +88,7 @@ async fn test_lldp_topology_force_delete(
                 host_query: dpu_machine_id.to_string(),
                 delete_interfaces: true,
                 delete_bmc_interfaces: true,
+                delete_bmc_credentials: false,
             },
         ))
         .await

@@ -1769,6 +1769,10 @@ message AdminForceDeleteMachineRequest {
     // Should we delete BMC interfaces? Please note, this will depend on if BMC interfaces
     // are associated with machine.
     bool delete_bmc_interfaces = 3;
+
+    // Should we delete the BMC credentials? Please note, this will depend on if site explore configured
+    // credentials for this machine.
+    bool delete_bmc_credentials = 4;
 }
 
 // Response to AdminForceDeleteMachine call
