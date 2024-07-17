@@ -60,24 +60,8 @@ services:
       options:
         loki-url: "http://172.20.0.25:3100/loki/api/v1/push"
 
-  carbide-db-migrations:
-    depends_on:
-      - postgresql
-    build: api
-    networks:
-      carbide:
-        ipv4_address: 172.20.0.13
-    volumes:
-      - $HOME/docker_cargo_home:/docker_cargo_home
-      - .:/app/code
-      - ca-certificate:/identity
-    environment:
-      - CARGO_HOME=/docker_cargo_home
-    command: cargo watch -C api -x "run --target-dir /tmp/carbide-db-migrations -- migrate --datastore='postgres://carbide_development:notforprod@postgresql'"
-
   carbide-api:
     depends_on:
-      - carbide-db-migrations
       - postgresql
       - loki
     build: api
@@ -89,14 +73,19 @@ services:
       - ./dev/certs:/opt/forge
       - .:/app/code
       - ca-certificate:/identity
-    # Options:
-    #  - For trace/debug mode add '-dd':
-    #    command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
+    # For trace/debug mode add '-dd':
+    #   command: cargo watch -C api -x "run --target-dir /tmp/carbide-api -- -dd run [...]
+    # Create BMC site wide credentials to avoid Vault warnings, in container:
+    #   cargo build -p admin --target-dir /opt/forge-admin-cli/
+    #   /opt/forge-admin-cli/debug/forge-admin-cli -c https://127.0.0.1:1079 --client-cert-path /opt/forge/server_identity.pem --client-key-path /opt/forge/server_identity.key credential add-bmc --kind=site-wide-root --password=password
+    #
     command:
       - sh
       - -c
       - >
-        cargo build -p admin --target-dir /opt/forge-admin-cli/
+        sleep 20 # Let PostgreSQL start
+
+        xzcat /app/code/dev/dev3_db_20240717.sql.xz | /usr/bin/psql -h postgresql -U carbide_development
 
         cargo watch -C api -x "run --target-dir /tmp/carbide-api --
         run --config-path=/app/code/dev/docker-env/carbide-api-config.toml"
@@ -105,6 +94,7 @@ services:
       - 1080:1080
       - 6669:6669
     environment:
+      - PGPASSWORD=notforprod
       - DISABLE_TLS_ENFORCEMENT=true
       - CARGO_HOME=/docker_cargo_home
       - CARBIDE_API_DATABASE_URL=postgres://carbide_development:notforprod@postgresql
