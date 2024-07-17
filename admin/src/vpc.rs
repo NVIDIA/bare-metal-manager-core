@@ -49,30 +49,11 @@ async fn show_vpcs(
     tenant_org_id: Option<String>,
     name: Option<String>,
 ) -> CarbideCliResult<()> {
-    let all_vpc_ids = match rpc::get_vpc_ids(api_config, tenant_org_id.clone(), name.clone()).await
-    {
-        Ok(all_vpc_ids) => all_vpc_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            if tenant_org_id.is_some() {
-                return Err(CarbideCliError::GenericError(
-                    "Filtering by Tenant Org ID is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
-                        .to_string(),
-                ));
-            }
-            return show_vpcs_deprecated(json, api_config, name).await;
-        }
-        Err(e) => return Err(e),
-    };
-    let mut all_vpcs = forgerpc::VpcList {
-        vpcs: Vec::with_capacity(all_vpc_ids.vpc_ids.len()),
-    };
-    for vpc_ids in all_vpc_ids.vpc_ids.chunks(page_size) {
-        let vpcs = rpc::get_vpcs_by_ids(api_config, vpc_ids).await?;
-        all_vpcs.vpcs.extend(vpcs.vpcs);
-    }
+    let all_vpcs =
+        match rpc::get_all_vpcs(api_config, tenant_org_id.clone(), name.clone(), page_size).await {
+            Ok(all_vpcs) => all_vpcs,
+            Err(e) => return Err(e),
+        };
     if json {
         println!("{}", serde_json::to_string_pretty(&all_vpcs).unwrap());
     } else {
@@ -89,13 +70,8 @@ async fn show_vpc_details(
     let vpc_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
-    let vpcs = match rpc::get_vpcs_by_ids(api_config, &[vpc_id.clone()]).await {
+    let vpcs = match rpc::get_one_vpc(api_config, vpc_id).await {
         Ok(vpcs) => vpcs,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            rpc::get_vpcs_deprecated(api_config, Some(vpc_id), None).await?
-        }
         Err(e) => return Err(e),
     };
 
@@ -179,19 +155,4 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     }
 
     Ok(lines)
-}
-
-// TODO: remove when all sites updated to carbide-api with get_vpc_ids and get_vpcs_by_ids implemented
-async fn show_vpcs_deprecated(
-    json: bool,
-    api_config: &ApiConfig<'_>,
-    name: Option<String>,
-) -> CarbideCliResult<()> {
-    let vpcs = rpc::get_vpcs_deprecated(api_config, None, name).await?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&vpcs).unwrap());
-    } else {
-        convert_vpcs_to_nice_table(vpcs).printstd();
-    }
-    Ok(())
 }

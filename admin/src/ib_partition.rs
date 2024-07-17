@@ -49,32 +49,17 @@ async fn show_ib_partitions(
     tenant_org_id: Option<String>,
     name: Option<String>,
 ) -> CarbideCliResult<()> {
-    let all_ib_partition_ids =
-        match rpc::get_ib_partition_ids(api_config, tenant_org_id.clone(), name.clone()).await {
-            Ok(all_ib_partition_ids) => all_ib_partition_ids,
-            Err(CarbideCliError::ApiInvocationError(status))
-                if status.code() == tonic::Code::Unimplemented =>
-            {
-                if tenant_org_id.is_some() || name.is_some() {
-                    return Err(CarbideCliError::GenericError(
-                        "Filtering by Tenant Org ID or Name is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
-                            .to_string(),
-                    ));
-                }
-                return show_ib_partitions_deprecated(json, api_config).await;
-            }
-            Err(e) => return Err(e),
-        };
-    let mut all_ib_partitions = forgerpc::IbPartitionList {
-        ib_partitions: Vec::with_capacity(all_ib_partition_ids.ib_partition_ids.len()),
+    let all_ib_partitions = match rpc::get_all_ib_partitions(
+        api_config,
+        tenant_org_id.clone(),
+        name.clone(),
+        page_size,
+    )
+    .await
+    {
+        Ok(all_ib_partition_ids) => all_ib_partition_ids,
+        Err(e) => return Err(e),
     };
-    for ids in all_ib_partition_ids.ib_partition_ids.chunks(page_size) {
-        let ib_partitions = rpc::get_ib_partitions_by_ids(api_config, ids).await?;
-        all_ib_partitions
-            .ib_partitions
-            .extend(ib_partitions.ib_partitions);
-    }
     if json {
         println!(
             "{}",
@@ -94,16 +79,10 @@ async fn show_ib_partition_details(
     let ib_partition_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
-    let ib_partitions =
-        match rpc::get_ib_partitions_by_ids(api_config, &[ib_partition_id.clone()]).await {
-            Ok(instances) => instances,
-            Err(CarbideCliError::ApiInvocationError(status))
-                if status.code() == tonic::Code::Unimplemented =>
-            {
-                rpc::get_ib_partitions_deprecated(api_config, Some(ib_partition_id)).await?
-            }
-            Err(e) => return Err(e),
-        };
+    let ib_partitions = match rpc::get_one_ib_partition(api_config, ib_partition_id).await {
+        Ok(instances) => instances,
+        Err(e) => return Err(e),
+    };
 
     if ib_partitions.ib_partitions.len() != 1 {
         return Err(CarbideCliError::GenericError(
@@ -210,18 +189,4 @@ fn convert_ib_partition_to_nice_format(
     }
 
     Ok(lines)
-}
-
-// TODO: remove when all sites updated to carbide-api with get_ib_partition_ids and get_ib_partitions_by_ids implemented
-async fn show_ib_partitions_deprecated(
-    json: bool,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    let ib_partitions = rpc::get_ib_partitions_deprecated(api_config, None).await?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&ib_partitions).unwrap());
-    } else {
-        convert_ib_partitions_to_nice_table(ib_partitions).printstd();
-    }
-    Ok(())
 }

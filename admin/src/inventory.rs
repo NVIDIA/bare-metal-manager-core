@@ -9,14 +9,13 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use ::rpc::{forge::MachineType, forge_tls_client::ApiConfig, MachineId};
+use ::rpc::{site_explorer::ExploredManagedHost, InstanceList, MachineList};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::RandomState, HashMap},
     fs,
 };
-
-use ::rpc::{forge::MachineType, forge_tls_client::ApiConfig, MachineId};
-use ::rpc::{site_explorer::ExploredManagedHost, InstanceList, MachineList};
-use serde::{Deserialize, Serialize};
 
 use crate::{cfg::carbide_options::InventoryAction, rpc, CarbideCliError, CarbideCliResult};
 
@@ -219,7 +218,7 @@ pub async fn print_inventory(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let all_machines = rpc::get_all_machines(api_config, None, false, page_size).await?;
-    let all_instances = rpc::get_instances(api_config, None, None, None).await?;
+    let all_instances = rpc::get_all_instances(api_config, None, None, None, page_size).await?;
 
     let (instances, used_machine) = create_inventory_for_instances(all_instances, &all_machines)?;
 
