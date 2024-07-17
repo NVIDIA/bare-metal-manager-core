@@ -25,7 +25,7 @@
 			<td>{{ st.dpu_machine_id|machine_id_link|safe}}</td>
 			<td>{{ st.check_failed }}</td>
 			<td {% if !st.is_agent_updated %}style="color: red"{% endif %}>{{ st.agent_version }}</td>
-			<td>{{ st.network_config_version }}</td>
+			<td>{{ st.network_config_version|config_version|safe }}</td>
 		</tr>
 		{% endfor %}
 	</tbody>
@@ -47,8 +47,8 @@
 		<tr>
 			<td>{{ st.observed_at }}</td>
 			<td>{{ st.dpu_machine_id|machine_id_link|safe }}</td>
-      <td {% if !st.is_agent_updated %}style="color: red"{% endif %}>{{ st.agent_version }}</td>
-			<td>{{ st.network_config_version }}</td>
+			<td {% if !st.is_agent_updated %}style="color: red"{% endif %}>{{ st.agent_version }}</td>
+			<td>{{ st.network_config_version|config_version|safe }}</td>
 		</tr>
 		{% endfor %}
 	</tbody>

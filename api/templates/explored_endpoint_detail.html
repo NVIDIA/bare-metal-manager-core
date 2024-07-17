@@ -14,7 +14,7 @@
 	<tr><th>Last Exploration Error</th><td>{% match report.last_exploration_error %}{% when Some with (last_exploration_error) %} {{ last_exploration_error }} {% else %}{% endmatch %}</td></tr>
 	{% else %}
 	{% endmatch %}
-	<tr><th>Report Version</th><td>{{ endpoint.report_version }}</td></tr>
+	<tr><th>Report Version</th><td>{{ endpoint.report_version|config_version|safe }}</td></tr>
 	<tr>
 		<th>Exploration requested</th>
 		<td>

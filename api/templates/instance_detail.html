@@ -9,10 +9,10 @@
 	<tr><th>Tenant Org</th><td>{{ tenant_org }}</td></tr>
 	<tr><th>Tenant State</th><td>{{ tenant_state }}</td></tr>
 	<tr><th>Tenant State Details</th><td>{{ tenant_state_details }}</td></tr>
-	<tr><th>Config Version</th><td>{{ config_version }}</td></tr>
+	<tr><th>Config Version</th><td>{{ config_version|config_version|safe }}</td></tr>
 	<tr><th>Configs Synced</th><td>{{ configs_synced }}</td></tr>
 	<tr><th>Network Config Synced</th><td>{{ network_config_synced }}</td></tr>
-	<tr><th>Network Config Version</th><td>{{ network_config_version }}</td></tr>
+	<tr><th>Network Config Version</th><td>{{ network_config_version|config_version|safe }}</td></tr>
 </table>
 
 <h2>Metadata</h2>

@@ -20,6 +20,7 @@ use http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+use super::filters;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -178,6 +179,7 @@ struct NetworkSegmentDetail {
     id: String,
     name: String,
     vpc_id: String,
+    version: String,
     created: String,
     updated: String,
     deleted: String,
@@ -233,6 +235,7 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
         Self {
             id: segment.id.unwrap_or_default().to_string(),
             name: segment.name,
+            version: segment.version,
             vpc_id: segment.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
             updated: segment.updated.unwrap_or_default().to_string(),
