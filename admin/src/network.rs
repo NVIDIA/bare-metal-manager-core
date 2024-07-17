@@ -217,51 +217,17 @@ async fn show_all_segments(
     name: Option<String>,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_segment_ids =
-        match rpc::get_segment_ids(api_config, tenant_org_id.clone(), name.clone()).await {
+    let all_segments =
+        match rpc::get_all_segments(api_config, tenant_org_id.clone(), name.clone(), page_size)
+            .await
+        {
             Ok(all_segment_ids) => all_segment_ids,
-            Err(CarbideCliError::ApiInvocationError(status))
-                if status.code() == tonic::Code::Unimplemented =>
-            {
-                if tenant_org_id.is_some() || name.is_some() {
-                    return Err(CarbideCliError::GenericError(
-                        "Filtering by Tenant Org ID or Name is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
-                            .to_string(),
-                    ));
-                }
-                return show_all_segments_deprecated(json, api_config).await;
-            }
             Err(e) => return Err(e),
         };
-    let mut all_segments = forgerpc::NetworkSegmentList {
-        network_segments: Vec::with_capacity(all_segment_ids.network_segments_ids.len()),
-    };
-    for segment_ids in all_segment_ids.network_segments_ids.chunks(page_size) {
-        let segments = rpc::get_segments_by_ids(api_config, segment_ids).await?;
-        all_segments
-            .network_segments
-            .extend(segments.network_segments);
-    }
     if json {
         println!("{}", serde_json::to_string_pretty(&all_segments).unwrap());
     } else {
         convert_network_to_nice_table(all_segments, api_config)
-            .await
-            .printstd();
-    }
-    Ok(())
-}
-
-async fn show_all_segments_deprecated(
-    json: bool,
-    api_config: &ApiConfig<'_>,
-) -> CarbideCliResult<()> {
-    let segments = rpc::get_segments(None, api_config).await?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&segments).unwrap());
-    } else {
-        convert_network_to_nice_table(segments, api_config)
             .await
             .printstd();
     }
@@ -276,13 +242,8 @@ async fn show_network_information(
     let segment_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
         .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
         .into();
-    let segment = match rpc::get_segments_by_ids(api_config, &[segment_id.clone()]).await {
+    let segment = match rpc::get_one_segment(api_config, segment_id).await {
         Ok(instances) => instances,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            rpc::get_segments(Some(segment_id), api_config).await?
-        }
         Err(e) => return Err(e),
     };
 

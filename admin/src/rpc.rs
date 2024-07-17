@@ -80,7 +80,7 @@ pub async fn get_network_device_topology(
 
 // this uses deprecated APIs and should not be used.
 // exists for backwards compatability with older APIs
-pub async fn get_all_machines_deprecated(
+async fn get_all_machines_deprecated(
     api_config: &ApiConfig<'_>,
     machine_type: Option<MachineType>,
     only_maintenance: bool,
@@ -216,7 +216,8 @@ pub async fn release_instance(
     .await
 }
 
-pub async fn get_instances(
+// TODO: remove when all sites updated to carbide-api with find_instance_ids and find_instances_by_ids implemented
+async fn get_instances_deprecated(
     api_config: &ApiConfig<'_>,
     id: Option<String>,
     label_key: Option<String>,
@@ -245,7 +246,66 @@ pub async fn get_instances(
     .await
 }
 
-pub async fn get_instance_ids(
+pub async fn get_all_instances(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    label_key: Option<String>,
+    label_value: Option<String>,
+    page_size: usize,
+) -> CarbideCliResult<rpc::InstanceList> {
+    let all_ids = match get_instance_ids(
+        api_config,
+        tenant_org_id.clone(),
+        label_key.clone(),
+        label_value.clone(),
+    )
+    .await
+    {
+        Ok(all_ids) => all_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            if tenant_org_id.is_some() {
+                return Err(CarbideCliError::GenericError(
+                    "Filtering by Tenant Org ID is not supported for this site.\
+                        \nIt does not have a required version of the Carbide API."
+                        .to_string(),
+                ));
+            }
+            return get_instances_deprecated(api_config, None, label_key, label_value).await;
+        }
+        Err(e) => return Err(e),
+    };
+    let mut all_list = rpc::InstanceList {
+        instances: Vec::with_capacity(all_ids.instance_ids.len()),
+    };
+
+    for ids in all_ids.instance_ids.chunks(page_size) {
+        let list = get_instances_by_ids(api_config, ids).await?;
+        all_list.instances.extend(list.instances);
+    }
+
+    Ok(all_list)
+}
+
+pub async fn get_one_instance(
+    api_config: &ApiConfig<'_>,
+    instance_id: ::rpc::common::Uuid,
+) -> CarbideCliResult<rpc::InstanceList> {
+    let instances = match get_instances_by_ids(api_config, &[instance_id.clone()]).await {
+        Ok(instances) => instances,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return get_instances_deprecated(api_config, Some(instance_id.value), None, None).await;
+        }
+        Err(e) => return Err(e),
+    };
+
+    Ok(instances)
+}
+
+async fn get_instance_ids(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
     label_key: Option<String>,
@@ -273,7 +333,7 @@ pub async fn get_instance_ids(
     .await
 }
 
-pub async fn get_instances_by_ids(
+async fn get_instances_by_ids(
     api_config: &ApiConfig<'_>,
     instance_ids: &[::rpc::common::Uuid],
 ) -> CarbideCliResult<rpc::InstanceList> {
@@ -309,7 +369,58 @@ pub async fn get_instances_by_machine_id(
     .await
 }
 
-pub async fn get_segment_ids(
+pub async fn get_all_segments(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    name: Option<String>,
+    page_size: usize,
+) -> CarbideCliResult<rpc::NetworkSegmentList> {
+    let all_ids = match get_segment_ids(api_config, tenant_org_id.clone(), name.clone()).await {
+        Ok(all_ids) => all_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            if tenant_org_id.is_some() || name.is_some() {
+                return Err(CarbideCliError::GenericError(
+                    "Filtering by Tenant Org ID or Name is not supported for this site.\
+                \nIt does not have a required version of the Carbide API."
+                        .to_string(),
+                ));
+            }
+            return get_segments_deprecated(None, api_config).await;
+        }
+        Err(e) => return Err(e),
+    };
+    let mut all_list = rpc::NetworkSegmentList {
+        network_segments: Vec::with_capacity(all_ids.network_segments_ids.len()),
+    };
+
+    for ids in all_ids.network_segments_ids.chunks(page_size) {
+        let list = get_segments_by_ids(api_config, ids).await?;
+        all_list.network_segments.extend(list.network_segments);
+    }
+
+    Ok(all_list)
+}
+
+pub async fn get_one_segment(
+    api_config: &ApiConfig<'_>,
+    segment_id: ::rpc::common::Uuid,
+) -> CarbideCliResult<rpc::NetworkSegmentList> {
+    let segments = match get_segments_by_ids(api_config, &[segment_id.clone()]).await {
+        Ok(segments) => segments,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return get_segments_deprecated(Some(segment_id), api_config).await;
+        }
+        Err(e) => return Err(e),
+    };
+
+    Ok(segments)
+}
+
+async fn get_segment_ids(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
     name: Option<String>,
@@ -329,7 +440,7 @@ pub async fn get_segment_ids(
     .await
 }
 
-pub async fn get_segments_by_ids(
+async fn get_segments_by_ids(
     api_config: &ApiConfig<'_>,
     segment_ids: &[::rpc::common::Uuid],
 ) -> CarbideCliResult<rpc::NetworkSegmentList> {
@@ -350,7 +461,8 @@ pub async fn get_segments_by_ids(
     .await
 }
 
-pub async fn get_segments(
+// TODO: remove when all sites updated to carbide-api with find_network_segment_ids and find_network_segments_by_ids implemented
+async fn get_segments_deprecated(
     id: Option<::rpc::common::Uuid>,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<rpc::NetworkSegmentList> {
@@ -1216,7 +1328,58 @@ pub async fn delete_all_expected_machines(
     .await
 }
 
-pub async fn get_vpc_ids(
+pub async fn get_all_vpcs(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    name: Option<String>,
+    page_size: usize,
+) -> CarbideCliResult<rpc::VpcList> {
+    let all_ids = match get_vpc_ids(api_config, tenant_org_id.clone(), name.clone()).await {
+        Ok(all_ids) => all_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            if tenant_org_id.is_some() {
+                return Err(CarbideCliError::GenericError(
+                    "Filtering by Tenant Org ID is not supported for this site.\
+                \nIt does not have a required version of the Carbide API."
+                        .to_string(),
+                ));
+            }
+            return get_vpcs_deprecated(api_config, None, name).await;
+        }
+        Err(e) => return Err(e),
+    };
+    let mut all_list = rpc::VpcList {
+        vpcs: Vec::with_capacity(all_ids.vpc_ids.len()),
+    };
+
+    for ids in all_ids.vpc_ids.chunks(page_size) {
+        let list = get_vpcs_by_ids(api_config, ids).await?;
+        all_list.vpcs.extend(list.vpcs);
+    }
+
+    Ok(all_list)
+}
+
+pub async fn get_one_vpc(
+    api_config: &ApiConfig<'_>,
+    vpc_id: ::rpc::common::Uuid,
+) -> CarbideCliResult<rpc::VpcList> {
+    let vpcs = match get_vpcs_by_ids(api_config, &[vpc_id.clone()]).await {
+        Ok(vpcs) => vpcs,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return get_vpcs_deprecated(api_config, Some(vpc_id), None).await;
+        }
+        Err(e) => return Err(e),
+    };
+
+    Ok(vpcs)
+}
+
+async fn get_vpc_ids(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
     name: Option<String>,
@@ -1236,7 +1399,7 @@ pub async fn get_vpc_ids(
     .await
 }
 
-pub async fn get_vpcs_by_ids(
+async fn get_vpcs_by_ids(
     api_config: &ApiConfig<'_>,
     ids: &[::rpc::common::Uuid],
 ) -> CarbideCliResult<rpc::VpcList> {
@@ -1255,8 +1418,8 @@ pub async fn get_vpcs_by_ids(
     .await
 }
 
-// TODO: remove when all sites have been upgraded to include find_ids and find_by_ids methods
-pub async fn get_vpcs_deprecated(
+// TODO: remove when all sites have been upgraded to include find_vpc_ids and find_vpcs_by_ids methods
+async fn get_vpcs_deprecated(
     api_config: &ApiConfig<'_>,
     id: Option<::rpc::common::Uuid>,
     name: Option<String>,
@@ -1274,7 +1437,59 @@ pub async fn get_vpcs_deprecated(
     .await
 }
 
-pub async fn get_ib_partition_ids(
+pub async fn get_all_ib_partitions(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    name: Option<String>,
+    page_size: usize,
+) -> CarbideCliResult<rpc::IbPartitionList> {
+    let all_ids = match get_ib_partition_ids(api_config, tenant_org_id.clone(), name.clone()).await
+    {
+        Ok(all_ids) => all_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            if tenant_org_id.is_some() || name.is_some() {
+                return Err(CarbideCliError::GenericError(
+                    "Filtering by Tenant Org ID or Name is not supported for this site.\
+                \nIt does not have a required version of the Carbide API."
+                        .to_string(),
+                ));
+            }
+            return get_ib_partitions_deprecated(api_config, None).await;
+        }
+        Err(e) => return Err(e),
+    };
+    let mut all_list = rpc::IbPartitionList {
+        ib_partitions: Vec::with_capacity(all_ids.ib_partition_ids.len()),
+    };
+
+    for ids in all_ids.ib_partition_ids.chunks(page_size) {
+        let list = get_ib_partitions_by_ids(api_config, ids).await?;
+        all_list.ib_partitions.extend(list.ib_partitions);
+    }
+
+    Ok(all_list)
+}
+
+pub async fn get_one_ib_partition(
+    api_config: &ApiConfig<'_>,
+    ib_partition_id: ::rpc::common::Uuid,
+) -> CarbideCliResult<rpc::IbPartitionList> {
+    let partitions = match get_ib_partitions_by_ids(api_config, &[ib_partition_id.clone()]).await {
+        Ok(partitions) => partitions,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return get_ib_partitions_deprecated(api_config, Some(ib_partition_id)).await;
+        }
+        Err(e) => return Err(e),
+    };
+
+    Ok(partitions)
+}
+
+async fn get_ib_partition_ids(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
     name: Option<String>,
@@ -1294,7 +1509,7 @@ pub async fn get_ib_partition_ids(
     .await
 }
 
-pub async fn get_ib_partitions_by_ids(
+async fn get_ib_partitions_by_ids(
     api_config: &ApiConfig<'_>,
     ids: &[::rpc::common::Uuid],
 ) -> CarbideCliResult<rpc::IbPartitionList> {
@@ -1314,8 +1529,8 @@ pub async fn get_ib_partitions_by_ids(
     .await
 }
 
-// TODO: remove when all sites have been upgraded to include find_ids and find_by_ids methods
-pub async fn get_ib_partitions_deprecated(
+// TODO: remove when all sites have been upgraded to include find_ib_partition_ids and find_ib_partitions_by_ids methods
+async fn get_ib_partitions_deprecated(
     api_config: &ApiConfig<'_>,
     id: Option<::rpc::common::Uuid>,
 ) -> CarbideCliResult<rpc::IbPartitionList> {
@@ -1337,7 +1552,50 @@ pub async fn get_ib_partitions_deprecated(
     .await
 }
 
-pub async fn get_keyset_ids(
+pub async fn get_all_keysets(
+    api_config: &ApiConfig<'_>,
+    tenant_org_id: Option<String>,
+    page_size: usize,
+) -> CarbideCliResult<rpc::TenantKeySetList> {
+    let all_ids = match get_keyset_ids(api_config, tenant_org_id.clone()).await {
+        Ok(all_ids) => all_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return get_keysets_deprecated(api_config, tenant_org_id, None).await;
+        }
+        Err(e) => return Err(e),
+    };
+    let mut all_list = rpc::TenantKeySetList {
+        keyset: Vec::with_capacity(all_ids.keyset_ids.len()),
+    };
+
+    for ids in all_ids.keyset_ids.chunks(page_size) {
+        let list = get_keysets_by_ids(api_config, ids).await?;
+        all_list.keyset.extend(list.keyset);
+    }
+
+    Ok(all_list)
+}
+
+pub async fn get_one_keyset(
+    api_config: &ApiConfig<'_>,
+    keyset_id: rpc::TenantKeysetIdentifier,
+) -> CarbideCliResult<rpc::TenantKeySetList> {
+    let keysets = match get_keysets_by_ids(api_config, &[keyset_id.clone()]).await {
+        Ok(keysets) => keysets,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return get_keysets_deprecated(api_config, None, Some(keyset_id)).await;
+        }
+        Err(e) => return Err(e),
+    };
+
+    Ok(keysets)
+}
+
+async fn get_keyset_ids(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
 ) -> CarbideCliResult<rpc::TenantKeysetIdList> {
@@ -1353,7 +1611,7 @@ pub async fn get_keyset_ids(
     .await
 }
 
-pub async fn get_keysets_by_ids(
+async fn get_keysets_by_ids(
     api_config: &ApiConfig<'_>,
     identifiers: &[rpc::TenantKeysetIdentifier],
 ) -> CarbideCliResult<rpc::TenantKeySetList> {
@@ -1374,7 +1632,7 @@ pub async fn get_keysets_by_ids(
 }
 
 // TODO: remove when all sites have been upgraded to include find_ids and find_by_ids methods
-pub async fn get_keysets_deprecated(
+async fn get_keysets_deprecated(
     api_config: &ApiConfig<'_>,
     tenant_org_id: Option<String>,
     identifier: Option<rpc::TenantKeysetIdentifier>,

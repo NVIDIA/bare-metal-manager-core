@@ -41,22 +41,11 @@ async fn show_keysets(
     page_size: usize,
     tenant_org_id: Option<String>,
 ) -> CarbideCliResult<()> {
-    let all_ids = match rpc::get_keyset_ids(api_config, tenant_org_id.clone()).await {
+    let all_keysets = match rpc::get_all_keysets(api_config, tenant_org_id.clone(), page_size).await
+    {
         Ok(all_vpc_ids) => all_vpc_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            return show_keysets_deprecated(json, api_config, tenant_org_id).await;
-        }
         Err(e) => return Err(e),
     };
-    let mut all_keysets = forgerpc::TenantKeySetList {
-        keyset: Vec::with_capacity(all_ids.keyset_ids.len()),
-    };
-    for ids in all_ids.keyset_ids.chunks(page_size) {
-        let keysets = rpc::get_keysets_by_ids(api_config, ids).await?;
-        all_keysets.keyset.extend(keysets.keyset);
-    }
     if json {
         println!("{}", serde_json::to_string_pretty(&all_keysets).unwrap());
     } else {
@@ -80,13 +69,8 @@ async fn show_keyset_details(
         organization_id: split_id[0].to_string(),
         keyset_id: split_id[1].to_string(),
     };
-    let keysets = match rpc::get_keysets_by_ids(api_config, &[identifier.clone()]).await {
+    let keysets = match rpc::get_one_keyset(api_config, identifier).await {
         Ok(keysets) => keysets,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            rpc::get_keysets_deprecated(api_config, None, Some(identifier)).await?
-        }
         Err(e) => return Err(e),
     };
 
@@ -190,19 +174,4 @@ fn convert_keyset_to_nice_format(keyset: &forgerpc::TenantKeyset) -> CarbideCliR
     }
 
     Ok(lines)
-}
-
-// TODO: remove when all sites updated to carbide-api with get_tenant_keyset_ids and get_tenant_keysets_by_ids implemented
-async fn show_keysets_deprecated(
-    json: bool,
-    api_config: &ApiConfig<'_>,
-    tenant_org_id: Option<String>,
-) -> CarbideCliResult<()> {
-    let keysets = rpc::get_keysets_deprecated(api_config, tenant_org_id, None).await?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&keysets).unwrap());
-    } else {
-        convert_keysets_to_nice_table(keysets).printstd();
-    }
-    Ok(())
 }

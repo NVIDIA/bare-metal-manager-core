@@ -254,56 +254,22 @@ async fn show_instances(
     label_value: Option<String>,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let all_instance_ids = match rpc::get_instance_ids(
+    let all_instances = match rpc::get_all_instances(
         api_config,
         tenant_org_id.clone(),
         label_key.clone(),
         label_value.clone(),
+        page_size,
     )
     .await
     {
         Ok(all_instance_ids) => all_instance_ids,
-        Err(CarbideCliError::ApiInvocationError(status))
-            if status.code() == tonic::Code::Unimplemented =>
-        {
-            if tenant_org_id.is_some() {
-                return Err(CarbideCliError::GenericError(
-                    "Filtering by Tenant Org ID is not supported for this site.\
-                \nIt does not have a required version of the Carbide API."
-                        .to_string(),
-                ));
-            }
-            return show_all_instances_deprecated(json, api_config, label_key, label_value).await;
-        }
         Err(e) => return Err(e),
     };
-    let mut all_instances = forgerpc::InstanceList {
-        instances: Vec::with_capacity(all_instance_ids.instance_ids.len()),
-    };
-    for instance_ids in all_instance_ids.instance_ids.chunks(page_size) {
-        let instances = rpc::get_instances_by_ids(api_config, instance_ids).await?;
-        all_instances.instances.extend(instances.instances);
-    }
     if json {
         println!("{}", serde_json::to_string_pretty(&all_instances).unwrap());
     } else {
         convert_instances_to_nice_table(all_instances).printstd();
-    }
-    Ok(())
-}
-
-// TODO: remove when all sites updated to carbide-api with get_instance_ids and get_instances_by_ids implemented
-async fn show_all_instances_deprecated(
-    json: bool,
-    api_config: &ApiConfig<'_>,
-    label_key: Option<String>,
-    label_value: Option<String>,
-) -> CarbideCliResult<()> {
-    let instances = rpc::get_instances(api_config, None, label_key, label_value).await?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&instances).unwrap());
-    } else {
-        convert_instances_to_nice_table(instances).printstd();
     }
     Ok(())
 }
@@ -320,13 +286,8 @@ async fn show_instance_details(
         let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&id)
             .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
             .into();
-        match rpc::get_instances_by_ids(api_config, &[instance_id]).await {
-            Ok(instances) => instances,
-            Err(CarbideCliError::ApiInvocationError(status))
-                if status.code() == tonic::Code::Unimplemented =>
-            {
-                rpc::get_instances(api_config, Some(id), None, None).await?
-            }
+        match rpc::get_one_instance(api_config, instance_id).await {
+            Ok(instance) => instance,
             Err(e) => return Err(e),
         }
     };
@@ -377,7 +338,10 @@ pub async fn handle_reboot(
     args: RebootInstance,
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<()> {
-    let machine_id = rpc::get_instances(api_config, Some(args.instance.clone()), None, None)
+    let instance_id: ::rpc::common::Uuid = uuid::Uuid::parse_str(&args.instance)
+        .map_err(|_| CarbideCliError::GenericError("UUID Conversion failed.".to_string()))?
+        .into();
+    let machine_id = rpc::get_one_instance(api_config, instance_id)
         .await?
         .instances
         .last()
