@@ -18,22 +18,30 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time;
 
 use axum::body::Body;
 use axum::extract::{Path as AxumPath, State as AxumState};
-use axum::http::{Request, StatusCode};
+use axum::http::{HeaderMap, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Router;
+use axum::{Json, Router};
 use flate2::read::GzDecoder;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 const MAX_HISTORY_ENTRIES: usize = 1000;
 type EntryMap = Arc<Mutex<HashMap<String, String>>>;
 type HistoryMap = Arc<Mutex<HashMap<String, VecDeque<String>>>>;
 
+const POWER_CYLE_TIME_SECS: u64 = 5;
+
 #[derive(Clone)]
 struct BmcState {
+    is_on: Arc<AtomicBool>,
+    off_until: Arc<Mutex<Option<time::SystemTime>>>,
     entries: EntryMap,
     history: HistoryMap,
 }
@@ -45,6 +53,8 @@ pub fn tar_router(
 ) -> eyre::Result<Router> {
     let bmc_state = if let Some(entries) = existing_tars.as_ref().and_then(|t| t.get(p)) {
         BmcState {
+            is_on: Arc::new(AtomicBool::new(true)),
+            off_until: Arc::new(Mutex::new(None)),
             entries: entries.clone(),
             history: Arc::new(Mutex::new(HashMap::default())),
         }
@@ -76,6 +86,8 @@ pub fn tar_router(
         }
 
         BmcState {
+            is_on: Arc::new(AtomicBool::new(true)),
+            off_until: Arc::new(Mutex::new(None)),
             entries,
             history: Arc::new(Mutex::new(HashMap::default())),
         }
@@ -84,6 +96,7 @@ pub fn tar_router(
         .route("/history", get(get_history_macs))
         .route("/history/:mac", get(get_history))
         .route("/*path", get(get_from_tar).patch(set_any).post(set_any))
+        .fallback(not_found_handler)
         .with_state(bmc_state))
 }
 
@@ -108,13 +121,10 @@ async fn get_history(
                 serde_json::to_string("no history for mac address").unwrap(),
             )
         }
-        Some(history) => {
-            tracing::trace!("Found history for mac address: {mac_address}");
-            (
-                StatusCode::OK,
-                serde_json::to_string_pretty(history).unwrap(),
-            )
-        }
+        Some(history) => (
+            StatusCode::OK,
+            serde_json::to_string_pretty(history).unwrap(),
+        ),
     }
 }
 
@@ -130,16 +140,19 @@ fn append_history(
             history_map.insert(mac_address.to_owned(), VecDeque::default());
             history_map.get_mut(mac_address).unwrap()
         }
-        Some(history) => {
-            tracing::trace!("Found history for mac address: {mac_address}");
-            history
-        }
+        Some(history) => history,
     };
     history.push_back(path.to_owned());
     while history.len() > MAX_HISTORY_ENTRIES {
         history.pop_front();
     }
 }
+
+lazy_static::lazy_static! {
+    static ref GET_SYSTEM_RE: Regex = Regex::new(r#"Systems/[A-Za-z0-9\-_.~]+$"#).unwrap();
+    static ref GET_MANAGER_RE: Regex = Regex::new(r#"Managers/[A-Za-z0-9\-_.~]+$"#).unwrap();
+}
+
 /// Read redfish data from the tar
 async fn get_from_tar(
     AxumState(shared_state): AxumState<BmcState>,
@@ -150,6 +163,8 @@ async fn get_from_tar(
         path.pop();
     };
 
+    maybe_power_back_on(&shared_state);
+
     let really_to_mac = request
         .headers()
         .get("x-really-to-mac")
@@ -157,14 +172,124 @@ async fn get_from_tar(
     append_history(shared_state.history.clone(), really_to_mac, &path);
 
     match shared_state.entries.lock().unwrap().get(&path) {
-        None => (StatusCode::NOT_FOUND, path),
+        None => {
+            // This is expected for UpdateService/FirmwareInventory
+            tracing::trace!("Not found: {path}");
+            (StatusCode::NOT_FOUND, path)
+        }
         Some(s) => {
             if really_to_mac.is_empty() {
-                tracing::trace!("{path}");
+                tracing::trace!("Get: {path}");
             } else {
-                tracing::trace!("{path} for {really_to_mac}");
+                tracing::trace!("Get: {path} for {really_to_mac}");
+            }
+            if GET_SYSTEM_RE.is_match(&path) || GET_MANAGER_RE.is_match(&path) {
+                // TODO Parse it as JSON. This works for now
+                if !shared_state.is_on.load(Ordering::Relaxed) {
+                    tracing::debug!("Reporting powered off");
+                    let on = r#""PowerState": "On","#;
+                    let off = r#""PowerState": "Off","#;
+                    return (StatusCode::OK, s.replace(on, off).to_string());
+                }
             }
             (StatusCode::OK, s.clone())
+        }
+    }
+}
+
+fn maybe_power_back_on(state: &BmcState) {
+    let mut off_until = state.off_until.lock().unwrap();
+    if let Some(off_timeout) = *off_until {
+        if off_timeout < time::SystemTime::now() {
+            *off_until = None;
+            state.is_on.store(true, Ordering::Relaxed);
+            tracing::debug!("Powered back on");
+        }
+    }
+}
+
+// https://www.dmtf.org/sites/default/files/standards/documents/DSP2046_2023.3.html
+// 6.5.5.1 ResetType
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone, Copy)]
+enum SystemPowerControl {
+    /// Power on a machine
+    On,
+    /// Graceful host shutdown
+    GracefulShutdown,
+    /// Forcefully powers a machine off
+    ForceOff,
+    /// Graceful restart. Asks the OS to restart via ACPI
+    /// - Might restart DPUs if no OS is running
+    /// - Will not apply pending BIOS/UEFI setting changes
+    GracefulRestart,
+    /// Force restart. This is equivalent to pressing the reset button on the front panel.
+    /// - Will not restart DPUs
+    /// - Will apply pending BIOS/UEFI setting changes
+    ForceRestart,
+
+    //
+    // libredfish doesn't support these yet, and not all vendors provide them
+    //
+
+    // Cut then restore the power
+    PowerCycle,
+
+    // Forcefully power a machine on (?)
+    ForceOn,
+
+    // Like it says, pretend the button got pressed
+    PushPowerButton,
+
+    // Non-maskable interrupt then power off
+    Nmi,
+
+    // Write state to disk and power off
+    Suspend,
+
+    // VM / Hypervisor
+    Pause,
+    Resume,
+}
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[serde(rename_all = "PascalCase")]
+struct SetSystemPowerReq {
+    reset_type: SystemPowerControl,
+}
+
+fn set_system_power(shared_state: BmcState, req: SetSystemPowerReq) {
+    tracing::debug!("Power action: {:?}", req.reset_type);
+    use SystemPowerControl::*;
+    match req.reset_type {
+        On | ForceOn => {
+            // Permanently on
+            shared_state.is_on.store(true, Ordering::Relaxed);
+            *shared_state.off_until.lock().unwrap() = None;
+        }
+        GracefulShutdown | ForceOff | Nmi | Suspend => {
+            // Permanently off
+            shared_state.is_on.store(false, Ordering::Relaxed);
+            *shared_state.off_until.lock().unwrap() = None;
+        }
+        GracefulRestart | ForceRestart => {
+            // Reboot. These don't affect power state, On or Off.
+        }
+        Pause | Resume => {
+            // Unhandled
+        }
+        PowerCycle => {
+            // Reboot but also cut the power
+            //
+            // Off for POWER_CYLE_TIME_SECS (might need to adjust)
+            // Switched back on in get_from_tar's maybe_power_back_on
+            shared_state.is_on.store(false, Ordering::Relaxed);
+            let t = time::SystemTime::now() + time::Duration::from_secs(POWER_CYLE_TIME_SECS);
+            *shared_state.off_until.lock().unwrap() = Some(t);
+        }
+        PushPowerButton => {
+            // Presumably toggle power
+            let current = shared_state.is_on.load(Ordering::SeqCst);
+            shared_state.is_on.store(!current, Ordering::SeqCst);
+            *shared_state.off_until.lock().unwrap() = None;
         }
     }
 }
@@ -172,15 +297,33 @@ async fn get_from_tar(
 /// Accept any POST or PATCH
 async fn set_any(
     AxumState(shared_state): AxumState<BmcState>,
-    AxumPath(path): AxumPath<String>,
-    request: Request<Body>,
+    AxumPath(mut path): AxumPath<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    tracing::info!("Set: {path}");
-    let really_to_mac = request
-        .headers()
+    if path.ends_with('/') {
+        path.pop();
+    };
+    tracing::debug!("Set: {path}");
+    let really_to_mac = headers
         .get("x-really-to-mac")
         .map_or("", |v| v.to_str().unwrap());
     append_history(shared_state.history.clone(), really_to_mac, &path);
 
+    // This can't be it's own route because of https://github.com/tokio-rs/axum/issues/1986
+    if path.ends_with("Actions/ComputerSystem.Reset") {
+        let power_req = SetSystemPowerReq::deserialize(body).unwrap();
+        set_system_power(shared_state, power_req);
+    }
+
     StatusCode::OK
+}
+
+// We should never get here, but axum's matchit bug means we sometimes do: https://github.com/tokio-rs/axum/issues/1986
+async fn not_found_handler(req: Request<Body>) -> (StatusCode, String) {
+    tracing::warn!("fallback: No route for {} {}", req.method(), req.uri());
+    (
+        StatusCode::NOT_FOUND,
+        format!("No route for {} {}", req.method(), req.uri()),
+    )
 }
