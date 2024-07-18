@@ -15,6 +15,7 @@
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
     sync::Arc,
     time::SystemTime,
 };
@@ -62,7 +63,7 @@ use forge_secrets::credentials::{
 };
 use ipnetwork::IpNetwork;
 use rpc::forge::forge_server::Forge;
-use sqlx::PgPool;
+use sqlx::{postgres::PgConnectOptions, PgPool};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
 
@@ -480,10 +481,18 @@ async fn create_pool(current_pool: sqlx::PgPool) -> sqlx::PgPool {
     let db: &str = db_options
         .get_database()
         .expect("No database is set initially.");
+
     let db_url = format!("{}/{}", db_url, db);
+
+    use sqlx::ConnectOptions;
+    let connect_options = PgConnectOptions::from_str(&db_url)
+        .unwrap()
+        .log_statements("INFO".parse().unwrap());
+
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
-        .connect(&db_url)
+        .acquire_timeout(std::time::Duration::from_secs(15))
+        .connect_with(connect_options)
         .await
         .expect("Pool creation failed.")
 }
