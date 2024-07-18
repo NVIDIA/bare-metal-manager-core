@@ -18,7 +18,8 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    dpu_machine::DpuMachine, host_machine::HostMachine, machine_a_tron::AppEvent, vpc::Vpc,
+    dpu_machine::DpuMachine, host_machine::HostMachine, machine_a_tron::AppEvent, subnet::Subnet,
+    vpc::Vpc,
 };
 
 pub struct VpcDetails {
@@ -41,6 +42,30 @@ impl VpcDetails {
             "{}: {}",
             self.vpc_name.clone().unwrap_or("Without name".to_string()),
             self.vpc_id.clone(),
+        )
+    }
+}
+
+pub struct SubnetDetails {
+    pub segment_id: Uuid,
+    pub prefix: Option<String>,
+}
+
+impl From<&Subnet> for SubnetDetails {
+    fn from(value: &Subnet) -> Self {
+        Self {
+            segment_id: value.segment_id,
+            prefix: Some(value.prefixes.join(", ")),
+        }
+    }
+}
+
+impl SubnetDetails {
+    fn header(&self) -> String {
+        format!(
+            "{}: {}",
+            self.segment_id,
+            self.prefix.as_ref().unwrap_or(&"prefix???".to_string()),
         )
     }
 }
@@ -157,6 +182,7 @@ impl HostDetails {
 pub enum UiEvent {
     MachineUpdate(HostDetails),
     VpcUpdate(VpcDetails),
+    SubnetUpdate(SubnetDetails),
     Quit,
 }
 
@@ -167,6 +193,7 @@ pub struct Tui {
     app_tx: Sender<AppEvent>,
     machine_cache: HashMap<Uuid, HostDetails>,
     vpc_cache: HashMap<Uuid, VpcDetails>,
+    subnet_cache: HashMap<Uuid, SubnetDetails>,
     machine_details: String,
     machine_logs: String,
     selected_sub_tab: usize,
@@ -182,6 +209,7 @@ impl Tui {
             app_tx,
             machine_cache: HashMap::default(),
             vpc_cache: HashMap::default(),
+            subnet_cache: HashMap::default(),
             machine_details: String::default(),
             machine_logs: String::default(),
             //            items: vec!["create_new"],
@@ -317,6 +345,8 @@ impl Tui {
 
         let mut items: Vec<ListItem<'_>> = Vec::default();
         let mut vpc_items: Vec<ListItem<'_>> = Vec::default();
+        let mut subnet_items: Vec<ListItem<'_>> = Vec::default();
+
         let mut event_stream = EventStream::new();
         let mut list_updated = true;
         while running {
@@ -358,9 +388,16 @@ impl Tui {
             }
             let vpc_list = List::new(vpc_items.clone())
                 .block(Block::default().borders(Borders::ALL))
-                .style(
-                    Style::default(), //.fg(Color::Black)
-                )
+                .style(Style::default())
+                .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+
+            subnet_items.clear();
+            for (_uuid, subnet) in self.subnet_cache.iter() {
+                subnet_items.push(ListItem::new(subnet.header()));
+            }
+            let subnet_list = List::new(subnet_items.clone())
+                .block(Block::default().borders(Borders::ALL))
+                .style(Style::default())
                 .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
             let tabs = ["Machines", "VPCs", "Subnets"];
@@ -414,6 +451,8 @@ impl Tui {
                         f.render_widget(paragraph, chunks[1]);
                     }
                     2 => {
+                        f.render_stateful_widget(subnet_list, left_chunks[1], &mut self.list_state);
+
                         let paragraph = Paragraph::new("Not implemented yet")
                             .block(Block::default().borders(Borders::ALL).title("Details"));
                         f.render_widget(paragraph, chunks[1]);
@@ -444,7 +483,9 @@ impl Tui {
                         }
                         Some(UiEvent::VpcUpdate(m)) => {
                             self.vpc_cache.insert(m.vpc_id, m);
-
+                        }
+                        Some(UiEvent::SubnetUpdate(m)) => {
+                            self.subnet_cache.insert(m.segment_id, m);
                         }
                         None => {}
                     }

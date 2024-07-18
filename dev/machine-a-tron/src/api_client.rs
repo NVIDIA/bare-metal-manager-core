@@ -407,8 +407,83 @@ pub async fn force_delete_machine(
     .await
 }
 
-static VPC_COUNTER: AtomicU32 = AtomicU32::new(0);
+static SUBNET_COUNTER: AtomicU32 = AtomicU32::new(0);
+pub async fn create_network_segment(
+    app_context: &MachineATronContext,
+    vpc_name: &String,
+) -> ClientApiResult<rpc::NetworkSegment> {
+    let subnet_count = SUBNET_COUNTER.fetch_add(1, Ordering::Acquire);
 
+    with_forge_client(app_context, |mut client| async move {
+        let vpc_ids_all = client.find_vpc_ids(
+            tonic::Request::new(rpc::forge::VpcSearchFilter {
+                tenant_org_id: None,
+                name: Some(vpc_name.clone()),
+            })
+        ).await;
+
+        match vpc_ids_all {
+            Ok(response) => {
+                let vpc_id_list = response.into_inner();
+
+                match vpc_id_list.vpc_ids.len() {
+                    0 => tracing::error!("There are no VPC ids associated with {}. Should not have happened.", *vpc_name),
+                    1 => {},
+                    _ => tracing::warn!("There are {} VPC ids associated with {}. Should not have happened. Clean up DB and start over.",vpc_id_list.vpc_ids.len(), vpc_name),
+                }
+
+                client
+                    .create_network_segment(tonic::Request::new(rpc::forge::NetworkSegmentCreationRequest {
+                        id: None,
+                        vpc_id: vpc_id_list.vpc_ids.first().cloned(),
+                        name: format!("subnet_{}", subnet_count),
+                        segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
+                        prefixes: vec![rpc::forge::NetworkPrefix {
+                            id: None,
+                            prefix: format!("192.5.{}.12/24",subnet_count ),
+                            gateway: Some(format!("192.5.{}.13",subnet_count )),
+                            reserve_first: 1,
+                            state: None,
+                            events: vec![],
+                            circuit_id: None,
+                            free_ip_count: 1022,
+                        }],
+                        mtu: Some(1500),
+                        subdomain_id: None,
+                    }))
+                    .await
+                    .map(|response| response.into_inner())
+                    .map_err(ClientApiError::InvocationError)
+            }
+            Err(e) => {
+                Err(ClientApiError::ConnectFailed(format!("Error {} when finding VPC {}",e, *vpc_name)))
+            }
+        }
+    })
+    .await
+}
+
+pub async fn delete_network_segment(
+    app_context: &MachineATronContext,
+    vpc_id: &Uuid,
+) -> ClientApiResult<rpc::forge::NetworkSegmentDeletionResult> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .delete_network_segment(tonic::Request::new(
+                rpc::forge::NetworkSegmentDeletionRequest {
+                    id: Some(rpc::Uuid {
+                        value: vpc_id.to_string(),
+                    }),
+                },
+            ))
+            .await
+            .map(|response| response.into_inner())
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+}
+
+static VPC_COUNTER: AtomicU32 = AtomicU32::new(0);
 pub async fn create_vpc(app_context: &MachineATronContext) -> ClientApiResult<rpc::forge::Vpc> {
     let vpc_count = VPC_COUNTER.fetch_add(1, Ordering::Acquire);
     with_forge_client(app_context, |mut client| async move {
