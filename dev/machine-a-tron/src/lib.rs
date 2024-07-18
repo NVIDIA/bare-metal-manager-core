@@ -7,5 +7,6 @@ pub mod host_machine;
 pub mod machine_a_tron;
 pub mod machine_utils;
 pub mod redfish_rewriter;
+pub mod subnet;
 pub mod tui;
 pub mod vpc;

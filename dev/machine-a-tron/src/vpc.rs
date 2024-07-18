@@ -1,7 +1,5 @@
-use std::fmt::Debug;
-
 use ::rpc::Timestamp;
-
+use std::fmt::Debug;
 use uuid::Uuid;
 
 use crate::{
@@ -29,10 +27,11 @@ impl Vpc {
         config: MachineConfig,
         ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
     ) -> Self {
+        // TODO: Add error handling when vpc creation fails.
         let vpc = api_client::create_vpc(&app_context).await.unwrap();
 
         let new_vpc = Vpc {
-            vpc_id: uuid::Uuid::parse_str(&vpc.id.unwrap().value).expect("REASON"),
+            vpc_id: uuid::Uuid::parse_str(&vpc.id.unwrap().value).expect("VPC must have an ID."),
             config,
             app_context,
             vpc_name: vpc.name,

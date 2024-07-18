@@ -15,6 +15,7 @@ use crate::{
     tui::{Tui, UiEvent},
 };
 
+use crate::subnet::Subnet;
 use crate::vpc::Vpc;
 use tokio::sync::mpsc::channel;
 
@@ -79,6 +80,7 @@ impl MachineATron {
         let (app_tx, mut app_rx) = channel(5000);
         let mut machine_ids: Vec<String> = Vec::new();
         let mut vpc_handles: Vec<Vpc> = Vec::new();
+        let mut subnet_handles: Vec<Subnet> = Vec::new();
 
         let (tui_handle, ui_event_tx) = if self.app_context.app_config.tui_enabled {
             let (ui_tx, ui_rx) = channel(5000);
@@ -99,8 +101,28 @@ impl MachineATron {
         for (_config_name, config) in self.app_context.app_config.machines.iter() {
             for _ in 0..config.vpc_count {
                 let app_context = self.app_context.clone();
-                let vpc = Vpc::new(app_context, config.clone(), ui_event_tx.clone());
-                vpc_handles.push(vpc.await);
+                let vpc = Vpc::new(app_context, config.clone(), ui_event_tx.clone()).await;
+
+                for _ in 0..config.subnets_per_vpc {
+                    let app_context = self.app_context.clone();
+
+                    match Subnet::new(
+                        app_context,
+                        config.clone(),
+                        ui_event_tx.clone(),
+                        &vpc.vpc_name,
+                    )
+                    .await
+                    {
+                        Ok(subnet) => {
+                            subnet_handles.push(subnet);
+                        }
+                        Err(e) => {
+                            tracing::error!("Error creating network segment: {}", e);
+                        }
+                    }
+                }
+                vpc_handles.push(vpc);
             }
         }
 
@@ -169,6 +191,19 @@ impl MachineATron {
             tracing::info!("Attempting to delete VPC with id: {} from db.", vpc.vpc_id);
             if let Err(e) = api_client::delete_vpc(&self.app_context.clone(), &vpc.vpc_id).await {
                 tracing::error!("Delete VPC Api call failed with {}", e)
+            }
+        }
+
+        for subnet in subnet_handles {
+            tracing::info!(
+                "Attempting to delete network segment with id: {} from db.",
+                subnet.segment_id
+            );
+            if let Err(e) =
+                api_client::delete_network_segment(&self.app_context.clone(), &subnet.segment_id)
+                    .await
+            {
+                tracing::error!("Delete network segment Api call failed with {}", e)
             }
         }
 
