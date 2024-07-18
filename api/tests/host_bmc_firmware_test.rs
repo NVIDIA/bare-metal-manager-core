@@ -10,22 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{
-    net::{IpAddr, Ipv4Addr},
-    str::FromStr,
-};
-
-use sqlx::{Postgres, Transaction};
+use std::{net::IpAddr, str::FromStr};
 
 use carbide::{
-    db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
-    model::{
-        machine::machine_id::MachineId,
-        site_explorer::{
-            Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
-            EndpointType, Inventory, PreingestionState, Service,
-        },
-    },
+    db::explored_endpoints::DbExploredEndpoint, model::site_explorer::PreingestionState,
     preingestion_manager::PreingestionManager,
 };
 
@@ -53,7 +41,7 @@ async fn test_preingestion_bmc_upgrade(
 
     // First, a host where it's already up to date; it should immediately go to complete.
     let addr = "141.219.24.7";
-    insert_endpoint_version(&mut txn, addr, "1.0").await?;
+    common::endpoint::insert_endpoint_version(&mut txn, addr, "1.0").await?;
     txn.commit().await?;
 
     mgr.run_single_iteration().await?;
@@ -72,7 +60,7 @@ async fn test_preingestion_bmc_upgrade(
 
     // Next, one that isn't up to date but it above preingestion limits.
     DbExploredEndpoint::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
-    insert_endpoint_version(&mut txn, addr, "0.5").await?;
+    common::endpoint::insert_endpoint_version(&mut txn, addr, "0.5").await?;
     txn.commit().await?;
     let mut txn = pool.begin().await.unwrap();
 
@@ -93,7 +81,7 @@ async fn test_preingestion_bmc_upgrade(
     // And now, one that's low enough to trigger preingestion upgrades.
     // Next, one that isn't up to date but it above preingestion limits.
     DbExploredEndpoint::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
-    insert_endpoint_version(&mut txn, addr, "0.4").await?;
+    common::endpoint::insert_endpoint_version(&mut txn, addr, "0.4").await?;
     txn.commit().await?;
 
     mgr.run_single_iteration().await?;
@@ -173,7 +161,7 @@ async fn test_preingestion_bmc_upgrade(
     // Now, let's make sure that a DPU would immediately pass through
     let mut txn = pool.begin().await.unwrap();
     DbExploredEndpoint::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
-    insert_dpu_endpoint(
+    common::endpoint::insert_dpu_endpoint(
         &mut txn,
         addr,
         "fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg",
@@ -204,115 +192,4 @@ async fn test_preingestion_bmc_upgrade(
         "0"
     );
     Ok(())
-}
-
-async fn insert_endpoint_version(
-    txn: &mut Transaction<'_, Postgres>,
-    addr: &str,
-    version: &str,
-) -> Result<(), DatabaseError> {
-    insert_endpoint(
-        txn,
-        addr,
-        "fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg",
-        "Dell",
-        "R750",
-        version,
-    )
-    .await
-}
-
-async fn insert_endpoint(
-    txn: &mut Transaction<'_, Postgres>,
-    addr: &str,
-    machine_id_str: &str,
-    vendor: &str,
-    model: &str,
-    bmc_version: &str,
-) -> Result<(), DatabaseError> {
-    DbExploredEndpoint::insert(
-        IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
-        &build_exploration_report(vendor, model, bmc_version, machine_id_str),
-        txn,
-    )
-    .await
-}
-
-fn build_exploration_report(
-    vendor: &str,
-    model: &str,
-    bmc_version: &str,
-    machine_id_str: &str,
-) -> EndpointExplorationReport {
-    let machine_id = if machine_id_str.is_empty() {
-        None
-    } else {
-        Some(MachineId::from_str(machine_id_str).unwrap())
-    };
-
-    EndpointExplorationReport {
-        endpoint_type: EndpointType::Bmc,
-        vendor: Some(bmc_vendor::BMCVendor::Dell),
-        last_exploration_error: None,
-        managers: vec![],
-        systems: vec![ComputerSystem {
-            model: Some(model.to_string()),
-            ethernet_interfaces: vec![],
-            id: "".to_string(),
-            manufacturer: Some(vendor.to_string()),
-            serial_number: None,
-            attributes: ComputerSystemAttributes { nic_mode: None },
-            pcie_devices: vec![],
-        }],
-        chassis: vec![Chassis {
-            model: Some(model.to_string()),
-            id: "".to_string(),
-            manufacturer: Some(vendor.to_string()),
-            part_number: None,
-            serial_number: None,
-            network_adapters: vec![],
-        }],
-        service: vec![Service {
-            id: "".to_string(),
-            inventories: vec![Inventory {
-                id: "idrac_blah".to_string(),
-                description: None,
-                version: Some(bmc_version.to_string()),
-                release_date: None,
-            }],
-        }],
-        machine_id,
-    }
-}
-
-async fn insert_dpu_endpoint(
-    txn: &mut Transaction<'_, Postgres>,
-    addr: &str,
-    machine_id_str: &str,
-) -> Result<(), DatabaseError> {
-    DbExploredEndpoint::insert(
-        IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
-        &build_dpu_exploration_report(machine_id_str),
-        txn,
-    )
-    .await
-}
-
-fn build_dpu_exploration_report(machine_id_str: &str) -> EndpointExplorationReport {
-    let machine_id = if machine_id_str.is_empty() {
-        None
-    } else {
-        Some(MachineId::from_str(machine_id_str).unwrap())
-    };
-
-    EndpointExplorationReport {
-        endpoint_type: EndpointType::Bmc,
-        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-        last_exploration_error: None,
-        managers: vec![],
-        systems: vec![],
-        chassis: vec![],
-        service: vec![],
-        machine_id,
-    }
 }

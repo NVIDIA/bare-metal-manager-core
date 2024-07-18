@@ -15,6 +15,7 @@
 #![allow(dead_code)] // Not all tests use all tools
 
 pub mod api_fixtures;
+pub mod endpoint;
 pub mod mac_address_pool;
 pub mod network_segment;
 pub mod test_certificates;

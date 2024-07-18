@@ -66,6 +66,42 @@ message SiteExplorationReport {
     repeated ExploredManagedHost managed_hosts = 2;
 }
 
+message ExploredEndpointSearchFilter {
+    // empty now, but maybe in the future we add a way to filter
+}
+
+message ExploredEndpointIdList {
+    // endpoint IP address is used as an ID
+    repeated string endpoint_ids = 1;
+}
+
+message ExploredEndpointsByIdsRequest {
+    // endpoint IP address is used as an ID
+    repeated string endpoint_ids = 1;
+}
+
+message ExploredEndpointList {
+    repeated ExploredEndpoint endpoints = 1;
+}
+
+message ExploredManagedHostSearchFilter {
+    // empty now, but maybe in the future we add a way to filter
+}
+
+message ExploredManagedHostIdList {
+    // host bmc IP address is used as an ID
+    repeated string host_ids = 1;
+}
+
+message ExploredManagedHostsByIdsRequest {
+    // host bmc IP address is used as an ID
+    repeated string host_ids = 1;
+}
+
+message ExploredManagedHostList {
+    repeated ExploredManagedHost managed_hosts = 1;
+}
+
 enum NicMode {
     DPU = 0;
     NIC = 1;

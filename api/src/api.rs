@@ -16,28 +16,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-pub use ::rpc::forge as rpc;
-use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
-use ::rpc::protos::forge::{
-    EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
-    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse,
-};
-use ::rpc::protos::measured_boot as measured_boot_pb;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
-};
-use itertools::Itertools;
-use mac_address::MacAddress;
-use sqlx::{Postgres, Transaction};
-use tonic::{Request, Response, Status};
-#[cfg(feature = "tss-esapi")]
-use tss_esapi::{
-    structures::{Attest, Public as TssPublic, Signature},
-    traits::UnMarshall,
-};
-
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
@@ -86,6 +64,27 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use crate::{resource_pool, site_explorer};
+pub use ::rpc::forge as rpc;
+use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use ::rpc::protos::forge::{
+    EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
+    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse,
+};
+use ::rpc::protos::measured_boot as measured_boot_pb;
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
+};
+use itertools::Itertools;
+use mac_address::MacAddress;
+use sqlx::{Postgres, Transaction};
+use tonic::{Request, Response, Status};
+#[cfg(feature = "tss-esapi")]
+use tss_esapi::{
+    structures::{Attest, Public as TssPublic, Signature},
+    traits::UnMarshall,
+};
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
@@ -1430,11 +1429,40 @@ impl Forge for Api {
         crate::handlers::site_explorer::re_explore_endpoint(self, request).await
     }
 
+    // DEPRECATED: use find_explored_endpoint_ids, find_explored_endpoints_by_ids and find_explored_managed_host_ids, find_explored_managed_hosts_by_ids instead
     async fn get_site_exploration_report(
         &self,
         request: tonic::Request<::rpc::forge::GetSiteExplorationRequest>,
     ) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
         crate::handlers::site_explorer::get_site_exploration_report(self, request).await
+    }
+
+    async fn find_explored_endpoint_ids(
+        &self,
+        request: Request<::rpc::site_explorer::ExploredEndpointSearchFilter>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredEndpointIdList>, Status> {
+        crate::handlers::site_explorer::find_explored_endpoint_ids(self, request).await
+    }
+
+    async fn find_explored_endpoints_by_ids(
+        &self,
+        request: Request<::rpc::site_explorer::ExploredEndpointsByIdsRequest>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredEndpointList>, Status> {
+        crate::handlers::site_explorer::find_explored_endpoints_by_ids(self, request).await
+    }
+
+    async fn find_explored_managed_host_ids(
+        &self,
+        request: Request<::rpc::site_explorer::ExploredManagedHostSearchFilter>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredManagedHostIdList>, Status> {
+        crate::handlers::site_explorer::find_explored_managed_host_ids(self, request).await
+    }
+
+    async fn find_explored_managed_hosts_by_ids(
+        &self,
+        request: Request<::rpc::site_explorer::ExploredManagedHostsByIdsRequest>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredManagedHostList>, Status> {
+        crate::handlers::site_explorer::find_explored_managed_hosts_by_ids(self, request).await
     }
 
     // Ad-hoc BMC exploration
