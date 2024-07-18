@@ -580,20 +580,46 @@ impl PreingestionManagerStatic {
                                                 "Upgrade task has completed for {} but needs reboot, initiating one",
                                                 &endpoint.address
                                             );
-                                        match redfish_client
+                                        if let Err(e) = redfish_client
                                             .power(SystemPowerControl::ForceRestart)
                                             .await
                                         {
-                                            Ok(()) => {}
-                                            Err(e) => {
-                                                tracing::error!(
-                                                    "Failed to reboot {}: {e}",
-                                                    &endpoint.address
-                                                );
-                                                return Ok(());
-                                            }
+                                            tracing::error!(
+                                                "Failed to reboot {}: {e}",
+                                                &endpoint.address
+                                            );
+                                            return Ok(());
                                         }
                                         // Same state but with the rebooted flag set, it can take a long itme to reboot in some cases so we do not retry.
+                                        DbExploredEndpoint::set_preingestion_waittask(
+                                            endpoint.address,
+                                            task_id.to_string(),
+                                            final_version,
+                                            upgrade_type,
+                                            true,
+                                            txn,
+                                        )
+                                        .await?;
+                                    }
+                                    if !rebooted
+                                        && *upgrade_type == FirmwareHostComponentType::Bmc
+                                        && endpoint
+                                            .report
+                                            .vendor
+                                            .unwrap_or(bmc_vendor::BMCVendor::Unknown)
+                                            .is_lenovo()
+                                    {
+                                        tracing::info!(
+                                            "Upgrade task has completed for {} but needs BMC reboot, initiating one",
+                                            &endpoint.address
+                                        );
+                                        if let Err(e) = redfish_client.bmc_reset().await {
+                                            tracing::error!(
+                                                "Failed to reboot {}: {e}",
+                                                &endpoint.address
+                                            );
+                                            return Ok(());
+                                        }
                                         DbExploredEndpoint::set_preingestion_waittask(
                                             endpoint.address,
                                             task_id.to_string(),
