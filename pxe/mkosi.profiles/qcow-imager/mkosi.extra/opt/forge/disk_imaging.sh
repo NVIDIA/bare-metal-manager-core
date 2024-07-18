@@ -16,12 +16,13 @@ distro_release=
 serial_port=
 serial_port_num=
 log_output=
+forge_test_user=
+forge_test_pass=
 
 function curl_url() {
 	url=$1
 	auth=$2
-	file=$(basename $url)
-	curl --retry 5 --retry-all-errors -k -L $auth $url --output $file 2>&1 | tee $log_output
+	curl --retry 5 --retry-all-errors -k -L -O $auth -C - $url 2>&1 | tee $log_output
 }
 
 function verify_sha() {
@@ -60,7 +61,9 @@ function get_distro_image() {
 		if [ "$arch" == "x86_64" ]; then
 			arch=amd64
 		fi
-		if [ "$distro_version" == "23.04" ]; then
+		if [ "$distro_version" == "24.04" ]; then
+			codename=noble
+		elif [ "$distro_version" == "23.04" ]; then
 			codename=lunar
 		elif [ "$distro_version" == "22.10" ]; then
 			codename=kinetic
@@ -78,7 +81,7 @@ function get_distro_image() {
 			echo "Ubuntu version $distro_version not supported" | tee $log_output
 			exit 1;
 		fi
-		
+
 		efi_label="UEFI"
 		image_url=https://cloud-images.ubuntu.com/releases/$codename/release/ubuntu-$distro_version-server-cloudimg-$arch.img
 		shaurl=https://cloud-images.ubuntu.com/releases/$codename/release/SHA256SUMS
@@ -208,6 +211,21 @@ function modify_grub_cfg() {
 	fi
 }
 
+function add_testing_user() {
+	if [ -z "$forge_test_user" ]; then
+		return 0
+	fi
+	if [ ! -f "/mnt/etc/passwd" ]; then
+		return 0
+	fi
+	echo "useradd -s /bin/bash -d /home/$forge_test_user -m -G sudo $forge_test_user" > /mnt/test_user.sh 2>&1 | tee $log_output
+	echo "echo \"$forge_test_user:$forge_test_pass\" | chpasswd" >> /mnt/test_user.sh 2>&1 | tee $log_output
+	echo "passwd --expire $forge_test_user" >> /mnt/test_user.sh 2>&1 | tee $log_output
+	chmod +x /mnt/test_user.sh 2>&1 | tee $log_output
+	chroot /mnt /bin/sh -c ./test_user.sh 2>&1 | tee $log_output
+	rm -f /mnt/test_user.sh 2>&1 | tee $log_output
+}
+
 function modify_grub_template() {
 	if [ ! -f "/mnt/etc/default/grub" ]; then
 		return 0
@@ -334,6 +352,12 @@ function main() {
 		if [ ! -z "$line" ]; then
 			cloud_init_url=$(echo $line|cut -d'=' -f3)
 		fi
+		line=$(echo $i|grep 'create_forge_test_user')
+		if [ ! -z "$line" ]; then
+			user_pass=$(echo $line|cut -d'=' -f2)
+			forge_test_user=$(echo $user_pass|cut -d':' -f1)
+			forge_test_pass=$(echo $user_pass|cut -d':' -f2)
+		fi
 		line=$(echo $i|grep 'rootfs_uuid')
 		if [ ! -z "$line" ]; then
 			rootfs_uuid=$(echo $line|cut -d'=' -f2)
@@ -397,6 +421,7 @@ function main() {
 			if [ ! -z "$cloud_init_url" ]; then
 				add_cloud_init
 			fi
+			add_testing_user
 			umount /mnt 2>&1 | tee $log_output
 			expand_root_fs
 		fi
