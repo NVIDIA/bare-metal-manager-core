@@ -9,11 +9,9 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-
-use std::net::IpAddr;
-
 use config_version::ConfigVersion;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
+use std::net::IpAddr;
 
 use crate::{
     cfg::FirmwareHostComponentType,
@@ -76,6 +74,39 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
 }
 
 impl DbExploredEndpoint {
+    pub async fn find_ips(
+        txn: &mut Transaction<'_, Postgres>,
+        // filter is currently is empty, so it is a placeholder for the future
+        _filter: ::rpc::site_explorer::ExploredEndpointSearchFilter,
+    ) -> Result<Vec<IpAddr>, DatabaseError> {
+        #[derive(Debug, Clone, Copy, FromRow)]
+        pub struct ExploredEndpointIp(IpAddr);
+        // grab list of IPs
+        let mut builder = sqlx::QueryBuilder::new("SELECT address FROM explored_endpoints");
+        let query = builder.build_query_as();
+        let ids: Vec<ExploredEndpointIp> = query
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints::find_ips", e))?;
+        // convert to IpAddr
+        let ips: Vec<IpAddr> = ids.iter().map(|id| id.0).collect();
+        Ok(ips)
+    }
+
+    pub async fn find_by_ips(
+        txn: &mut Transaction<'_, Postgres>,
+        ips: Vec<IpAddr>,
+    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+        let query = "SELECT * FROM explored_endpoints WHERE address=ANY($1)";
+
+        sqlx::query_as::<_, Self>(query)
+            .bind(ips)
+            .fetch_all(&mut **txn)
+            .await
+            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+            .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints::find_by_ips", e))
+    }
+
     /// find_all returns all explored endpoints that site explorer has been able to probe
     pub async fn find_all(
         txn: &mut Transaction<'_, Postgres>,

@@ -1,0 +1,146 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+use crate::common::api_fixtures::create_test_env;
+use ::rpc::forge as rpc;
+use rpc::forge_server::Forge;
+
+pub mod common;
+
+#[ctor::ctor]
+fn setup() {
+    common::test_logging::init();
+}
+
+#[sqlx::test()]
+async fn test_find_explored_endpoint_ids(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await?;
+    for i in 1..6 {
+        common::endpoint::insert_endpoint_version(
+            &mut txn,
+            format!("141.219.24.{}", i).as_str(),
+            "1.0",
+        )
+        .await?;
+    }
+    txn.commit().await?;
+
+    let id_list = env
+        .api
+        .find_explored_endpoint_ids(tonic::Request::new(
+            ::rpc::site_explorer::ExploredEndpointSearchFilter {},
+        ))
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(id_list.endpoint_ids.len(), 5);
+
+    Ok(())
+}
+
+#[sqlx::test()]
+async fn test_find_explored_endpoints_by_ids(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await?;
+    for i in 1..6 {
+        common::endpoint::insert_endpoint_version(
+            &mut txn,
+            format!("141.219.24.{}", i).as_str(),
+            "1.0",
+        )
+        .await?;
+    }
+    txn.commit().await?;
+
+    let id_list = env
+        .api
+        .find_explored_endpoint_ids(tonic::Request::new(
+            ::rpc::site_explorer::ExploredEndpointSearchFilter {},
+        ))
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(id_list.endpoint_ids.len(), 5);
+
+    let request = tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest {
+        endpoint_ids: id_list.endpoint_ids.clone(),
+    });
+
+    let endpoint_list = env
+        .api
+        .find_explored_endpoints_by_ids(request)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(endpoint_list.endpoints.len(), 5);
+
+    // validate we got endpoints with specified ids
+    let mut endpoints_copy = endpoint_list.endpoints.clone();
+    for _ in 0..5 {
+        let ep = endpoints_copy.remove(0);
+        let ep_id = ep.address;
+        assert!(id_list.endpoint_ids.contains(&ep_id));
+    }
+
+    Ok(())
+}
+
+#[sqlx::test()]
+async fn test_find_explored_endpoints_by_ids_over_max(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // create vector of IDs with more than max allowed
+    // it does not matter if these are real or not, since we are testing an error back for passing more than max
+    let end_index: u32 = env.config.max_find_by_ids + 1;
+    let endpoint_ids: Vec<String> = (1..=end_index)
+        .map(|i| format!("141.219.24.{}", i))
+        .collect();
+
+    let request =
+        tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest { endpoint_ids });
+
+    let response = env.api.find_explored_endpoints_by_ids(request).await;
+    // validate
+    assert!(
+        response.is_err(),
+        "expected an error when passing too many IDs"
+    );
+    assert_eq!(
+        response.err().unwrap().message(),
+        format!(
+            "no more than {} IDs can be accepted",
+            env.config.max_find_by_ids
+        )
+    );
+}
+
+#[sqlx::test()]
+async fn test_find_explored_endpoints_by_ids_none(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let request =
+        tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest::default());
+
+    let response = env.api.find_explored_endpoints_by_ids(request).await;
+    // validate
+    assert!(response.is_err(), "expected an error when passing no IDs");
+    assert_eq!(
+        response.err().unwrap().message(),
+        "at least one ID must be provided",
+    );
+}

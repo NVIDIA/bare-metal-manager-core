@@ -46,6 +46,40 @@ impl From<DbExploredManagedHost> for ExploredManagedHost {
 }
 
 impl DbExploredManagedHost {
+    pub async fn find_ips(
+        txn: &mut Transaction<'_, Postgres>,
+        // filter is currently is empty, so it is a placeholder for the future
+        _filter: ::rpc::site_explorer::ExploredManagedHostSearchFilter,
+    ) -> Result<Vec<IpAddr>, DatabaseError> {
+        #[derive(Debug, Clone, Copy, FromRow)]
+        pub struct ExploredManagedHostIp(IpAddr);
+        // grab list of IPs
+        let mut builder = sqlx::QueryBuilder::new("SELECT host_bmc_ip FROM explored_managed_hosts");
+        let query = builder.build_query_as();
+        let ids: Vec<ExploredManagedHostIp> = query.fetch_all(&mut **txn).await.map_err(|e| {
+            DatabaseError::new(file!(), line!(), "explored_managed_hosts::find_ips", e)
+        })?;
+        // convert to IpAddr
+        let ips: Vec<IpAddr> = ids.iter().map(|id| id.0).collect();
+        Ok(ips)
+    }
+
+    pub async fn find_by_ips(
+        txn: &mut Transaction<'_, Postgres>,
+        ips: Vec<IpAddr>,
+    ) -> Result<Vec<ExploredManagedHost>, DatabaseError> {
+        let query = "SELECT * FROM explored_managed_hosts WHERE host_bmc_ip=ANY($1)";
+
+        sqlx::query_as::<_, Self>(query)
+            .bind(ips)
+            .fetch_all(&mut **txn)
+            .await
+            .map(|hosts| hosts.into_iter().map(Into::into).collect())
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "explored_managed_hosts::find_by_ips", e)
+            })
+    }
+
     pub async fn find_all(
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<ExploredManagedHost>, DatabaseError> {

@@ -156,6 +156,7 @@ service Forge {
   rpc GetAllManagedHostNetworkStatus(ManagedHostNetworkStatusRequest) returns (ManagedHostNetworkStatusResponse);
 
   // Gets the latest Site Exploration report
+  // DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
   rpc GetSiteExplorationReport(GetSiteExplorationRequest) returns (site_explorer.SiteExplorationReport);
   // Clear the last known error for the BMC
   rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty); 
@@ -164,7 +165,13 @@ service Forge {
   rpc Explore(ExploreRequest) returns (site_explorer.EndpointExplorationReport);
   // Prioritizes the exploration of a certain endpoint in the next regular site-explorer run
   // The results of this run will be persisted in the database
-  rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty); 
+  rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty);
+  // paginated APIs to get site explorer explored endpoints
+  rpc FindExploredEndpointIds(site_explorer.ExploredEndpointSearchFilter) returns (site_explorer.ExploredEndpointIdList);
+  rpc FindExploredEndpointsByIds(site_explorer.ExploredEndpointsByIdsRequest) returns (site_explorer.ExploredEndpointList);
+  // paginated APIs to get site explorer explored managed hosts
+  rpc FindExploredManagedHostIds(site_explorer.ExploredManagedHostSearchFilter) returns (site_explorer.ExploredManagedHostIdList);
+  rpc FindExploredManagedHostsByIds(site_explorer.ExploredManagedHostsByIdsRequest) returns (site_explorer.ExploredManagedHostList);
 
   // Force deletes a Machine and the associated DPU from Forge databases,
   // with the intention of rediscovering the host later on.

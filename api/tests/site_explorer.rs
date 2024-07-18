@@ -1591,7 +1591,7 @@ async fn test_site_explorer_clear_last_known_error(
 
 // Test that discover_machines will reject request of machine that was not created by site-explorer when create_machines = true
 #[sqlx::test(fixtures("create_domain", "create_vpc",))]
-fn test_disable_machine_creation_outside_site_explorer(
+async fn test_disable_machine_creation_outside_site_explorer(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = common::api_fixtures::get_config();
