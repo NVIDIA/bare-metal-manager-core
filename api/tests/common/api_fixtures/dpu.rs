@@ -83,16 +83,15 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(env, host_config).await;
     let dpu_rpc_machine_id: rpc::MachineId = dpu_machine_id.to_string().into();
-    let mut txn = env.pool.begin().await.unwrap();
 
     // Simulate the ForgeAgentControl request of the DPU
     let agent_control_response = forge_agent_control(env, dpu_rpc_machine_id.clone()).await;
-
     assert_eq!(
         agent_control_response.action,
         rpc::forge_agent_control_response::Action::Noop as i32
     );
 
+    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler.clone(),
@@ -103,8 +102,11 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         },
     )
     .await;
+    txn.commit().await.unwrap();
 
     network_configured(env, &dpu_machine_id).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &host_machine_id,
         handler,
