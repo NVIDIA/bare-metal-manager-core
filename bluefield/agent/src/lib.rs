@@ -49,9 +49,11 @@ mod interfaces;
 mod machine_inventory_updater;
 mod main_loop;
 mod mtu;
+pub mod netlink;
 mod network_config_fetcher;
 pub mod network_monitor;
 pub mod nvue; // pub so that integration tests can read nvue::PATH
+mod sysfs;
 mod systemd;
 pub mod upgrade;
 mod util;

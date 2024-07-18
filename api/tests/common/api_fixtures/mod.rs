@@ -833,6 +833,7 @@ pub async fn network_configured(
         interfaces,
         network_config_error: None,
         client_certificate_expiry_unix_epoch_secs: None,
+        fabric_interfaces: vec![],
     };
     tracing::trace!(
         "network_configured machine={} instance_network={} instance={}",

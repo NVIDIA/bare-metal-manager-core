@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ops::Add;
 use std::str::FromStr;
@@ -44,8 +46,8 @@ use crate::network_monitor::{self, Pinger};
 use crate::util::UrlResolver;
 use crate::{
     command_line, ethernet_virtualization, hbn, health, instance_metadata_endpoint,
-    instance_metadata_fetcher, machine_inventory_updater, mtu, network_config_fetcher, systemd,
-    upgrade, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION,
+    instance_metadata_fetcher, machine_inventory_updater, mtu, netlink, network_config_fetcher,
+    sysfs, systemd, upgrade, FMDS_MINIMUM_HBN_VERSION, NVUE_MINIMUM_HBN_VERSION,
 };
 
 // Main loop when running in daemon mode
@@ -220,6 +222,11 @@ pub async fn run(
         let client_certificate_expiry_unix_epoch_secs =
             forge_client_config.client_cert_expiry().await;
 
+        let fabric_interfaces = get_fabric_interfaces_data().await.unwrap_or_else(|err| {
+            tracing::warn!("Error getting link data for fabric interfaces: {err:#}");
+            vec![]
+        });
+
         let mut status_out = rpc::DpuNetworkStatus {
             dpu_machine_id: Some(machine_id.to_string().into()),
             dpu_health: None,
@@ -233,6 +240,7 @@ pub async fn run(
             network_config_error: None,
             instance_id: None,
             client_certificate_expiry_unix_epoch_secs,
+            fabric_interfaces,
         };
         // `read` does not block
         match *network_config_reader.read() {
@@ -802,6 +810,70 @@ fn create_metric_view_for_retry_histograms(
     opentelemetry_sdk::metrics::new_view(criteria, mask)
 }
 
+// Get the link type, carrier status, MTU, and whatever else for our uplinks
+// into the network fabric.
+//
+// For a link to be considered an uplink, it must satisfy all of the following:
+// 1. The network device is on a PCI bus.
+// 2. The network device type is Ethernet.
+// 3. The Ethernet MAC address is in the unicast+universal range (last two bits
+//    of the first OUI byte are both set to 0).
+async fn get_fabric_interfaces_data(
+) -> Result<Vec<rpc::FabricInterfaceData>, Box<dyn std::error::Error>> {
+    let pci_network_devices: HashSet<_> = {
+        let net_devices = sysfs::get_net_devices()?;
+        // let net_devices = net_devices.into_iter();
+        net_devices
+            .into_iter()
+            .filter_map(|net_device| {
+                net_device
+                    .is_pci_device()
+                    .map(|is_pci| is_pci.then(|| net_device.entry_name()))
+                    .transpose()
+            })
+            .collect::<Result<_, _>>()?
+    };
+
+    let rtnetlink_link_data = netlink::get_all_interface_links().await?;
+
+    fn is_universal_unicast(oui_first_byte: u8) -> bool {
+        (oui_first_byte & 0x03) == 0
+    }
+
+    let fabric_interface_data = rtnetlink_link_data
+        .into_iter()
+        .filter_map(|(interface_name, interface_data)| {
+            let is_ethernet = interface_data.is_ethernet();
+            let is_pci = {
+                let iface_name: &OsStr = interface_name.as_ref();
+                pci_network_devices.contains(iface_name)
+            };
+            let is_universal_unicast = interface_data
+                .address
+                .as_ref()
+                .and_then(|address| address.first())
+                .map(|first_byte| is_universal_unicast(*first_byte))
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        "The MAC address for interface {interface_name} was missing or empty"
+                    );
+                    false
+                });
+
+            (is_ethernet && is_pci && is_universal_unicast).then(|| {
+                let link_data: rpc::LinkData = (&interface_data).into();
+
+                let link_data = Some(link_data);
+                rpc::FabricInterfaceData {
+                    interface_name,
+                    link_data,
+                }
+            })
+        })
+        .collect();
+    Ok(fabric_interface_data)
+}
+
 const ONE_SECOND: Duration = Duration::from_secs(1);
 
 // Format a Duration for display
@@ -811,4 +883,21 @@ fn dt(d: Duration) -> humantime::FormattedDuration {
     } else {
         Duration::from_millis(d.as_millis() as u64)
     })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn test_get_fabric_interfaces_data() {
+        let fabric_interfaces_data = get_fabric_interfaces_data().await.unwrap();
+        dbg!(fabric_interfaces_data.as_slice());
+        // Under virtualization we probably can't make any assertions about
+        // whether this list contains any interfaces, but uncommenting this
+        // should pass on any Linux host with real hardware or a virtualized PCI
+        // network interface.
+        // assert!(fabric_interfaces_data.len() > 0);
+    }
 }

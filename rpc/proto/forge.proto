@@ -2088,6 +2088,7 @@ message DpuNetworkStatus {
   // This version number tracks versioning OS details, tags, etc
   // It is different than instance_network_config_version, which only tracks networking details
   optional string instance_config_version = 12;
+  repeated FabricInterfaceData fabric_interfaces = 13;
 }
 
 // Observed status of the networking subsystem of an instance
@@ -2141,6 +2142,24 @@ message InstanceInterfaceStatusObservation {
   // based on the requested subnet.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 4;
+}
+
+// Describes observational data for a network interface associated with a
+// network fabric (e.g. a DPU's uplinks to the underlay network).
+message FabricInterfaceData {
+  string interface_name = 1;
+
+  LinkData link_data = 2;
+}
+
+// Link attributes from rtnetlink or equivalent.
+message LinkData {
+  optional string link_type = 1;
+  optional string state = 2;
+  optional bool carrier_up = 3;
+  optional uint32 mtu = 4;
+  optional uint32 carrier_up_count = 5;
+  optional uint32 carrier_down_count = 6;
 }
 
 message TenantContent {

@@ -357,6 +357,7 @@ pub async fn record_dpu_network_status(
                 instance_id: None,
                 dpu_agent_version: None,
                 client_certificate_expiry_unix_epoch_secs: None,
+                fabric_interfaces: vec![],
             }))
             .await
             .map(|response| response.into_inner())
