@@ -342,6 +342,9 @@ pub(crate) async fn record_dpu_network_status(
         .as_ref()
         .ok_or_else(|| CarbideError::MissingArgument("health_status"))?;
 
+    // TODO: persist this somewhere
+    let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
+
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
