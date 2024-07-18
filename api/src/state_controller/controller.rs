@@ -154,6 +154,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             .lock_and_handle_iteration(&mut metrics)
             .instrument(controller_span.clone())
             .await;
+        metrics.common.recording_finished_at = std::time::Instant::now();
 
         controller_span.record("otel.status_code", if res.is_ok() { "ok" } else { "error" });
 

@@ -77,8 +77,10 @@ impl<IO: StateControllerIO> Default for ObjectHandlerMetrics<IO> {
 /// Metrics that are produced by a state controller iteration
 #[derive(Debug)]
 pub struct CommonIterationMetrics {
-    /// When the metrics have been recorded
-    pub recorded_at: std::time::Instant,
+    /// When we started recording these metrics
+    pub recording_started_at: std::time::Instant,
+    /// When we finished recording the metrics
+    pub recording_finished_at: std::time::Instant,
     /// Aggregated metrics per state
     pub state_metrics: HashMap<(&'static str, &'static str), StateMetrics>,
 }
@@ -86,7 +88,8 @@ pub struct CommonIterationMetrics {
 impl Default for CommonIterationMetrics {
     fn default() -> Self {
         Self {
-            recorded_at: std::time::Instant::now(),
+            recording_started_at: std::time::Instant::now(),
+            recording_finished_at: std::time::Instant::now(),
             state_metrics: Default::default(),
         }
     }
@@ -187,12 +190,6 @@ impl<IO: StateControllerIO> Default for IterationMetrics<IO> {
 }
 
 impl<IO: StateControllerIO> IterationMetrics<IO> {
-    /// Returns the time that has elapsed since `IterationMetrics` has been
-    /// constructed.
-    pub fn elapsed(&self) -> std::time::Duration {
-        self.common.recorded_at.elapsed()
-    }
-
     pub fn merge_object_handling_metrics(&mut self, object_metrics: &ObjectHandlerMetrics<IO>) {
         self.common
             .merge_object_handling_metrics(&object_metrics.common);
@@ -464,7 +461,11 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
 
     fn emit_counters_and_histograms(&self, iteration_metrics: &Self::IterationMetrics) {
         self.controller_iteration_latency.record(
-            1000.0 * iteration_metrics.recorded_at.elapsed().as_secs_f64(),
+            1000.0
+                * iteration_metrics
+                    .recording_started_at
+                    .elapsed()
+                    .as_secs_f64(),
             &[],
         );
 
@@ -653,7 +654,7 @@ impl<IO: StateControllerIO> StateControllerMetricEmitter<IO> {
         const MAX_FRESH_DURATION: Duration = Duration::from_secs(60);
         let fresh_attr = KeyValue::new(
             "fresh",
-            iteration_metrics.common.recorded_at.elapsed() <= MAX_FRESH_DURATION,
+            iteration_metrics.common.recording_finished_at.elapsed() <= MAX_FRESH_DURATION,
         );
 
         let attributes = &[fresh_attr];
