@@ -410,7 +410,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
         let mut probe_classification_attr = attributes.to_vec();
         probe_classification_attr.push(KeyValue::new("classification", "".to_string()));
-        for (classification, count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
+        for (classification, count) in &iteration_metrics.unhealthy_hosts_by_classification_id {
             probe_classification_attr.last_mut().unwrap().value = classification.clone().into();
             observer.observe_u64(
                 &self.unhealthy_hosts_by_classification_gauge,
