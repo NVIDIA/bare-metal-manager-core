@@ -33,13 +33,13 @@ mod filters;
 mod ib_partition;
 mod instance;
 mod interface;
-mod ip_finder;
 mod machine;
 mod managed_host;
 mod network_device;
 mod network_segment;
 mod network_status;
 mod resource_pool;
+mod search;
 mod vpc;
 
 const WEB_AUTH: &str = "admin:Welcome123";
@@ -75,7 +75,6 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
             .route("/interface", get(interface::show_html))
             .route("/interface.json", get(interface::show_json))
             .route("/interface/:interface_id", get(interface::detail))
-            .route("/ip-finder", get(ip_finder::find))
             .route("/machine", get(machine::show_all_html))
             .route("/machine.json", get(machine::show_all_json))
             .route("/machine/:machine_id", get(machine::detail))
@@ -98,6 +97,7 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
             .route("/vpc", get(vpc::show_html))
             .route("/vpc.json", get(vpc::show_json))
             .route("/vpc/:vpc_id", get(vpc::detail))
+            .route("/search", get(search::find))
             .layer(axum::middleware::from_fn(auth_basic))
             .with_state(api),
     )

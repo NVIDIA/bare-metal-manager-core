@@ -29,7 +29,6 @@ use crate::handlers::machine_validation::{
     get_machine_validation_results, mark_machine_validation_complete, persist_validation_result,
 };
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
-use crate::ip_finder;
 use crate::ipmitool::IPMITool;
 use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot;
@@ -2087,22 +2086,28 @@ impl Forge for Api {
         &self,
         request: tonic::Request<rpc::FindIpAddressRequest>,
     ) -> Result<tonic::Response<rpc::FindIpAddressResponse>, tonic::Status> {
-        log_request_data(&request);
-        let req = request.into_inner();
+        crate::handlers::finder::find_ip_address(self, request).await
+    }
 
-        let ip = req.ip;
-        let (matches, errors) = ip_finder::find(self, &ip).await;
-        if matches.is_empty() && errors.is_empty() {
-            return Err(CarbideError::NotFoundError {
-                kind: "ip",
-                id: ip.to_string(),
-            }
-            .into());
-        }
-        Ok(Response::new(rpc::FindIpAddressResponse {
-            matches,
-            errors: errors.into_iter().map(|err| err.to_string()).collect(),
-        }))
+    async fn identify_uuid(
+        &self,
+        request: tonic::Request<rpc::IdentifyUuidRequest>,
+    ) -> Result<tonic::Response<rpc::IdentifyUuidResponse>, tonic::Status> {
+        crate::handlers::finder::identify_uuid(self, request).await
+    }
+
+    async fn identify_mac(
+        &self,
+        request: tonic::Request<rpc::IdentifyMacRequest>,
+    ) -> Result<tonic::Response<rpc::IdentifyMacResponse>, tonic::Status> {
+        crate::handlers::finder::identify_mac(self, request).await
+    }
+
+    async fn identify_serial(
+        &self,
+        request: tonic::Request<rpc::IdentifySerialRequest>,
+    ) -> Result<tonic::Response<rpc::IdentifySerialResponse>, tonic::Status> {
+        crate::handlers::finder::identify_serial(self, request).await
     }
 
     /// Trigger DPU reset.

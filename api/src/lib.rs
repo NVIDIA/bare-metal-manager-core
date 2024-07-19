@@ -55,7 +55,6 @@ mod handlers;
 pub mod ib;
 pub mod ib_fabric_monitor;
 pub mod instance;
-mod ip_finder;
 pub mod ipmitool;
 mod ipxe;
 mod listener;

@@ -124,9 +124,9 @@ impl DbExploredEndpoint {
     pub async fn find_preingest_not_waiting_not_error(
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
-        let query = "SELECT * FROM explored_endpoints 
-                        WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"') 
-                            AND waiting_for_explorer_refresh = false 
+        let query = "SELECT * FROM explored_endpoints
+                        WHERE (preingestion_state IS NULL OR preingestion_state->'state' != '\"complete\"')
+                            AND waiting_for_explorer_refresh = false
                             AND (exploration_report->'LastExplorationError' IS NULL OR exploration_report->'LastExplorationError' = 'null');"; // If LastExplorationError is completely notexistant it is NULL, if it is there and indicates a null value it is 'null'.
 
         sqlx::query_as::<_, Self>(query)
@@ -382,5 +382,27 @@ WHERE address = $3 AND version=$4";
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e));
         Ok(())
+    }
+
+    /// Search the exploration report for a string anywhere in the JSON.
+    /// Used by the MAC address finder.
+    pub async fn find_freetext_in_report(
+        txn: &mut Transaction<'_, Postgres>,
+        to_find: &str,
+    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+        let query = "SELECT * FROM explored_endpoints WHERE exploration_report::text ilike '%' || $1 || '%'";
+        sqlx::query_as::<_, Self>(query)
+            .bind(to_find)
+            .fetch_all(&mut **txn)
+            .await
+            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+            .map_err(|e| {
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "explored_endpoints find_freetext_in_report",
+                    e,
+                )
+            })
     }
 }

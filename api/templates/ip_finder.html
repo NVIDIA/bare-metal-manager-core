@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}IP Finder{% endblock %}
+{% block title %}Search results{% endblock %}
 
 {% block css %}
 /* Select the form element and set its width, margin, padding, border, and background color */
@@ -45,15 +45,14 @@ ul.ip_finder a {
 {% endblock %}
 
 {% block content %}
-<h1>IP Finder</h1>
-
-<form class="ip_finder"><label for="ip">Identify this IP Address:</label><input type="text" name="ip" value="{{ ip }}" /><input type="submit" value="Find" /></form>
+<h1>IP address matches</h1>
 
 {% if found.is_empty() %}
 	{% if !ip.is_empty() %}
 		<p>IP did not match anything</p>
 	{% endif %}
 {% else %}
+<h2>IP address appears in {{ found.len() }} places</h2>
 <ul class="ip_finder">
 	{% for m in found %}
 		<li>

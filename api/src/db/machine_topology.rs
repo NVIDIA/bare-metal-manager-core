@@ -205,6 +205,24 @@ impl MachineTopology {
             .map(|db_id| db_id.into_inner()))
     }
 
+    /// Search the topologyfor a string anywhere in the JSON.
+    /// Used by the serial number finder.
+    pub async fn find_freetext(
+        txn: &mut Transaction<'_, Postgres>,
+        to_find: &str,
+    ) -> Result<Vec<MachineId>, DatabaseError> {
+        let query =
+            "SELECT machine_id FROM machine_topologies WHERE topology::text ilike '%' || $1 || '%'";
+        sqlx::query_as::<_, DbMachineId>(query)
+            .bind(to_find)
+            .fetch_all(&mut **txn)
+            .await
+            .map(|ids| ids.into_iter().map(Into::into).collect())
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "machine_topologies find_freetext", e)
+            })
+    }
+
     pub async fn set_topology_update_needed(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
