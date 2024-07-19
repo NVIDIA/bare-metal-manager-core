@@ -27,8 +27,10 @@ use crate::model::site_explorer::EndpointExplorationError;
 /// Metrics that are gathered in one site exploration run
 #[derive(Clone, Debug)]
 pub struct SiteExplorationMetrics {
-    /// When the exploration started
-    pub recorded_at: Instant,
+    /// When we started recording these metrics
+    pub recording_started_at: std::time::Instant,
+    /// When we finished recording the metrics
+    pub recording_finished_at: std::time::Instant,
     /// Total amount of endpoint exploration attempts that has been attempted
     pub endpoint_explorations: usize,
     /// Successful endpoint explorations
@@ -41,6 +43,8 @@ pub struct SiteExplorationMetrics {
     pub exploration_identified_managed_hosts: usize,
     /// The amount of Machine pairs (Host + DPU) that have been created by Site Explorer
     pub created_machines: usize,
+    /// The time it took to create machines
+    pub create_machines_latency: Option<Duration>,
 }
 
 impl Default for SiteExplorationMetrics {
@@ -52,13 +56,15 @@ impl Default for SiteExplorationMetrics {
 impl SiteExplorationMetrics {
     pub fn new() -> Self {
         Self {
-            recorded_at: Instant::now(),
+            recording_started_at: Instant::now(),
+            recording_finished_at: Instant::now(),
             endpoint_explorations: 0,
             endpoint_explorations_success: 0,
             endpoint_explorations_failures_by_type: HashMap::new(),
             endpoint_exploration_duration: Vec::new(),
             exploration_identified_managed_hosts: 0,
             created_machines: 0,
+            create_machines_latency: None,
         }
     }
 
@@ -83,6 +89,8 @@ pub struct SiteExplorerInstruments {
     pub endpoint_exploration_success_count: ObservableGauge<u64>,
     pub endpoint_exploration_failures_count: ObservableGauge<u64>,
     pub endpoint_exploration_duration: Histogram<f64>,
+    pub site_explorer_iteration_latency: Histogram<f64>,
+    pub site_explorer_create_machines_latency: Histogram<f64>,
     pub site_exploration_identified_managed_hosts_count: ObservableGauge<u64>,
     pub site_explorer_created_machines_count: ObservableGauge<u64>,
 }
@@ -106,6 +114,16 @@ impl SiteExplorerInstruments {
             endpoint_exploration_duration: meter
                 .f64_histogram("forge_endpoint_exploration_duration")
                 .with_description("The time it took to explore an endpoint")
+                .with_unit(Unit::new("ms"))
+                .init(),
+            site_explorer_iteration_latency: meter
+                .f64_histogram("forge_site_explorer_iteration_latency")
+                .with_description("The time it took to perform one site explorer iteration")
+                .with_unit(Unit::new("ms"))
+                .init(),
+            site_explorer_create_machines_latency: meter
+                .f64_histogram("forge_site_explorer_create_machines_latency")
+                .with_description("The time it to perform create_machines inside site-explorer")
                 .with_unit(Unit::new("ms"))
                 .init(),
             site_exploration_identified_managed_hosts_count: meter
@@ -190,6 +208,16 @@ impl SiteExplorerInstruments {
         metrics: &SiteExplorationMetrics,
         attributes: &[opentelemetry::KeyValue],
     ) {
+        self.site_explorer_iteration_latency.record(
+            1000.0 * metrics.recording_started_at.elapsed().as_secs_f64(),
+            &[],
+        );
+
+        if let Some(latency) = metrics.create_machines_latency {
+            self.site_explorer_create_machines_latency
+                .record(1000.0 * latency.as_secs_f64(), &[]);
+        }
+
         for duration in metrics.endpoint_exploration_duration.iter() {
             self.endpoint_exploration_duration
                 .record(duration.as_secs_f64() * 1000.0, attributes);
@@ -245,7 +273,7 @@ impl MetricHolder {
             &self.instruments.instruments(),
             move |observer| {
                 if let Some(metrics) = self_clone.last_iteration_metrics.load_full() {
-                    let elapsed = metrics.recorded_at.elapsed();
+                    let elapsed = metrics.recording_finished_at.elapsed();
                     if elapsed > self_clone.hold_period {
                         return;
                     }
@@ -260,6 +288,7 @@ impl MetricHolder {
 
     /// Updates the most recent metrics
     pub fn update_metrics(&self, mut metrics: SiteExplorationMetrics) {
+        metrics.recording_finished_at = std::time::Instant::now();
         // Emit the last recent latency metrics
         self.instruments.emit_latency_metrics(&metrics, &[]);
         // We don't need to store the latency metrics anymore

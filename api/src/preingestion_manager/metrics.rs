@@ -19,8 +19,10 @@ use std::{sync::Arc, time::Instant};
 
 #[derive(Clone, Debug)]
 pub struct PreingestionMetrics {
-    /// When the exploration started
-    recorded_at: Instant,
+    /// When we started recording these metrics
+    pub recording_started_at: std::time::Instant,
+    /// When we finished recording the metrics
+    pub recording_finished_at: std::time::Instant,
 
     pub machines_in_preingestion: usize,
     pub waiting_for_installation: usize,
@@ -30,7 +32,8 @@ pub struct PreingestionMetrics {
 impl PreingestionMetrics {
     pub fn new() -> Self {
         Self {
-            recorded_at: Instant::now(),
+            recording_started_at: Instant::now(),
+            recording_finished_at: Instant::now(),
             machines_in_preingestion: 0,
             waiting_for_installation: 0,
             delayed_uploading: 0,
@@ -121,7 +124,7 @@ impl MetricHolder {
             &self.instruments.instruments(),
             move |observer| {
                 if let Some(metrics) = self_clone.last_iteration_metrics.load_full() {
-                    let elapsed = metrics.recorded_at.elapsed();
+                    let elapsed = metrics.recording_finished_at.elapsed();
                     if elapsed > self_clone.hold_period {
                         return;
                     }
@@ -135,7 +138,8 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, metrics: PreingestionMetrics) {
+    pub fn update_metrics(&self, mut metrics: PreingestionMetrics) {
+        metrics.recording_finished_at = std::time::Instant::now();
         // And store the remaining metrics
         self.last_iteration_metrics.store(Some(Arc::new(metrics)));
     }
