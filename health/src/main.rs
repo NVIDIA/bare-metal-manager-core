@@ -145,29 +145,39 @@ pub async fn get_machines(
     client: &mut ForgeClientT,
     gauge: &ObservableGauge<i64>,
 ) -> Result<rpc::MachineList, HealthError> {
-    let request = tonic::Request::new(rpc::MachineSearchQuery {
-        id: None,
-        fqdn: None,
-        search_config: Some(rpc::MachineSearchConfig {
-            include_dpus: false,
-            include_history: false,
-            include_predicted_host: false,
-            only_maintenance: false,
-            include_associated_machine_id: false,
-            exclude_hosts: false,
-        }),
+    let request = tonic::Request::new(rpc::MachineSearchConfig {
+        include_dpus: false,
+        include_history: false,
+        include_predicted_host: false,
+        only_maintenance: false,
+        include_associated_machine_id: false,
+        exclude_hosts: false,
     });
     let begin_ts: DateTime<Utc> = Utc::now();
-    let machines = client
-        .find_machines(request)
+    let machine_ids = client
+        .find_machine_ids(request)
         .await
         .map(|response| response.into_inner())
         .map_err(HealthError::ApiInvocationError)?;
+    let mut all_machines = rpc::MachineList {
+        machines: Vec::with_capacity(machine_ids.machine_ids.len()),
+    };
+    for ids_chunk in machine_ids.machine_ids.chunks(100) {
+        let request = tonic::Request::new(::rpc::common::MachineIdList {
+            machine_ids: Vec::from(ids_chunk),
+        });
+        let machines = client
+            .find_machines_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(HealthError::ApiInvocationError)?;
+        all_machines.machines.extend(machines.machines);
+    }
     let end_ts: DateTime<Utc> = Utc::now();
     let elapsed = end_ts.timestamp_micros() - begin_ts.timestamp_micros();
     gauge.observe(elapsed, &[]);
 
-    Ok(machines)
+    Ok(all_machines)
 }
 
 pub async fn get_machine(
