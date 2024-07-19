@@ -502,7 +502,7 @@ async fn main() -> color_eyre::Result<()> {
                 rpc::set_host_uefi_password(query, api_config).await?;
             }
             HostAction::ClearUefiPassword(query) => {
-                rpc::set_host_uefi_password(query, api_config).await?;
+                rpc::clear_host_uefi_password(query, api_config).await?;
             }
             HostAction::GenerateHostUefiPassword => {
                 let password = Credentials::generate_password_no_special_char();
