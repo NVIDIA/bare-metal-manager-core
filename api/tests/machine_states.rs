@@ -517,6 +517,24 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
         r#"{fresh="true"} 2"#
     );
 
+    let mut health_status_metrics = env
+        .test_meter
+        .formatted_metrics("forge_hosts_health_status_count");
+    health_status_metrics.sort();
+    assert_eq!(health_status_metrics.len(), 2);
+
+    for expected in [
+        r#"{fresh="true",healthy="true"} 2"#,
+        r#"{fresh="true",healthy="false"} 0"#,
+    ] {
+        assert!(
+            health_status_metrics.iter().any(|m| m.as_str() == expected),
+            "Expected to find {}. Got {:?}",
+            expected,
+            health_status_metrics
+        );
+    }
+
     assert_eq!(
         env.test_meter
             .formatted_metric("forge_dpu_firmware_version_count")

@@ -162,6 +162,13 @@ impl MachineStateHandler {
             ctx.metrics.machine_id = Some(observation.machine_id.clone());
             ctx.metrics.client_certificate_expiry = observation.client_certificate_expiry;
         }
+
+        for alert in state.aggregate_health.alerts.iter() {
+            ctx.metrics.health_probe_alerts.insert(alert.id.clone());
+            for c in alert.classifications.iter() {
+                ctx.metrics.health_alert_classifications.insert(c.clone());
+            }
+        }
     }
 
     async fn attempt_state_transition(
