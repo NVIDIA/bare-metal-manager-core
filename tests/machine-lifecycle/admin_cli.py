@@ -22,7 +22,7 @@ def wait_for_machine_assigned_ready(machine_id: str, timeout: int) -> None:
 
 
 def wait_for_machine_waitingforhostdiscovery(machine_id: str, timeout: int) -> None:
-    """Check repeatedly until the specified machine is in Host/WaitingForDiscovery state, for up to `timeout` seconds."""
+    """Check repeatedly until the specified machine is in HostInitializing/WaitingForDiscovery state, for up to `timeout` seconds."""
     wait_for_state(machine_id, "HostInitializing/WaitingForDiscovery", timeout, allow_missing_machine=True)
 
 
