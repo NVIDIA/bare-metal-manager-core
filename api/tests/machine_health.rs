@@ -11,11 +11,9 @@
  */
 
 mod common;
-use std::time::SystemTime;
 
 use carbide::db;
-use common::api_fixtures::{create_managed_host, create_test_env, dpu};
-use rpc::forge::forge_server::Forge;
+use common::api_fixtures::{create_managed_host, create_test_env, network_configured_with_health};
 
 #[ctor::ctor]
 fn setup() {
@@ -64,18 +62,6 @@ async fn test_machine_health_reporting(
     assert!(aggregate_health.alerts.is_empty());
 
     // Let forge-dpu-agent submit a report which claims the DPU is no longer healthy
-    let dpu_network_config = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(
-            rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: Some(dpu_machine_id.to_string().into()),
-            },
-        ))
-        .await
-        .unwrap()
-        .into_inner();
-
-    // Tell API about latest network config and machine health
     // We use just the new format of health-reports, which should take precendence
     // over the legacy format
     let network_health = rpc::forge::NetworkHealth {
@@ -100,34 +86,13 @@ async fn test_machine_health_reporting(
             ],
         }],
     };
-    env.api
-        .record_dpu_network_status(tonic::Request::new(rpc::forge::DpuNetworkStatus {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
-            dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
-            observed_at: Some(SystemTime::now().into()),
-            dpu_health: Some(dpu_health.clone().into()),
-            health: Some(network_health),
-            network_config_version: Some(dpu_network_config.managed_host_config_version.clone()),
-            instance_id: None,
-            instance_config_version: None,
-            instance_network_config_version: None,
-            interfaces: vec![rpc::InstanceInterfaceStatusObservation {
-                function_type: rpc::InterfaceFunctionType::Physical.into(),
-                virtual_function_id: None,
-                mac_address: None,
-                addresses: vec![dpu_network_config
-                    .admin_interface
-                    .as_ref()
-                    .unwrap()
-                    .ip
-                    .clone()],
-            }],
-            network_config_error: None,
-            client_certificate_expiry_unix_epoch_secs: None,
-            fabric_interfaces: vec![],
-        }))
-        .await
-        .unwrap();
+    network_configured_with_health(
+        &env,
+        &dpu_machine_id,
+        Some(network_health),
+        Some(dpu_health.clone().into()),
+    )
+    .await;
 
     // The host health shouldn't have changed yet. It's updated in the next
     // state controller iteration

@@ -758,6 +758,17 @@ pub async fn network_configured(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
 ) -> NetworkConfiguredResult {
+    network_configured_with_health(env, dpu_machine_id, None, None).await
+}
+
+/// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back.
+/// When reporting back, the health reported by the DPU can be overrridden
+pub async fn network_configured_with_health(
+    env: &TestEnv,
+    dpu_machine_id: &MachineId,
+    network_health: Option<rpc::forge::NetworkHealth>,
+    dpu_health: Option<rpc::health::HealthReport>,
+) -> NetworkConfiguredResult {
     let network_config = env
         .api
         .get_managed_host_network_config(Request::new(
@@ -775,7 +786,7 @@ pub async fn network_configured(
         } else {
             Some(network_config.instance_network_config_version.clone())
         };
-    let instance = env
+    let instance: Option<rpc::Instance> = env
         .api
         .find_instance_by_machine_id(Request::new(dpu_machine_id.to_string().into()))
         .await
@@ -821,20 +832,24 @@ pub async fn network_configured(
         }
         interfaces
     };
+
+    let network_health = network_health.unwrap_or_else(|| rpc::forge::NetworkHealth {
+        is_healthy: true,
+        ..Default::default()
+    });
+    let dpu_health = dpu_health.unwrap_or_else(|| rpc::health::HealthReport {
+        source: "forge-dpu-agent".to_string(),
+        observed_at: None,
+        successes: vec![],
+        alerts: vec![],
+    });
+
     let status = rpc::forge::DpuNetworkStatus {
         dpu_machine_id: Some(dpu_machine_id.to_string().into()),
         dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
         observed_at: Some(SystemTime::now().into()),
-        health: Some(rpc::forge::NetworkHealth {
-            is_healthy: true,
-            ..Default::default()
-        }),
-        dpu_health: Some(rpc::health::HealthReport {
-            source: "forge-dpu-agent".to_string(),
-            observed_at: None,
-            successes: vec![],
-            alerts: vec![],
-        }),
+        health: Some(network_health),
+        dpu_health: Some(dpu_health),
         network_config_version: Some(network_config.managed_host_config_version.clone()),
         instance_id: network_config.instance_id.clone(),
         instance_config_version: instance_config_version.clone(),

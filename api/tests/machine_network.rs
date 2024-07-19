@@ -16,11 +16,13 @@ use ::rpc::forge::{
     DpuNetworkStatus, ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
     NetworkHealth,
 };
-use carbide::db::machine::MachineSearchConfig;
 use rpc::forge::forge_server::Forge;
 
 pub mod common;
-use common::api_fixtures::{self, dpu, instance, network_segment::FIXTURE_NETWORK_SEGMENT_ID};
+use common::api_fixtures::{
+    self, dpu, instance, network_configured_with_health,
+    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+};
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
@@ -90,6 +92,23 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
 
+    // Add an instance
+    let instance_network = Some(rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
+        }],
+    });
+    let (_instance_id, _instance) = instance::create_instance(
+        &env,
+        &dpu_machine_id,
+        &host_machine_id,
+        instance_network,
+        None,
+        vec![],
+    )
+    .await;
+
     let response = env
         .api
         .get_all_managed_host_network_status(tonic::Request::new(
@@ -99,24 +118,6 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
     assert_eq!(response.all.len(), 1);
-
-    // Add an instance
-    let physical = rpc::InterfaceFunctionType::Physical as i32;
-    let instance_network = Some(rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: physical,
-            network_segment_id: Some((*FIXTURE_NETWORK_SEGMENT_ID).into()),
-        }],
-    });
-    let (instance_id, instance) = instance::create_instance(
-        &env,
-        &dpu_machine_id,
-        &host_machine_id,
-        instance_network,
-        None,
-        vec![],
-    )
-    .await;
 
     // Tell API about latest network config and machine health
     let network_config_version = response.all[0].network_config_version.clone().unwrap();
@@ -139,29 +140,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         ],
         alerts: vec![],
     };
-    env.api
-        .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
-            dpu_machine_id: Some(dpu_machine_id.to_string().into()),
-            dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
-            observed_at: Some(SystemTime::now().into()),
-            dpu_health: Some(dpu_health.clone()),
-            health: Some(hs),
-            network_config_version: Some(network_config_version.clone()),
-            instance_id: Some(instance_id.into()),
-            instance_config_version: Some(instance.config_version),
-            instance_network_config_version: Some(instance.network_config_version),
-            interfaces: vec![rpc::InstanceInterfaceStatusObservation {
-                function_type: physical,
-                virtual_function_id: None,
-                mac_address: None,
-                addresses: vec!["1.2.3.4".to_string()],
-            }],
-            network_config_error: None,
-            client_certificate_expiry_unix_epoch_secs: None,
-            fabric_interfaces: vec![],
-        }))
-        .await
-        .unwrap();
+    network_configured_with_health(&env, &dpu_machine_id, Some(hs), Some(dpu_health.clone())).await;
 
     // And query again
     let response = env
@@ -183,28 +162,19 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         Some(network_config_version),
     );
 
-    // Query the new HealthReport format - this is at this time only stored in
-    // the database
-    let mut txn = env.pool.begin().await.unwrap();
+    // Query the new HealthReport format
+    let dpu_machine = env
+        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+    let mut reported_dpu_health = dpu_machine.health.clone().unwrap();
 
-    let machine = carbide::db::machine::Machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        MachineSearchConfig {
-            include_dpus: true,
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    txn.commit().await.unwrap();
-    let mut health_report = machine.dpu_agent_health_report().unwrap().clone();
-    assert!(health_report.observed_at.is_some());
-    assert_eq!(health_report.source, "forge-dpu-agent");
-    health_report.source = "should-get-updated".to_string();
-    health_report.observed_at = None;
-    assert_eq!(rpc::health::HealthReport::from(health_report), dpu_health);
+    assert!(reported_dpu_health.observed_at.is_some());
+    assert_eq!(reported_dpu_health.source, "forge-dpu-agent");
+    reported_dpu_health.source = "should-get-updated".to_string();
+    reported_dpu_health.observed_at = None;
+    assert_eq!(reported_dpu_health, dpu_health);
 
     // Now fetch the instance and check that knows it's configs have synced
     let response = env
@@ -275,30 +245,20 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
         .await
         .unwrap();
 
-    // Query the new HealthReport format - this is at this time only stored in
-    // the database
-    let mut txn = env.pool.begin().await.unwrap();
-
-    let machine = carbide::db::machine::Machine::find_one(
-        &mut txn,
-        &dpu_machine_id,
-        MachineSearchConfig {
-            include_dpus: true,
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    txn.commit().await.unwrap();
-    let mut health_report = machine.dpu_agent_health_report().unwrap().clone();
-    assert!(health_report.observed_at.is_some());
-    health_report.observed_at = None;
-    assert_eq!(health_report.alerts.len(), 1);
-    assert!(health_report.alerts[0].in_alert_since.is_some());
-    health_report.alerts[0].in_alert_since = None;
+    // Query the new HealthReport format
+    let dpu_machine = env
+        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+    let mut reported_dpu_health = dpu_machine.health.clone().unwrap();
+    assert!(reported_dpu_health.observed_at.is_some());
+    reported_dpu_health.observed_at = None;
+    assert_eq!(reported_dpu_health.alerts.len(), 1);
+    assert!(reported_dpu_health.alerts[0].in_alert_since.is_some());
+    reported_dpu_health.alerts[0].in_alert_since = None;
     assert_eq!(
-        rpc::health::HealthReport::from(health_report),
+        reported_dpu_health,
         rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
             observed_at: None,
