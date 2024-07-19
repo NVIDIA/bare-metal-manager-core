@@ -45,6 +45,7 @@ struct MachineRowDisplay {
     is_host: bool,
     num_gpus: usize,
     num_ib_ifs: usize,
+    health_probe_alerts: usize,
 }
 
 impl From<forgerpc::Machine> for MachineRowDisplay {
@@ -95,6 +96,10 @@ impl From<forgerpc::Machine> for MachineRowDisplay {
             product_serial,
             num_gpus,
             num_ib_ifs,
+            health_probe_alerts: m
+                .health
+                .map(|health| health.alerts.len())
+                .unwrap_or_default(),
         }
     }
 }
@@ -237,6 +242,7 @@ struct MachineDetail {
     interfaces: Vec<MachineInterfaceDisplay>,
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
     inventory: Vec<MachineInventorySoftwareComponent>,
+    health: rpc::health::HealthReport,
 }
 
 struct MachineHistoryDisplay {
@@ -368,6 +374,12 @@ impl From<forgerpc::Machine> for MachineDetail {
             host_id: m
                 .associated_host_machine_id
                 .map_or_else(String::default, |id| id.to_string()),
+            health: m.health.unwrap_or_else(|| rpc::health::HealthReport {
+                source: "missing".to_string(),
+                observed_at: None,
+                successes: vec![],
+                alerts: vec![],
+            }),
         }
     }
 }

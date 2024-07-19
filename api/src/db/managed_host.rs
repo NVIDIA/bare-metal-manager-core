@@ -59,12 +59,14 @@ pub async fn load_snapshot(
     let instance = Instance::find_by_machine_id(txn, &host_snapshot.machine_id).await?;
 
     let managed_state = host_snapshot.current.state.clone();
-    let snapshot = ManagedHostStateSnapshot {
+    let mut snapshot = ManagedHostStateSnapshot {
         host_snapshot,
         dpu_snapshots,
         instance,
         managed_state,
+        aggregate_health: health_report::HealthReport::empty("".to_string()),
     };
+    snapshot.derive_aggregate_health();
 
     Ok(Some(snapshot))
 }
@@ -118,12 +120,15 @@ pub async fn load_by_instance_snapshots(
 
         let instance = instance_snapshots_by_machine_id.remove(host_machine.id());
         let managed_state = host_machine.current_state();
-        managed_hosts.push(ManagedHostStateSnapshot {
+        let mut snapshot = ManagedHostStateSnapshot {
             host_snapshot: host_machine.into(),
             dpu_snapshots,
             instance,
             managed_state,
-        });
+            aggregate_health: health_report::HealthReport::empty("".to_string()),
+        };
+        snapshot.derive_aggregate_health();
+        managed_hosts.push(snapshot);
     }
 
     Ok(managed_hosts)

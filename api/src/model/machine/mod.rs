@@ -15,6 +15,7 @@ use std::{fmt::Display, net::Ipv4Addr};
 
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use health_report::HealthReport;
 use libredfish::SystemPowerControl;
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +53,31 @@ pub struct ManagedHostStateSnapshot {
     /// it's state
     pub instance: Option<InstanceSnapshot>,
     pub managed_state: ManagedHostState,
+    /// Aggregated health. This is calculated based on the health of Hosts and DPUs
+    pub aggregate_health: health_report::HealthReport,
+}
+
+impl ManagedHostStateSnapshot {
+    /// Derives the aggregate health of the Managed Host based on individual
+    /// health reports
+    pub fn derive_aggregate_health(&mut self) {
+        // TODO: At the moment the aggregate health is just the health-report
+        // from the DPU. In the future we would also take hardware-health reports
+        // and machine-validation results into consideration
+        let aggregate_health = self
+            .dpu_snapshots
+            .first()
+            .and_then(|dpu| dpu.dpu_agent_health_report.clone());
+        let mut aggregate_health = aggregate_health.unwrap_or_else(|| {
+            health_report::HealthReport::heartbeat_timeout(
+                "".to_string(),
+                "DPU 0 health has not been observed".to_string(),
+            )
+        });
+        aggregate_health.source = "aggregate-host-health".to_string();
+        aggregate_health.observed_at = Some(chrono::Utc::now());
+        self.aggregate_health = aggregate_health;
+    }
 }
 
 impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
@@ -178,6 +204,8 @@ pub struct MachineSnapshot {
     pub cleanup_machine_validation_id: Option<uuid::Uuid>,
     /// Last time when machine reprovisioning_requested.
     pub reprovisioning_requested: Option<ReprovisionRequest>,
+    /// Latest health report received by forge-dpu-agent
+    pub dpu_agent_health_report: Option<HealthReport>,
 }
 
 impl MachineSnapshot {

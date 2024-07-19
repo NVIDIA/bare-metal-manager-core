@@ -188,18 +188,10 @@ impl MachineStateHandler {
                         )
                         .await?;
 
-                        let health_report = health_report::HealthReport {
-                            source: "forge-dpu-agent".to_string(),
-                            observed_at: Some(chrono::Utc::now()),
-                            successes: vec![],
-                            alerts: vec![health_report::HealthProbeAlert {
-                                id: "HeartbeatTimeout".parse().expect("Probe ID is valid"),
-                                in_alert_since: Some(chrono::Utc::now()),
-                                message,
-                                tenant_message: None,
-                                classifications: vec![health_report::HealthAlertClassification::prevent_host_state_changes()],
-                            }],
-                        };
+                        let health_report = health_report::HealthReport::heartbeat_timeout(
+                            "forge-dpu-agent".to_string(),
+                            message,
+                        );
                         Machine::update_dpu_agent_health_report(
                             txn,
                             dpu_machine_id,
