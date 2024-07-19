@@ -47,7 +47,6 @@ use crate::{
     auth,
     db::{
         self,
-        bmc_metadata::{BmcMetaDataGetRequest, BmcMetaDataUpdateRequest},
         explored_managed_host::DbExploredManagedHost,
         instance::{DeleteInstance, Instance},
         machine::Machine,
@@ -1315,82 +1314,15 @@ impl Forge for Api {
         &self,
         request: Request<rpc::BmcMetaDataGetRequest>,
     ) -> Result<Response<rpc::BmcMetaDataGetResponse>, Status> {
-        log_request_data(&request);
-        let request = BmcMetaDataGetRequest::try_from(request.into_inner())?;
-        log_machine_id(&request.machine_id);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin get_bmc_meta_data",
-                e,
-            ))
-        })?;
-
-        let response = Ok(request
-            .get_bmc_meta_data(&mut txn, self.credential_provider.as_ref())
-            .await
-            .map(Response::new)?);
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit get_bmc_meta_data",
-                e,
-            ))
-        })?;
-
-        response
+        crate::handlers::bmc_metadata::get(self, request).await
     }
 
+    // TODO(spyda): do we ever use this?
     async fn update_bmc_meta_data(
         &self,
         request: Request<rpc::BmcMetaDataUpdateRequest>,
     ) -> Result<Response<rpc::BmcMetaDataUpdateResponse>, Status> {
-        let Some(bmc_info) = request.get_ref().bmc_info.clone() else {
-            return Err(CarbideError::InvalidArgument("Missing BMC Information".to_owned()).into());
-        };
-
-        // Note: Be *careful* when logging this request: do not log the password!
-        tracing::Span::current().record(
-            "request",
-            format!(
-                "BmcMetadataUpdateRequest machine_id: {:?} ip: {:?} request_type: {:?}",
-                request.get_ref().machine_id,
-                bmc_info.ip,
-                request.get_ref().request_type
-            ),
-        );
-
-        let request = BmcMetaDataUpdateRequest::try_from(request.into_inner())?;
-        log_machine_id(&request.machine_id);
-
-        let mut txn = self.database_connection.begin().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "begin update_bmc_meta_data",
-                e,
-            ))
-        })?;
-
-        let response = Ok(request
-            .update_bmc_meta_data(&mut txn)
-            .await
-            .map(Response::new)?);
-
-        txn.commit().await.map_err(|e| {
-            CarbideError::from(DatabaseError::new(
-                file!(),
-                line!(),
-                "commit update_bmc_meta_data",
-                e,
-            ))
-        })?;
-
-        response
+        crate::handlers::bmc_metadata::update(self, request).await
     }
 
     async fn update_machine_credentials(

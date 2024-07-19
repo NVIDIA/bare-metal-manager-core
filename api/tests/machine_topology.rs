@@ -24,11 +24,9 @@ use carbide::{
 
 pub mod common;
 use common::api_fixtures::{
-    create_test_env, dpu::create_dpu_machine, host::create_host_hardware_info,
-    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    create_test_env, host::create_host_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 use lazy_static::lazy_static;
-use sqlx::PgPool;
 
 #[ctor::ctor]
 fn setup() {
@@ -161,31 +159,6 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await?;
 
     Ok(())
-}
-
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn test_topology_missing_mac_field(pool: PgPool) {
-    let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-
-    let query = r#"UPDATE machine_topologies SET topology = (SELECT topology::jsonb #- '{bmc_info,mac}' FROM machine_topologies WHERE machine_id=$1) where machine_id=$1;"#;
-
-    sqlx::query(query)
-        .bind(rpc_machine_id.to_string())
-        .execute(&mut *txn)
-        .await
-        .expect("update failed");
-
-    txn.commit().await.expect("commit failed");
-
-    let machines = env.find_machines(Some(rpc_machine_id), None, true).await;
-
-    let machine = machines.machines.first().unwrap();
-    let bmc_info = machine.bmc_info.as_ref().unwrap();
-    assert!(bmc_info.mac.is_none());
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]

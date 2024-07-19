@@ -1097,12 +1097,9 @@ impl SiteExplorer {
         // Forge scout will update this topology with a full information.
         MachineTopology::set_topology_update_needed(txn, machine_id, true).await?;
 
-        let bmc_metadata = BmcMetaDataUpdateRequest {
-            machine_id: machine_id.clone(),
-            bmc_info: bmc_info.clone(),
-        };
-
-        bmc_metadata.update_bmc_network_into_topologies(txn).await?;
+        BmcMetaDataUpdateRequest::new(machine_id.clone(), bmc_info.clone())
+            .update_bmc_meta_data(txn)
+            .await?;
 
         Ok(())
     }
