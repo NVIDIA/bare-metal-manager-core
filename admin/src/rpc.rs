@@ -600,6 +600,25 @@ pub async fn set_host_uefi_password(
     .await
 }
 
+pub async fn clear_host_uefi_password(
+    query: MachineQuery,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<::rpc::forge::ClearHostUefiPasswordResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::ClearHostUefiPasswordRequest {
+            host_id: Some(::rpc::common::MachineId { id: query.query }),
+        });
+        let response = client
+            .clear_host_uefi_password(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(response)
+    })
+    .await
+}
+
 // How will we find the BMC credentials to perform the reboot?
 pub enum RebootAuth {
     // User provided them directly on command line
