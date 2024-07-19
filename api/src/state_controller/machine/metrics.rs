@@ -38,6 +38,8 @@ pub struct MachineMetrics {
     pub machine_reboot_attempts_in_failed_during_discovery: Option<u64>,
     pub available_gpus: usize,
     pub assigned_to_tenant: Option<TenantOrganizationId>,
+    pub health_probe_alerts: HashSet<health_report::HealthProbeId>,
+    pub health_alert_classifications: HashSet<health_report::HealthAlertClassification>,
 }
 
 #[derive(Debug, Default)]
@@ -56,6 +58,10 @@ pub struct MachineStateControllerIterationMetrics {
     pub available_gpus: usize,
     pub assigned_gpus_by_tenant: HashMap<TenantOrganizationId, usize>,
     pub assigned_hosts_by_tenant: HashMap<TenantOrganizationId, usize>,
+    pub hosts_total: usize,
+    pub hosts_healthy: usize,
+    pub unhealthy_hosts_by_probe_id: HashMap<String, usize>,
+    pub unhealthy_hosts_by_classification_id: HashMap<String, usize>,
 }
 
 #[derive(Debug)]
@@ -66,7 +72,10 @@ pub struct MachineMetricsEmitter {
     assigned_gpus_by_tenant_gauge: ObservableGauge<u64>,
     assigned_hosts_by_tenant_gauge: ObservableGauge<u64>,
     available_gpus_gauge: ObservableGauge<u64>,
+    hosts_health_status_gauge: ObservableGauge<u64>,
     failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
+    unhealthy_hosts_by_probe_id_gauge: ObservableGauge<u64>,
+    unhealthy_hosts_by_classification_gauge: ObservableGauge<u64>,
     dpu_agent_version_gauge: ObservableGauge<u64>,
     dpu_firmware_version_gauge: ObservableGauge<u64>,
     machine_inventory_component_versions_gauge: ObservableGauge<u64>,
@@ -116,11 +125,29 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .u64_observable_gauge("forge_dpus_healthy_count")
             .with_description("The total number of DPUs in the system that have reported healthy in the last report. Healthy does not imply up - the report from the DPU might be outdated.")
             .init();
+        let hosts_health_status_gauge = meter
+            .u64_observable_gauge("forge_hosts_health_status_count")
+            .with_description("The total number of Managed Hosts in the system that have reported any a healthy nor not healthy status - based on the presence of health probe alerts")
+            .init();
 
         let failed_dpu_healthchecks_gauge = meter
             .u64_observable_gauge("forge_dpu_health_check_failed_count")
             .with_description(
                 "The total number of DPUs in the system that have failed a health-check.",
+            )
+            .init();
+
+        let unhealthy_hosts_by_probe_id_gauge = meter
+            .u64_observable_gauge("forge_hosts_unhealthy_by_probe_id_count")
+            .with_description(
+                "The amount of ManagedHosts which reported a certain Health Probe Alert",
+            )
+            .init();
+
+        let unhealthy_hosts_by_classification_gauge = meter
+            .u64_observable_gauge("forge_hosts_unhealthy_by_classification_count")
+            .with_description(
+                "The amount of ManagedHosts which are marked with a certain classification due to being unhealthy",
             )
             .init();
 
@@ -166,7 +193,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
             dpus_up_gauge,
             dpus_healthy_gauge,
             dpu_agent_version_gauge,
+            hosts_health_status_gauge,
             failed_dpu_healthchecks_gauge,
+            unhealthy_hosts_by_probe_id_gauge,
+            unhealthy_hosts_by_classification_gauge,
             dpu_firmware_version_gauge,
             machine_inventory_component_versions_gauge,
             client_certificate_expiration_gauge,
@@ -184,7 +214,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
             self.dpus_up_gauge.as_any(),
             self.dpus_healthy_gauge.as_any(),
             self.dpu_agent_version_gauge.as_any(),
+            self.hosts_health_status_gauge.as_any(),
             self.failed_dpu_healthchecks_gauge.as_any(),
+            self.unhealthy_hosts_by_probe_id_gauge.as_any(),
+            self.unhealthy_hosts_by_classification_gauge.as_any(),
             self.dpu_firmware_version_gauge.as_any(),
             self.machine_inventory_component_versions_gauge.as_any(),
             self.client_certificate_expiration_gauge.as_any(),
@@ -195,11 +228,15 @@ impl MetricsEmitter for MachineMetricsEmitter {
         iteration_metrics: &mut Self::IterationMetrics,
         object_metrics: &Self::ObjectMetrics,
     ) {
+        iteration_metrics.hosts_total += 1;
         if object_metrics.dpu_up {
             iteration_metrics.dpus_up += 1;
         }
         if object_metrics.dpu_healthy {
             iteration_metrics.dpus_healthy += 1;
+        }
+        if object_metrics.health_probe_alerts.is_empty() {
+            iteration_metrics.hosts_healthy += 1;
         }
 
         iteration_metrics.available_gpus += object_metrics.available_gpus;
@@ -233,6 +270,19 @@ impl MetricsEmitter for MachineMetricsEmitter {
             *iteration_metrics
                 .failed_dpu_healthchecks
                 .entry(failed_healthcheck.clone())
+                .or_default() += 1;
+        }
+
+        for alert in &object_metrics.health_probe_alerts {
+            *iteration_metrics
+                .unhealthy_hosts_by_probe_id
+                .entry(alert.to_string())
+                .or_default() += 1;
+        }
+        for classification in &object_metrics.health_alert_classifications {
+            *iteration_metrics
+                .unhealthy_hosts_by_classification_id
+                .entry(classification.to_string())
                 .or_default() += 1;
         }
 
@@ -319,6 +369,22 @@ impl MetricsEmitter for MachineMetricsEmitter {
             attributes,
         );
 
+        let mut health_status_attr = attributes.to_vec();
+        health_status_attr.push(KeyValue::new("healthy", "true".to_string()));
+        observer.observe_u64(
+            &self.hosts_health_status_gauge,
+            iteration_metrics.hosts_healthy as u64,
+            &health_status_attr,
+        );
+        health_status_attr.last_mut().unwrap().value = "false".to_string().into();
+        observer.observe_u64(
+            &self.hosts_health_status_gauge,
+            (iteration_metrics
+                .hosts_total
+                .saturating_sub(iteration_metrics.hosts_healthy)) as u64,
+            &health_status_attr,
+        );
+
         let mut failed_health_check_attr = attributes.to_vec();
         // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
         failed_health_check_attr.push(KeyValue::new("failure", "".to_string()));
@@ -328,6 +394,28 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 &self.failed_dpu_healthchecks_gauge,
                 *count as u64,
                 &failed_health_check_attr,
+            );
+        }
+
+        let mut probe_id_attr = attributes.to_vec();
+        probe_id_attr.push(KeyValue::new("probe_id", "".to_string()));
+        for (probe, count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
+            probe_id_attr.last_mut().unwrap().value = probe.clone().into();
+            observer.observe_u64(
+                &self.unhealthy_hosts_by_probe_id_gauge,
+                *count as u64,
+                &probe_id_attr,
+            );
+        }
+
+        let mut probe_classification_attr = attributes.to_vec();
+        probe_classification_attr.push(KeyValue::new("classification", "".to_string()));
+        for (classification, count) in &iteration_metrics.unhealthy_hosts_by_probe_id {
+            probe_classification_attr.last_mut().unwrap().value = classification.clone().into();
+            observer.observe_u64(
+                &self.unhealthy_hosts_by_classification_gauge,
+                *count as u64,
+                &probe_classification_attr,
             );
         }
 
@@ -424,6 +512,8 @@ mod tests {
                 machine_id: Some("machine a".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
+                health_probe_alerts: HashSet::new(),
+                health_alert_classifications: HashSet::new(),
             },
             MachineMetrics {
                 available_gpus: 2,
@@ -442,6 +532,8 @@ mod tests {
                 machine_id: Some("machine a".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(0),
                 machine_reboot_attempts_in_failed_during_discovery: Some(0),
+                health_probe_alerts: HashSet::new(),
+                health_alert_classifications: HashSet::new(),
             },
             MachineMetrics {
                 available_gpus: 3,
@@ -460,6 +552,13 @@ mod tests {
                 machine_id: Some("machine b".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(1),
                 machine_reboot_attempts_in_failed_during_discovery: Some(1),
+                health_probe_alerts: ["BgpStats".parse().unwrap()].into_iter().collect(),
+                health_alert_classifications: [
+                    "Class1".parse().unwrap(),
+                    "Class3".parse().unwrap(),
+                ]
+                .into_iter()
+                .collect(),
             },
             MachineMetrics {
                 available_gpus: 1,
@@ -485,6 +584,8 @@ mod tests {
                 machine_id: Some("machine b".to_string()),
                 machine_reboot_attempts_in_booting_with_discovery_image: Some(2),
                 machine_reboot_attempts_in_failed_during_discovery: Some(2),
+                health_probe_alerts: HashSet::new(),
+                health_alert_classifications: HashSet::new(),
             },
             MachineMetrics {
                 available_gpus: 2,
@@ -510,6 +611,18 @@ mod tests {
                 machine_id: None,
                 machine_reboot_attempts_in_booting_with_discovery_image: None,
                 machine_reboot_attempts_in_failed_during_discovery: None,
+                health_probe_alerts: [
+                    "BgpStats".parse().unwrap(),
+                    "HeartbeatTimeout".parse().unwrap(),
+                ]
+                .into_iter()
+                .collect(),
+                health_alert_classifications: [
+                    "Class1".parse().unwrap(),
+                    "Class2".parse().unwrap(),
+                ]
+                .into_iter()
+                .collect(),
             },
         ];
 
@@ -559,6 +672,25 @@ mod tests {
             iteration_metrics.dpu_firmware_versions,
             HashMap::from_iter([("v2".to_string(), 1), ("v4".to_string(), 2)])
         );
+
+        assert_eq!(iteration_metrics.hosts_total, 5);
+        assert_eq!(iteration_metrics.hosts_healthy, 3);
+        assert_eq!(
+            iteration_metrics.unhealthy_hosts_by_probe_id,
+            HashMap::from_iter([
+                ("BgpStats".parse().unwrap(), 2),
+                ("HeartbeatTimeout".parse().unwrap(), 1),
+            ])
+        );
+        assert_eq!(
+            iteration_metrics.unhealthy_hosts_by_classification_id,
+            HashMap::from_iter([
+                ("Class1".parse().unwrap(), 2),
+                ("Class2".parse().unwrap(), 1),
+                ("Class3".parse().unwrap(), 1),
+            ])
+        );
+
         assert_eq!(
             iteration_metrics.machine_inventory_component_versions,
             HashMap::from_iter([
