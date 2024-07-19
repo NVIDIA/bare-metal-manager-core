@@ -1431,6 +1431,10 @@ message Machine {
 
   // Fields are not ordered numerically, check the whole message for max field number
   repeated common.MachineId associated_dpu_machine_ids = 26;
+
+  // For Host Machines returns the aggregate health of the host
+  // For DPUs, it returns the individual DPU health
+  health.HealthReport health = 27;
 }
 
 message DpuAgentInventoryReport {

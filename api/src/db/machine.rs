@@ -286,6 +286,7 @@ impl From<Machine> for MachineSnapshot {
             discovery_machine_validation_id: machine.discovery_machine_validation_id(),
             cleanup_machine_validation_id: machine.cleanup_machine_validation_id(),
             reprovisioning_requested: machine.reprovisioning_requested().clone(),
+            dpu_agent_health_report: machine.dpu_agent_health_report,
         }
     }
 }
@@ -364,12 +365,23 @@ impl<'r> sqlx::FromRow<'r, PgRow> for DbMachineId {
     }
 }
 
-///
 /// Implements conversion from a database-backed `Machine` to a Protobuf representation of the
 /// Machine.
-///
 impl From<Machine> for rpc::Machine {
     fn from(machine: Machine) -> Self {
+        let health = match machine.id.machine_type().is_dpu() {
+            true => machine
+                .dpu_agent_health_report()
+                .cloned()
+                .unwrap_or_else(|| {
+                    HealthReport::heartbeat_timeout(
+                        "forge-dpu-agent".to_string(),
+                        "No health data was received from DPU".to_string(),
+                    )
+                }),
+            false => HealthReport::empty("aggregate-host-health".to_string()), // TODO: FixMe
+        };
+
         rpc::Machine {
             id: Some(machine.id.to_string().into()),
             state: machine.state.value.to_string(),
@@ -436,6 +448,7 @@ impl From<Machine> for rpc::Machine {
                 .as_ref()
                 .map(|x| x.mode.to_string()),
             state_reason: machine.controller_state_outcome.map(|r| r.into()),
+            health: Some(health.into()),
         }
     }
 }
@@ -1204,29 +1217,39 @@ SELECT m.id FROM
         Ok(())
     }
 
-    pub async fn update_dpu_agent_health_report(
+    async fn update_health_report(
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
+        column_name: &str,
         health_report: &HealthReport,
     ) -> Result<(), DatabaseError> {
-        let query =
-            "UPDATE machines SET dpu_agent_health_report = $1::json WHERE id = $2 AND
-             (dpu_agent_health_report IS NULL
-                OR (dpu_agent_health_report ? 'observed_at' AND dpu_agent_health_report->>'observed_at' <= $3)
-            ) RETURNING id";
+        let query = format!(
+            "UPDATE machines SET {column_name} = $1::json WHERE id = $2 AND
+             ({column_name} IS NULL
+                OR ({column_name} ? 'observed_at' AND {column_name}->>'observed_at' <= $3)
+            ) RETURNING id"
+        );
         let observed_at = health_report
             .observed_at
             .map(|o| o.to_rfc3339())
             .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-        let _id: (DbMachineId,) = sqlx::query_as(query)
+        let _id: (DbMachineId,) = sqlx::query_as(&query)
             .bind(sqlx::types::Json(&health_report))
             .bind(machine_id.to_string())
             .bind(observed_at)
             .fetch_one(&mut **txn)
             .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+            .map_err(|e| DatabaseError::new(file!(), line!(), "update health report", e))?;
 
         Ok(())
+    }
+
+    pub async fn update_dpu_agent_health_report(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        health_report: &HealthReport,
+    ) -> Result<(), DatabaseError> {
+        Self::update_health_report(txn, machine_id, "dpu_agent_health_report", health_report).await
     }
 
     pub async fn update_agent_reported_inventory(

@@ -35,6 +35,29 @@ pub struct HealthReport {
     pub alerts: Vec<HealthProbeAlert>,
 }
 
+impl HealthReport {
+    /// Returns a health report with no successes or errors reported
+    pub fn empty(source: String) -> Self {
+        Self {
+            source,
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![],
+        }
+    }
+
+    /// Returns a health report that indicates that no fresh data health data
+    /// has been received from a certain subsystem
+    pub fn heartbeat_timeout(source: String, message: String) -> Self {
+        Self {
+            source,
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert::heartbeat_timeout(message)],
+        }
+    }
+}
+
 /// An alert that has been raised by a health-probe
 #[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct HealthProbeAlert {
@@ -56,6 +79,19 @@ pub struct HealthProbeAlert {
     pub classifications: Vec<HealthAlertClassification>,
 }
 
+impl HealthProbeAlert {
+    /// Creates a HeartbeatTimeout alert
+    pub fn heartbeat_timeout(message: String) -> Self {
+        Self {
+            id: HealthProbeId::heartbeat_timeout(),
+            in_alert_since: Some(chrono::Utc::now()),
+            message,
+            tenant_message: None,
+            classifications: vec![HealthAlertClassification::prevent_host_state_changes()],
+        }
+    }
+}
+
 /// A successful health probe (reported no alerts)
 #[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct HealthProbeSuccess {
@@ -66,6 +102,13 @@ pub struct HealthProbeSuccess {
 /// A well-known name of a probe that generated an alert
 #[derive(PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct HealthProbeId(String);
+
+impl HealthProbeId {
+    /// Returns the ID of the HealthProbe that indicates that no fresh data has been received
+    pub fn heartbeat_timeout() -> Self {
+        HealthProbeId("HeartbeatTimeout".to_string())
+    }
+}
 
 impl std::fmt::Debug for HealthProbeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

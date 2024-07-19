@@ -22,6 +22,9 @@
 	{% if !state_reason.is_empty() %}
 	<tr><th>State machine is blocked</th><td>{{ state_reason }}</td></tr>
 	{% endif %}
+	<tr><th>Health Report Source</th><td>{{ health.source }}</td></tr>
+	<tr><th>Health Report Observed At</th><td>{% match health.observed_at %}{% when Some with (observed_at) %} {{ observed_at }} {% else %}{% endmatch %}</td></tr>
+
 	{% if !network_config.is_empty() %}
 	<tr>
 		<th>Network config (sent to forge-dpu-agent)</th>
@@ -36,6 +39,24 @@
 	<tr><th>Bios Version</th><td>{{ bios_version }}</td></tr>
 	<tr><th>Board Version</th><td>{{ board_version }}</td></tr>
 </table>
+
+<h3>Health Probe Successes</h3>
+{% for success in health.successes %}
+<table>
+	<tr><th>ID</th><td>{{ success.id }}</td></tr>
+</table>
+{% endfor %}
+
+<h3>Health Probe Alerts</h3>
+{% for alert in health.alerts %}
+<table>
+	<tr><th>ID</th><td>{{ alert.id }}</td></tr>
+	<tr><th>In Alert Since</th><td>{% match alert.in_alert_since %}{% when Some with (since) %} {{ since }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Message</th><td>{{ alert.message }}</td></tr>
+	<tr><th>Tenant Message</th><td>{% match alert.tenant_message %}{% when Some with (msg) %} {{ msg }} {% else %}{% endmatch %}</td></tr>
+	<tr><th>Classifications</th><td>{{ alert.classifications|join("\n")|escape|linebreaksbr|safe }}</td></tr>
+</table>
+{% endfor %}
 
 <h3>Interfaces</h3>
 {% for interface in interfaces %}
