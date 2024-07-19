@@ -14,10 +14,10 @@ mod metrics;
 
 use forge_secrets::credentials::{CredentialKey, CredentialType};
 use http::StatusCode;
-use libredfish::{model::task::TaskState, RedfishError, SystemPowerControl};
+use libredfish::{model::task::TaskState, Redfish, RedfishError, SystemPowerControl};
 use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, Postgres, Transaction};
-use std::{default::Default, sync::Arc, time::Duration};
+use std::{default::Default, net::IpAddr, sync::Arc, time::Duration};
 use tokio::{
     sync::{oneshot, Mutex},
     task::JoinSet,
@@ -257,17 +257,27 @@ async fn one_endpoint(
             task_id,
             final_version,
             upgrade_type,
-            rebooted,
         } => {
             static_info
-                .in_upgrade_firmware_wait(
-                    &mut txn,
-                    &endpoint,
-                    task_id,
-                    final_version,
-                    upgrade_type,
-                    rebooted,
-                )
+                .in_upgrade_firmware_wait(&mut txn, &endpoint, task_id, final_version, upgrade_type)
+                .await?;
+            false
+        }
+        PreingestionState::ResetForNewFirmware {
+            final_version,
+            upgrade_type,
+        } => {
+            static_info
+                .in_reset_for_new_firmware(&mut txn, &endpoint, final_version, upgrade_type)
+                .await?;
+            false
+        }
+        PreingestionState::NewFirmwareReportedWait {
+            final_version,
+            upgrade_type,
+        } => {
+            static_info
+                .in_new_firmware_reported_wait(&mut txn, &endpoint, final_version, upgrade_type)
                 .await?;
             false
         }
@@ -520,28 +530,11 @@ impl PreingestionManagerStatic {
         task_id: &str,
         final_version: &str,
         upgrade_type: &FirmwareHostComponentType,
-        rebooted: &bool,
     ) -> DatabaseResult<()> {
-        let redfish_client = match self
-            .redfish_client_pool
-            .create_client(
-                &endpoint.address.to_string(),
-                None,
-                RedfishAuth::Key(CredentialKey::HostRedfish {
-                    credential_type: CredentialType::SiteDefault,
-                }),
-                true,
-            )
-            .await
-            .map_err(|e| match e {
-                RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
-                _ => CarbideError::GenericError(format!("{}", e)),
-            }) {
-            Ok(redfish_client) => redfish_client,
-            Err(e) => {
-                tracing::error!("Redfish connection to {} failed: {e}", endpoint.address);
-                return Ok(());
-            }
+        let Some(redfish_client) =
+            create_redfish_client(&self.redfish_client_pool, &endpoint.address).await
+        else {
+            return Ok(());
         };
 
         match redfish_client.get_task(task_id).await {
@@ -561,111 +554,22 @@ impl PreingestionManagerStatic {
                     Some(TaskState::Completed) => {
                         // Task has completed, update is done and we can clean up.  Site explorer will ingest this next time it runs on this endpoint.
                         // First check if we should be rebooting though
-                        if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
-                            if let Some(current_version) =
-                                find_version(endpoint, &fw_info, *upgrade_type)
-                            {
-                                if current_version != final_version {
-                                    // Still not reporting the new version.
-                                    DbExploredEndpoint::set_waiting_for_explorer_refresh(
-                                        endpoint.address,
-                                        txn,
-                                    )
-                                    .await?;
-                                    // If this is the UEFI, we need to request a reboot if we haven't before.  Otherwise, we just need to keep waiting.
-                                    // The version reported doesn't update until the end of the UEFI portion of the boot, which can be quite a wait.
-                                    if !rebooted && *upgrade_type == FirmwareHostComponentType::Uefi
-                                    {
-                                        tracing::info!(
-                                                "Upgrade task has completed for {} but needs reboot, initiating one",
-                                                &endpoint.address
-                                            );
-                                        if let Err(e) = redfish_client
-                                            .power(SystemPowerControl::ForceRestart)
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "Failed to reboot {}: {e}",
-                                                &endpoint.address
-                                            );
-                                            return Ok(());
-                                        }
-                                        // Same state but with the rebooted flag set, it can take a long itme to reboot in some cases so we do not retry.
-                                        DbExploredEndpoint::set_preingestion_waittask(
-                                            endpoint.address,
-                                            task_id.to_string(),
-                                            final_version,
-                                            upgrade_type,
-                                            true,
-                                            txn,
-                                        )
-                                        .await?;
-                                    }
-                                    if !rebooted
-                                        && *upgrade_type == FirmwareHostComponentType::Bmc
-                                        && endpoint
-                                            .report
-                                            .vendor
-                                            .unwrap_or(bmc_vendor::BMCVendor::Unknown)
-                                            .is_lenovo()
-                                    {
-                                        tracing::info!(
-                                            "Upgrade task has completed for {} but needs BMC reboot, initiating one",
-                                            &endpoint.address
-                                        );
-                                        if let Err(e) = redfish_client.bmc_reset().await {
-                                            tracing::error!(
-                                                "Failed to reboot {}: {e}",
-                                                &endpoint.address
-                                            );
-                                            return Ok(());
-                                        }
-                                        DbExploredEndpoint::set_preingestion_waittask(
-                                            endpoint.address,
-                                            task_id.to_string(),
-                                            final_version,
-                                            upgrade_type,
-                                            true,
-                                            txn,
-                                        )
-                                        .await?;
-                                    }
-                                    tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
-                                    return Ok(());
-                                }
-                                // The case where we did match the versions is the sole path where we do not need to wait for site explorer to refresh the info.
-                            } else {
-                                tracing::error!("in_upgrade_firmware_wait: Could not find current version {} {:?} {:?}", &endpoint.address, fw_info, *upgrade_type);
-                                // Make sure we wait for the new version
-                                DbExploredEndpoint::set_waiting_for_explorer_refresh(
-                                    endpoint.address,
-                                    txn,
-                                )
-                                .await?;
-                            }
-                        } else {
-                            tracing::error!(
-                                "in_upgrade_firmware_wait: Could not find fw_info {} {:?} {:?}",
-                                &endpoint.address,
-                                endpoint.report.vendor,
-                                endpoint.report.systems
-                            );
-                            // Make sure we wait for the new version
-                            DbExploredEndpoint::set_waiting_for_explorer_refresh(
-                                endpoint.address,
-                                txn,
-                            )
-                            .await?;
-                        }
+
                         tracing::info!(
                             "Marking completion of Redfish task of firmware upgrade for {}",
                             &endpoint.address
                         );
-                        DbExploredEndpoint::set_preingestion_recheck_versions(
+                        DbExploredEndpoint::set_preingestion_reset_for_new_firmware(
                             endpoint.address,
+                            final_version,
+                            upgrade_type,
                             txn,
                         )
                         .await?;
+                        // Can immediately process as that new state
+                        return self
+                            .in_reset_for_new_firmware(txn, endpoint, final_version, upgrade_type)
+                            .await;
                     }
                     Some(TaskState::Exception)
                     | Some(TaskState::Interrupted)
@@ -731,6 +635,132 @@ impl PreingestionManagerStatic {
                 }
             },
         };
+        Ok(())
+    }
+
+    async fn in_reset_for_new_firmware(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        endpoint: &ExploredEndpoint,
+        final_version: &str,
+        upgrade_type: &FirmwareHostComponentType,
+    ) -> DatabaseResult<()> {
+        let Some(redfish_client) =
+            create_redfish_client(&self.redfish_client_pool, &endpoint.address).await
+        else {
+            return Ok(());
+        };
+
+        // Still not reporting the new version.
+        // If this is the UEFI, we need to request a reboot.  Otherwise, we just need to keep waiting.
+        // The version reported doesn't update until the end of the UEFI portion of the boot, which can be quite a long wait.
+        if *upgrade_type == FirmwareHostComponentType::Uefi {
+            tracing::info!(
+                "Upgrade task has completed for {} but needs reboot, initiating one",
+                &endpoint.address
+            );
+            if let Err(e) = redfish_client.power(SystemPowerControl::ForceRestart).await {
+                tracing::error!("Failed to reboot {}: {e}", &endpoint.address);
+                return Ok(());
+            }
+            DbExploredEndpoint::set_preingestion_new_reported_wait(
+                endpoint.address,
+                final_version,
+                upgrade_type,
+                txn,
+            )
+            .await?;
+            // Will not be reporting the new version yet, we need to wait.
+            DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+            return Ok(());
+        }
+        // Lenovo BMC needs to be manually reset after the update
+        if *upgrade_type == FirmwareHostComponentType::Bmc
+            && endpoint
+                .report
+                .vendor
+                .unwrap_or(bmc_vendor::BMCVendor::Unknown)
+                .is_lenovo()
+        {
+            tracing::info!(
+                "Upgrade task has completed for {} but needs BMC reboot, initiating one",
+                &endpoint.address
+            );
+            if let Err(e) = redfish_client.bmc_reset().await {
+                tracing::error!("Failed to reboot {}: {e}", &endpoint.address);
+                return Ok(());
+            }
+            DbExploredEndpoint::set_preingestion_new_reported_wait(
+                endpoint.address,
+                final_version,
+                upgrade_type,
+                txn,
+            )
+            .await?;
+            // Will not be reporting the new version yet, we need to wait.
+            DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+            return Ok(());
+        }
+
+        // No need for resets or reboots, go right to waiting for the new version to show up, and we might as well check right away.
+        DbExploredEndpoint::set_preingestion_new_reported_wait(
+            endpoint.address,
+            final_version,
+            upgrade_type,
+            txn,
+        )
+        .await?;
+
+        self.in_new_firmware_reported_wait(txn, endpoint, final_version, upgrade_type)
+            .await
+    }
+
+    async fn in_new_firmware_reported_wait(
+        &self,
+        txn: &mut Transaction<'_, Postgres>,
+        endpoint: &ExploredEndpoint,
+        final_version: &str,
+        upgrade_type: &FirmwareHostComponentType,
+    ) -> DatabaseResult<()> {
+        if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
+            if let Some(current_version) = find_version(endpoint, &fw_info, *upgrade_type) {
+                if current_version != final_version {
+                    // Still not reporting the new version.
+                    DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
+                        .await?;
+                    tracing::info!("Upgrade task has completed for {} but still reports version {current_version}", &endpoint.address);
+                    return Ok(());
+                }
+                tracing::info!(
+                    "Upgrade for {} now reports version {current_version}",
+                    &endpoint.address
+                );
+            } else {
+                // This path should only happen if something strange happened with the version definitions
+                tracing::error!(
+                    "in_upgrade_firmware_wait: Could not find current version {} {:?} {:?}",
+                    &endpoint.address,
+                    fw_info,
+                    *upgrade_type
+                );
+                // Make sure we wait for the new version
+                DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+            }
+        } else {
+            // This path should only happen if something strange happened with the version definitions
+            tracing::error!(
+                "in_upgrade_firmware_wait: Could not find fw_info {} {:?} {:?}",
+                &endpoint.address,
+                endpoint.report.vendor,
+                endpoint.report.systems
+            );
+            // Make sure we wait for the new version
+            DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
+        }
+
+        // Go back to checking versions as there may be other things that need upgrading
+        DbExploredEndpoint::set_preingestion_recheck_versions(endpoint.address, txn).await?;
+
         Ok(())
     }
 }
@@ -820,25 +850,10 @@ async fn initiate_update(
     }
 
     // Setup the Redfish connection
-    let redfish_client = match redfish_client_pool
-        .create_client(
-            &endpoint_clone.address.to_string(),
-            None,
-            RedfishAuth::Key(CredentialKey::HostRedfish {
-                credential_type: CredentialType::SiteDefault,
-            }),
-            true,
-        )
-        .await
-    {
-        Ok(redfish_client) => redfish_client,
-        Err(e) => {
-            tracing::info!(
-                "Failed to open redfish to {}: {e}",
-                endpoint_clone.address.to_string()
-            );
-            return Ok(());
-        }
+    let Some(redfish_client) =
+        create_redfish_client(redfish_client_pool, &endpoint_clone.address).await
+    else {
+        return Ok(());
     };
     tracing::info!(
         "initiate_update: Started upload of firmware to {}",
@@ -871,10 +886,37 @@ async fn initiate_update(
         task,
         &to_install.version,
         firmware_type,
-        false,
         txn,
     )
     .await?;
 
     Ok(())
+}
+
+// create_redfish_client handles getting a new client handle.  We do an option here and not a result because
+// its callers want to simply return Ok(()) on failures to connect, not an error that would abort the current iteration.
+async fn create_redfish_client(
+    pool: &Arc<dyn RedfishClientPool>,
+    address: &IpAddr,
+) -> Option<Box<dyn Redfish>> {
+    match pool
+        .create_client(
+            address.to_string().as_str(),
+            None,
+            RedfishAuth::Key(CredentialKey::HostRedfish {
+                credential_type: CredentialType::SiteDefault,
+            }),
+            true,
+        )
+        .await
+        .map_err(|e| match e {
+            RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
+            _ => CarbideError::GenericError(format!("{}", e)),
+        }) {
+        Ok(redfish_client) => Some(redfish_client),
+        Err(e) => {
+            tracing::error!("Redfish connection to {} failed: {e}", address);
+            None
+        }
+    }
 }
