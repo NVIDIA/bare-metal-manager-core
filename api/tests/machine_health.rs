@@ -124,6 +124,7 @@ async fn test_machine_health_reporting(
             }],
             network_config_error: None,
             client_certificate_expiry_unix_epoch_secs: None,
+            fabric_interfaces: vec![]
         }))
         .await
         .unwrap();
