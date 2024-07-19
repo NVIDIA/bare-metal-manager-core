@@ -22,8 +22,10 @@ use serde::Serialize;
 /// Metrics that are gathered in one a single `IbFabricMonitor` run
 #[derive(Clone, Debug)]
 pub struct IbFabricMonitorMetrics {
-    /// When the fabric monitor run started
-    pub recorded_at: Instant,
+    /// When we started recording these metrics
+    pub recording_started_at: std::time::Instant,
+    /// When we finished recording the metrics
+    pub recording_finished_at: std::time::Instant,
     /// The amount of fabrics that are monitored
     pub num_fabrics: usize,
     /// Per fabric metrics
@@ -52,7 +54,8 @@ pub struct FabricMetrics {
 impl IbFabricMonitorMetrics {
     pub fn new() -> Self {
         Self {
-            recorded_at: Instant::now(),
+            recording_started_at: Instant::now(),
+            recording_finished_at: Instant::now(),
             num_fabrics: 0,
             fabrics: HashMap::new(),
         }
@@ -164,7 +167,7 @@ impl MetricHolder {
             &self.instruments.instruments(),
             move |observer| {
                 if let Some(metrics) = self_clone.last_iteration_metrics.load_full() {
-                    let elapsed = metrics.recorded_at.elapsed();
+                    let elapsed = metrics.recording_finished_at.elapsed();
                     if elapsed > self_clone.hold_period {
                         return;
                     }
@@ -178,7 +181,8 @@ impl MetricHolder {
     }
 
     /// Updates the most recent metrics
-    pub fn update_metrics(&self, metrics: IbFabricMonitorMetrics) {
+    pub fn update_metrics(&self, mut metrics: IbFabricMonitorMetrics) {
+        metrics.recording_finished_at = std::time::Instant::now();
         self.last_iteration_metrics.store(Some(Arc::new(metrics)));
     }
 }

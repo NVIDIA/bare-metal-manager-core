@@ -276,7 +276,10 @@ impl SiteExplorer {
         let identified_hosts = self.identify_managed_hosts(metrics).await?;
 
         if **self.config.create_machines.load() {
-            self.create_machines(metrics, identified_hosts).await?;
+            let start_create_machines = std::time::Instant::now();
+            let create_machines_res = self.create_machines(metrics, identified_hosts).await;
+            metrics.create_machines_latency = Some(start_create_machines.elapsed());
+            create_machines_res?;
         }
 
         Ok(())
