@@ -354,6 +354,27 @@ pub(crate) async fn record_dpu_network_status(
         ))
     })?;
 
+    // Load the DPU Object. We require it to update the health report based
+    // on the last report
+    let dpu_machine = Machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        MachineSearchConfig {
+            include_dpus: true,
+            include_history: false,
+            include_predicted_host: false,
+            only_maintenance: false,
+            include_associated_machine_id: false,
+            exclude_hosts: false,
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "machine",
+        id: dpu_machine_id.to_string(),
+    })?;
+
     let observed_at = match request.observed_at.clone() {
         Some(ts) => {
             // Use DPU clock
@@ -413,7 +434,7 @@ pub(crate) async fn record_dpu_network_status(
                         "Can not convert health probe alert id: {e}"
                     ))
                 })?,
-                in_alert_since: Some(chrono::Utc::now()),
+                in_alert_since: None,
                 // We don't really know the message. The legacy format doesn't associate it with a probe ID
                 message: failed.clone(),
                 tenant_message: None,
@@ -446,7 +467,9 @@ pub(crate) async fn record_dpu_network_status(
     // it with more accurate information
     health_report.source = "forge-dpu-agent".to_string();
     health_report.observed_at = Some(chrono::Utc::now());
-    // TODO: Fix the in_alert times
+    // Fix the in_alert times based on the previously stored report
+    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report());
+
     Machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
         .await
         .map_err(CarbideError::from)?;

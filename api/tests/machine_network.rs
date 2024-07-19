@@ -278,3 +278,80 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
         }
     );
 }
+
+/// Tests whether the in_alert_since field will be correctly populated
+/// in case the DPU sends multiple reports using the same alarm
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
+    let env = api_fixtures::create_test_env(pool).await;
+    let (_host_machine_id, dpu_machine_id) = api_fixtures::create_managed_host(&env).await;
+
+    let hs = NetworkHealth {
+        is_healthy: true,
+        passed: vec![],
+        failed: vec![],
+        message: None,
+    };
+    let dpu_health = rpc::health::HealthReport {
+        source: "should-get-updated".to_string(),
+        observed_at: None,
+        successes: vec![rpc::health::HealthProbeSuccess {
+            id: "SuccessA".to_string(),
+        }],
+        alerts: vec![rpc::health::HealthProbeAlert {
+            id: "AlertA".to_string(),
+            in_alert_since: None,
+            message: "AlertA".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_host_state_changes().to_string(),
+            ],
+        }],
+    };
+
+    network_configured_with_health(
+        &env,
+        &dpu_machine_id,
+        Some(hs.clone()),
+        Some(dpu_health.clone()),
+    )
+    .await;
+
+    // Query the new HealthReport format
+    let dpu_machine = env
+        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+    let reported_dpu_health = dpu_machine.health.clone().unwrap();
+
+    assert!(reported_dpu_health.observed_at.is_some());
+    assert_eq!(reported_dpu_health.source, "forge-dpu-agent");
+    assert_eq!(reported_dpu_health.successes.len(), 1);
+    assert_eq!(reported_dpu_health.alerts.len(), 1);
+    let mut reported_alert = reported_dpu_health.alerts[0].clone();
+    assert!(reported_alert.in_alert_since.is_some());
+    let in_alert_since = reported_alert.in_alert_since.unwrap();
+    reported_alert.in_alert_since = None;
+    assert_eq!(reported_alert, dpu_health.alerts[0].clone());
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Report health again. The in_alert_since date should not have been updated
+    network_configured_with_health(&env, &dpu_machine_id, Some(hs), Some(dpu_health.clone())).await;
+    let dpu_machine = env
+        .find_machines(Some(dpu_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+    let reported_dpu_health = dpu_machine.health.clone().unwrap();
+
+    assert!(reported_dpu_health.observed_at.is_some());
+    assert_eq!(reported_dpu_health.source, "forge-dpu-agent");
+    assert_eq!(reported_dpu_health.successes.len(), 1);
+    assert_eq!(reported_dpu_health.alerts.len(), 1);
+    let mut reported_alert = reported_dpu_health.alerts[0].clone();
+    assert_eq!(reported_alert.in_alert_since.unwrap(), in_alert_since);
+    reported_alert.in_alert_since = None;
+    assert_eq!(reported_alert, dpu_health.alerts[0].clone());
+}

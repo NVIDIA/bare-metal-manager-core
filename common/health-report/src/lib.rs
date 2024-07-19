@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +54,29 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::heartbeat_timeout(message)],
+        }
+    }
+
+    /// Update the in_alert_since timestamps on all alerts in the reports
+    /// by taking into account the timestaps in a previous report
+    /// - If the alert has been reported in the previous report, the old timestamp
+    ///   will be retained.
+    /// - If the alert has not been reported, the current time will be used
+    pub fn update_in_alert_since(&mut self, previous: Option<&HealthReport>) {
+        let mut previous_in_alert_times = HashMap::new();
+        if let Some(previous) = previous {
+            for prev_alert in previous.alerts.iter() {
+                if let Some(timestamp) = prev_alert.in_alert_since {
+                    previous_in_alert_times.insert(prev_alert.id.clone(), timestamp);
+                }
+            }
+        }
+
+        for alert in self.alerts.iter_mut() {
+            alert.in_alert_since = Some(match previous_in_alert_times.get(&alert.id) {
+                Some(time) => *time,
+                None => chrono::Utc::now(),
+            });
         }
     }
 }
@@ -243,6 +266,88 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<HealthReport>(&serialized).unwrap(),
             report
+        );
+    }
+
+    #[test]
+    fn test_update_in_alert_since() {
+        let old = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: Some("2024-01-01T19:00:01.100Z".parse().unwrap()),
+            successes: vec![],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("Probe3".to_string()),
+                    in_alert_since: Some("2023-01-02T21:00:01.100Z".parse().unwrap()),
+                    message: "Probe3 failed".to_string(),
+                    tenant_message: Some("Internal Error".to_string()),
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("Probe4".to_string()),
+                    in_alert_since: None,
+                    message: "Probe4 failed".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        let mut new = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: Some("2024-01-01T19:00:01.100Z".parse().unwrap()),
+            successes: vec![],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("Probe3".to_string()),
+                    in_alert_since: None,
+                    message: "Probe3 failed".to_string(),
+                    tenant_message: Some("Internal Error".to_string()),
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("Probe4".to_string()),
+                    in_alert_since: None,
+                    message: "Probe4 failed".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("Probe5".to_string()),
+                    in_alert_since: None,
+                    message: "Probe5 failed".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        new.update_in_alert_since(Some(&old));
+        assert_eq!(
+            new.alerts[0].in_alert_since,
+            Some("2023-01-02T21:00:01.100Z".parse().unwrap())
+        );
+        assert!(new.alerts[1].in_alert_since.is_some());
+        assert!(new.alerts[2].in_alert_since.is_some());
+
+        // The source timestamp is ignored and replaced by current time
+        let mut new2 = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: Some("2024-01-01T19:00:01.100Z".parse().unwrap()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert {
+                id: HealthProbeId("Probe3".to_string()),
+                in_alert_since: None,
+                message: "Probe3 failed".to_string(),
+                tenant_message: Some("Internal Error".to_string()),
+                classifications: vec![],
+            }],
+        };
+        new2.update_in_alert_since(None);
+        assert!(new.alerts[0].in_alert_since.is_some());
+        assert_ne!(
+            new.alerts[0].in_alert_since,
+            Some("2024-01-01T19:00:01.100Z".parse().unwrap())
         );
     }
 }
