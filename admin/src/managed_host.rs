@@ -377,9 +377,8 @@ pub async fn handle_show(
     api_config: &ApiConfig<'_>,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let site_explorer_managed_hosts = rpc::get_site_exploration_report(api_config)
-        .await?
-        .managed_hosts;
+    let site_explorer_managed_hosts =
+        rpc::get_all_explored_managed_hosts(api_config, page_size).await?;
 
     // TODO(chet): Remove this ~March 2024.
     // Use tracing::warn for this so its both a little more

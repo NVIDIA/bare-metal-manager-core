@@ -232,9 +232,8 @@ pub async fn print_inventory(
         TopYamlElement::InstanceChildren(children),
     )]);
 
-    let site_report_managed_host = rpc::get_site_exploration_report(api_config)
-        .await?
-        .managed_hosts;
+    let site_report_managed_host =
+        rpc::get_all_explored_managed_hosts(api_config, page_size).await?;
 
     for (key, value) in instances.into_iter() {
         let mut ins_details: HashMap<String, InstanceDetails> = HashMap::new();
