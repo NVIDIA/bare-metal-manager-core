@@ -29,7 +29,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::state_controller::config::IterationConfig;
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
 
-const MAX_IB_PARTITION_PER_TENANT: i32 = 3;
+const MAX_IB_PARTITION_PER_TENANT: i32 = 31;
 
 /// carbide-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
