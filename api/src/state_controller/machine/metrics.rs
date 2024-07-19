@@ -55,6 +55,7 @@ pub struct MachineStateControllerIterationMetrics {
     pub machine_reboot_attempts_in_failed_during_discovery: Vec<u64>,
     pub available_gpus: usize,
     pub assigned_gpus_by_tenant: HashMap<TenantOrganizationId, usize>,
+    pub assigned_hosts_by_tenant: HashMap<TenantOrganizationId, usize>,
 }
 
 #[derive(Debug)]
@@ -63,6 +64,7 @@ pub struct MachineMetricsEmitter {
     dpus_healthy_gauge: ObservableGauge<u64>,
     assigned_gpus_gauge: ObservableGauge<u64>,
     assigned_gpus_by_tenant_gauge: ObservableGauge<u64>,
+    assigned_hosts_by_tenant_gauge: ObservableGauge<u64>,
     available_gpus_gauge: ObservableGauge<u64>,
     failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
     dpu_agent_version_gauge: ObservableGauge<u64>,
@@ -98,6 +100,12 @@ impl MetricsEmitter for MachineMetricsEmitter {
         let assigned_gpus_by_tenant_gauge = meter
             .u64_observable_gauge("forge_assigned_gpus_by_tenant_count")
             .with_description("The total number of GPUs that are attached to Machines in an Assigned state in the Forge site by tenant")
+            .init();
+        let assigned_hosts_by_tenant_gauge = meter
+            .u64_observable_gauge("forge_assigned_hosts_by_tenant_count")
+            .with_description(
+                "The total number of Machines in an Assigned state in the Forge site by tenant",
+            )
             .init();
 
         let dpus_up_gauge = meter
@@ -153,6 +161,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
         Self {
             assigned_gpus_gauge,
             assigned_gpus_by_tenant_gauge,
+            assigned_hosts_by_tenant_gauge,
             available_gpus_gauge,
             dpus_up_gauge,
             dpus_healthy_gauge,
@@ -170,6 +179,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
         vec![
             self.assigned_gpus_gauge.as_any(),
             self.assigned_gpus_by_tenant_gauge.as_any(),
+            self.assigned_hosts_by_tenant_gauge.as_any(),
             self.available_gpus_gauge.as_any(),
             self.dpus_up_gauge.as_any(),
             self.dpus_healthy_gauge.as_any(),
@@ -198,6 +208,10 @@ impl MetricsEmitter for MachineMetricsEmitter {
                 .assigned_gpus_by_tenant
                 .entry(tenant.clone())
                 .or_default() += object_metrics.available_gpus;
+            *iteration_metrics
+                .assigned_hosts_by_tenant
+                .entry(tenant.clone())
+                .or_default() += 1;
         }
 
         if let Some(machine_reboot_attempts_in_booting_with_discovery_image) =
@@ -275,6 +289,14 @@ impl MetricsEmitter for MachineMetricsEmitter {
             tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
             observer.observe_u64(
                 &self.failed_dpu_healthchecks_gauge,
+                *count as u64,
+                &tenant_org_attr,
+            );
+        }
+        for (org, count) in &iteration_metrics.assigned_hosts_by_tenant {
+            tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
+            observer.observe_u64(
+                &self.assigned_hosts_by_tenant_gauge,
                 *count as u64,
                 &tenant_org_attr,
             );
@@ -503,6 +525,13 @@ mod tests {
         assert_eq!(
             *iteration_metrics
                 .assigned_gpus_by_tenant
+                .get(&"a".parse().unwrap())
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            *iteration_metrics
+                .assigned_hosts_by_tenant
                 .get(&"a".parse().unwrap())
                 .unwrap(),
             3
