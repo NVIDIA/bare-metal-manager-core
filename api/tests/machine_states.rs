@@ -506,6 +506,19 @@ async fn test_managed_host_version_metrics(pool: sqlx::PgPool) {
 
     assert_eq!(
         env.test_meter
+            .formatted_metric("forge_assigned_gpus_count")
+            .unwrap(),
+        r#"{fresh="true"} 0"#
+    );
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("forge_available_gpus_count")
+            .unwrap(),
+        r#"{fresh="true"} 2"#
+    );
+
+    assert_eq!(
+        env.test_meter
             .formatted_metric("forge_dpu_firmware_version_count")
             .unwrap(),
         format!(
