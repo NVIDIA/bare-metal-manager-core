@@ -1,0 +1,275 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::str::FromStr;
+use std::sync::Arc;
+
+use askama::Template;
+//use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::extract::{Query, State as AxumState};
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use http::StatusCode;
+use rpc::forge as forgerpc;
+use rpc::forge::forge_server::Forge;
+use uuid::Uuid;
+
+use crate::api::Api;
+use crate::model::machine::machine_id::{self, MachineId, MachineType};
+
+pub async fn find(
+    AxumState(state): AxumState<Arc<Api>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(query) = params.get("q").map(|v| v.trim()) else {
+        return (StatusCode::BAD_REQUEST, "Missing query").into_response();
+    };
+
+    if let Some(url) = shortcodes(query) {
+        return Redirect::to(url).into_response();
+    }
+
+    if let Ok(machine_id) = MachineId::from_str(query) {
+        return find_machine_id(machine_id).await.into_response();
+    }
+
+    if IpAddr::from_str(query).is_ok() {
+        return find_ip(state, query).await.into_response();
+    }
+
+    if let Ok(u) = Uuid::parse_str(query) {
+        return find_by_uuid(state, u).await.into_response();
+    }
+
+    if let Ok(mac) = mac_address::MacAddress::from_str(query) {
+        return find_by_mac(state, mac).await.into_response();
+    }
+
+    if let Some(machine_id) = find_by_serial(state, query).await {
+        return Redirect::to(&format!("/admin/machine/{machine_id}")).into_response();
+    }
+
+    (StatusCode::NOT_FOUND, "No matches").into_response()
+}
+
+/// Quick jumps for keyboard navigation
+fn shortcodes(q: &str) -> Option<&'static str> {
+    match q {
+        "i" => Some("/admin/instance"),
+        "d" => Some("/admin/dpu"),
+        "h" => Some("/admin/host"),
+        "mh" => Some("/admin/managed-host"),
+        "ns" => Some("/admin/network-segment"),
+        "nd" => Some("/admin/network-device"),
+        "rp" => Some("/admin/resource-pool"),
+        "mi" => Some("/admin/interface"),
+        "ib" => Some("/admin/ib-partition"),
+        "vp" => Some("/admin/vpc"),
+        "ee" => Some("/admin/explored_endpoint"),
+        _ => None,
+    }
+}
+
+async fn find_machine_id(machine_id: MachineId) -> impl IntoResponse {
+    match machine_id.machine_type() {
+        MachineType::Dpu => Redirect::to(&format!("/admin/machine/{machine_id}")),
+        MachineType::Host | MachineType::PredictedHost => {
+            Redirect::to(&format!("/admin/managed-host/{machine_id}"))
+        }
+    }
+}
+
+async fn find_by_uuid(state: Arc<Api>, u: uuid::Uuid) -> Response {
+    let req = forgerpc::IdentifyUuidRequest {
+        uuid: Some(u.into()),
+    };
+    let request = tonic::Request::new(req);
+    let out = match state
+        .identify_uuid(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(m) => m,
+        Err(status) if status.code() == tonic::Code::NotFound => {
+            return (StatusCode::NOT_FOUND, "UUID does not match anything").into_response();
+        }
+        Err(err) => {
+            tracing::error!(%err, "find_by_uuid error calling grpc identify_uuid");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let Ok(object_type) = forgerpc::UuidType::try_from(out.object_type) else {
+        tracing::error!("Invalid UuidType from carbide api: {}", out.object_type);
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    use forgerpc::UuidType::*;
+    match object_type {
+        NetworkSegment => Redirect::to(&format!("/admin/network-segment/{u}")).into_response(),
+        Instance => Redirect::to(&format!("/admin/instance/{u}")).into_response(),
+        MachineInterface => Redirect::to(&format!("/admin/interface/{u}")).into_response(),
+        Vpc => Redirect::to(&format!("/admin/vpc/{u}")).into_response(),
+        Domain => {
+            // Domains don't have individual URLs
+            Redirect::to("/admin/domain").into_response()
+        }
+    }
+}
+
+async fn find_by_mac(state: Arc<Api>, mac: mac_address::MacAddress) -> impl IntoResponse {
+    let req = forgerpc::IdentifyMacRequest {
+        mac_address: mac.to_string(),
+    };
+    let request = tonic::Request::new(req);
+    let out = match state
+        .identify_mac(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(m) => m,
+        Err(status) if status.code() == tonic::Code::NotFound => {
+            return (StatusCode::NOT_FOUND, "MAC does not match anything").into_response();
+        }
+        Err(err) => {
+            tracing::error!(%err, "find_by_mac error calling grpc identify_mac");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let Ok(object_type) = forgerpc::MacOwner::try_from(out.object_type) else {
+        tracing::error!("Invalid MacOwner from carbide api: {}", out.object_type);
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    use forgerpc::MacOwner::*;
+    match object_type {
+        MachineInterface => {
+            Redirect::to(&format!("/admin/interface/{}", out.primary_key)).into_response()
+        }
+        ExploredEndpoint => {
+            Redirect::to(&format!("/admin/explored_endpoint/{}", out.primary_key)).into_response()
+        }
+    }
+}
+
+async fn find_by_serial(state: Arc<Api>, serial_number: &str) -> Option<MachineId> {
+    let req = forgerpc::IdentifySerialRequest {
+        serial_number: serial_number.to_string(),
+    };
+    let request = tonic::Request::new(req);
+    match state
+        .identify_serial(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(resp) if resp.machine_id.is_some() => {
+            match machine_id::try_parse_machine_id(resp.machine_id.as_ref().unwrap()) {
+                Ok(id) => Some(id),
+                Err(err) => {
+                    tracing::warn!(
+                        invalid_machine_id = ?resp.machine_id,
+                        %err,
+                        "Remote sent invalid machine id"
+                    );
+                    None
+                }
+            }
+        }
+        // resp.machine_id is None
+        Ok(_) => None,
+        Err(status) if status.code() == tonic::Code::NotFound => {
+            // don't log it
+            None
+        }
+        Err(err) => {
+            tracing::info!(%err, serial_number, "find_by_serial error");
+            None
+        }
+    }
+}
+
+#[derive(Template)]
+#[template(path = "ip_finder.html")]
+struct IpFinder {
+    ip: String,
+    found: Vec<IpMatch>,
+}
+
+struct IpMatch {
+    name: &'static str,
+    url: String,
+    message: String,
+}
+
+async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
+    let mut found = Vec::new();
+    let req = forgerpc::FindIpAddressRequest { ip: ip.to_string() };
+    let request = tonic::Request::new(req);
+    let out = match state
+        .find_ip_address(request)
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(m) => m,
+        Err(_) => {
+            let tmpl = IpFinder {
+                ip: ip.to_string(),
+                found: Vec::new(),
+            };
+            return (StatusCode::OK, Html(tmpl.render().unwrap()));
+        }
+    };
+    for m in out.matches {
+        let ip_type = match forgerpc::IpType::try_from(m.ip_type) {
+            Ok(t) => t,
+            Err(err) => {
+                tracing::error!(ip_type = m.ip_type, error = %err, "Invalid IpType");
+                continue;
+            }
+        };
+        use forgerpc::IpType::*;
+        let (name, url) = match ip_type {
+            StaticDataDhcpServer => ("DHCP Server", "".to_string()),
+            StaticDataRouteServer => ("Route Server", "".to_string()),
+            ResourcePool => ("Resource Pool", "/admin/resource-pool".to_string()),
+            InstanceAddress => (
+                "Instance",
+                format!("/admin/instance/{}", m.owner_id.unwrap_or_default()),
+            ),
+            MachineAddress => (
+                "Machine",
+                format!("/admin/machine/{}", m.owner_id.unwrap_or_default()),
+            ),
+            BmcIp => (
+                "BMC IP",
+                format!("/admin/machine/{}", m.owner_id.unwrap_or_default()),
+            ),
+            LoopbackIp => (
+                "Loopback IP",
+                format!("/admin/machine/{}", m.owner_id.unwrap_or_default()),
+            ),
+            NetworkSegment => (
+                "Network Segment",
+                format!("/admin/network-segment/{}", m.owner_id.unwrap_or_default()),
+            ),
+        };
+        found.push(IpMatch {
+            name,
+            url,
+            message: m.message,
+        });
+    }
+
+    let tmpl = IpFinder {
+        ip: ip.to_string(),
+        found,
+    };
+    (StatusCode::OK, Html(tmpl.render().unwrap()))
+}

@@ -169,6 +169,31 @@ div#json a {
 	color: red;
 }
 
+/* Search box style */
+.search-container {
+	display: flex;
+	align-items: center;
+	margin-top: 10px;
+	margin-bottom: 20px;
+}
+
+.search-container input[type="search"] {
+	flex-grow: 1;
+	margin-right: 3px;
+	width: calc(100% - 40px);
+	box-sizing: border-box;
+}
+
+.search-container input[type="submit"] {
+	margin-left: 5px;
+	width: 30px;
+	height: 30px;
+	background: url('data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 5L22 19l-5-5zm-6 0C8.01 14 6 11.99 6 9.5S8.01 5 9.5 5 13 7.01 13 9.5 10.99 14 9.5 14z"/></svg>') no-repeat center;
+	background-size: 20px;
+	cursor: pointer;
+}
+
+
 {% block css %}{% endblock %}
 </style>
 		{% block head %}{% endblock %}
@@ -176,6 +201,10 @@ div#json a {
 	<body>
 		<nav>
 			<h3><a href="/admin" style="font-size: inherit; padding: inherit;">carbide-web</a></h3>
+			<form action="/admin/search" class="search-container">
+				<input type="search" placeholder="fm100.., 10.2.., etc" name="q" tabindex="1" title="Enter a machine id, UUID, IP address, MAC address, serial number, or shortcode">
+				<input type="submit" value="">
+			</form>
 			<ul>
 				<li><a href="/admin">Configuration</a></li>
 				<li><a href="/admin/resource-pool">Resource Pools</a></li>
@@ -207,7 +236,6 @@ div#json a {
 			<hr/>
 			<h3>Tools</h3>
 			<ul>
-				<li><a href="/admin/ip-finder">IP Finder</a></li>
 				<li><a id="grafana-url" href="https://grafana-dev3.frg.nvidia.com/">Grafana</a></li>
 				<li><a id="argo-url" href="https://argocd-dev3.frg.nvidia.com/">Argo CD</a></li>
 				<li><a href="https://stg.ngc.nvidia.com/">NGC Stg</a></li>

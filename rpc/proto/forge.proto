@@ -116,10 +116,13 @@ service Forge {
   rpc FindMachines(MachineSearchQuery) returns (MachineList);
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc DeleteInterface(InterfaceDeleteQuery) returns (google.protobuf.Empty);
-  rpc FindIpAddress (FindIpAddressRequest) returns (FindIpAddressResponse);
+  rpc FindIpAddress(FindIpAddressRequest) returns (FindIpAddressResponse);
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
   rpc FindMachinesByIds(common.MachineIdList) returns (MachineList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
+  rpc IdentifyUuid(IdentifyUuidRequest) returns (IdentifyUuidResponse);
+  rpc IdentifyMac(IdentifyMacRequest) returns (IdentifyMacResponse);
+  rpc IdentifySerial(IdentifySerialRequest) returns (IdentifySerialResponse);
 
   // IPMI handling
   rpc GetBMCMetaData(BMCMetaDataGetRequest) returns (BMCMetaDataGetResponse);
@@ -159,7 +162,7 @@ service Forge {
   // DEPRECATED: use FindExploredEndpointIds, FindExploredEndpointsByIds and FindExploredManagedHostIds, FindExploredManagedHostsByIds instead
   rpc GetSiteExplorationReport(GetSiteExplorationRequest) returns (site_explorer.SiteExplorationReport);
   // Clear the last known error for the BMC
-  rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty); 
+  rpc ClearSiteExplorationError(ClearSiteExplorationErrorRequest) returns (google.protobuf.Empty);
   // Explore an individual BMC and show the report
   // The results of this exploration call will not be persisted in the database
   rpc Explore(ExploreRequest) returns (site_explorer.EndpointExplorationReport);
@@ -1187,7 +1190,7 @@ message Instance {
   // The ID of the host machine which is utilized for this Instance (host_machine_id)
   common.MachineId machine_id = 2;
   Metadata metadata = 3;
-  
+
   // The desired configuration on the instance
   InstanceConfig config = 103;
 
@@ -1624,7 +1627,7 @@ message GetSiteExplorationRequest {
 }
 
 message ClearSiteExplorationErrorRequest {
-  // The IP address of the BMC whose error should be cleared from the explored_endpoints table 
+  // The IP address of the BMC whose error should be cleared from the explored_endpoints table
   string ip_address = 1;
 }
 
@@ -2391,6 +2394,48 @@ message FindIpAddressRequest {
 message FindIpAddressResponse {
   repeated IpAddressMatch matches = 1;
   repeated string errors = 2;
+}
+
+message IdentifyUuidRequest {
+  common.UUID uuid = 1;
+}
+
+message IdentifyUuidResponse {
+  common.UUID uuid = 1;
+  UuidType object_type = 2;
+}
+
+// See IpType for protobuf's C++ scoping rule explanation
+enum UuidType {
+  UuidTypeNetworkSegment = 0;
+  UuidTypeInstance = 1;
+  UuidTypeMachineInterface = 2;
+  UuidTypeVpc = 3;
+  UuidTypeDomain = 4;
+}
+
+message IdentifyMacRequest {
+  string mac_address = 1;
+}
+
+message IdentifyMacResponse {
+  string mac_address = 1;
+  string primary_key = 2;
+  MacOwner object_type = 3;
+}
+
+enum MacOwner {
+  MacOwnerMachineInterface = 0;
+  MacOwnerExploredEndpoint = 1;
+}
+
+message IdentifySerialRequest {
+  string serial_number = 1;
+}
+
+message IdentifySerialResponse {
+  string serial_number = 1;
+  common.MachineId machine_id = 2;
 }
 
 enum UpdateInitiator {
