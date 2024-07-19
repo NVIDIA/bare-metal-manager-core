@@ -653,6 +653,7 @@ pub struct UefiSetupInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum UefiSetupState {
+    UnlockHost,
     SetUefiPassword,
     WaitForPasswordJobScheduled,
     PowercycleHost,

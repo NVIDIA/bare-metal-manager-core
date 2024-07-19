@@ -43,7 +43,7 @@ use crate::{
     },
     redfish::{
         build_redfish_client_from_bmc_ip, host_power_control, poll_redfish_job,
-        RedfishClientCreationError,
+        set_host_uefi_password, RedfishClientCreationError,
     },
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
@@ -378,6 +378,21 @@ impl MachineStateHandler {
                     };
                     Ok(StateHandlerOutcome::Transition(next_state))
                 } else {
+                    if state.host_snapshot.bios_password_set_time.is_none() {
+                        tracing::info!("transitioning legacy host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured",
+                        host_machine_id);
+                        return Ok(StateHandlerOutcome::Transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::UefiSetup {
+                                    uefi_setup_info: UefiSetupInfo {
+                                        uefi_password_jid: None,
+                                        uefi_setup_state: UefiSetupState::UnlockHost,
+                                    },
+                                },
+                            },
+                        ));
+                    }
+
                     Ok(StateHandlerOutcome::DoNothing)
                 }
             }
@@ -2399,9 +2414,27 @@ async fn handle_host_uefi_setup(
     .await?;
 
     match uefi_setup_info.uefi_setup_state.clone() {
+        UefiSetupState::UnlockHost => {
+            redfish_client
+                .lockdown(libredfish::EnabledDisabled::Disabled)
+                .await
+                .map_err(|e| StateHandlerError::RedfishError {
+                    operation: "lockdown",
+                    error: e,
+                })?;
+
+            Ok(StateHandlerOutcome::Transition(
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::UefiSetup {
+                        uefi_setup_info: UefiSetupInfo {
+                            uefi_password_jid: None,
+                            uefi_setup_state: UefiSetupState::SetUefiPassword,
+                        },
+                    },
+                },
+            ))
+        }
         UefiSetupState::SetUefiPassword => {
-            /*
-            TODO: re-enable setting the host uefi password once we clear the password as part of a force-delete
             let job_id = set_host_uefi_password(
                 redfish_client.as_ref(),
                 ctx.services.redfish_client_pool.clone(),
@@ -2414,17 +2447,6 @@ async fn handle_host_uefi_setup(
                     machine_state: MachineState::UefiSetup {
                         uefi_setup_info: UefiSetupInfo {
                             uefi_password_jid: job_id,
-                            uefi_setup_state: UefiSetupState::WaitForPasswordJobScheduled,
-                        },
-                    },
-                },
-            ))
-            */
-            Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::UefiSetup {
-                        uefi_setup_info: UefiSetupInfo {
-                            uefi_password_jid: None,
                             uefi_setup_state: UefiSetupState::WaitForPasswordJobScheduled,
                         },
                     },
@@ -2460,15 +2482,6 @@ async fn handle_host_uefi_setup(
             ))
         }
         UefiSetupState::PowercycleHost => {
-            /*
-            TODO: re-enable setting the host uefi password once we clear the password as part of a force-delete
-            let redfish_client = ctx.services.redfish_client_pool.create_client_from_machine_snapshot(
-                &state.host_snapshot,
-                &ctx.services.redfish_client_pool,
-                txn,
-            )
-            .await?;
-
             host_power_control(
                 redfish_client.as_ref(),
                 &state.host_snapshot,
@@ -2480,8 +2493,6 @@ async fn handle_host_uefi_setup(
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
             })?;
-            */
-
             Ok(StateHandlerOutcome::Transition(
                 ManagedHostState::HostInit {
                     machine_state: MachineState::UefiSetup {
@@ -2516,8 +2527,6 @@ async fn handle_host_uefi_setup(
                 }
             }
 
-            /*
-            TODO: re-enable setting the host uefi password once we clear the password as part of a force-delete
             state.host_snapshot.bios_password_set_time = Some(chrono::offset::Utc::now());
             Machine::update_bios_password_set(&state.host_snapshot.machine_id, txn)
                 .await
@@ -2527,7 +2536,6 @@ async fn handle_host_uefi_setup(
                         e
                     ))
                 })?;
-            */
 
             Ok(StateHandlerOutcome::Transition(
                 ManagedHostState::HostInit {
