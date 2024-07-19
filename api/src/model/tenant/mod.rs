@@ -338,7 +338,7 @@ impl TryFrom<rpc::forge::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
 }
 
 /// Identifies a forge tenant
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TenantOrganizationId(String);
 
 impl std::fmt::Debug for TenantOrganizationId {

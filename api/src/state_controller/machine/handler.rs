@@ -138,6 +138,17 @@ impl MachineStateHandler {
                 }),
         );
 
+        ctx.metrics.available_gpus = state
+            .host_snapshot
+            .hardware_info
+            .as_ref()
+            .map(|info| info.gpus.len())
+            .unwrap_or_default();
+        ctx.metrics.assigned_to_tenant = state
+            .instance
+            .as_ref()
+            .map(|instance| instance.config.tenant.tenant_organization_id.clone());
+
         // Update DPU network health Prometheus metrics
         ctx.metrics.dpu_healthy = state.dpu_snapshots[0].has_healthy_network();
         if let Some(observation) = state.dpu_snapshots[0].network_status_observation.as_ref() {

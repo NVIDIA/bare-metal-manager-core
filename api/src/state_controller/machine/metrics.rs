@@ -20,7 +20,7 @@ use opentelemetry::{
 };
 
 use crate::{
-    model::hardware_info::MachineInventorySoftwareComponent,
+    model::{hardware_info::MachineInventorySoftwareComponent, tenant::TenantOrganizationId},
     state_controller::metrics::MetricsEmitter,
 };
 
@@ -36,6 +36,8 @@ pub struct MachineMetrics {
     pub machine_id: Option<String>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Option<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Option<u64>,
+    pub available_gpus: usize,
+    pub assigned_to_tenant: Option<TenantOrganizationId>,
 }
 
 #[derive(Debug, Default)]
@@ -51,12 +53,17 @@ pub struct MachineStateControllerIterationMetrics {
     pub client_certificate_expiration_times: HashMap<String, i64>,
     pub machine_reboot_attempts_in_booting_with_discovery_image: Vec<u64>,
     pub machine_reboot_attempts_in_failed_during_discovery: Vec<u64>,
+    pub available_gpus: usize,
+    pub assigned_gpus_by_tenant: HashMap<TenantOrganizationId, usize>,
 }
 
 #[derive(Debug)]
 pub struct MachineMetricsEmitter {
     dpus_up_gauge: ObservableGauge<u64>,
     dpus_healthy_gauge: ObservableGauge<u64>,
+    assigned_gpus_gauge: ObservableGauge<u64>,
+    assigned_gpus_by_tenant_gauge: ObservableGauge<u64>,
+    available_gpus_gauge: ObservableGauge<u64>,
     failed_dpu_healthchecks_gauge: ObservableGauge<u64>,
     dpu_agent_version_gauge: ObservableGauge<u64>,
     dpu_firmware_version_gauge: ObservableGauge<u64>,
@@ -80,6 +87,19 @@ impl MetricsEmitter for MachineMetricsEmitter {
     type IterationMetrics = MachineStateControllerIterationMetrics;
 
     fn new(_object_type: &str, meter: &Meter) -> Self {
+        let available_gpus_gauge = meter
+            .u64_observable_gauge("forge_available_gpus_count")
+            .with_description("The total number of available GPUs in the Forge site")
+            .init();
+        let assigned_gpus_gauge = meter
+            .u64_observable_gauge("forge_assigned_gpus_count")
+            .with_description("The total number of GPUs that are attached to Machines in an Assigned state in the Forge site")
+            .init();
+        let assigned_gpus_by_tenant_gauge = meter
+            .u64_observable_gauge("forge_assigned_gpus_by_tenant_count")
+            .with_description("The total number of GPUs that are attached to Machines in an Assigned state in the Forge site by tenant")
+            .init();
+
         let dpus_up_gauge = meter
             .u64_observable_gauge("forge_dpus_up_count")
             .with_description("The total number of DPUs in the system that are up. Up means we have received a health report less than 5 minutes ago.")
@@ -88,6 +108,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .u64_observable_gauge("forge_dpus_healthy_count")
             .with_description("The total number of DPUs in the system that have reported healthy in the last report. Healthy does not imply up - the report from the DPU might be outdated.")
             .init();
+
         let failed_dpu_healthchecks_gauge = meter
             .u64_observable_gauge("forge_dpu_health_check_failed_count")
             .with_description(
@@ -130,6 +151,9 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .init();
 
         Self {
+            assigned_gpus_gauge,
+            assigned_gpus_by_tenant_gauge,
+            available_gpus_gauge,
             dpus_up_gauge,
             dpus_healthy_gauge,
             dpu_agent_version_gauge,
@@ -144,6 +168,9 @@ impl MetricsEmitter for MachineMetricsEmitter {
 
     fn instruments(&self) -> Vec<std::sync::Arc<dyn std::any::Any>> {
         vec![
+            self.assigned_gpus_gauge.as_any(),
+            self.assigned_gpus_by_tenant_gauge.as_any(),
+            self.available_gpus_gauge.as_any(),
             self.dpus_up_gauge.as_any(),
             self.dpus_healthy_gauge.as_any(),
             self.dpu_agent_version_gauge.as_any(),
@@ -163,6 +190,14 @@ impl MetricsEmitter for MachineMetricsEmitter {
         }
         if object_metrics.dpu_healthy {
             iteration_metrics.dpus_healthy += 1;
+        }
+
+        iteration_metrics.available_gpus += object_metrics.available_gpus;
+        if let Some(tenant) = object_metrics.assigned_to_tenant.as_ref() {
+            *iteration_metrics
+                .assigned_gpus_by_tenant
+                .entry(tenant.clone())
+                .or_default() += object_metrics.available_gpus;
         }
 
         if let Some(machine_reboot_attempts_in_booting_with_discovery_image) =
@@ -225,6 +260,32 @@ impl MetricsEmitter for MachineMetricsEmitter {
         iteration_metrics: &Self::IterationMetrics,
         attributes: &[KeyValue],
     ) {
+        observer.observe_u64(
+            &self.available_gpus_gauge,
+            iteration_metrics.available_gpus as u64,
+            attributes,
+        );
+
+        let mut tenant_org_attr = attributes.to_vec();
+        // Placeholder that is replaced in the loop in order not having to reallocate the Vec each time
+        tenant_org_attr.push(KeyValue::new("tenant_org_id", "".to_string()));
+        let mut total_assigned_gpus = 0;
+        for (org, count) in &iteration_metrics.assigned_gpus_by_tenant {
+            total_assigned_gpus += *count;
+            tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
+            observer.observe_u64(
+                &self.failed_dpu_healthchecks_gauge,
+                *count as u64,
+                &tenant_org_attr,
+            );
+        }
+
+        observer.observe_u64(
+            &self.assigned_gpus_gauge,
+            total_assigned_gpus as u64,
+            attributes,
+        );
+
         observer.observe_u64(
             &self.dpus_up_gauge,
             iteration_metrics.dpus_up as u64,
@@ -330,6 +391,8 @@ mod tests {
         let object_metrics = vec![
             MachineMetrics {
                 agent_version: None,
+                available_gpus: 0,
+                assigned_to_tenant: Some("a".parse().unwrap()),
                 dpu_up: true,
                 dpu_healthy: true,
                 failed_dpu_healthchecks: HashSet::from_iter([]),
@@ -341,6 +404,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: None,
             },
             MachineMetrics {
+                available_gpus: 2,
+                assigned_to_tenant: Some("a".parse().unwrap()),
                 agent_version: Some("v1".to_string()),
                 dpu_up: true,
                 dpu_healthy: false,
@@ -357,6 +422,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: Some(0),
             },
             MachineMetrics {
+                available_gpus: 3,
+                assigned_to_tenant: None,
                 agent_version: Some("v3".to_string()),
                 dpu_up: false,
                 dpu_healthy: true,
@@ -373,6 +440,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: Some(1),
             },
             MachineMetrics {
+                available_gpus: 1,
+                assigned_to_tenant: Some("a".parse().unwrap()),
                 agent_version: Some("v3".to_string()),
                 dpu_up: true,
                 dpu_healthy: true,
@@ -396,6 +465,8 @@ mod tests {
                 machine_reboot_attempts_in_failed_during_discovery: Some(2),
             },
             MachineMetrics {
+                available_gpus: 2,
+                assigned_to_tenant: None,
                 agent_version: None,
                 dpu_up: true,
                 dpu_healthy: false,
@@ -429,6 +500,14 @@ mod tests {
             iteration_metrics.agent_versions,
             HashMap::from_iter([("v1".to_string(), 1), ("v3".to_string(), 2)])
         );
+        assert_eq!(
+            *iteration_metrics
+                .assigned_gpus_by_tenant
+                .get(&"a".parse().unwrap())
+                .unwrap(),
+            3
+        );
+        assert_eq!(iteration_metrics.available_gpus, 8);
         assert_eq!(iteration_metrics.dpus_up, 4);
         assert_eq!(iteration_metrics.dpus_healthy, 3);
         assert_eq!(
