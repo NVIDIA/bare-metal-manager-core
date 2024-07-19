@@ -274,7 +274,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             total_assigned_gpus += *count;
             tenant_org_attr.last_mut().unwrap().value = org.to_string().into();
             observer.observe_u64(
-                &self.failed_dpu_healthchecks_gauge,
+                &self.assigned_gpus_by_tenant_gauge,
                 *count as u64,
                 &tenant_org_attr,
             );
