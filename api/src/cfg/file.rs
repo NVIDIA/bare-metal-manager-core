@@ -494,15 +494,15 @@ impl PartialEq for SiteExplorerConfig {
 
 impl SiteExplorerConfig {
     const fn default_run_interval() -> std::time::Duration {
-        std::time::Duration::from_secs(5 * 60)
+        std::time::Duration::from_secs(60)
     }
 
     const fn default_concurrent_explorations() -> u64 {
-        5
+        30
     }
 
     const fn default_explorations_per_run() -> u64 {
-        10
+        90
     }
 }
 
