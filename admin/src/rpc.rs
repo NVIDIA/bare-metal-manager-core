@@ -1025,7 +1025,8 @@ pub async fn delete_machine_interface(
     .await
 }
 
-pub async fn get_site_exploration_report(
+// DEPRECATED: use get_site_exploration_report
+async fn get_site_exploration_report_deprecated(
     api_config: &ApiConfig<'_>,
 ) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
     with_forge_client(api_config, |mut client| async move {
@@ -1035,6 +1036,135 @@ pub async fn get_site_exploration_report(
             .await
             .map_err(CarbideCliError::ApiInvocationError)?
             .into_inner())
+    })
+    .await
+}
+
+pub async fn get_site_exploration_report(
+    api_config: &ApiConfig<'_>,
+    page_size: usize,
+) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
+    // grab endpoints
+    let endpoint_ids = match get_explored_endpoint_ids(api_config).await {
+        Ok(endpoint_ids) => endpoint_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            return get_site_exploration_report_deprecated(api_config).await;
+        }
+        Err(e) => return Err(e),
+    };
+    let mut all_endpoints = ::rpc::site_explorer::ExploredEndpointList {
+        endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
+    };
+    for ids in endpoint_ids.endpoint_ids.chunks(page_size) {
+        let list = get_explored_endpoints_by_ids(api_config, ids).await?;
+        all_endpoints.endpoints.extend(list.endpoints);
+    }
+
+    // grab managed hosts
+    let all_hosts = match get_all_explored_managed_hosts(api_config, page_size).await {
+        Ok(all_hosts) => all_hosts,
+        Err(e) => return Err(e),
+    };
+
+    Ok(::rpc::site_explorer::SiteExplorationReport {
+        endpoints: all_endpoints.endpoints,
+        managed_hosts: all_hosts,
+    })
+}
+
+async fn get_explored_endpoint_ids(
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::site_explorer::ExploredEndpointSearchFilter {});
+        let endpoint_ids = client
+            .find_explored_endpoint_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(endpoint_ids)
+    })
+    .await
+}
+
+async fn get_explored_endpoints_by_ids(
+    api_config: &ApiConfig<'_>,
+    endpoint_ids: &[String],
+) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest {
+            endpoint_ids: Vec::from(endpoint_ids),
+        });
+        let endpoints = client
+            .find_explored_endpoints_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(endpoints)
+    })
+    .await
+}
+
+#[allow(dead_code)]
+pub async fn get_all_explored_managed_hosts(
+    api_config: &ApiConfig<'_>,
+    page_size: usize,
+) -> CarbideCliResult<Vec<::rpc::site_explorer::ExploredManagedHost>> {
+    let host_ids = match get_explored_managed_host_ids(api_config).await {
+        Ok(host_ids) => host_ids,
+        Err(CarbideCliError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            let hosts = get_site_exploration_report_deprecated(api_config)
+                .await?
+                .managed_hosts;
+            return Ok(hosts);
+        }
+        Err(e) => return Err(e),
+    };
+    let mut all_hosts = ::rpc::site_explorer::ExploredManagedHostList {
+        managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
+    };
+    for ids in host_ids.host_ids.chunks(page_size) {
+        let list = get_explored_managed_host_by_ids(api_config, ids).await?;
+        all_hosts.managed_hosts.extend(list.managed_hosts);
+    }
+    Ok(all_hosts.managed_hosts)
+}
+
+#[allow(dead_code)]
+async fn get_explored_managed_host_ids(
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<::rpc::site_explorer::ExploredManagedHostIdList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::site_explorer::ExploredManagedHostSearchFilter {});
+        let host_ids = client
+            .find_explored_managed_host_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(host_ids)
+    })
+    .await
+}
+
+#[allow(dead_code)]
+async fn get_explored_managed_host_by_ids(
+    api_config: &ApiConfig<'_>,
+    host_ids: &[String],
+) -> CarbideCliResult<::rpc::site_explorer::ExploredManagedHostList> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(::rpc::site_explorer::ExploredManagedHostsByIdsRequest {
+            host_ids: Vec::from(host_ids),
+        });
+        let hosts = client
+            .find_explored_managed_hosts_by_ids(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+        Ok(hosts)
     })
     .await
 }
