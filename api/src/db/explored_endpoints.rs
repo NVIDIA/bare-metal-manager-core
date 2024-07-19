@@ -330,14 +330,38 @@ WHERE address = $3 AND version=$4";
         task_id: String,
         final_version: &str,
         upgrade_type: &FirmwareHostComponentType,
-        rebooted: bool,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::UpgradeFirmwareWait {
             task_id,
             final_version: final_version.to_owned(),
             upgrade_type: *upgrade_type,
-            rebooted,
+        };
+        DbExploredEndpoint::set_preingestion(address, state, txn).await
+    }
+
+    pub async fn set_preingestion_reset_for_new_firmware(
+        address: IpAddr,
+        final_version: &str,
+        upgrade_type: &FirmwareHostComponentType,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let state = PreingestionState::ResetForNewFirmware {
+            final_version: final_version.to_owned(),
+            upgrade_type: *upgrade_type,
+        };
+        DbExploredEndpoint::set_preingestion(address, state, txn).await
+    }
+
+    pub async fn set_preingestion_new_reported_wait(
+        address: IpAddr,
+        final_version: &str,
+        upgrade_type: &FirmwareHostComponentType,
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), DatabaseError> {
+        let state = PreingestionState::NewFirmwareReportedWait {
+            final_version: final_version.to_owned(),
+            upgrade_type: *upgrade_type,
         };
         DbExploredEndpoint::set_preingestion(address, state, txn).await
     }

@@ -124,8 +124,14 @@ pub enum PreingestionState {
         task_id: String,
         final_version: String,
         upgrade_type: FirmwareHostComponentType,
-        #[serde(default)]
-        rebooted: bool,
+    },
+    ResetForNewFirmware {
+        final_version: String,
+        upgrade_type: FirmwareHostComponentType,
+    },
+    NewFirmwareReportedWait {
+        final_version: String,
+        upgrade_type: FirmwareHostComponentType,
     },
     Complete,
 }
