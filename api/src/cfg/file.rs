@@ -1405,7 +1405,7 @@ mod tests {
             config.site_explorer,
             SiteExplorerConfig {
                 enabled: true,
-                run_interval: std::time::Duration::from_secs(60 ),
+                run_interval: std::time::Duration::from_secs(60),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
                 create_machines: crate::dynamic_settings::create_machines(true),
