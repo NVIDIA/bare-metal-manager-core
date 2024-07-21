@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use futures_util::StreamExt;
+use regex::Regex;
 use std::cmp::min;
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -57,7 +58,7 @@ pub(crate) async fn persist(
 }
 
 pub async fn get_system_manufacturer_name() -> String {
-    let command_string = "dmidecode -s system-manufacturer".to_string();
+    let command_string = "dmidecode -s system-sku-number".to_string();
 
     match Command::new("sh")
         .arg("-c")
@@ -69,11 +70,9 @@ pub async fn get_system_manufacturer_name() -> String {
             if output.stdout.is_empty() {
                 "default".to_string()
             } else {
-                return String::from_utf8_lossy(&output.stdout)
-                    .to_string()
-                    .chars()
-                    .filter(|c| !c.is_whitespace())
-                    .collect();
+                let sku = String::from_utf8_lossy(&output.stdout).to_string();
+                let re = Regex::new(r"[ :@#\!?\-]").unwrap();
+                return re.replace_all(&sku, "_").to_string().to_ascii_lowercase();
             }
             // let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
         }
