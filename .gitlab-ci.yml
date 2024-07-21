@@ -12,10 +12,12 @@ variables:
   APPLICATION_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/nvmetal-carbide
   ARTIFACTS_DOCKER_IMAGE_AARCH64: nvcr.io/nvidian/nvforge-devel/boot-artifacts-aarch64
   ARTIFACTS_DOCKER_IMAGE_X86_64: nvcr.io/nvidian/nvforge-devel/boot-artifacts-x86_64
+  MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE: nvcr.io/nvidian/nvforge-devel/machine_validation
 
   APPLICATION_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/nvmetal-carbide
   ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-aarch64
   ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION: nvcr.io/nvidian/nvforge/boot-artifacts-x86_64
+  MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE_PRODUCTION: nvcr.io/nvidian/nvforge/machine_validation
 
   TEST_API_IMAGE: stg.nvcr.io/rkafbrtf9ezb/test-api
 
@@ -676,6 +678,36 @@ build-release-artifacts-x86_64:
           echo "Deploying build container: intermediate-artifacts-$CI_COMMIT_SHORT_SHA to $ARTIFACTS_DOCKER_IMAGE_X86_64:$VERSION"
           docker tag "intermediate-artifacts-$CI_COMMIT_SHORT_SHA" "$ARTIFACTS_DOCKER_IMAGE_X86_64:$VERSION"
           docker push "$ARTIFACTS_DOCKER_IMAGE_X86_64:$VERSION"
+        else
+          echo "Skipping deployment of intermediate-artifacts-$CI_COMMIT_SHORT_SHA"
+        fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH || $CI_COMMIT_MESSAGE =~ /ci-run-complete-pipeline/ || $CI_COMMIT_BRANCH =~ /^release\//
+      variables:
+        DEPLOY_BUILT_CONTAINER: "true"
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+      variables:
+        DEPLOY_BUILT_CONTAINER: "false"
+
+build-release-machine-validation-artifacts-x86_64:
+  stage: build
+  extends: build-push-container
+  needs:
+    - job: prepare-ci
+      optional: false
+  dependencies:
+    - prepare-ci
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.machine-validation-config
+  script:
+    - docker build -t intermediate-artifacts-$CI_COMMIT_SHORT_SHA -f $DOCKER_FILE --build-arg VERSION=$VERSION --build-arg CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA --build-arg CONTAINER_RUNTIME_X86_64=$CONTAINER_ARTIFACTS_X86_64 .
+    - |
+        if test "$DEPLOY_BUILT_CONTAINER" = "true"; then
+          echo "Deploying build container: intermediate-artifacts-$CI_COMMIT_SHORT_SHA to $MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE:$VERSION"
+          docker tag "intermediate-artifacts-$CI_COMMIT_SHORT_SHA" "$MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE:$VERSION"
+          docker push "$MACHINE_VALIDATION_ARTIFACTS_DOCKER_IMAGE:$VERSION"
         else
           echo "Skipping deployment of intermediate-artifacts-$CI_COMMIT_SHORT_SHA"
         fi
