@@ -24,7 +24,7 @@ use crate::{
 pub async fn fetch(
     txn: &mut Transaction<'_, Postgres>,
 ) -> Result<SiteExplorationReport, DatabaseError> {
-    let endpoints = DbExploredEndpoint::find_all(txn).await?;
+    let endpoints = DbExploredEndpoint::find_interesting(txn).await?;
     let managed_hosts = DbExploredManagedHost::find_all(txn).await?;
     Ok(SiteExplorationReport {
         endpoints,

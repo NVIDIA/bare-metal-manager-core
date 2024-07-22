@@ -9,9 +9,10 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::net::IpAddr;
+
 use config_version::ConfigVersion;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
-use std::net::IpAddr;
 
 use crate::{
     cfg::FirmwareHostComponentType,
@@ -118,6 +119,27 @@ impl DbExploredEndpoint {
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints find_all", e))
+    }
+
+    /// Some endpoints are the OOB of a machine. Those don't have Redfish, are not interesting, we
+    /// never want to display those to a user.
+    pub async fn find_interesting(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> Result<Vec<ExploredEndpoint>, DatabaseError> {
+        let query = r#"SELECT *
+            FROM explored_endpoints ee
+            LEFT JOIN machine_interface_addresses mia ON ee.address = mia.address
+            LEFT JOIN machine_interfaces mi ON mia.interface_id = mi.id
+            LEFT JOIN machines m ON mi.machine_id = m.id
+            WHERE mia.address IS NULL OR m.id IS NULL"#;
+
+        sqlx::query_as::<_, Self>(query)
+            .fetch_all(&mut **txn)
+            .await
+            .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
+            .map_err(|e| {
+                DatabaseError::new(file!(), line!(), "explored_endpoints find_interesting", e)
+            })
     }
 
     /// find_preingest_not_waiting gets everything that is still in preingestion that isn't waiting for site explorer to refresh it again and isn't in an error state.

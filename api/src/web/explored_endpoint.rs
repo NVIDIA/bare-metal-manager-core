@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use http::StatusCode;
@@ -28,15 +29,22 @@ use crate::api::Api;
 #[derive(Template)]
 #[template(path = "explored_endpoints_show.html")]
 struct ExploredEndpointsShow {
+    vendors: Vec<String>,
     endpoints: Vec<ExploredEndpointDisplay>,
+    filter_name: &'static str,
+    active_vendor_filter: String,
+    is_errors_only: bool,
+}
+
+#[derive(Template)]
+#[template(path = "explored_endpoints_show_paired.html")]
+struct ExploredEndpointsShowPaired {
     managed_hosts: Vec<ExploredManagedHostDisplay>,
 }
 
-impl From<SiteExplorationReport> for ExploredEndpointsShow {
+/// Create the managed host display
+impl From<SiteExplorationReport> for ExploredEndpointsShowPaired {
     fn from(report: SiteExplorationReport) -> Self {
-        let endpoints: Vec<ExploredEndpointDisplay> =
-            report.endpoints.iter().map(Into::into).collect();
-
         let mut managed_hosts = Vec::new();
         for mh in report.managed_hosts {
             let host = match report
@@ -96,10 +104,7 @@ impl From<SiteExplorationReport> for ExploredEndpointsShow {
             });
         }
 
-        Self {
-            endpoints,
-            managed_hosts,
-        }
+        Self { managed_hosts }
     }
 }
 
@@ -172,7 +177,10 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
 }
 
 /// List explored endpoints
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub async fn show_html_all(
+    AxumState(state): AxumState<Arc<Api>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
     let report = match fetch_explored_endpoints(state).await {
         Ok(report) => report,
         Err(err) => {
@@ -185,7 +193,83 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let tmpl = ExploredEndpointsShow::from(report);
+    let endpoints: Vec<ExploredEndpointDisplay> = report.endpoints.iter().map(Into::into).collect();
+    let vendors = vendors(&endpoints); // need vendors pre-filtering
+    let vendor_filter = params
+        .get("vendor-filter")
+        .cloned()
+        .unwrap_or("ALL".to_string());
+    let is_errors_only = params.get("errors-only").is_some();
+    let query_filter = query_filter_for(params);
+    let tmpl = ExploredEndpointsShow {
+        filter_name: "All",
+        vendors,
+        endpoints: endpoints.into_iter().filter(|x| query_filter(x)).collect(),
+        active_vendor_filter: vendor_filter,
+        is_errors_only,
+    };
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+pub async fn show_html_paired(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    let report = match fetch_explored_endpoints(state).await {
+        Ok(report) => report,
+        Err(err) => {
+            tracing::error!(%err, "fetch_explored_endpoints");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading site exploration report",
+            )
+                .into_response();
+        }
+    };
+
+    let tmpl = ExploredEndpointsShowPaired::from(report);
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+pub async fn show_html_unpaired(
+    AxumState(state): AxumState<Arc<Api>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    let report = match fetch_explored_endpoints(state).await {
+        Ok(report) => report,
+        Err(err) => {
+            tracing::error!(%err, "fetch_explored_endpoints");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading site exploration report",
+            )
+                .into_response();
+        }
+    };
+
+    let paired_bmcs: HashSet<&str> = report
+        .managed_hosts
+        .iter()
+        .map(|mh| mh.host_bmc_ip.as_str())
+        .collect();
+    let endpoints: Vec<ExploredEndpointDisplay> = report
+        .endpoints
+        .iter()
+        .filter(|ep| !paired_bmcs.contains(ep.address.as_str()))
+        .map(Into::into)
+        .collect();
+    let vendors = vendors(&endpoints); // need vendors pre-filtering
+
+    let vendor_filter = params
+        .get("vendor-filter")
+        .cloned()
+        .unwrap_or("ALL".to_string());
+    let is_errors_only = params.get("errors-only").is_some();
+    let query_filter = query_filter_for(params);
+    let tmpl = ExploredEndpointsShow {
+        filter_name: "Unpaired",
+        vendors,
+        endpoints: endpoints.into_iter().filter(|x| query_filter(x)).collect(),
+        active_vendor_filter: vendor_filter,
+        is_errors_only,
+    };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
@@ -293,4 +377,33 @@ pub async fn re_explore(
 #[derive(Deserialize, Debug)]
 pub struct ReExploreEndpointAction {
     if_version_match: Option<String>,
+}
+
+fn vendors(endpoints: &[ExploredEndpointDisplay]) -> Vec<String> {
+    let vendors: HashSet<String> = endpoints
+        .iter()
+        .map(|ep| ep.vendor.clone())
+        .filter(|v| !v.is_empty())
+        .collect();
+    let mut vendors: Vec<String> = vendors.into_iter().collect();
+    vendors.sort();
+    vendors
+}
+
+fn query_filter_for(
+    mut params: HashMap<String, String>,
+) -> Box<dyn Fn(&ExploredEndpointDisplay) -> bool> {
+    let vf: Box<dyn Fn(&ExploredEndpointDisplay) -> bool> =
+        match params.remove("vendor-filter").map(|v| v.trim().to_string()) {
+            Some(v) if v != "ALL" => Box::new(move |ep: &ExploredEndpointDisplay| {
+                ep.vendor.to_uppercase() == v || v == "NONE" && ep.vendor.is_empty()
+            }),
+            _ => Box::new(|_| true),
+        };
+    let ef: Box<dyn Fn(&ExploredEndpointDisplay) -> bool> = if params.contains_key("errors-only") {
+        Box::new(|ep: &ExploredEndpointDisplay| !ep.last_exploration_error.is_empty())
+    } else {
+        Box::new(|_| true)
+    };
+    Box::new(move |x| vf(x) && ef(x))
 }
