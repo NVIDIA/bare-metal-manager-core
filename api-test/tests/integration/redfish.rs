@@ -47,17 +47,17 @@ impl MachineATronBackedRedfishClientPool {
 
             // If the machine BMC has this address and is running the BMC mock, return the address
             // of that mock
-            if let Some(bmc_dhcp_info) = host.bmc_dhcp_info.as_ref() {
-                if bmc_dhcp_info.ip_address.eq(address) {
-                    return host.bmc.as_ref().and_then(|b| b.active_address());
+            if let Some(bmc_ip) = host.bmc_ip() {
+                if bmc_ip.eq(address) {
+                    return host.active_bmc_mock_address();
                 }
             }
 
             // Look at the DPUs for this machine
             for dpu in host.dpu_machines.iter() {
-                if let Some(bmc_dhcp_info) = dpu.bmc_dhcp_info.as_ref() {
-                    if bmc_dhcp_info.ip_address.eq(address) {
-                        return dpu.bmc.as_ref().and_then(|b| b.active_address());
+                if let Some(bmc_ip) = dpu.get_bmc_ip() {
+                    if bmc_ip.eq(address) {
+                        return dpu.active_bmc_mock_address();
                     }
                 }
             }

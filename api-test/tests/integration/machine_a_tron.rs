@@ -9,7 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -18,7 +18,7 @@ use tokio::task::JoinHandle;
 use forge_tls::client_config::get_forge_root_ca_path;
 use machine_a_tron::config::{MachineATronConfig, MachineATronContext};
 use machine_a_tron::dhcp_relay::DhcpRelayService;
-use machine_a_tron::host_machine::{HostMachine, MachineState};
+use machine_a_tron::host_machine::HostMachine;
 use machine_a_tron::machine_a_tron::MachineATron;
 use rpc::forge_tls_client::ForgeClientConfig;
 
@@ -34,11 +34,19 @@ pub async fn run_local(
 ) -> eyre::Result<MachineATronInstance> {
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
+
+    let dpu_bmc_mock_router =
+        bmc_mock::tar_router(Path::new(app_config.bmc_mock_dpu_tar.as_str()), None)?;
+    let host_bmc_mock_router =
+        bmc_mock::tar_router(Path::new(app_config.bmc_mock_host_tar.as_str()), None)?;
+
     let app_context = MachineATronContext {
         app_config,
         forge_client_config,
         circuit_id: None,
         bmc_mock_certs_dir: Some(repo_root.join("dev/bmc-mock")),
+        dpu_bmc_mock_router,
+        host_bmc_mock_router,
     };
 
     // Start DHCP relay
@@ -53,7 +61,7 @@ pub async fn run_local(
 
     let mat = MachineATron::new(app_context);
     let machines = mat
-        .make_machines()
+        .make_machines(&dhcp_client)
         .await?
         .into_iter()
         .map(|m| Arc::new(Mutex::new(m)))
@@ -63,27 +71,21 @@ pub async fn run_local(
         .iter()
         .map(|machine| {
             let machine = machine.clone();
-            let mut dhcp_client_clone = dhcp_client.clone();
 
             tokio::spawn(async move {
                 loop {
                     let mut machine = machine.lock().await;
                     let work_done = machine
-                        .process_state(&mut dhcp_client_clone)
+                        .process_state()
                         .await
                         .inspect_err(|e| tracing::error!("Error processing state: {e}"))?;
 
-                    if let MachineState::MachineUp(_) = machine.mat_state {
-                        if machine.api_state.eq("Ready") {
-                            tracing::info!(
-                                "Machine {} has made it to Ready/MachineUp, all done.",
-                                machine
-                                    .get_machine_id_opt()
-                                    .map(|m| m.to_string())
-                                    .unwrap_or("<unknown>".to_string())
-                            );
-                            break;
-                        }
+                    if machine.is_up_and_ready() {
+                        tracing::info!(
+                            "Machine {} has made it to Ready/MachineUp, all done.",
+                            machine.machine_id_with_fallback()
+                        );
+                        break;
                     }
 
                     if work_done {

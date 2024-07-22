@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -33,16 +32,10 @@ impl MachineATron {
         Self { app_context }
     }
 
-    pub async fn make_machines(&self) -> eyre::Result<Vec<HostMachine>> {
-        let dpu_bmc_mock_router = bmc_mock::tar_router(
-            Path::new(self.app_context.app_config.bmc_mock_dpu_tar.as_str()),
-            None,
-        )?;
-        let host_bmc_mock_router = bmc_mock::tar_router(
-            Path::new(self.app_context.app_config.bmc_mock_host_tar.as_str()),
-            None,
-        )?;
-
+    pub async fn make_machines(
+        &self,
+        dhcp_client: &DhcpRelayClient,
+    ) -> eyre::Result<Vec<HostMachine>> {
         let machines = self
             .app_context
             .app_config
@@ -55,8 +48,7 @@ impl MachineATron {
                         self.app_context.clone(),
                         config.clone(),
                         None,
-                        host_bmc_mock_router.clone(),
-                        dpu_bmc_mock_router.clone(),
+                        dhcp_client.clone(),
                     )
                 })
             })
@@ -65,17 +57,16 @@ impl MachineATron {
         // Useful for comparing values in logs with machine-a-tron's state
         tracing::info!(
             "Machine-a-tron using machines: {:?}",
-            machines.iter().map(|m| m.bmc_info()).collect::<Vec<_>>()
+            machines
+                .iter()
+                .map(|m| m.host_machine_info().clone())
+                .collect::<Vec<_>>()
         );
 
         Ok(machines)
     }
 
-    pub async fn run(
-        &mut self,
-        machines: Vec<HostMachine>,
-        dhcp_client: &mut DhcpRelayClient,
-    ) -> eyre::Result<()> {
+    pub async fn run(&mut self, machines: Vec<HostMachine>) -> eyre::Result<()> {
         let running = Arc::new(AtomicBool::new(true));
         let (app_tx, mut app_rx) = channel(5000);
         let mut machine_ids: Vec<String> = Vec::new();
@@ -129,23 +120,22 @@ impl MachineATron {
         let mut machine_handles = Vec::default();
         for mut machine in machines {
             let running = running.clone();
-            let mut dhcp_client_clone = dhcp_client.clone();
-            machine.ui_event_tx = ui_event_tx.clone();
-            machine_ids.push(machine.get_machine_id_str());
+            machine.connect_ui_events(ui_event_tx.clone());
+            machine_ids.push(machine.machine_id_with_fallback());
 
             let join_handle = tokio::spawn(async move {
                 machine.update_tui().await;
                 while running.as_ref().load(Ordering::Relaxed) {
                     let work_done = machine
-                        .process_state(&mut dhcp_client_clone)
+                        .process_state()
                         .await
                         .inspect_err(|e| tracing::error!("Error processing state: {e}"))
                         .unwrap_or(false);
                     if work_done {
                         machine.update_tui().await;
-                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                     } else {
-                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        tokio::time::sleep(Duration::from_secs(5)).await;
                     }
                 }
             });

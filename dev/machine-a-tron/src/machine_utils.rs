@@ -1,14 +1,13 @@
-use ::rpc::Timestamp;
 use mac_address::MacAddress;
 use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
 
-use crate::{api_client, config::MachineATronContext, host_machine::AddressConfigError};
+use crate::{api_client, config::MachineATronContext};
 
-use std::sync::atomic::{AtomicU32, Ordering};
-
+use crate::machine_state_machine::AddressConfigError;
 use lazy_static::lazy_static;
 use reqwest::ClientBuilder;
 use rpc::forge::MachineArchitecture;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tempfile::TempDir;
 
 lazy_static! {
@@ -26,6 +25,11 @@ pub enum PXEresponse {
     Error,
 }
 
+pub enum MockMachineType {
+    Host,
+    Dpu,
+}
+
 pub fn next_mac() -> MacAddress {
     let next_mac_num = NEXT_MAC_ADDRESS.fetch_add(1, Ordering::Acquire);
 
@@ -39,11 +43,11 @@ pub fn next_mac() -> MacAddress {
     MacAddress::from(mac_bytes)
 }
 
-pub async fn get_fac_action(
+pub async fn forge_agent_control(
     app_context: &MachineATronContext,
     machine_id: rpc::common::MachineId,
-) -> rpc::forge::forge_agent_control_response::Action {
-    let response = api_client::forge_agent_control(app_context, machine_id)
+) -> ForgeAgentControlResponse {
+    api_client::forge_agent_control(app_context, machine_id)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!("Error getting control action: {e}");
@@ -51,26 +55,17 @@ pub async fn get_fac_action(
                 action: Action::Noop as i32,
                 data: None,
             }
-        });
+        })
+}
 
+pub fn get_fac_action(
+    response: &ForgeAgentControlResponse,
+) -> rpc::forge::forge_agent_control_response::Action {
     rpc::forge::forge_agent_control_response::Action::try_from(response.action).unwrap()
 }
 
-pub async fn get_validation_id(
-    app_context: &MachineATronContext,
-    machine_id: rpc::common::MachineId,
-) -> Option<rpc::common::Uuid> {
-    let response = api_client::forge_agent_control(app_context, machine_id)
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!("Error getting control action: {e}");
-            ForgeAgentControlResponse {
-                action: Action::Noop as i32,
-                data: None,
-            }
-        });
-
-    response.data.and_then(|d| {
+pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<rpc::common::Uuid> {
+    response.data.as_ref().and_then(|d| {
         d.pair.iter().find_map(|pair| {
             if pair.key.eq("ValidationId") {
                 Some(rpc::common::Uuid {
@@ -81,29 +76,6 @@ pub async fn get_validation_id(
             }
         })
     })
-}
-
-pub fn reboot_requested_for_machine(
-    machine: &rpc::forge::Machine,
-    m_a_t_last_known_reboot_request: Option<&Timestamp>,
-) -> bool {
-    let mut rr = false;
-
-    if let Some(last_reboot_requested_time) = machine.last_reboot_requested_time.as_ref() {
-        // if the machine's last known reboot request in m_a_t is None but the request received from API is not, it indicates
-        // the machine's first reboot.
-        rr = m_a_t_last_known_reboot_request
-            .map(|lrr| *last_reboot_requested_time > *lrr)
-            .unwrap_or(true);
-    }
-
-    if rr {
-        tracing::info!(
-            "reboot requested for {}",
-            machine.id.as_ref().map_or("", |id| { id.id.as_str() })
-        );
-    }
-    rr
 }
 
 pub async fn send_pxe_boot_request(
@@ -185,26 +157,24 @@ pub async fn send_pxe_boot_request(
 
 pub async fn get_api_state(
     app_context: &MachineATronContext,
-    machine_id: &rpc::common::MachineId,
-    m_a_t_last_known_reboot_request: &mut Option<Timestamp>,
-) -> (String, bool) {
+    machine_id: Option<&rpc::common::MachineId>,
+) -> String {
+    let Some(machine_id) = machine_id else {
+        return "Unknown".to_string();
+    };
+
     api_client::get_machine(app_context, machine_id.clone())
         .await
         .map_or_else(
             |e| {
                 tracing::warn!("Error getting API state: {e}");
-                ("<ERROR>".to_owned(), false)
+                "<ERROR>".to_owned()
             },
             |machine| {
-                if let Some(ref m) = machine {
-                    let state = m.state.clone();
-                    let rr =
-                        reboot_requested_for_machine(m, m_a_t_last_known_reboot_request.as_ref());
-                    *m_a_t_last_known_reboot_request = m.last_reboot_requested_time.clone();
-
-                    (state, rr)
+                if let Some(m) = machine {
+                    m.state
                 } else {
-                    ("<No Machine>".to_owned(), false)
+                    "<No Machine>".to_owned()
                 }
             },
         )

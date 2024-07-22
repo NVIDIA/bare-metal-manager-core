@@ -1,13 +1,17 @@
-use crate::bmc_mock_wrapper::MockBmcInfo;
+#![allow(unused_imports)]
+use crate::bmc_mock_wrapper::MachineCommand;
+use crate::machine_info::MachineInfo;
 use axum::body::{Body, Bytes};
 use axum::http::{Method, Request, StatusCode};
 use axum::response::Response;
+use chrono::Utc;
 use lazy_static::lazy_static;
 use libredfish::model::software_inventory::SoftwareInventory;
 use libredfish::model::{BootOption, ComputerSystem, ODataId};
 use libredfish::{Chassis, EthernetInterface, NetworkAdapter};
 use regex::{Captures, Regex};
 use std::collections::HashMap;
+use tokio::sync::mpsc;
 
 lazy_static! {
     static ref MANAGERS_ETHERNET_INTERFACES_REGEX: Regex = Regex::new(
@@ -37,27 +41,23 @@ lazy_static! {
     static ref DPU_SYS_IMAGE_REGEX: Regex = Regex::new(
         r"^/redfish/v1/UpdateService/FirmwareInventory/DPU_SYS_IMAGE(/(index.json)?)?$"
     ).unwrap();
+    static ref SYSTEM_RESET_REGEX: Regex = Regex::new(
+        r"^/redfish/v1/Systems/(?<system_name>[^/]+)/Actions/ComputerSystem.Reset(/(index.json)?)?$"
+    ).unwrap();
 }
 
 pub fn mock_response_if_needed(
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     request: &Request<Body>,
 ) -> Option<Response<Body>> {
     if let Some(captures) = CHASSIS_NETWORK_ADAPTERS_NIC_REGEX.captures(request.uri().path()) {
-        return generate_network_adapters_response(captures, mock_bmc_info);
+        return generate_network_adapters_response(captures, machine_info);
     }
 
-    return match (mock_bmc_info, request.method(), request.uri().path()) {
-        // Reboot request
-        (_, &Method::POST, "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset") => Some(
-            Response::builder()
-                .status(StatusCode::OK)
-                .body(Body::from(""))
-                .unwrap(),
-        ),
+    return match (machine_info, request.method(), request.uri().path()) {
         // Dell password change, needs a job ID to be returned in the Location: header
         (
-            MockBmcInfo::Host(_),
+            MachineInfo::Host(_),
             &Method::POST,
             "/redfish/v1/Systems/System.Embedded.1/Bios/Settings",
         ) => Some(
@@ -71,7 +71,7 @@ pub fn mock_response_if_needed(
                 .unwrap(),
         ),
         (
-            MockBmcInfo::Host(_),
+            MachineInfo::Host(_),
             &Method::POST,
             "/redfish/v1/Systems/1/Bios/Actions/Bios.ChangePassword",
         ) => Some(
@@ -87,24 +87,28 @@ pub fn mock_response_if_needed(
 /// Take a given HTTP request path given to BMC-mock, and its response, and return a modified
 /// response, if applicable.
 pub fn rewritten_response_if_needed(
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     path: &str,
     response: &[u8],
+    command_channel: &mpsc::UnboundedSender<MachineCommand>,
 ) -> eyre::Result<Option<Bytes>> {
     return if CHASSIS_REGEX.is_match(path) {
-        rewrite_chassis_response(mock_bmc_info, response)
+        rewrite_chassis_response(machine_info, response)
     } else if SYSTEM_REGEX.is_match(path) {
-        rewrite_system_response(mock_bmc_info, response)
+        rewrite_system_response(machine_info, response)
     } else if DPU_BOOT_OPTIONS_REGEX.is_match(path) {
-        rewrite_dpu_boot_options_response(mock_bmc_info, response)
+        rewrite_dpu_boot_options_response(machine_info, response)
     } else if DPU_SYS_IMAGE_REGEX.is_match(path) {
-        rewrite_dpu_sys_image_response(mock_bmc_info, response)
+        rewrite_dpu_sys_image_response(machine_info, response)
+    } else if SYSTEM_RESET_REGEX.is_match(path) {
+        perform_reset(command_channel);
+        Ok(None)
     } else if let Some(captures) = MANAGERS_ETHERNET_INTERFACES_REGEX.captures(path) {
-        rewrite_managers_ethernet_interfaces_response(captures, mock_bmc_info, response)
+        rewrite_managers_ethernet_interfaces_response(captures, machine_info, response)
     } else if let Some(captures) = SYSTEMS_ETHERNET_INTERFACES_REGEX.captures(path) {
-        rewrite_systems_ethernet_interfaces_response(captures, mock_bmc_info, response)
+        rewrite_systems_ethernet_interfaces_response(captures, machine_info, response)
     } else if let Some(captures) = CHASSIS_NETWORK_ADAPTERS_REGEX.captures(path) {
-        rewrite_chassis_network_adapters_response(captures, mock_bmc_info, response)
+        rewrite_chassis_network_adapters_response(captures, machine_info, response)
     } else {
         Ok(None)
     };
@@ -114,9 +118,9 @@ pub fn rewritten_response_if_needed(
 
 fn generate_network_adapters_response(
     captures: Captures,
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
 ) -> Option<Response<Body>> {
-    let MockBmcInfo::Host(host) = mock_bmc_info else {
+    let MachineInfo::Host(host) = machine_info else {
         return None;
     };
     let nic_id = captures["nic"].to_string();
@@ -161,12 +165,12 @@ fn generate_network_adapters_response(
 
 fn rewrite_managers_ethernet_interfaces_response(
     captures: Captures,
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     response: &[u8],
 ) -> eyre::Result<Option<Bytes>> {
     let mut iface = serde_json::from_slice::<EthernetInterface>(response)?;
-    match mock_bmc_info {
-        MockBmcInfo::Dpu(dpu) => {
+    match machine_info {
+        MachineInfo::Dpu(dpu) => {
             if captures["manager_name"].ne("Bluefield_BMC") {
                 tracing::error!("request for Managers data for DPU, when Manager is not Bluefield_BMC... upstream bmc-mock should have 404'd?");
                 return Ok(None);
@@ -182,7 +186,7 @@ fn rewrite_managers_ethernet_interfaces_response(
                 return Ok(None);
             }
         }
-        MockBmcInfo::Host(host) => {
+        MachineInfo::Host(host) => {
             iface.mac_address = Some(host.bmc_mac_address.to_string());
         }
     }
@@ -191,19 +195,19 @@ fn rewrite_managers_ethernet_interfaces_response(
 
 fn rewrite_systems_ethernet_interfaces_response(
     captures: Captures,
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     response: &[u8],
 ) -> eyre::Result<Option<Bytes>> {
     let mut iface = serde_json::from_slice::<EthernetInterface>(response)?;
-    match mock_bmc_info {
-        MockBmcInfo::Dpu(dpu) => {
+    match machine_info {
+        MachineInfo::Dpu(dpu) => {
             if captures["system_name"].ne("Bluefield") {
                 tracing::error!("request for Systems data for DPU, when System is not Bluefield... upstream bmc-mock should have 404'd?");
                 return Ok(None);
             }
             iface.mac_address = Some(dpu.host_mac_address.to_string());
         }
-        MockBmcInfo::Host(host) => {
+        MachineInfo::Host(host) => {
             iface.mac_address = host.system_mac_address().map(|m| m.to_string());
         }
     }
@@ -211,20 +215,20 @@ fn rewrite_systems_ethernet_interfaces_response(
 }
 
 fn rewrite_chassis_response(
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     response: &[u8],
 ) -> eyre::Result<Option<Bytes>> {
     let mut chassis: Chassis = serde_json::from_slice(response)?;
-    chassis.serial_number = mock_bmc_info.chassis_serial();
+    chassis.serial_number = machine_info.chassis_serial();
     Ok(Some(Bytes::from(serde_json::to_string(&chassis)?)))
 }
 
 fn rewrite_chassis_network_adapters_response(
     captures: Captures,
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     response: &[u8],
 ) -> eyre::Result<Option<Bytes>> {
-    let MockBmcInfo::Host(host) = mock_bmc_info else {
+    let MachineInfo::Host(host) = machine_info else {
         return Ok(None);
     };
     let mut body: HashMap<String, serde_json::Value> = serde_json::from_slice(response)?;
@@ -273,20 +277,20 @@ fn rewrite_chassis_network_adapters_response(
 }
 
 fn rewrite_system_response(
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     response: &[u8],
 ) -> eyre::Result<Option<Bytes>> {
     let mut system = serde_json::from_slice::<ComputerSystem>(response)?;
-    system.serial_number = mock_bmc_info.product_serial();
+    system.serial_number = machine_info.product_serial();
     Ok(Some(Bytes::from(serde_json::to_string(&system)?)))
 }
 
 fn rewrite_dpu_boot_options_response(
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     response: &[u8],
 ) -> eyre::Result<Option<Bytes>> {
     // We only rewrite this line if it's a DPU we're mocking
-    let MockBmcInfo::Dpu(dpu) = mock_bmc_info else {
+    let MachineInfo::Dpu(dpu) = machine_info else {
         return Ok(None);
     };
     let mut boot_option = serde_json::from_slice::<BootOption>(response)?;
@@ -312,11 +316,11 @@ fn rewrite_dpu_boot_options_response(
 }
 
 fn rewrite_dpu_sys_image_response(
-    mock_bmc_info: &MockBmcInfo,
+    machine_info: &MachineInfo,
     response: &[u8],
 ) -> eyre::Result<Option<Bytes>> {
     // We only rewrite this line if it's a DPU we're mocking
-    let MockBmcInfo::Dpu(dpu) = mock_bmc_info else {
+    let MachineInfo::Dpu(dpu) = machine_info else {
         return Ok(None);
     };
 
@@ -346,4 +350,10 @@ fn rewrite_dpu_sys_image_response(
     inventory.version = Some(base_mac);
 
     Ok(Some(Bytes::from(serde_json::to_string(&inventory)?)))
+}
+
+fn perform_reset(command_channel: &mpsc::UnboundedSender<MachineCommand>) {
+    command_channel
+        .send(MachineCommand::Reboot(Utc::now()))
+        .unwrap()
 }

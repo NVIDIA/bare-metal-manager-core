@@ -4,31 +4,38 @@ use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Router;
-use mac_address::MacAddress;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tower::ServiceBuilder;
 
-use bmc_mock::{BmcMockError, ListenerOrAddress};
-
 use crate::config::MachineATronContext;
-use crate::host_machine::{AddressConfigError, MachineStateError};
+use crate::machine_info::MachineInfo;
+use crate::machine_state_machine::{AddressConfigError, MachineStateError};
 use crate::machine_utils::add_address_to_interface;
 use crate::redfish_rewriter;
+use bmc_mock::{BmcMockError, ListenerOrAddress};
 
 /// BmcMockWrapper launches a single instance of bmc-mock, configured to mock a single BMC for
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines
 /// machine-a-tron is mocking.
 #[derive(Debug)]
 pub struct BmcMockWrapper {
-    mock_bmc_info: MockBmcInfo,
+    machine_info: MachineInfo,
+    command_channel: mpsc::UnboundedSender<MachineCommand>,
     app_context: MachineATronContext,
     bmc_mock_router: Router,
     join_handle: Option<JoinHandle<Result<(), BmcMockError>>>,
     listen_mode: ListenMode,
     active_address: Option<SocketAddr>,
+}
+
+#[derive(Debug, Clone)]
+pub enum MachineCommand {
+    Reboot(DateTime<Utc>),
 }
 
 #[derive(Debug, Clone)]
@@ -40,69 +47,27 @@ pub enum ListenMode {
     LocalhostWithDynamicPort,
 }
 
-#[derive(Debug, Clone)]
-pub enum MockBmcInfo {
-    Host(HostBmcInfo),
-    Dpu(DpuBmcInfo),
-}
-
-#[derive(Debug, Clone)]
-pub struct HostBmcInfo {
-    pub bmc_mac_address: MacAddress,
-    pub serial: String,
-    pub dpus: Vec<DpuBmcInfo>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DpuBmcInfo {
-    pub bmc_mac_address: MacAddress,
-    pub host_mac_address: MacAddress,
-    pub oob_mac_address: MacAddress,
-    pub serial: String,
-}
-
-impl HostBmcInfo {
-    pub fn primary_dpu(&self) -> Option<&DpuBmcInfo> {
-        self.dpus.first()
-    }
-
-    pub fn system_mac_address(&self) -> Option<MacAddress> {
-        self.primary_dpu().map(|d| d.host_mac_address)
-    }
-}
-
-impl MockBmcInfo {
-    pub fn chassis_serial(&self) -> Option<String> {
-        match self {
-            Self::Host(h) => Some(h.serial.clone()),
-            Self::Dpu(d) => Some(d.serial.clone()),
-        }
-    }
-
-    pub fn product_serial(&self) -> Option<String> {
-        match self {
-            Self::Host(h) => Some(h.serial.clone()),
-            Self::Dpu(_) => None,
-        }
-    }
-
-    pub fn bmc_mac_address(&self) -> MacAddress {
-        match self {
-            Self::Host(h) => h.bmc_mac_address,
-            Self::Dpu(d) => d.bmc_mac_address,
-        }
-    }
+#[derive(Clone)]
+struct BmcMockAxumState {
+    machine_info: MachineInfo,
+    command_channel: mpsc::UnboundedSender<MachineCommand>,
 }
 
 impl BmcMockWrapper {
     pub fn new(
-        mock_bmc_info: MockBmcInfo,
-        bmc_mock_router: Router,
+        machine_info: MachineInfo,
+        command_channel: mpsc::UnboundedSender<MachineCommand>,
         app_context: MachineATronContext,
         listen_mode: ListenMode,
     ) -> Self {
+        let bmc_mock_router = match machine_info {
+            MachineInfo::Dpu(_) => app_context.dpu_bmc_mock_router.clone(),
+            MachineInfo::Host(_) => app_context.host_bmc_mock_router.clone(),
+        };
+
         BmcMockWrapper {
-            mock_bmc_info,
+            machine_info,
+            command_channel,
             app_context,
             bmc_mock_router,
             join_handle: None,
@@ -117,7 +82,10 @@ impl BmcMockWrapper {
             .clone()
             .layer(
                 ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
-                    self.mock_bmc_info.clone(),
+                    BmcMockAxumState {
+                        machine_info: self.machine_info.clone(),
+                        command_channel: self.command_channel.clone(),
+                    },
                     Self::mock_request_or_call_next,
                 )),
             );
@@ -181,17 +149,20 @@ impl BmcMockWrapper {
     }
 
     pub fn stop(&mut self) {
-        if let Some(j) = self.join_handle.as_ref() {
+        if let Some(j) = self.join_handle.take() {
             j.abort();
-            self.join_handle = None;
         }
     }
 
     async fn mock_request_or_call_next(
-        AxumState(mocked_machine): AxumState<MockBmcInfo>,
+        AxumState(state): AxumState<BmcMockAxumState>,
         request: Request<Body>,
         next: Next,
     ) -> impl IntoResponse {
+        let BmcMockAxumState {
+            machine_info: mocked_machine,
+            command_channel,
+        } = state;
         tracing::debug!(
             "bmc-mock({}): {} {}",
             mocked_machine.bmc_mac_address(),
@@ -225,6 +196,7 @@ impl BmcMockWrapper {
             &mocked_machine,
             &path,
             &tar_response_data,
+            &command_channel,
         )
         .inspect_err(|e| tracing::error!("Error rewriting bmc-mock response: {}", e))
         .ok()

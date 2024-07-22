@@ -1,9 +1,9 @@
+use axum::Router;
 use clap::Parser;
-use std::path::PathBuf;
-use std::{collections::BTreeMap, net::Ipv4Addr};
-
 use rpc::forge_tls_client::ForgeClientConfig;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::{collections::BTreeMap, net::Ipv4Addr};
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "machine-sim")]
@@ -102,4 +102,6 @@ pub struct MachineATronContext {
     pub forge_client_config: ForgeClientConfig,
     pub circuit_id: Option<String>,
     pub bmc_mock_certs_dir: Option<PathBuf>,
+    pub host_bmc_mock_router: Router,
+    pub dpu_bmc_mock_router: Router,
 }
