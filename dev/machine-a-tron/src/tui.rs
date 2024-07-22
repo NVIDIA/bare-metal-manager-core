@@ -17,10 +17,7 @@ use tokio::{
 
 use uuid::Uuid;
 
-use crate::{
-    dpu_machine::DpuMachine, host_machine::HostMachine, machine_a_tron::AppEvent, subnet::Subnet,
-    vpc::Vpc,
-};
+use crate::{machine_a_tron::AppEvent, subnet::Subnet, vpc::Vpc};
 
 pub struct VpcDetails {
     pub vpc_id: Uuid,
@@ -79,62 +76,6 @@ pub struct HostDetails {
     pub machine_ip: String,
     pub dpus: Vec<HostDetails>,
     pub logs: Vec<String>,
-}
-
-impl From<&DpuMachine> for HostDetails {
-    fn from(value: &DpuMachine) -> Self {
-        Self {
-            mat_id: value.mat_id,
-            machine_id: value.get_machine_id_opt().map(|id| id.to_string()),
-            mat_state: value.mat_state.to_string(),
-            api_state: value.api_state.clone(),
-            oob_ip: value
-                .bmc_dhcp_info
-                .as_ref()
-                .map(|dhcp_info| dhcp_info.ip_address)
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            machine_ip: value
-                .machine_dhcp_info
-                .as_ref()
-                .map(|dhcp_info| dhcp_info.ip_address)
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            dpus: Vec::default(),
-            logs: Vec::default(),
-        }
-    }
-}
-
-impl From<&HostMachine> for HostDetails {
-    fn from(value: &HostMachine) -> Self {
-        let mut dpus = Vec::with_capacity(value.dpu_machines.len());
-        value
-            .dpu_machines
-            .iter()
-            .for_each(|d| dpus.push(HostDetails::from(d)));
-
-        HostDetails {
-            mat_id: value.mat_id,
-            machine_id: value.get_machine_id_opt().map(|id| id.to_string()),
-            mat_state: value.mat_state.to_string(),
-            api_state: value.api_state.clone(),
-            oob_ip: value
-                .bmc_dhcp_info
-                .as_ref()
-                .map(|dhcp_info| dhcp_info.ip_address)
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            machine_ip: value
-                .machine_dhcp_info
-                .as_ref()
-                .map(|dhcp_info| dhcp_info.ip_address)
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            dpus,
-            logs: value.logs.clone(),
-        }
-    }
 }
 
 impl HostDetails {

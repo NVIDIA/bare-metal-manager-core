@@ -59,7 +59,7 @@ impl DhcpRelayClient {
     }
 
     pub async fn request_ip(
-        &mut self,
+        &self,
         mat_id: Uuid,
         mac_address: &MacAddress,
         relay_address: &Ipv4Addr,

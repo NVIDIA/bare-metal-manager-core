@@ -2,6 +2,7 @@ use crate::config::MachineATronContext;
 use base64::prelude::*;
 use mac_address::MacAddress;
 use rpc::forge::PxeInstructions;
+use rpc::site_explorer::SiteExplorationReport;
 use rpc::{
     forge::{MachineSearchConfig, MachineType},
     forge_tls_client::{self, ApiConfig, ForgeClientT},
@@ -328,7 +329,7 @@ pub async fn get_managed_host_network_config(
 pub async fn record_dpu_network_status(
     app_context: &MachineATronContext,
     dpu_machine_id: rpc::MachineId,
-    network_config_version: Option<String>,
+    network_config_version: String,
 ) -> ClientApiResult<()> {
     let dpu_machine_id = Some(dpu_machine_id);
 
@@ -349,7 +350,7 @@ pub async fn record_dpu_network_status(
                     failed: vec![],
                     message: Some("Hello".to_owned()),
                 }),
-                network_config_version,
+                network_config_version: Some(network_config_version),
                 instance_config_version: None,
                 instance_network_config_version: None,
                 interfaces: vec![],
@@ -570,6 +571,21 @@ pub async fn get_pxe_instructions(
                 arch: arch.into(),
                 interface_id: Some(interface_id),
             }))
+            .await
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+    .map(|r| r.into_inner())
+}
+
+pub async fn get_site_exploration_report(
+    app_context: &MachineATronContext,
+) -> ClientApiResult<SiteExplorationReport> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .get_site_exploration_report(tonic::Request::new(
+                rpc::forge::GetSiteExplorationRequest {},
+            ))
             .await
             .map_err(ClientApiError::InvocationError)
     })

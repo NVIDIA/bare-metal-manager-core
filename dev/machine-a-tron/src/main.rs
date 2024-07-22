@@ -4,14 +4,15 @@ pub mod config;
 pub mod dhcp_relay;
 pub mod dpu_machine;
 pub mod host_machine;
+pub mod logging;
 pub mod machine_a_tron;
+pub mod machine_info;
+pub mod machine_state_machine;
 pub mod machine_utils;
 mod redfish_rewriter;
 pub mod subnet;
 pub mod tui;
 pub mod vpc;
-
-use std::error::Error;
 
 use clap::Parser;
 use figment::providers::{Format, Toml};
@@ -22,6 +23,8 @@ use forge_tls::client_config::{
 };
 use machine_a_tron::MachineATron;
 use rpc::forge_tls_client::ForgeClientConfig;
+use std::error::Error;
+use std::path::Path;
 
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
@@ -75,11 +78,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ForgeClientConfig::new(forge_root_ca_path.clone(), Some(forge_client_cert));
     forge_client_config.socks_proxy(proxy);
 
+    let dpu_bmc_mock_router =
+        bmc_mock::tar_router(Path::new(app_config.bmc_mock_dpu_tar.as_str()), None)?;
+    let host_bmc_mock_router =
+        bmc_mock::tar_router(Path::new(app_config.bmc_mock_host_tar.as_str()), None)?;
+
     let mut app_context = MachineATronContext {
         app_config,
         forge_client_config,
         circuit_id: None,
         bmc_mock_certs_dir: None,
+        dpu_bmc_mock_router,
+        host_bmc_mock_router,
     };
 
     let (mut dhcp_client, mut dhcp_service) =
@@ -107,8 +117,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("version: {}", info.build_version);
 
     let mut mat = MachineATron::new(app_context);
-    let machines = mat.make_machines().await?;
-    mat.run(machines, &mut dhcp_client).await?;
+    let machines = mat.make_machines(&dhcp_client).await?;
+    mat.run(machines).await?;
 
     dhcp_client.stop_service().await;
     dhcp_handle.await?;
