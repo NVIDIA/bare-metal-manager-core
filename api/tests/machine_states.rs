@@ -11,7 +11,6 @@
  */
 pub mod common;
 
-use carbide::cfg::default_dpu_models;
 use carbide::db;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::measured_boot::dto::records::MeasurementBundleState;
@@ -167,7 +166,7 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -217,7 +216,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -293,7 +292,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
         chrono::Duration::seconds(1),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -343,7 +342,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -615,7 +614,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -662,7 +661,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );

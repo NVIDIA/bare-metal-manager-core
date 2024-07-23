@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::cfg::default_dpu_models;
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::db::machine_interface::MachineInterface;
 use carbide::model::machine::{
@@ -170,7 +169,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -470,7 +469,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -657,7 +656,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -958,7 +957,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -1284,7 +1283,7 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -1519,7 +1518,7 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -1657,7 +1656,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );

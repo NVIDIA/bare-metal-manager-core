@@ -13,7 +13,6 @@ use std::{collections::HashMap, time::Duration};
 
 use ::rpc::forge::forge_server::Forge;
 use carbide::{
-    cfg::default_dpu_models,
     db::{
         dhcp_record::InstanceDhcpRecord,
         instance::{Instance, InstanceId},
@@ -1521,7 +1520,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );

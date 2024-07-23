@@ -23,7 +23,7 @@ use mac_address::MacAddress;
 use tonic::Request;
 
 use carbide::{
-    cfg::{default_dpu_models, SiteExplorerConfig},
+    cfg::SiteExplorerConfig,
     db::{
         expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
@@ -267,12 +267,10 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         override_target_ip: None,
         override_target_port: None,
     };
-    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         env.pool.clone(),
         explorer_config,
-        &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
         env.common_pools.clone(),
@@ -737,12 +735,11 @@ async fn test_site_explorer_reexplore(
         override_target_ip: None,
         override_target_port: None,
     };
-    let dpu_config = default_dpu_models();
+
     let test_meter = TestMeter::default();
     let explorer = SiteExplorer::new(
         env.pool.clone(),
         explorer_config,
-        &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
         env.common_pools.clone(),
@@ -847,7 +844,10 @@ async fn test_site_explorer_reexplore(
 async fn test_site_explorer_creates_managed_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool).await;
+    // Prevent Firmware update here, since we test it in other method
+    let mut config = common::api_fixtures::get_config();
+    config.dpu_models = HashMap::new();
+    let env = common::api_fixtures::create_test_env_with_config(pool, Some(config)).await;
     let _underlay_segment = create_underlay_network_segment(&env).await;
     let _admin_segment = create_admin_network_segment(&env).await;
 
@@ -855,7 +855,6 @@ async fn test_site_explorer_creates_managed_host(
         reports: Arc::new(Mutex::new(HashMap::new())),
     });
 
-    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: true,
@@ -870,7 +869,6 @@ async fn test_site_explorer_creates_managed_host(
     let explorer = SiteExplorer::new(
         env.pool.clone(),
         explorer_config,
-        &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
         env.common_pools.clone(),
@@ -1112,7 +1110,7 @@ async fn test_site_explorer_creates_managed_host(
         chrono::Duration::minutes(1),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -1230,7 +1228,6 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         reports: Arc::new(Mutex::new(HashMap::new())),
     });
 
-    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: true,
@@ -1245,7 +1242,6 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     let explorer = SiteExplorer::new(
         env.pool.clone(),
         explorer_config,
-        &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
         env.common_pools.clone(),
@@ -1896,7 +1892,6 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         reports: Arc::new(Mutex::new(HashMap::new())),
     });
 
-    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: true,
@@ -1911,7 +1906,6 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     let explorer = SiteExplorer::new(
         env.pool.clone(),
         explorer_config,
-        &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
         env.common_pools.clone(),
@@ -2083,7 +2077,6 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         reports: Arc::new(Mutex::new(HashMap::new())),
     });
 
-    let dpu_config = default_dpu_models();
     let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: true,
@@ -2098,7 +2091,6 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     let explorer = SiteExplorer::new(
         env.pool.clone(),
         explorer_config,
-        &dpu_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
         env.common_pools.clone(),

@@ -27,7 +27,7 @@ use tokio::{net::lookup_host, sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
-    cfg::{DpuDesc, DpuModel, SiteExplorerConfig},
+    cfg::SiteExplorerConfig,
     db::{
         bmc_metadata::BmcMetaDataUpdateRequest,
         expected_machine::ExpectedMachine,
@@ -107,7 +107,6 @@ pub struct SiteExplorer {
     database_connection: PgPool,
     enabled: bool,
     config: SiteExplorerConfig,
-    dpu_models: HashMap<DpuModel, DpuDesc>,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
     common_pools: Arc<CommonPools>,
@@ -121,7 +120,6 @@ impl SiteExplorer {
     pub fn new(
         database_connection: sqlx::PgPool,
         explorer_config: SiteExplorerConfig,
-        dpu_models: &HashMap<DpuModel, DpuDesc>,
         meter: opentelemetry::metrics::Meter,
         endpoint_explorer: Arc<dyn EndpointExplorer>,
         common_pools: Arc<CommonPools>,
@@ -140,7 +138,6 @@ impl SiteExplorer {
             database_connection,
             enabled: explorer_config.enabled,
             config: explorer_config,
-            dpu_models: dpu_models.clone(),
             metric_holder,
             endpoint_explorer,
             common_pools,
@@ -831,7 +828,6 @@ impl SiteExplorer {
 
     fn can_visit(&self, explored_dpu: &ExploredDpu) -> CarbideResult<()> {
         explored_dpu.has_valid_report()?;
-        explored_dpu.has_valid_firmware(&self.dpu_models)?;
         Ok(())
     }
 

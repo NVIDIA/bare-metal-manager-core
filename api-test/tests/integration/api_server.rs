@@ -15,10 +15,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use carbide::cfg::{
-    default_dpu_models, default_max_find_by_ids, AgentUpgradePolicyChoice, AuthConfig,
-    CarbideConfig, FirmwareGlobal, IBFabricConfig, IbFabricMonitorConfig,
-    IbPartitionStateControllerConfig, MachineStateControllerConfig,
-    NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig, TlsConfig,
+    default_max_find_by_ids, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, FirmwareGlobal,
+    IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
+    MachineStateControllerConfig, NetworkSegmentStateControllerConfig, SiteExplorerConfig,
+    StateControllerConfig, TlsConfig,
 };
 use carbide::logging::setup::TelemetrySetup;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -221,7 +221,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
                 ..StateControllerConfig::default()
             },
         },
-        dpu_models: default_dpu_models(),
+        dpu_models: HashMap::new(),
         host_models: HashMap::new(),
         firmware_global: FirmwareGlobal {
             autoupdate: false,
