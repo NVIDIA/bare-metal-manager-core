@@ -20,8 +20,8 @@ use rpc::forge::{
 use rpc::Uuid;
 use tonic::Request;
 
-pub const FIXTURE_CREATED_VPC_UUID: uuid::Uuid =
-    uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
+use super::api_fixtures::FIXTURE_VPC_ID;
+
 pub const FIXTURE_CREATED_DOMAIN_UUID: uuid::Uuid =
     uuid::uuid!("1ebec7c1-114f-4793-a9e4-63f3d22b5b5e");
 
@@ -46,7 +46,7 @@ impl NetworkSegmentHelper {
             free_ip_count: 0,
         }];
         let inner = NetworkSegmentCreationRequest {
-            vpc_id: Some(FIXTURE_CREATED_VPC_UUID.into()),
+            vpc_id: Some(FIXTURE_VPC_ID.into()),
             name: "TEST_SEGMENT".into(),
             subdomain_id: None,
             mtu: Some(1500),
@@ -92,7 +92,7 @@ pub async fn create_network_segment_with_api(
             free_ip_count: 0,
         }],
         subdomain_id: use_subdomain.then(|| FIXTURE_CREATED_DOMAIN_UUID.into()),
-        vpc_id: use_vpc.then(|| FIXTURE_CREATED_VPC_UUID.into()),
+        vpc_id: use_vpc.then(|| FIXTURE_VPC_ID.into()),
         segment_type,
     };
 
