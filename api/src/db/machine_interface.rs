@@ -258,6 +258,7 @@ impl From<MachineInterface> for rpc::MachineInterface {
             vendor: machine_interface.vendors.last().cloned(),
             created: Some(machine_interface.created.into()),
             last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
+            is_bmc: None,
         }
     }
 }

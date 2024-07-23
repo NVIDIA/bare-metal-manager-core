@@ -152,6 +152,7 @@ struct InterfaceDetail {
     is_primary: bool,
     created: String,
     last_dhcp: String,
+    is_bmc: bool,
 }
 
 impl From<forgerpc::MachineInterface> for InterfaceDetail {
@@ -195,6 +196,7 @@ impl From<forgerpc::MachineInterface> for InterfaceDetail {
             last_dhcp: last_dhcp
                 .map(|d| d.format("%F %T %Z").to_string())
                 .unwrap_or_default(),
+            is_bmc: mi.is_bmc.unwrap_or(false),
         }
     }
 }
