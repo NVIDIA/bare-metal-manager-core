@@ -32,7 +32,7 @@ use carbide::state_controller::network_segment::handler::NetworkSegmentStateHand
 use common::api_fixtures::create_test_env;
 use common::network_segment::{
     create_network_segment_with_api, get_segment_state, get_segments, text_history,
-    NetworkSegmentHelper, FIXTURE_CREATED_VPC_UUID,
+    NetworkSegmentHelper,
 };
 use mac_address::MacAddress;
 
@@ -40,6 +40,8 @@ pub mod common;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::NetworkSegmentSearchConfig;
 use tonic::Request;
+
+use crate::common::api_fixtures::FIXTURE_VPC_ID;
 
 #[sqlx::test(fixtures("create_vpc"))]
 async fn test_advance_network_prefix_state(
@@ -49,7 +51,7 @@ async fn test_advance_network_prefix_state(
 
     let vpc = Vpc::find(
         &mut txn,
-        VpcIdKeyedObjectFilter::One(VpcId::from(FIXTURE_CREATED_VPC_UUID)),
+        VpcIdKeyedObjectFilter::One(VpcId::from(FIXTURE_VPC_ID)),
     )
     .await?
     .pop()

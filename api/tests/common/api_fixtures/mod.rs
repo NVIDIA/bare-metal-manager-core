@@ -100,6 +100,7 @@ pub const FIXTURE_DPU_MACHINE_ID: &str =
     "fm100dsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
 pub const FIXTURE_X86_MACHINE_ID: &str =
     "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
+pub const FIXTURE_VPC_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
 
 // The site fabric prefixes list that the tests run with. Double check against
 // the test logic before changing it, as at least one test relies on this list

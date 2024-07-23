@@ -16,9 +16,9 @@ use common::api_fixtures::create_test_env;
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 
-pub mod common;
+use crate::common::api_fixtures::FIXTURE_VPC_ID;
 
-const FIXTURE_CREATED_VPC_ID: uuid::Uuid = uuid::uuid!("60cef902-9779-4666-8362-c9bb4b37184f");
+pub mod common;
 
 #[ctor::ctor]
 fn setup() {
@@ -216,13 +216,13 @@ async fn find_vpc_by_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
 
     let some_vpc = Vpc::find(
         &mut txn,
-        VpcIdKeyedObjectFilter::One(VpcId::from(FIXTURE_CREATED_VPC_ID)),
+        VpcIdKeyedObjectFilter::One(VpcId::from(FIXTURE_VPC_ID)),
     )
     .await?;
     assert_eq!(1, some_vpc.len());
 
     let first = some_vpc.first();
-    assert!(matches!(first, Some(x) if x.id == VpcId::from(FIXTURE_CREATED_VPC_ID)));
+    assert!(matches!(first, Some(x) if x.id == VpcId::from(FIXTURE_VPC_ID)));
 
     Ok(())
 }
@@ -237,7 +237,7 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
     let first = some_vpc.first();
 
-    assert!(matches!(first, Some(x) if x.id == VpcId::from(FIXTURE_CREATED_VPC_ID)));
+    assert!(matches!(first, Some(x) if x.id == VpcId::from(FIXTURE_VPC_ID)));
 
     Ok(())
 }
