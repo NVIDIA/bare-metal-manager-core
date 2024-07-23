@@ -375,7 +375,11 @@ pub async fn run(
             let rf_pool = libredfish::RedfishClientPool::builder()
                 .build()
                 .map_err(CarbideError::from)?;
-            let redfish_pool = RedfishClientPoolImpl::new(vault_client.clone(), rf_pool);
+            let redfish_pool = RedfishClientPoolImpl::new(
+                vault_client.clone(),
+                rf_pool,
+                carbide_config.site_explorer.override_target_port,
+            );
             Arc::new(redfish_pool)
         }
     };

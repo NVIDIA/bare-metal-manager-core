@@ -327,16 +327,19 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 pub struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
     credential_provider: Arc<dyn CredentialProvider>,
+    override_port: Option<u16>,
 }
 
 impl RedfishClientPoolImpl {
     pub fn new(
         credential_provider: Arc<dyn CredentialProvider>,
         pool: libredfish::RedfishClientPool,
+        override_port: Option<u16>,
     ) -> Self {
         RedfishClientPoolImpl {
             credential_provider,
             pool,
+            override_port,
         }
     }
 
@@ -404,6 +407,9 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         auth: RedfishAuth,
         initialize: bool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+        // Allow globally overriding the bmc port via site-config.
+        let port = self.override_port.or(port);
+
         let (username, password) = match auth {
             RedfishAuth::Anonymous => (None, None), // anonymous login, usually to get service root Vendor info
             RedfishAuth::Direct(username, password) => (Some(username), Some(password)),
