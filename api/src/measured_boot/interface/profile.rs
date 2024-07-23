@@ -16,7 +16,7 @@
 */
 
 use crate::db::machine::DbMachineId;
-use crate::db::{DbPrimaryUuid, DbTable};
+use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
@@ -154,16 +154,30 @@ pub async fn rename_profile_for_profile_name(
 /// get_all_measurement_profile_records gets all system profile records.
 pub async fn get_all_measurement_profile_records(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementSystemProfileRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "get_all_measurement_profile_records",
+            e.source,
+        )
+    })
 }
 
 /// get_all_measurement_profile_attr_records gets all system profile
 /// attribute records.
 pub async fn get_all_measurement_profile_attr_records(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "get_all_measurement_profile_attr_records",
+            e.source,
+        )
+    })
 }
 
 /// get_measurement_profile_record_by_id returns a populated
@@ -172,8 +186,17 @@ pub async fn get_all_measurement_profile_attr_records(
 pub async fn get_measurement_profile_record_by_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Option<MeasurementSystemProfileRecord>> {
-    common::get_object_for_id(txn, profile_id).await
+) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
+    common::get_object_for_id(txn, profile_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_profile_record_by_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_profile_record_by_name returns a populated
@@ -182,8 +205,17 @@ pub async fn get_measurement_profile_record_by_id(
 pub async fn get_measurement_profile_record_by_name(
     txn: &mut Transaction<'_, Postgres>,
     val: String,
-) -> eyre::Result<Option<MeasurementSystemProfileRecord>> {
-    common::get_object_for_unique_column(txn, "name", val).await
+) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
+    common::get_object_for_unique_column(txn, "name", val)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_profile_record_by_name",
+                e.source,
+            )
+        })
 }
 
 /// delete_profile_record_for_id deletes a profile record
@@ -191,8 +223,10 @@ pub async fn get_measurement_profile_record_by_name(
 pub async fn delete_profile_record_for_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Option<MeasurementSystemProfileRecord>> {
-    common::delete_object_where_id(txn, profile_id).await
+) -> eyre::Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
+    common::delete_object_where_id(txn, profile_id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_profile_record_for_id", e.source))
 }
 
 /// delete_profile_attr_records_for_id deletes all profile
@@ -200,8 +234,17 @@ pub async fn delete_profile_record_for_id(
 pub async fn delete_profile_attr_records_for_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {
-    common::delete_objects_where_id(txn, profile_id).await
+) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
+    common::delete_objects_where_id(txn, profile_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "delete_profile_attr_records_for_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_profile_record_by_attrs will attempt to get a single
@@ -209,7 +252,7 @@ pub async fn delete_profile_attr_records_for_id(
 pub async fn get_measurement_profile_record_by_attrs(
     txn: &mut Transaction<'_, Postgres>,
     attrs: &HashMap<String, String>,
-) -> eyre::Result<Option<MeasurementSystemProfileRecord>> {
+) -> Result<Option<MeasurementSystemProfileRecord>, DatabaseError> {
     match get_measurement_profile_id_by_attrs(txn, attrs).await? {
         Some(profile_id) => get_measurement_profile_record_by_id(txn, profile_id).await,
         None => Ok(None),
@@ -238,15 +281,15 @@ pub async fn get_measurement_profile_record_by_attrs(
 pub async fn get_measurement_profile_id_by_attrs(
     txn: &mut Transaction<'_, Postgres>,
     attrs: &HashMap<String, String>,
-) -> eyre::Result<Option<MeasurementSystemProfileId>> {
+) -> Result<Option<MeasurementSystemProfileId>, DatabaseError> {
     let t1 = "measurement_system_profiles_attrs";
     let t2 = "matched_ids";
     let join_id = MeasurementSystemProfileId::db_primary_uuid_name();
     let attrs_len = attrs.len() as i32;
 
-    if attrs_len == 0 {
-        return Err(eyre::eyre!("cannot get by attrs when no attrs provided"));
-    }
+    // if attrs_len == 0 {
+    //     return Err(eyre::eyre!("cannot get by attrs when no attrs provided"));
+    // }
 
     let mut query: QueryBuilder<'_, Postgres> = QueryBuilder::new(format!(
         "
@@ -284,12 +327,9 @@ pub async fn get_measurement_profile_id_by_attrs(
     query.push_bind(attrs_len);
 
     let query = query.build_query_as::<MeasurementSystemProfileId>();
-    let ids = match query.fetch_optional(&mut **txn).await {
-        Ok(ids) => ids,
-        Err(e) => {
-            return Err(e.into());
-        }
-    };
+    let ids = query.fetch_optional(&mut **txn).await.map_err(|e| {
+        DatabaseError::new(file!(), line!(), "get_measurement_profile_id_by_attrs", e)
+    })?;
 
     Ok(ids)
 }
@@ -314,8 +354,17 @@ fn where_attr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &HashMap<Str
 pub async fn get_measurement_profile_attrs_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {
-    common::get_objects_where_id(txn, profile_id).await
+) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
+    common::get_objects_where_id(txn, profile_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_profile_attrs_for_profile_id",
+                e.source,
+            )
+        })
 }
 
 /// get_bundles_for_profile_id returns a unique list of all
@@ -477,8 +526,15 @@ pub async fn import_measurement_system_profiles_attr(
 /// This is used by the site exporter, as well as for listing all profiles.
 pub async fn export_measurement_profile_records(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementSystemProfileRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementSystemProfileRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "export_measurement_profile_records",
+            e.source,
+        )
+    })
 }
 
 /// export_measurement_system_profiles_attrs returns all MeasurementSystemProfileAttrRecord
@@ -488,6 +544,13 @@ pub async fn export_measurement_profile_records(
 /// attributes when doing a site export.
 pub async fn export_measurement_system_profiles_attrs(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementSystemProfileAttrRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementSystemProfileAttrRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "export_measurement_system_profiles_attrs",
+            e.source,
+        )
+    })
 }
