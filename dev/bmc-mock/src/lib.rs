@@ -18,26 +18,27 @@ use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpListener};
 
 use axum::body::Body;
-use libredfish::model::service_root::ServiceRoot;
-use std::path::Path;
-use std::pin::Pin;
-use std::process::Command;
-
-use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::http::{Request, Response, StatusCode};
-use axum::response::IntoResponse;
-use axum::routing::{get, patch, post};
-use axum::Json;
 use axum::Router;
 use axum::ServiceExt;
 use axum_server::tls_rustls::RustlsConfig;
 use hyper::body::Incoming;
-use tower::Service;
-
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::process::Command;
+use tokio::sync::mpsc;
+use tower::{Layer, Service};
+use tower_http::normalize_path::NormalizePathLayer;
 use tracing::{debug, error, info};
 
-mod tar;
-pub use tar::tar_router;
+mod machine_info;
+mod mock_machine_router;
+mod tar_router;
+pub use machine_info::{DpuMachineInfo, HostMachineInfo, MachineInfo};
+pub use mock_machine_router::{wrap_router_with_mock_machine, MachineCommand};
+pub use tar_router::{tar_router, EntryMap, TarGzOption};
+
+static DEFAULT_HOST_MOCK_TAR: &[u8] = include_bytes!("../dell_poweredge_r750.tar.gz");
 
 #[macro_export]
 macro_rules! rf {
@@ -46,72 +47,12 @@ macro_rules! rf {
     };
 }
 
-#[derive(Clone)]
-pub struct BmcState {
-    pub use_qemu: bool,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum BmcMockError {
     #[error("{0}")]
     Io(#[from] std::io::Error),
     #[error("BMC Mock Configuration error: {0}")]
     Config(String),
-}
-
-pub fn default_router(state: BmcState) -> Router {
-    Router::new()
-        .route(rf!(""), get(get_root))
-        .route(rf!("Managers/"), get(get_manager_id))
-        .route(rf!("Managers/:manager_id"), get(get_manager))
-        .route(
-            rf!("Managers/:manager_id/Attributes"), // no slash at end
-            patch(update_manager_attributes),
-        )
-        .route(
-            rf!("Managers/:manager_id/EthernetInterfaces"),
-            get(get_manager_ethernet_interface_ids),
-        )
-        .route(
-            rf!("Managers/:manager_id/EthernetInterfaces/:id"),
-            get(get_manager_ethernet_interface),
-        )
-        .route(rf!("Managers/:manager_id/Oem/Dell/DellAttributes/:manager_id"),
-            patch(update_manager_attributes_long),
-        )
-        .route(rf!("Managers/:manager_id/Oem/Dell/DellAttributes/:manager_id"),
-            get(get_manager_attributes),
-        )
-        .route(rf!("Managers/:manager_id/Oem/Dell/DellJobService/Actions/DellJobService.DeleteJobQueue"),
-            post(delete_job_queue),
-        )
-        .route(rf!("Systems/"), get(get_system_id))
-        .route(rf!("Systems/:manager_id"), get(get_system))
-        .route(rf!("Systems/:manager_id/"), get(get_system))
-        .route(
-            rf!("Systems/:manager_id/Bios/Settings/"),
-            patch(set_bios_attribute),
-        )
-        .route(
-            rf!("Systems/:manager_id/Actions/ComputerSystem.Reset"),
-            post(set_system_power),
-        )
-        .route(rf!("Systems/:manager_id/Bios"), get(get_bios))
-        .route(
-            rf!("Systems/:manager_id/EthernetInterfaces"),
-            get(get_system_ethernet_interface_ids),
-        )
-        .route(
-            rf!("Systems/:manager_id/EthernetInterfaces/:id"),
-            get(get_system_ethernet_interface),
-        )
-        .route(rf!("Chassis/"), get(get_chassis_id))
-        .route(rf!("Chassis/:id"), get(get_chassis))
-        .route(rf!("Chassis/:id/NetworkAdapters"), get(get_chassis_network_adapter_ids))
-        .route(rf!("Chassis/:id/NetworkAdapters/:nic_id"), get(get_chassis_network_adapter))
-        .route(rf!("UpdateService/FirmwareInventory"), get(firmware_inventory))
-        .route(rf!("UpdateService/FirmwareInventory/:id"), get(firmware_inventory_item))
-        .with_state(state)
 }
 
 /// Mock multiple BMCs while listening on a single IP/port.
@@ -140,8 +81,6 @@ pub async fn run_combined_mock<T: AsRef<OsStr>>(
             }
         }
     };
-
-    //let addr = listen_addr.unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 1266)));
 
     let cert_file = cert_path.join("tls.crt");
     let key_file = cert_path.join("tls.key");
@@ -173,6 +112,10 @@ pub async fn run_combined_mock<T: AsRef<OsStr>>(
         }
     };
     debug!("Listening on {}", addr);
+
+    // Inject middleware to normalize request URIs by dropping the trailing slash
+    let bmc_service = NormalizePathLayer::trim_trailing_slash().layer(bmc_service);
+
     server
         .serve(bmc_service.into_make_service())
         .await
@@ -233,272 +176,71 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
     }
 }
 
-async fn get_root() -> impl IntoResponse {
-    let service_root = ServiceRoot {
-        vendor: Some("Dell".to_string()),
-        redfish_version: "1.13.1".to_string(),
-        odata: libredfish::model::OData {
-            odata_context: Some("odata_context".to_string()),
-            odata_id: "123".to_string(),
-            odata_type: "odata_type".to_string(),
-            odata_etag: Some("odata_etag".to_string()),
-        },
-        ..Default::default()
+pub fn default_host_tar_router(
+    use_qemu: bool,
+    tar_router_entries: Option<&mut HashMap<PathBuf, EntryMap>>,
+) -> Router {
+    let tar_router = tar_router(
+        TarGzOption::Memory(DEFAULT_HOST_MOCK_TAR),
+        tar_router_entries,
+    )
+    .unwrap();
+    let maybe_command_channel = if use_qemu {
+        Some(spawn_qemu_reboot_handler())
+    } else {
+        None
     };
-
-    (StatusCode::OK, Json(service_root))
+    wrap_router_with_mock_machine(
+        tar_router,
+        MachineInfo::Host(HostMachineInfo::new(vec![DpuMachineInfo::new()])),
+        maybe_command_channel,
+    )
 }
 
-async fn get_system_id() -> impl IntoResponse {
-    let odata = libredfish::model::ODataLinks {
-        odata_context: Some("odata_context".to_string()),
-        odata_id: "123".to_string(),
-        odata_type: "odata_type".to_string(),
-        links: None,
-        odata_etag: Some("odata_etag".to_string()),
-    };
-    let systems = libredfish::Systems {
-        odata,
-        description: Some("BMC Mock systems for Forge".to_string()),
-        members: vec![libredfish::model::ODataId {
-            odata_id: "123".to_string(),
-        }],
-        name: "BMC Mock systems".to_string(),
-    };
-
-    (StatusCode::OK, Json(systems))
-}
-
-async fn get_manager_id() -> impl IntoResponse {
-    let odata = libredfish::model::ODataLinks {
-        odata_context: Some("odata_context".to_string()),
-        odata_id: "123".to_string(),
-        odata_type: "odata_type".to_string(),
-        links: None,
-        odata_etag: Some("odata_etag".to_string()),
-    };
-    let managers = libredfish::model::Systems {
-        odata,
-        description: Some("BMC Mock managers for Forge".to_string()),
-        members: vec![libredfish::model::ODataId {
-            odata_id: "123".to_string(),
-        }],
-        name: "BMC Mock managers".to_string(),
-    };
-
-    (StatusCode::OK, Json(managers))
-}
-
-async fn get_manager() -> impl IntoResponse {
-    let out = include_str!("../manager.json");
-    out
-}
-
-async fn get_system() -> impl IntoResponse {
-    let out = include_str!("../system.json");
-    out
-}
-
-async fn update_manager_attributes(
-    AxumPath(manager_id): AxumPath<String>,
-    body: String,
-) -> impl IntoResponse {
-    debug!("update_manager_attributes {manager_id}, body: {body}");
-    StatusCode::OK
-}
-
-async fn update_manager_attributes_long(
-    AxumPath((manager_id, _)): AxumPath<(String, String)>,
-    body: String,
-) -> impl IntoResponse {
-    debug!("update_manager_attributes_long {manager_id}, body: {body}");
-    StatusCode::OK
-}
-
-async fn get_manager_attributes() -> impl IntoResponse {
-    let out = include_str!("../manager-attributes.json");
-    out
-}
-
-async fn delete_job_queue(
-    AxumPath(manager_id): AxumPath<String>,
-    body: String,
-) -> impl IntoResponse {
-    debug!("delete_job_queue {manager_id}, body: {body}");
-    StatusCode::OK
-}
-
-async fn set_bios_attribute(
-    AxumPath(manager_id): AxumPath<String>,
-    body: String,
-) -> impl IntoResponse {
-    debug!("set_bios_attribute {manager_id}, body: {body}");
-    StatusCode::OK
-}
-
-async fn get_bios() -> impl IntoResponse {
-    let odata = libredfish::model::ODataLinks {
-        odata_context: Some("/redfish/v1/$metadata#Bios.Bios".to_string()),
-        odata_id: "/redfish/v1/Systems/System.Embedded.1/Bios".to_string(),
-        odata_type: "#Bios.v1_2_1.Bios".to_string(),
-        links: None,
-        odata_etag: Some("W/\"8A194014\"".to_string()),
-    };
-
-    (StatusCode::OK, Json(odata))
-}
-
-async fn set_system_power(
-    AxumState(state): AxumState<BmcState>,
-    AxumPath(manager_id): AxumPath<String>,
-    body: String,
-) -> impl IntoResponse {
-    debug!("set_system_power {manager_id}, body: {body}");
-
-    if !state.use_qemu {
-        return StatusCode::ACCEPTED;
-    }
-
-    let reboot_output = match Command::new("virsh")
-        .arg("reboot")
-        .arg("ManagedHost")
-        .output()
-    {
-        Ok(o) => o,
-        Err(err) if matches!(err.kind(), ErrorKind::NotFound) => {
-            info!("`virsh` not found. Cannot reboot QEMU host.");
-            return StatusCode::ACCEPTED;
-        }
-        Err(err) => {
-            error!("Error trying to run 'virsh reboot ManagedHost'. {}", err);
-            return StatusCode::INTERNAL_SERVER_ERROR;
-        }
-    };
-
-    match reboot_output.status.code() {
-        Some(0) => {
-            debug!("Rebooting managed host...");
-            StatusCode::OK
-        }
-        Some(exit_code) => {
-            error!("Reboot command 'virsh reboot ManagedHost' failed with exit code {exit_code}.");
-            info!("STDOUT: {}", String::from_utf8_lossy(&reboot_output.stdout));
-            info!("STDERR: {}", String::from_utf8_lossy(&reboot_output.stderr));
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-        None => {
-            error!("Reboot command killed by signal");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
-}
-
-async fn get_chassis_id() -> impl IntoResponse {
-    let data = r##"
-    {
-        "@odata.context": "/redfish/v1/$metadata#ChassisCollection.ChassisCollection",
-        "@odata.id": "/redfish/v1/Chassis",
-        "@odata.type": "#ChassisCollection.ChassisCollection",
-        "Description": "Collection of Chassis",
-        "Members": [
+fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<MachineCommand> {
+    let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                command = command_rx.recv() => {
+                    let Some(command) = command else {
+                        break;
+                    };
+                    if !matches!(command, MachineCommand::Reboot(_)) {
+                        continue;
+                    }
+            let reboot_output = match Command::new("virsh")
+                .arg("reboot")
+                .arg("ManagedHost")
+                .output()
             {
-                "@odata.id": "/redfish/v1/Chassis/System.Embedded.1"
+                Ok(o) => o,
+                Err(err) if matches!(err.kind(), ErrorKind::NotFound) => {
+                    info!("`virsh` not found. Cannot reboot QEMU host.");
+                continue;
+                }
+                Err(err) => {
+                    error!("Error trying to run 'virsh reboot ManagedHost'. {}", err);
+                    continue;
+                }
+            };
+
+            match reboot_output.status.code() {
+                Some(0) => {
+                    debug!("Rebooted qemu managed host...");
+                }
+                Some(exit_code) => {
+                    error!("Reboot command 'virsh reboot ManagedHost' failed with exit code {exit_code}.");
+                    info!("STDOUT: {}", String::from_utf8_lossy(&reboot_output.stdout));
+                    info!("STDERR: {}", String::from_utf8_lossy(&reboot_output.stderr));
+                }
+                None => {
+                    error!("Reboot command killed by signal");
+                }
             }
-        ],
-        "Members@odata.count": 1,
-        "Name": "Chassis Collection"
-    }
-    "##;
-    let headers = [(axum::http::header::CONTENT_TYPE, "application/json")];
-    (headers, data)
-}
-
-async fn firmware_inventory() -> impl IntoResponse {
-    let out = include_str!("../firmware_inventory.json");
-    out
-}
-
-async fn firmware_inventory_item() -> impl IntoResponse {
-    let out = include_str!("../firmware_nic_dpu.json");
-    out
-}
-
-async fn get_manager_ethernet_interface_ids() -> impl IntoResponse {
-    let data = r##"
-{
-    "@odata.context": "/redfish/v1/$metadata#EthernetInterfaceCollection.EthernetInterfaceCollection",
-    "@odata.id": "/redfish/v1/Managers/iDRAC.Embedded.1/EthernetInterfaces",
-    "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
-    "Description": "Collection of EthernetInterfaces for this Manager",
-    "Members": [
-        {
-            "@odata.id": "/redfish/v1/Managers/iDRAC.Embedded.1/EthernetInterfaces/NIC.1"
+                }
+            }
         }
-    ],
-    "Members@odata.count": 1,
-    "Name": "Ethernet Network Interface Collection"
-}
-    "##;
-    let headers = [(axum::http::header::CONTENT_TYPE, "application/json")];
-    (headers, data)
-}
-
-async fn get_system_ethernet_interface_ids() -> impl IntoResponse {
-    let data = r##"
-{
-    "@odata.context": "/redfish/v1/$metadata#EthernetInterfaceCollection.EthernetInterfaceCollection",
-    "@odata.id": "/redfish/v1/Systems/System.Embedded.1/EthernetInterfaces",
-    "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
-    "Description": "Collection of Ethernet Interfaces for this System",
-    "Members": [
-        {
-            "@odata.id": "/redfish/v1/Systems/System.Embedded.1/EthernetInterfaces/NIC.Slot.5-1"
-        }
-    ],
-    "Members@odata.count": 1,
-    "Name": "System Ethernet Interface Collection"
-}
-    "##;
-    let headers = [(axum::http::header::CONTENT_TYPE, "application/json")];
-    (headers, data)
-}
-
-async fn get_manager_ethernet_interface() -> impl IntoResponse {
-    let out = include_str!("../manager_eth_nic1.json");
-    out
-}
-
-async fn get_system_ethernet_interface() -> impl IntoResponse {
-    let out = include_str!("../system_eth_dpu.json");
-    out
-}
-
-async fn get_chassis() -> impl IntoResponse {
-    let out = include_str!("../chassis.json");
-    out
-}
-
-async fn get_chassis_network_adapter_ids() -> impl IntoResponse {
-    let data = r##"
-{
-    "@odata.context": "/redfish/v1/$metadata#NetworkAdapterCollection.NetworkAdapterCollection",
-    "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters",
-    "@odata.type": "#NetworkAdapterCollection.NetworkAdapterCollection",
-    "Description": "Collection Of Network Adapter",
-    "Members": [
-        {
-            "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.5"
-        }
-    ],
-    "Members@odata.count": 1,
-    "Name": "Network Adapter Collection"
-}
-"##;
-    let headers = [(axum::http::header::CONTENT_TYPE, "application/json")];
-    (headers, data)
-}
-
-async fn get_chassis_network_adapter() -> impl IntoResponse {
-    let out = include_str!("../chassis_eth_dpu.json");
-    out
+    });
+    command_tx
 }

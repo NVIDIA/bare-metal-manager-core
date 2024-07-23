@@ -1,6 +1,7 @@
-use crate::machine_utils::next_mac;
 use mac_address::MacAddress;
-use rpc::forge as rpc;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
 /// state we get from carbide like IP addresses or machine ID's.) Intended to be immutable and
@@ -103,11 +104,17 @@ impl MachineInfo {
             None
         }
     }
+}
 
-    pub fn rpc_machine_type(&self) -> rpc::MachineType {
-        match self {
-            MachineInfo::Dpu(_) => rpc::MachineType::Dpu,
-            MachineInfo::Host(_) => rpc::MachineType::Host,
-        }
-    }
+fn next_mac() -> MacAddress {
+    let next_mac_num = NEXT_MAC_ADDRESS.fetch_add(1, Ordering::Acquire);
+
+    let bytes: Vec<u8> = [0x02u8, 0x01]
+        .into_iter()
+        .chain(next_mac_num.to_be_bytes())
+        .collect();
+
+    let mac_bytes = <[u8; 6]>::try_from(bytes).unwrap();
+
+    MacAddress::from(mac_bytes)
 }

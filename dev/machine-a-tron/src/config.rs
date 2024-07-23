@@ -64,9 +64,9 @@ pub struct MachineATronConfig {
     #[serde(default = "default_false")]
     pub bmc_mock_dynamic_ports: bool,
     #[serde(default = "default_bmc_mock_host_tar")]
-    pub bmc_mock_host_tar: String,
+    pub bmc_mock_host_tar: PathBuf,
     #[serde(default = "default_bmc_mock_dpu_tar")]
-    pub bmc_mock_dpu_tar: String,
+    pub bmc_mock_dpu_tar: PathBuf,
     #[serde(default = "default_false")]
     pub use_pxe_api: bool,
     pub pxe_server_host: Option<String>,
@@ -77,11 +77,11 @@ pub struct MachineATronConfig {
 fn default_bmc_mock_port() -> u16 {
     2000
 }
-fn default_bmc_mock_host_tar() -> String {
-    String::from("dev/bmc-mock/dell_poweredge_r750.tar.gz")
+fn default_bmc_mock_host_tar() -> PathBuf {
+    PathBuf::from("dev/bmc-mock/dell_poweredge_r750.tar.gz")
 }
-fn default_bmc_mock_dpu_tar() -> String {
-    String::from("dev/bmc-mock/nvidia_dpu.tar.gz")
+fn default_bmc_mock_dpu_tar() -> PathBuf {
+    PathBuf::from("dev/bmc-mock/nvidia_dpu.tar.gz")
 }
 
 fn default_template_dir() -> String {
@@ -102,6 +102,6 @@ pub struct MachineATronContext {
     pub forge_client_config: ForgeClientConfig,
     pub circuit_id: Option<String>,
     pub bmc_mock_certs_dir: Option<PathBuf>,
-    pub host_bmc_mock_router: Router,
-    pub dpu_bmc_mock_router: Router,
+    pub host_tar_router: Router,
+    pub dpu_tar_router: Router,
 }

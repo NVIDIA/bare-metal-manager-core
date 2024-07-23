@@ -8,22 +8,20 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use rpc::forge::{MachineArchitecture, MachineDiscoveryResult};
-use rpc::MachineId;
-
 use crate::api_client;
 use crate::api_client::{
     get_site_exploration_report, record_dpu_network_status, ClientApiError, MockDiscoveryData,
 };
-use crate::bmc_mock_wrapper::{BmcMockWrapper, ListenMode, MachineCommand};
+use crate::bmc_mock_wrapper::{BmcMockWrapper, ListenMode};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
 use crate::logging::LogSink;
-use crate::machine_info::MachineInfo;
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     forge_agent_control, get_fac_action, get_validation_id, send_pxe_boot_request, PXEresponse,
 };
+use bmc_mock::{MachineCommand, MachineInfo};
+use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, MachineType};
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
 ///
@@ -287,7 +285,7 @@ impl MachineStateMachine {
                 let machine_discovery_result = match api_client::discover_machine(
                     &self.app_context,
                     &self.config.template_dir,
-                    self.machine_info.rpc_machine_type(),
+                    rpc_machine_type(&self.machine_info),
                     MockDiscoveryData {
                         machine_interface_id,
                         network_interface_macs: self
@@ -332,7 +330,7 @@ impl MachineStateMachine {
                 if let Err(e) = api_client::update_bmc_metadata(
                     &self.app_context,
                     &self.config.template_dir,
-                    self.machine_info.rpc_machine_type(),
+                    rpc_machine_type(&self.machine_info),
                     machine_id.clone(),
                     inner_state.bmc_state.bmc_dhcp_info.ip_address,
                     self.machine_info.bmc_mac_address(),
@@ -471,7 +469,7 @@ impl MachineStateMachine {
         })
     }
 
-    pub fn machine_id(&self) -> Result<MachineId, MachineStateError> {
+    pub fn machine_id(&self) -> Result<rpc::MachineId, MachineStateError> {
         match &self.state {
             MachineState::BmcInit => None,
             MachineState::WaitForSiteExplorer(state) => state.bmc_dhcp_info.machine_id.as_ref(),
@@ -618,4 +616,11 @@ pub enum AddressConfigError {
     IoError(#[from] std::io::Error),
     #[error("Error running ip command: {0:?}, output: {1:?}")]
     CommandFailure(tokio::process::Command, std::process::Output),
+}
+
+fn rpc_machine_type(machine_info: &MachineInfo) -> MachineType {
+    match machine_info {
+        MachineInfo::Dpu(_) => MachineType::Dpu,
+        MachineInfo::Host(_) => MachineType::Host,
+    }
 }
