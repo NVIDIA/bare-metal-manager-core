@@ -208,6 +208,7 @@ mod tests {
             vendor: Some("xyz".to_string()),
             created: None,
             last_dhcp: None,
+            is_bmc: None,
         };
 
         let interface_id: rpc::Uuid = interface.id.clone().unwrap();

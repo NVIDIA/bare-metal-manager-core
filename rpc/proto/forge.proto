@@ -1519,6 +1519,8 @@ message MachineInterface {
 
   google.protobuf.Timestamp created = 11;
   optional google.protobuf.Timestamp last_dhcp = 12;
+
+  optional bool is_bmc = 13;
 }
 
 message DhcpDiscovery {

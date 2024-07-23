@@ -16,6 +16,28 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub use ::rpc::forge as rpc;
+use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use ::rpc::protos::forge::{
+    EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
+    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
+    MachineCredentialsUpdateResponse,
+};
+use ::rpc::protos::measured_boot as measured_boot_pb;
+use forge_secrets::certificates::CertificateProvider;
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
+};
+use itertools::Itertools;
+use mac_address::MacAddress;
+use sqlx::{Postgres, Transaction};
+use tonic::{Request, Response, Status};
+#[cfg(feature = "tss-esapi")]
+use tss_esapi::{
+    structures::{Attest, Public as TssPublic, Signature},
+    traits::UnMarshall,
+};
+
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
 use crate::db::bmc_metadata::UserRoles;
@@ -32,7 +54,7 @@ use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
 use crate::ipmitool::IPMITool;
 use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot;
-use crate::model::machine::machine_id::try_parse_machine_id;
+use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
 use crate::model::machine::{
     FailureCause, FailureDetails, FailureSource, InstanceState, ManagedHostState, ReprovisionState,
 };
@@ -62,27 +84,6 @@ use crate::{
     CarbideError, CarbideResult,
 };
 use crate::{resource_pool, site_explorer};
-pub use ::rpc::forge as rpc;
-use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
-use ::rpc::protos::forge::{
-    EchoRequest, EchoResponse, InstancePhoneHomeLastContactRequest,
-    InstancePhoneHomeLastContactResponse, MachineCredentialsUpdateRequest,
-    MachineCredentialsUpdateResponse,
-};
-use ::rpc::protos::measured_boot as measured_boot_pb;
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
-};
-use itertools::Itertools;
-use mac_address::MacAddress;
-use sqlx::{Postgres, Transaction};
-use tonic::{Request, Response, Status};
-#[cfg(feature = "tss-esapi")]
-use tss_esapi::{
-    structures::{Attest, Public as TssPublic, Signature},
-    traits::UnMarshall,
-};
 
 pub struct Api {
     pub(crate) database_connection: sqlx::PgPool,
@@ -1073,16 +1074,16 @@ impl Forge for Api {
 
         let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
 
-        let response = match (id, ip) {
+        let mut interfaces: Vec<rpc::MachineInterface> = match (id, ip) {
             (Some(id), _) if id.value.chars().count() > 0 => match MachineInterfaceId::try_from(id)
             {
-                Ok(uuid) => Ok(rpc::InterfaceList {
-                    interfaces: vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
-                }),
-                Err(_) => Err(CarbideError::GenericError(
-                    "Could not marshall an ID from the request".to_string(),
-                )
-                .into()),
+                Ok(uuid) => vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
+                Err(_) => {
+                    return Err(CarbideError::GenericError(
+                        "Could not marshall an ID from the request".to_string(),
+                    )
+                    .into());
+                }
             },
             (None, Some(ip)) => match Ipv4Addr::from_str(ip.as_ref()) {
                 Ok(ip) => {
@@ -1090,9 +1091,7 @@ impl Forge for Api {
                         .await
                         .map_err(CarbideError::from)?
                     {
-                        Some(interface) => Ok(rpc::InterfaceList {
-                            interfaces: vec![interface.into()],
-                        }),
+                        Some(interface) => vec![interface.into()],
                         None => {
                             return Err(CarbideError::GenericError(format!(
                                 "No machine interface with IP {ip} was found"
@@ -1101,32 +1100,69 @@ impl Forge for Api {
                         }
                     }
                 }
-                Err(_) => Err(CarbideError::GenericError(
-                    "Could not marshall an IP from the request".to_string(),
-                )
-                .into()),
+                Err(_) => {
+                    return Err(CarbideError::GenericError(
+                        "Could not marshall an IP from the request".to_string(),
+                    )
+                    .into());
+                }
             },
             (None, None) => {
                 match MachineInterface::find_all(&mut txn)
                     .await
                     .map_err(CarbideError::from)
                 {
-                    Ok(machine_interfaces) => Ok(rpc::InterfaceList {
-                        interfaces: machine_interfaces
-                            .into_iter()
-                            .map(|i| i.into())
-                            .collect_vec(),
-                    }),
+                    Ok(machine_interfaces) => machine_interfaces
+                        .into_iter()
+                        .map(|i| i.into())
+                        .collect_vec(),
                     Err(error) => return Err(error.into()),
                 }
             }
-            _ => Err(CarbideError::GenericError(
-                "Could not find an ID or IP in the request".to_string(),
-            )
-            .into()),
+            _ => {
+                return Err(CarbideError::GenericError(
+                    "Could not find an ID or IP in the request".to_string(),
+                )
+                .into());
+            }
         };
 
-        response.map(Response::new)
+        // Link BMC interfaces to their machines
+        for interface in interfaces.iter_mut() {
+            if interface.machine_id.is_some()
+                || !interface.primary_interface
+                || interface.address.len() != 1
+            {
+                continue;
+            }
+            // unwrap is safe, we checked `!= 1` above. or_default for double extra safety.
+            let Some(ip) = interface.address.first() else {
+                return Err(Status::internal(
+                    "Impossible interface.address array length",
+                ));
+            };
+            let maybe_machine_id = MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await;
+            match maybe_machine_id {
+                Ok(Some(machine_id)) => {
+                    let rpc_machine_id = Some(::rpc::common::MachineId {
+                        id: machine_id.to_string(),
+                    });
+                    interface.is_bmc = Some(true);
+                    match machine_id.machine_type() {
+                        MachineType::Dpu => interface.attached_dpu_machine_id = rpc_machine_id,
+                        MachineType::Host | MachineType::PredictedHost => {
+                            interface.machine_id = rpc_machine_id
+                        }
+                    }
+                }
+                Ok(None) => {} // expected, not a BMC interface
+                Err(err) => {
+                    tracing::warn!(%err, %ip, "MachineTopology::find_machine_id_by_bmc_ip error");
+                }
+            }
+        }
+
+        Ok(Response::new(rpc::InterfaceList { interfaces }))
     }
 
     async fn delete_interface(
