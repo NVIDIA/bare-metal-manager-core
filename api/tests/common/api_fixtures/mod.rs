@@ -24,9 +24,9 @@ use arc_swap::ArcSwap;
 use carbide::{
     api::Api,
     cfg::{
-        default_dpu_models, default_max_find_by_ids, CarbideConfig, FirmwareGlobal, FirmwareHost,
-        IbFabricMonitorConfig, IbPartitionStateControllerConfig, MachineStateControllerConfig,
-        NetworkSegmentStateControllerConfig, StateControllerConfig,
+        default_max_find_by_ids, CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType,
+        FirmwareEntry, FirmwareGlobal, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
+        MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
     },
     db::machine::Machine,
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
@@ -62,6 +62,7 @@ use forge_secrets::credentials::{
     CredentialKey, CredentialProvider, CredentialType, Credentials, TestCredentialProvider,
 };
 use ipnetwork::IpNetwork;
+use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use sqlx::{postgres::PgConnectOptions, PgPool};
 use tonic::Request;
@@ -404,6 +405,80 @@ impl TestEnv {
     }
 }
 
+fn dpu_fw_example() -> Firmware {
+    Firmware {
+        vendor: "Nvidia".to_string(),
+        model: "Bluefield 3 SmartNIC Main Card".to_string(),
+        components: HashMap::from([(
+            FirmwareComponentType::Bmc,
+            FirmwareComponent {
+                current_version_reported_as: Some(Regex::new(".*").unwrap()),
+                preingest_upgrade_when_below: Some("23.10".to_string()),
+                known_firmware: vec![FirmwareEntry {
+                    version: "23.10".to_string(),
+                    default: true,
+                    filename: Some("/dev/null".to_string()),
+                    url: Some("file://dev/null".to_string()),
+                    checksum: None,
+                    mandatory_upgrade_from_priority: None,
+                }],
+            },
+        )]),
+        ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
+    }
+}
+
+fn host_firmware_example() -> Firmware {
+    Firmware {
+        vendor: "dell".to_string(),
+        model: "R750".to_string(),
+        components: HashMap::from([
+            (
+                FirmwareComponentType::Bmc,
+                FirmwareComponent {
+                    current_version_reported_as: Some(Regex::new("^idrac").unwrap()),
+                    preingest_upgrade_when_below: Some("0.5".to_string()),
+                    known_firmware: vec![
+                        FirmwareEntry {
+                            version: "1.1".to_string(),
+                            default: false,
+                            filename: Some("/dev/null".to_string()),
+                            url: Some("file://dev/null".to_string()),
+                            checksum: None,
+                            mandatory_upgrade_from_priority: None,
+                        },
+                        FirmwareEntry {
+                            version: "1.0".to_string(),
+                            default: true,
+                            filename: Some("/dev/null".to_string()),
+                            url: Some("file://dev/null".to_string()),
+                            checksum: None,
+                            mandatory_upgrade_from_priority: None,
+                        },
+                        FirmwareEntry {
+                            version: "0.9".to_string(),
+                            default: false,
+                            filename: Some("/dev/null".to_string()),
+                            url: Some("file://dev/null".to_string()),
+                            checksum: None,
+                            mandatory_upgrade_from_priority: None,
+                        },
+                    ],
+                },
+            ),
+            (
+                FirmwareComponentType::Uefi,
+                FirmwareComponent {
+                    current_version_reported_as: Some(Regex::new("^bios").unwrap()),
+                    preingest_upgrade_when_below: Some("0.5".to_string()),
+                    known_firmware: vec![],
+                },
+            ),
+        ]),
+        ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
+    }
+}
+
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
@@ -458,8 +533,8 @@ pub fn get_config() -> CarbideConfig {
             enabled: true,
             run_interval: std::time::Duration::from_secs(10),
         },
-        dpu_models: default_dpu_models(),
-        host_models: HashMap::from([("1".to_string(), FirmwareHost::example1())]),
+        dpu_models: HashMap::from([("bluefield3".to_string(), dpu_fw_example())]),
+        host_models: HashMap::from([("1".to_string(), host_firmware_example())]),
         firmware_global: FirmwareGlobal {
             autoupdate: true,
             host_enable_autoupdate: vec![],

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use config_version::ConfigVersion;
 
 use crate::{
-    cfg::{DpuComponent, DpuDesc, DpuModel, FirmwareHostComponentType},
+    cfg::{DpuModel, FirmwareComponentType},
     model::{
         hardware_info::{DmiData, HardwareInfo},
         machine::machine_id::MachineId,
@@ -123,15 +123,15 @@ pub enum PreingestionState {
     UpgradeFirmwareWait {
         task_id: String,
         final_version: String,
-        upgrade_type: FirmwareHostComponentType,
+        upgrade_type: FirmwareComponentType,
     },
     ResetForNewFirmware {
         final_version: String,
-        upgrade_type: FirmwareHostComponentType,
+        upgrade_type: FirmwareComponentType,
     },
     NewFirmwareReportedWait {
         final_version: String,
-        upgrade_type: FirmwareHostComponentType,
+        upgrade_type: FirmwareComponentType,
     },
     Complete,
 }
@@ -238,62 +238,9 @@ impl ExploredDpu {
         Ok(())
     }
 
-    pub fn has_valid_firmware(&self, dpu_models: &HashMap<DpuModel, DpuDesc>) -> CarbideResult<()> {
-        match self.report.identify_dpu() {
-            Some(dpu_model) => match dpu_models.get(&dpu_model) {
-                Some(dpu_desc) => {
-                    for dpu_component in DpuComponent::iter() {
-                        if let Some(min_version) =
-                            dpu_desc.component_min_version.get(&dpu_component)
-                        {
-                            if let Some(cur_version) =
-                                self.report.dpu_component_version(dpu_component)
-                            {
-                                match version_compare::compare_to(
-                                    &cur_version,
-                                    min_version,
-                                    version_compare::Cmp::Lt,
-                                ) {
-                                    Ok(is_unsuppored_firmware_version) => {
-                                        if is_unsuppored_firmware_version {
-                                            return Err(CarbideError::UnsupportedFirmwareVersion(format!(
-                                                    "{:?} firmware version {} is not supported. Please update to: {}",
-                                                    dpu_component, cur_version, min_version
-                                                )));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        return Err(CarbideError::GenericError(format!(
-                                                "Could not compare firmware versions (cur_version: {cur_version}, min_version: {min_version}) for DPU {:#?}: {e:#?}",
-                                                self.report.machine_id
-                                            )));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                None => {
-                    return Err(CarbideError::GenericError(format!(
-                        "Missing Forge model information for DPU model {:#?} out of {:#?}",
-                        dpu_model.clone(),
-                        dpu_models.clone()
-                    )));
-                }
-            },
-            None => {
-                return Err(CarbideError::GenericError(format!(
-                    "Cannot determine DPU model for {:#?}",
-                    self
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn bmc_firmware_version(&self) -> Option<String> {
-        self.report.dpu_component_version(DpuComponent::Bmc)
+        self.report
+            .dpu_component_version(FirmwareComponentType::Bmc)
     }
 
     pub fn bmc_info(&self) -> BmcInfo {
@@ -571,11 +518,12 @@ impl EndpointExplorationReport {
             .unwrap_or_default()
     }
 
-    pub fn dpu_component_version(&self, component: DpuComponent) -> Option<String> {
+    pub fn dpu_component_version(&self, component: FirmwareComponentType) -> Option<String> {
         match component {
-            DpuComponent::Bmc => self.dpu_bmc_version(),
-            DpuComponent::Uefi => self.dpu_uefi_version(),
-            DpuComponent::Cec => None,
+            FirmwareComponentType::Bmc => self.dpu_bmc_version(),
+            FirmwareComponentType::Uefi => self.dpu_uefi_version(),
+            FirmwareComponentType::Cec => None,
+            FirmwareComponentType::Bfb => None,
         }
     }
 

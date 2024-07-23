@@ -12,7 +12,10 @@
 
 //! State Handler implementation for Machines
 
-use std::{collections::HashMap, task::Poll};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    task::Poll,
+};
 
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
@@ -25,7 +28,7 @@ use libredfish::{
 use tokio::fs::File;
 
 use crate::{
-    cfg::{DpuComponent, DpuComponentUpdate, DpuDesc, DpuModel},
+    cfg::{DpuModel, FirmwareComponentType, FirmwareEntry, Vendor2Firmware},
     db::{
         instance::DeleteInstance, machine::Machine, machine_topology::MachineTopology,
         machine_validation::MachineValidation,
@@ -92,7 +95,7 @@ impl MachineStateHandler {
         dpu_up_threshold: chrono::Duration,
         dpu_nic_firmware_initial_update_enabled: bool,
         dpu_nic_firmware_reprovision_update_enabled: bool,
-        dpu_models: HashMap<DpuModel, DpuDesc>,
+        hardware_models: Vendor2Firmware,
         reachability_params: ReachabilityParams,
         attestation_enabled: bool,
     ) -> Self {
@@ -104,7 +107,7 @@ impl MachineStateHandler {
             }),
             dpu_handler: DpuMachineStateHandler::new(
                 dpu_nic_firmware_initial_update_enabled,
-                dpu_models,
+                hardware_models,
                 reachability_params,
             ),
             instance_handler: InstanceStateHandler::new(
@@ -1235,22 +1238,23 @@ fn get_failed_state(state: &ManagedHostStateSnapshot) -> Option<(MachineId, Fail
 #[derive(Debug, Clone)]
 pub struct DpuMachineStateHandler {
     dpu_nic_firmware_initial_update_enabled: bool,
-    dpu_models: HashMap<DpuModel, DpuDesc>,
+    hardware_models: Vendor2Firmware,
     reachability_params: ReachabilityParams,
 }
 
 impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
-        dpu_models: HashMap<DpuModel, DpuDesc>,
+        hardware_models: Vendor2Firmware,
         reachability_params: ReachabilityParams,
     ) -> Self {
         DpuMachineStateHandler {
             dpu_nic_firmware_initial_update_enabled,
-            dpu_models,
+            hardware_models,
             reachability_params,
         }
     }
+
     /// Return `DpuModel` if the explored endpoint is a DPU
     pub fn identify_dpu(&self, state: &mut ManagedHostStateSnapshot) -> DpuModel {
         // TODO: multidpu: Check for all DPUs
@@ -1263,26 +1267,23 @@ impl DpuMachineStateHandler {
                     .map(|di| di.part_description.to_string())
             })
             .unwrap_or("".to_string());
-        match model.to_lowercase() {
-            value if value.contains("bluefield 2") => DpuModel::BlueField2,
-            value if value.contains("bluefield 3") => DpuModel::BlueField3,
-            _ => DpuModel::Unknown,
-        }
+        model.into()
     }
 
     async fn component_update(
         &self,
         redfish: &dyn Redfish,
-        component: DpuComponent,
-        component_value: &DpuComponentUpdate,
+        component: FirmwareComponentType,
+        component_value: &FirmwareEntry,
     ) -> Result<Option<Task>, StateHandlerError> {
         let redfish_component_name = match component {
             // Note: DPU uses different name for BMC Firmware as
             // BF2: 6d53cf4d_BMC_Firmware
             // BF3: BMC_Firmware
-            DpuComponent::Bmc => "BMC_Firmware",
-            DpuComponent::Uefi => "DPU_UEFI",
-            DpuComponent::Cec => "Bluefield_FW_ERoT",
+            FirmwareComponentType::Bfb => "DPU_OS",
+            FirmwareComponentType::Bmc => "BMC_Firmware",
+            FirmwareComponentType::Uefi => "DPU_UEFI",
+            FirmwareComponentType::Cec => "Bluefield_FW_ERoT",
         };
         let inventories = redfish.get_software_inventories().await.map_err(|e| {
             StateHandlerError::RedfishError {
@@ -1316,33 +1317,31 @@ impl DpuMachineStateHandler {
             return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
         };
 
-        if component_value.version.is_some() {
-            let cur_version = inventory
-                .version
-                .unwrap_or("0".to_string())
-                .to_lowercase()
-                .replace("bf-", "");
-            let update_version = component_value.version.as_ref().unwrap();
+        let cur_version = inventory
+            .version
+            .unwrap_or("0".to_string())
+            .to_lowercase()
+            .replace("bf-", "");
+        let update_version = &component_value.version;
 
-            match version_compare::compare_to(
-                cur_version.clone(),
-                update_version,
-                version_compare::Cmp::Ge,
-            ) {
-                Ok(update_is_not_needed) => {
-                    if update_is_not_needed {
-                        return Ok(None);
-                    }
+        match version_compare::compare_to(
+            cur_version.clone(),
+            update_version,
+            version_compare::Cmp::Ge,
+        ) {
+            Ok(update_is_not_needed) => {
+                if update_is_not_needed {
+                    return Ok(None);
                 }
-                Err(e) => {
-                    return Err(StateHandlerError::FirmwareUpdateError(eyre!(
+            }
+            Err(e) => {
+                return Err(StateHandlerError::FirmwareUpdateError(eyre!(
                         "Could not compare firmware versions (cur_version: {cur_version}, update_version: {update_version}): {e:#?}",
                     )));
-                }
-            };
+            }
         };
 
-        let update_path = &component_value.path;
+        let update_path = component_value.filename.as_ref().unwrap();
         let update_file = File::open(update_path).await.map_err(|e| {
             StateHandlerError::FirmwareUpdateError(eyre!(
                 "Failed to open {:?} path {} with error {}",
@@ -1352,6 +1351,7 @@ impl DpuMachineStateHandler {
             ))
         })?;
 
+        tracing::info!("Updating {redfish_component_name} from {cur_version} to {update_version}");
         match redfish.update_firmware(update_file).await {
             Ok(task) => Ok(Some(task)),
             Err(e) => {
@@ -1474,7 +1474,7 @@ impl StateHandler for DpuMachineStateHandler {
 
                 match task.task_state {
                     Some(TaskState::Completed) => {
-                        if *firmware_type == DpuComponent::Cec {
+                        if *firmware_type == FirmwareComponentType::Cec {
                             // For Cec firmware update need also to reboot a host
 
                             let host_redfish_client = build_redfish_client_from_bmc_ip(
@@ -1581,19 +1581,34 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 };
 
-                let dpu_model = self.identify_dpu(state);
-                if let Some(dpu_desc) = self.dpu_models.get(&dpu_model) {
-                    if dpu_desc.component_update.is_some() {
-                        let dpu_component_update = dpu_desc.component_update.as_ref().unwrap();
-                        for dpu_component in DpuComponent::iter() {
-                            if let Some(dpu_component_value) =
-                                dpu_component_update.get(&dpu_component)
-                            {
+                let model = self.identify_dpu(state);
+                if let Some(dpu_desc) = self.hardware_models.find(
+                    state.dpu_snapshots[0]
+                        .bmc_info
+                        .ip
+                        .as_ref()
+                        .map(|ip| {
+                            ip.parse()
+                                .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
+                        })
+                        .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+                    "Nvidia".to_string(),
+                    model.to_string(),
+                ) {
+                    let mut ordering = dpu_desc.ordering.clone();
+                    if ordering.is_empty() {
+                        ordering.push(FirmwareComponentType::Bmc);
+                        ordering.push(FirmwareComponentType::Cec);
+                    }
+
+                    for dpu_component in ordering {
+                        if let Some(dpu_component_value) = dpu_desc.components.get(&dpu_component) {
+                            if !dpu_component_value.known_firmware.is_empty() {
                                 let task = self
                                     .component_update(
                                         &*dpu_redfish_client,
                                         dpu_component,
-                                        dpu_component_value,
+                                        &dpu_component_value.known_firmware[0],
                                     )
                                     .await?;
                                 if task.is_some() {

@@ -96,20 +96,6 @@ iteration_time = "7m"
 max_object_handling_time = "77s"
 max_concurrency = 777
 
-[dpu_models.bluefield2]
-# Do not set specific component settings to disable update for it
-component_update.bmc = { "version" = '23.10', "path" = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg' }
-component_update.cec = { "version" = '4-15', "path" = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg' }
-
-[dpu_models.bluefield3]
-# Explicitly replace default settings for sanity check
-component_min_version = { "bmc" = "23.10", "uefi" = "4.5" }
-# Alternative approach to set component parameters for component update action
-component_update.bmc.version = '24.04'
-component_update.bmc.path = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg'
-# Force component update action ignoring current version
-component_update.cec.path = '/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg'
-
 [firmware_global]
 autoupdate = false
 host_enable_autoupdate = [
@@ -126,6 +112,45 @@ host_disable_autoupdate = [
 ]
 run_interval = "20s"
 max_uploads = 3
+
+[dpu_models.bluefield2]
+vendor = "Nvidia"
+model = "Bluefield 2 SmartNIC Main Card"
+ordering = ["bmc", "cec"]
+
+[dpu_models.bluefield3]
+vendor = "Nvidia"
+model = "Bluefield 3 SmartNIC Main Card"
+ordering = ["bmc", "cec"]
+
+
+[dpu_models.bluefield2.components.bmc]
+preingest_upgrade_when_below = "23.10"
+current_version_reported_as = ".*"
+known_firmware = [
+    { version = "23.10", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-bmc.fwpkg", default = true },
+]
+
+[dpu_models.bluefield2.components.cec]
+preingest_upgrade_when_below = "4-15"
+current_version_reported_as = ".*"
+known_firmware = [
+    { version = "4-15", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf2-cec.fwpkg", default = true },
+]
+
+[dpu_models.bluefield3.components.bmc]
+preingest_upgrade_when_below = "23.10"
+current_version_reported_as = ".*"
+known_firmware = [
+    { version = "23.10", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-bmc.fwpkg", default = true },
+]
+
+[dpu_models.bluefield3.components.cec]
+preingest_upgrade_when_below = "00.02.0152.0000"
+current_version_reported_as = "(\\d+\\.?)+"
+known_firmware = [
+    { version = "4-15", filename = "/forge-boot-artifacts/blobs/internal/firmware/nvidia/dpu/bf3-cec.fwpkg", default = true },
+]
 
 [host_models.dell_r750]
 vendor = "Dell Inc."

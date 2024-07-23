@@ -15,7 +15,7 @@ use config_version::ConfigVersion;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{
-    cfg::FirmwareHostComponentType,
+    cfg::FirmwareComponentType,
     db::DatabaseError,
     model::site_explorer::{EndpointExplorationReport, ExploredEndpoint, PreingestionState},
 };
@@ -351,7 +351,7 @@ WHERE address = $3 AND version=$4";
         address: IpAddr,
         task_id: String,
         final_version: &str,
-        upgrade_type: &FirmwareHostComponentType,
+        upgrade_type: &FirmwareComponentType,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::UpgradeFirmwareWait {
@@ -365,7 +365,7 @@ WHERE address = $3 AND version=$4";
     pub async fn set_preingestion_reset_for_new_firmware(
         address: IpAddr,
         final_version: &str,
-        upgrade_type: &FirmwareHostComponentType,
+        upgrade_type: &FirmwareComponentType,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::ResetForNewFirmware {
@@ -378,7 +378,7 @@ WHERE address = $3 AND version=$4";
     pub async fn set_preingestion_new_reported_wait(
         address: IpAddr,
         final_version: &str,
-        upgrade_type: &FirmwareHostComponentType,
+        upgrade_type: &FirmwareComponentType,
         txn: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
         let state = PreingestionState::NewFirmwareReportedWait {

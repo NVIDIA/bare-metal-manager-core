@@ -24,7 +24,7 @@ use super::{
     bmc_info::BmcInfo, hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
     RpcDataConversionError,
 };
-use crate::cfg::DpuComponent;
+use crate::cfg::FirmwareComponentType;
 use crate::db::domain::DomainId;
 use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::network_segment::NetworkSegmentId;
@@ -396,7 +396,7 @@ pub struct FailureDetails {
 #[serde(tag = "bmcfirmwareupdatesubstate", rename_all = "lowercase")]
 pub enum BmcFirmwareUpdateSubstate {
     WaitForUpdateCompletion {
-        firmware_type: DpuComponent,
+        firmware_type: FirmwareComponentType,
         task_id: String,
     },
     HostPowerOff,

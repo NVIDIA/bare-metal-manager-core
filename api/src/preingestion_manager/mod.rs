@@ -12,12 +12,12 @@
 
 mod metrics;
 
-use forge_secrets::credentials::{CredentialKey, CredentialType};
 use http::StatusCode;
-use libredfish::{model::task::TaskState, Redfish, RedfishError, SystemPowerControl};
+use libredfish::{model::task::TaskState, RedfishError, SystemPowerControl};
 use opentelemetry::metrics::Meter;
 use sqlx::{PgPool, Postgres, Transaction};
-use std::{default::Default, net::IpAddr, sync::Arc, time::Duration};
+use std::net::SocketAddr;
+use std::{default::Default, sync::Arc, time::Duration};
 use tokio::{
     sync::{oneshot, Mutex},
     task::JoinSet,
@@ -26,13 +26,13 @@ use tokio::{
 use self::metrics::PreingestionMetrics;
 use crate::{
     cfg::{
-        CarbideConfig, FirmwareEntry, FirmwareGlobal, FirmwareHost, FirmwareHostComponentType,
-        ParsedHosts,
+        CarbideConfig, Firmware, FirmwareComponentType, FirmwareEntry, FirmwareGlobal,
+        Vendor2Firmware,
     },
     db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
     firmware_downloader::FirmwareDownloader,
     model::site_explorer::{ExploredEndpoint, PreingestionState},
-    redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool},
+    redfish::{self, RedfishClientCreationError, RedfishClientPool},
     CarbideError,
 };
 
@@ -49,7 +49,7 @@ struct PreingestionManagerStatic {
     max_uploads: i64,
     database_connection: PgPool,
     firmware_global: FirmwareGlobal,
-    host_info: ParsedHosts,
+    host_info: Vendor2Firmware,
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     downloader: FirmwareDownloader,
 }
@@ -304,7 +304,7 @@ async fn one_endpoint(
 
 impl PreingestionManagerStatic {
     /// find_fw_info_for_host looks up the firmware config for the given endpoint
-    fn find_fw_info_for_host(&self, endpoint: &ExploredEndpoint) -> Option<FirmwareHost> {
+    fn find_fw_info_for_host(&self, endpoint: &ExploredEndpoint) -> Option<Firmware> {
         let vendor = match &endpoint.report.vendor {
             Some(vendor) => vendor.to_owned(),
             None => {
@@ -327,10 +327,19 @@ impl PreingestionManagerStatic {
             None => {
                 // No system with model found for the endpoint, we can't match firmware
                 tracing::info!(
-                    "find_fw_info_for_host: {} No system with model",
+                    "find_fw_info_for_host: {} No system with model. Trying to find chassis",
                     endpoint.address
                 );
-                return None;
+                match endpoint.report.chassis.iter().find(|&x| x.model.is_some()) {
+                    Some(chassis) => chassis.model.as_ref().unwrap().to_string(),
+                    None => {
+                        tracing::info!(
+                            "find_fw_info_for_host: {} No chassis with model. ",
+                            endpoint.address
+                        );
+                        return None;
+                    }
+                }
             }
         };
         self.host_info
@@ -441,8 +450,8 @@ impl PreingestionManagerStatic {
         // Specifying ordering is optional, and defaults to first BMC then UEFI.
         let mut ordering = fw_info.ordering.clone();
         if ordering.is_empty() {
-            ordering.push(FirmwareHostComponentType::Bmc);
-            ordering.push(FirmwareHostComponentType::Uefi);
+            ordering.push(FirmwareComponentType::Bmc);
+            ordering.push(FirmwareComponentType::Uefi);
         }
         for upgrade_type in ordering {
             let (done, delayed_upgrade) = self
@@ -463,6 +472,7 @@ impl PreingestionManagerStatic {
 
         // Nothing needed to be updated, we're complete.
         DbExploredEndpoint::set_preingestion_complete(endpoint.address, txn).await?;
+
         Ok(false)
     }
 
@@ -470,8 +480,8 @@ impl PreingestionManagerStatic {
     async fn start_upgrade_if_needed(
         &self,
         endpoint: &ExploredEndpoint,
-        fw_info: &FirmwareHost,
-        fw_type: FirmwareHostComponentType,
+        fw_info: &Firmware,
+        fw_type: FirmwareComponentType,
         active_uploads: &Arc<Mutex<i64>>,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(bool, bool), DatabaseError> {
@@ -529,12 +539,23 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         task_id: &str,
         final_version: &str,
-        upgrade_type: &FirmwareHostComponentType,
+        upgrade_type: &FirmwareComponentType,
     ) -> DatabaseResult<()> {
-        let Some(redfish_client) =
-            create_redfish_client(&self.redfish_client_pool, &endpoint.address).await
-        else {
-            return Ok(());
+        let redfish_client = match redfish::build_redfish_client_from_bmc_ip(
+            Some(SocketAddr::new(endpoint.address, 443)),
+            &self.redfish_client_pool,
+            txn,
+        )
+        .await
+        .map_err(|e| match e {
+            RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
+            _ => CarbideError::GenericError(format!("{}", e)),
+        }) {
+            Ok(redfish_client) => redfish_client,
+            Err(e) => {
+                tracing::error!("Redfish connection to {} failed: {e}", endpoint.address);
+                return Ok(());
+            }
         };
 
         match redfish_client.get_task(task_id).await {
@@ -643,18 +664,29 @@ impl PreingestionManagerStatic {
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
         final_version: &str,
-        upgrade_type: &FirmwareHostComponentType,
+        upgrade_type: &FirmwareComponentType,
     ) -> DatabaseResult<()> {
-        let Some(redfish_client) =
-            create_redfish_client(&self.redfish_client_pool, &endpoint.address).await
-        else {
-            return Ok(());
+        let redfish_client = match redfish::build_redfish_client_from_bmc_ip(
+            Some(SocketAddr::new(endpoint.address, 443)),
+            &self.redfish_client_pool,
+            txn,
+        )
+        .await
+        .map_err(|e| match e {
+            RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
+            _ => CarbideError::GenericError(format!("{}", e)),
+        }) {
+            Ok(redfish_client) => redfish_client,
+            Err(e) => {
+                tracing::error!("Redfish connection to {} failed: {e}", endpoint.address);
+                return Ok(());
+            }
         };
 
         // Still not reporting the new version.
         // If this is the UEFI, we need to request a reboot.  Otherwise, we just need to keep waiting.
         // The version reported doesn't update until the end of the UEFI portion of the boot, which can be quite a long wait.
-        if *upgrade_type == FirmwareHostComponentType::Uefi {
+        if *upgrade_type == FirmwareComponentType::Uefi {
             tracing::info!(
                 "Upgrade task has completed for {} but needs reboot, initiating one",
                 &endpoint.address
@@ -675,7 +707,7 @@ impl PreingestionManagerStatic {
             return Ok(());
         }
         // Lenovo BMC needs to be manually reset after the update
-        if *upgrade_type == FirmwareHostComponentType::Bmc
+        if *upgrade_type == FirmwareComponentType::Bmc
             && endpoint
                 .report
                 .vendor
@@ -720,7 +752,7 @@ impl PreingestionManagerStatic {
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
         final_version: &str,
-        upgrade_type: &FirmwareHostComponentType,
+        upgrade_type: &FirmwareComponentType,
     ) -> DatabaseResult<()> {
         if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
             if let Some(current_version) = find_version(endpoint, &fw_info, *upgrade_type) {
@@ -768,8 +800,8 @@ impl PreingestionManagerStatic {
 /// find_version will locate a version number within an ExploredEndpoint
 fn find_version(
     endpoint: &ExploredEndpoint,
-    fw_info: &FirmwareHost,
-    firmware_type: FirmwareHostComponentType,
+    fw_info: &Firmware,
+    firmware_type: FirmwareComponentType,
 ) -> Option<String> {
     for service in endpoint.report.service.iter() {
         if let Some(matching_inventory) = service
@@ -792,8 +824,8 @@ fn find_version(
 /// so returns the FirmwareEntry matching the desired upgrade along with the ID that Redfish uses to specify its version.
 fn need_upgrade(
     endpoint: &ExploredEndpoint,
-    fw_info: &FirmwareHost,
-    firmware_type: FirmwareHostComponentType,
+    fw_info: &Firmware,
+    firmware_type: FirmwareComponentType,
 ) -> Option<FirmwareEntry> {
     // First, find the BMC version.
     let mut current_version = None;
@@ -829,7 +861,7 @@ async fn initiate_update(
     endpoint_clone: &ExploredEndpoint,
     redfish_client_pool: &Arc<dyn RedfishClientPool>,
     to_install: &FirmwareEntry,
-    firmware_type: &FirmwareHostComponentType,
+    firmware_type: &FirmwareComponentType,
     downloader: &FirmwareDownloader,
 ) -> Result<(), DatabaseError> {
     if !downloader
@@ -850,10 +882,21 @@ async fn initiate_update(
     }
 
     // Setup the Redfish connection
-    let Some(redfish_client) =
-        create_redfish_client(redfish_client_pool, &endpoint_clone.address).await
-    else {
-        return Ok(());
+    let redfish_client = match redfish::build_redfish_client_from_bmc_ip(
+        Some(SocketAddr::new(endpoint_clone.address, 443)),
+        redfish_client_pool,
+        txn,
+    )
+    .await
+    {
+        Ok(redfish_client) => redfish_client,
+        Err(e) => {
+            tracing::info!(
+                "Failed to open redfish to {}: {e}",
+                endpoint_clone.address.to_string()
+            );
+            return Ok(());
+        }
     };
     tracing::info!(
         "initiate_update: Started upload of firmware to {}",
@@ -891,32 +934,4 @@ async fn initiate_update(
     .await?;
 
     Ok(())
-}
-
-// create_redfish_client handles getting a new client handle.  We do an option here and not a result because
-// its callers want to simply return Ok(()) on failures to connect, not an error that would abort the current iteration.
-async fn create_redfish_client(
-    pool: &Arc<dyn RedfishClientPool>,
-    address: &IpAddr,
-) -> Option<Box<dyn Redfish>> {
-    match pool
-        .create_client(
-            address.to_string().as_str(),
-            None,
-            RedfishAuth::Key(CredentialKey::HostRedfish {
-                credential_type: CredentialType::SiteDefault,
-            }),
-            true,
-        )
-        .await
-        .map_err(|e| match e {
-            RedfishClientCreationError::RedfishError(e) => CarbideError::RedfishError(e),
-            _ => CarbideError::GenericError(format!("{}", e)),
-        }) {
-        Ok(redfish_client) => Some(redfish_client),
-        Err(e) => {
-            tracing::error!("Redfish connection to {} failed: {e}", address);
-            None
-        }
-    }
 }

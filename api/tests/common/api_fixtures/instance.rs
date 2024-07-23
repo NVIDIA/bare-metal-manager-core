@@ -13,7 +13,6 @@
 use std::time::SystemTime;
 
 use carbide::{
-    cfg::default_dpu_models,
     db::instance::InstanceId,
     db::machine::Machine,
     db::network_segment::NetworkSegmentId,
@@ -206,7 +205,7 @@ pub async fn advance_created_instance_into_ready_state(
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -283,7 +282,7 @@ pub async fn delete_instance(
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );

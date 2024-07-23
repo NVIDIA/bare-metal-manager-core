@@ -17,7 +17,6 @@ use carbide::db::network_prefix::NetworkPrefix;
 use carbide::model::machine::{FailureCause, FailureDetails, FailureSource};
 use carbide::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use carbide::{
-    cfg::default_dpu_models,
     db::machine_interface::MachineInterface,
     db::network_segment::NetworkSegmentIdKeyedObjectFilter,
     model::{
@@ -183,7 +182,7 @@ pub async fn create_host_machine(
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
@@ -382,7 +381,7 @@ pub async fn create_host_with_machine_validation(
         chrono::Duration::minutes(5),
         true,
         true,
-        default_dpu_models(),
+        env.config.get_parsed_hosts(),
         env.reachability_params,
         env.attestation_enabled,
     );
