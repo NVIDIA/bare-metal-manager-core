@@ -15,7 +15,7 @@
  *  tables in the database, leveraging the site-specific record types.
 */
 
-use crate::db::DbTable;
+use crate::db::{DatabaseError, DbTable};
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
@@ -69,15 +69,19 @@ pub async fn remove_from_approved_machines_by_machine_id(
 
 pub async fn get_approved_machines(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementApprovedMachineRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementApprovedMachineRecord>, DatabaseError> {
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_approved_machines", e.source))
 }
 
 pub async fn get_approval_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: TrustedMachineId,
-) -> eyre::Result<Option<MeasurementApprovedMachineRecord>> {
-    common::get_object_for_id(txn, machine_id).await
+) -> Result<Option<MeasurementApprovedMachineRecord>, DatabaseError> {
+    common::get_object_for_id(txn, machine_id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_approval_for_machine_id", e.source))
 }
 
 pub async fn insert_into_approved_profiles(
@@ -122,8 +126,10 @@ pub async fn remove_from_approved_profiles_by_profile_id(
 
 pub async fn get_approved_profiles(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementApprovedProfileRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementApprovedProfileRecord>, DatabaseError> {
+    common::get_all_objects(txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_approved_profiles", e.source))
 }
 
 pub async fn get_approval_for_profile_id(

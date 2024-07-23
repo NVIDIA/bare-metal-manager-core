@@ -16,7 +16,7 @@
 */
 
 use crate::db::machine::DbMachineId;
-use crate::db::{DbPrimaryUuid, DbTable};
+use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
 use crate::measured_boot::dto::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleStateRecord,
@@ -245,8 +245,10 @@ pub async fn get_state_for_bundle_id(
 pub async fn get_measurement_bundle_by_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
-) -> eyre::Result<Option<MeasurementBundleRecord>> {
-    common::get_object_for_id(txn, bundle_id).await
+) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
+    common::get_object_for_id(txn, bundle_id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_measurement_bundle_by_id", e.source))
 }
 
 /// get_measurement_bundle_for_name returns a populated MeasurementBundleRecord
@@ -255,8 +257,17 @@ pub async fn get_measurement_bundle_by_id(
 pub async fn get_measurement_bundle_for_name(
     txn: &mut Transaction<'_, Postgres>,
     bundle_name: String,
-) -> eyre::Result<Option<MeasurementBundleRecord>> {
-    common::get_object_for_unique_column(txn, "name", bundle_name.clone()).await
+) -> Result<Option<MeasurementBundleRecord>, DatabaseError> {
+    common::get_object_for_unique_column(txn, "name", bundle_name.clone())
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_bundle_for_name",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_bundle_records returns all MeasurementBundleRecord
@@ -264,14 +275,23 @@ pub async fn get_measurement_bundle_for_name(
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundle_records(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementBundleRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(file!(), line!(), "get_measurement_bundle_records", e.source)
+    })
 }
 
 pub async fn get_measurement_bundle_records_with_txn(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementBundleRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "get_measurement_bundle_records_with_txn",
+            e.source,
+        )
+    })
 }
 
 /// get_measurement_bundle_records_for_profile_id returns all
@@ -280,8 +300,17 @@ pub async fn get_measurement_bundle_records_with_txn(
 pub async fn get_measurement_bundle_records_for_profile_id(
     txn: &mut Transaction<'_, Postgres>,
     profile_id: MeasurementSystemProfileId,
-) -> eyre::Result<Vec<MeasurementBundleRecord>> {
-    common::get_objects_where_id(txn, profile_id).await
+) -> Result<Vec<MeasurementBundleRecord>, DatabaseError> {
+    common::get_objects_where_id(txn, profile_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_bundle_records_for_profile_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_bundles_values returns all MeasurementBundleValueRecord
@@ -289,8 +318,10 @@ pub async fn get_measurement_bundle_records_for_profile_id(
 /// function since its a simple/common pattern.
 pub async fn get_measurement_bundles_values(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementBundleValueRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(file!(), line!(), "get_measurement_bundles_values", e.source)
+    })
 }
 
 /// get_measurement_bundle_values_for_bundle_id returns
@@ -303,8 +334,17 @@ pub async fn get_measurement_bundles_values(
 pub async fn get_measurement_bundle_values_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
-) -> eyre::Result<Vec<MeasurementBundleValueRecord>> {
-    common::get_objects_where_id(txn, bundle_id).await
+) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
+    common::get_objects_where_id(txn, bundle_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_bundle_values_for_bundle_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_bundle_by_values returns a bundle
@@ -312,8 +352,17 @@ pub async fn get_measurement_bundle_values_for_bundle_id(
 pub async fn get_measurement_bundle_ids_by_values(
     txn: &mut Transaction<'_, Postgres>,
     values: &[common::PcrRegisterValue],
-) -> eyre::Result<Vec<MeasurementBundleId>> {
-    common::get_ids_for_bundle_values(txn, "measurement_bundles_values", values).await
+) -> Result<Vec<MeasurementBundleId>, DatabaseError> {
+    common::get_ids_for_bundle_values(txn, "measurement_bundles_values", values)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_bundle_ids_by_values",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_journals_for_bundle_id returns all measurement journal
@@ -321,8 +370,17 @@ pub async fn get_measurement_bundle_ids_by_values(
 pub async fn get_measurement_journals_for_bundle_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
-) -> eyre::Result<Vec<MeasurementReportRecord>> {
-    common::get_objects_where_id(txn, bundle_id).await
+) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
+    common::get_objects_where_id(txn, bundle_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_journals_for_bundle_id",
+                e.source,
+            )
+        })
 }
 
 /// get_machines_for_bundle_id returns a unique list of
@@ -378,8 +436,10 @@ pub async fn delete_bundle_for_id(
 pub async fn delete_bundle_values_for_id(
     txn: &mut Transaction<'_, Postgres>,
     bundle_id: MeasurementBundleId,
-) -> eyre::Result<Vec<MeasurementBundleValueRecord>> {
-    common::delete_objects_where_id(txn, bundle_id).await
+) -> Result<Vec<MeasurementBundleValueRecord>, DatabaseError> {
+    common::delete_objects_where_id(txn, bundle_id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_bundle_values_for_id", e.source))
 }
 
 /// import_measurement_bundles is intended for doing "full site" imports,

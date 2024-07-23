@@ -15,6 +15,7 @@
  *  database, leveraging the machine-specific record types.
 */
 
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::records::{
     CandidateMachineRecord, MeasurementJournalRecord, MeasurementMachineState,
 };
@@ -95,6 +96,8 @@ pub async fn get_candidate_machine_record_by_id(
 /// primarily for the purpose of `mock-machine list`.
 pub async fn get_candidate_machine_records(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<CandidateMachineRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<CandidateMachineRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(file!(), line!(), "get_candidate_machine_records", e.source)
+    })
 }

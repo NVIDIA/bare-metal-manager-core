@@ -15,6 +15,7 @@
  *  tables in the database, leveraging the journal-specific record types.
 */
 
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
 };
@@ -52,8 +53,10 @@ pub async fn insert_measurement_journal_record(
 pub async fn delete_journal_where_id(
     txn: &mut Transaction<'_, Postgres>,
     journal_id: MeasurementJournalId,
-) -> eyre::Result<Option<MeasurementJournalRecord>> {
-    common::delete_object_where_id(txn, journal_id).await
+) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
+    common::delete_object_where_id(txn, journal_id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_journal_where_id", e.source))
 }
 
 /// get_measurement_journal_record_by_id returns a populated
@@ -63,8 +66,17 @@ pub async fn delete_journal_where_id(
 pub async fn get_measurement_journal_record_by_id(
     txn: &mut Transaction<'_, Postgres>,
     journal_id: MeasurementJournalId,
-) -> eyre::Result<Option<MeasurementJournalRecord>> {
-    common::get_object_for_id(txn, journal_id).await
+) -> Result<Option<MeasurementJournalRecord>, DatabaseError> {
+    common::get_object_for_id(txn, journal_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_journal_record_by_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_journal_records returns all MeasurementJournalRecord
@@ -72,8 +84,15 @@ pub async fn get_measurement_journal_record_by_id(
 /// function since its a simple/common pattern.
 pub async fn get_measurement_journal_records(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementJournalRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "get_measurement_journal_records",
+            e.source,
+        )
+    })
 }
 
 /// get_measurement_journal_records_for_machine_id returns all journal
@@ -82,8 +101,17 @@ pub async fn get_measurement_journal_records(
 pub async fn get_measurement_journal_records_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<Vec<MeasurementJournalRecord>> {
-    common::get_objects_where_id(txn, machine_id).await
+) -> Result<Vec<MeasurementJournalRecord>, DatabaseError> {
+    common::get_objects_where_id(txn, machine_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_journal_records_for_machine_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_journal_ids_by_values returns a journal
@@ -91,6 +119,15 @@ pub async fn get_measurement_journal_records_for_machine_id(
 pub async fn get_measurement_journal_ids_by_values(
     txn: &mut Transaction<'_, Postgres>,
     values: &[common::PcrRegisterValue],
-) -> eyre::Result<Vec<MeasurementReportId>> {
-    common::get_ids_for_bundle_values(txn, "measurement_journal_values", values).await
+) -> Result<Vec<MeasurementReportId>, DatabaseError> {
+    common::get_ids_for_bundle_values(txn, "measurement_journal_values", values)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_journal_ids_by_values",
+                e.source,
+            )
+        })
 }

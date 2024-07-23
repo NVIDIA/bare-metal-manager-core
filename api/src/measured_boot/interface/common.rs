@@ -15,7 +15,7 @@
  *  for making boilerplate copy-pasta code handled in a common way.
 */
 
-use crate::db::{DbPrimaryUuid, DbTable};
+use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
 use rpc::protos::measured_boot::PcrRegisterValuePb;
 use sqlx::postgres::PgRow;
 use sqlx::query_builder::QueryBuilder;
@@ -313,12 +313,14 @@ pub fn pcr_register_values_to_map(
 pub async fn get_object_for_id<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     id: T,
-) -> eyre::Result<Option<R>>
+) -> Result<Option<R>, DatabaseError>
 where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres> + DbPrimaryUuid,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
-    get_object_for_unique_column(txn, T::db_primary_uuid_name(), id).await
+    get_object_for_unique_column(txn, T::db_primary_uuid_name(), id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_object_for_id", e.source))
 }
 
 /// get_object_for_unique_column provides a generic for getting a fully
@@ -332,7 +334,7 @@ pub async fn get_object_for_unique_column<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     col_name: &str,
     value: T,
-) -> eyre::Result<Option<R>>
+) -> Result<Option<R>, DatabaseError>
 where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres>,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
@@ -345,7 +347,8 @@ where
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
         .fetch_optional(&mut **txn)
-        .await?;
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_object_for_unique_column", e))?;
     Ok(result)
 }
 
@@ -359,7 +362,7 @@ where
 pub async fn get_objects_where_id<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     id: T,
-) -> eyre::Result<Vec<R>>
+) -> Result<Vec<R>, DatabaseError>
 where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres> + DbPrimaryUuid,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
@@ -372,7 +375,8 @@ where
     let result = sqlx::query_as::<_, R>(&query)
         .bind(id)
         .fetch_all(&mut **txn)
-        .await?;
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_objects_where_id", e))?;
     Ok(result)
 }
 
@@ -382,12 +386,17 @@ where
 /// implementing the crate-specific DbName trait to make this possible,
 /// with the idea of reducing very boilerplate copy-pasta code and string
 /// literals.
-pub async fn get_all_objects<R>(txn: &mut Transaction<'_, Postgres>) -> eyre::Result<Vec<R>>
+pub async fn get_all_objects<R>(
+    txn: &mut Transaction<'_, Postgres>,
+) -> Result<Vec<R>, DatabaseError>
 where
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
     let query = format!("select * from {}", R::db_table_name());
-    let result = sqlx::query_as::<_, R>(&query).fetch_all(&mut **txn).await?;
+    let result = sqlx::query_as::<_, R>(&query)
+        .fetch_all(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_all_objects", e))?;
     Ok(result)
 }
 
@@ -404,7 +413,7 @@ pub async fn get_ids_for_bundle_values<R>(
     txn: &mut Transaction<'_, Postgres>,
     table_name: &str,
     values: &[PcrRegisterValue],
-) -> eyre::Result<Vec<R>>
+) -> Result<Vec<R>, DatabaseError>
 where
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbPrimaryUuid,
 {
@@ -429,12 +438,10 @@ where
     query.push_bind(values.len() as i32);
 
     let query = query.build_query_as::<R>();
-    let ids = match query.fetch_all(&mut **txn).await {
-        Ok(ids) => ids,
-        Err(e) => {
-            return Err(e.into());
-        }
-    };
+    let ids = query
+        .fetch_all(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "get_ids_for_bundle_values", e))?;
 
     Ok(ids)
 }
@@ -450,19 +457,21 @@ where
 pub async fn delete_objects_where_id<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     id: T,
-) -> eyre::Result<Vec<R>>
+) -> Result<Vec<R>, DatabaseError>
 where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres> + DbPrimaryUuid,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
-    delete_objects_where_unique_column(txn, T::db_primary_uuid_name(), id).await
+    delete_objects_where_unique_column(txn, T::db_primary_uuid_name(), id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_objects_where_id", e.source))
 }
 
 pub async fn delete_objects_where_unique_column<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     col_name: &str,
     value: T,
-) -> eyre::Result<Vec<R>>
+) -> Result<Vec<R>, DatabaseError>
 where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres>,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
@@ -475,7 +484,10 @@ where
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
         .fetch_all(&mut **txn)
-        .await?;
+        .await
+        .map_err(|e| {
+            DatabaseError::new(file!(), line!(), "delete_objects_where_unique_column", e)
+        })?;
     Ok(result)
 }
 
@@ -484,19 +496,21 @@ where
 pub async fn delete_object_where_id<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     id: T,
-) -> eyre::Result<Option<R>>
+) -> Result<Option<R>, DatabaseError>
 where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres> + DbPrimaryUuid,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
-    delete_object_where_unique_column(txn, T::db_primary_uuid_name(), id).await
+    delete_object_where_unique_column(txn, T::db_primary_uuid_name(), id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_object_where_id", e.source))
 }
 
 pub async fn delete_object_where_unique_column<T, R>(
     txn: &mut Transaction<'_, Postgres>,
     col_name: &str,
     value: T,
-) -> eyre::Result<Option<R>>
+) -> Result<Option<R>, DatabaseError>
 where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres>,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
@@ -509,6 +523,9 @@ where
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
         .fetch_optional(&mut **txn)
-        .await?;
+        .await
+        .map_err(|e| {
+            DatabaseError::new(file!(), line!(), "delete_object_where_unique_column", e)
+        })?;
     Ok(result)
 }

@@ -15,6 +15,7 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
+use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::MeasurementReportId;
 use crate::measured_boot::dto::records::{MeasurementReportRecord, MeasurementReportValueRecord};
 
@@ -134,8 +135,15 @@ async fn insert_measurement_report_value_record(
 /// function since its a simple/common pattern.
 pub async fn get_all_measurement_report_records(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementReportRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "get_all_measurement_report_records",
+            e.source,
+        )
+    })
 }
 
 /// get_all_measurement_report_value_records returns all
@@ -143,8 +151,15 @@ pub async fn get_all_measurement_report_records(
 /// the generic get_all_objects function since its a simple/common pattern.
 pub async fn get_all_measurement_report_value_records(
     txn: &mut Transaction<'_, Postgres>,
-) -> eyre::Result<Vec<MeasurementReportValueRecord>> {
-    common::get_all_objects(txn).await
+) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
+    common::get_all_objects(txn).await.map_err(|e| {
+        DatabaseError::new(
+            file!(),
+            line!(),
+            "get_all_measurement_report_value_records",
+            e.source,
+        )
+    })
 }
 
 /// get_measurement_report_record_by_id returns a populated
@@ -154,8 +169,17 @@ pub async fn get_all_measurement_report_value_records(
 pub async fn get_measurement_report_record_by_id(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
-) -> eyre::Result<Option<MeasurementReportRecord>> {
-    common::get_object_for_id(txn, report_id).await
+) -> Result<Option<MeasurementReportRecord>, DatabaseError> {
+    common::get_object_for_id(txn, report_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_report_record_by_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_report_records_for_machine_id returns all report
@@ -164,8 +188,17 @@ pub async fn get_measurement_report_record_by_id(
 pub async fn get_measurement_report_records_for_machine_id(
     txn: &mut Transaction<'_, Postgres>,
     machine_id: MachineId,
-) -> eyre::Result<Vec<MeasurementReportRecord>> {
-    common::get_objects_where_id(txn, machine_id).await
+) -> Result<Vec<MeasurementReportRecord>, DatabaseError> {
+    common::get_objects_where_id(txn, machine_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_report_records_for_machine_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_report_values_for_report_id returns
@@ -177,8 +210,17 @@ pub async fn get_measurement_report_records_for_machine_id(
 pub async fn get_measurement_report_values_for_report_id(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
-) -> eyre::Result<Vec<MeasurementReportValueRecord>> {
-    common::get_objects_where_id(txn, report_id).await
+) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
+    common::get_objects_where_id(txn, report_id)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_report_values_for_report_id",
+                e.source,
+            )
+        })
 }
 
 /// get_measurement_report_ids_by_values returns a report
@@ -186,8 +228,17 @@ pub async fn get_measurement_report_values_for_report_id(
 pub async fn get_measurement_report_ids_by_values(
     txn: &mut Transaction<'_, Postgres>,
     values: &[common::PcrRegisterValue],
-) -> eyre::Result<Vec<MeasurementReportId>> {
-    common::get_ids_for_bundle_values(txn, "measurement_reports_values", values).await
+) -> Result<Vec<MeasurementReportId>, DatabaseError> {
+    common::get_ids_for_bundle_values(txn, "measurement_reports_values", values)
+        .await
+        .map_err(|e| {
+            DatabaseError::new(
+                file!(),
+                line!(),
+                "get_measurement_report_ids_by_values",
+                e.source,
+            )
+        })
 }
 
 /// get_latest_measurement_report_records_by_machine_id returns the most
@@ -218,6 +269,8 @@ pub async fn delete_report_for_id(
 pub async fn delete_report_values_for_id(
     txn: &mut Transaction<'_, Postgres>,
     report_id: MeasurementReportId,
-) -> eyre::Result<Vec<MeasurementReportValueRecord>> {
-    common::delete_objects_where_id(txn, report_id).await
+) -> Result<Vec<MeasurementReportValueRecord>, DatabaseError> {
+    common::delete_objects_where_id(txn, report_id)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "delete_report_values_for_id", e.source))
 }
