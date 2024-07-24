@@ -8,6 +8,8 @@ receivers:
   filelog:
     include:
       - /var/log/doca/hbn/frr/frr.log
+    include_file_name: false
+    include_file_path: true
     start_at: beginning
     storage: file_storage/cursors
     operators:
@@ -191,13 +193,13 @@ processors:
     spike_limit_mib: 128
   resource/logs-journald:
     attributes:
-      - key: log
+      - key: group
         value: journald
         action: upsert
-  resource/logs-frr:
+  resource/logs-hbn:
     attributes:
-      - key: log
-        value: frr
+      - key: group
+        value: hbn
         action: upsert
   resource/metrics-doca-eth-dropped:
     attributes:
@@ -293,7 +295,7 @@ service:
       processors:
         - memory_limiter
         - resourcedetection
-        - resource/logs-frr
+        - resource/logs-hbn
         - transform/frr
         - batch
       exporters: [otlp/site]
