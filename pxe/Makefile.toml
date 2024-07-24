@@ -20,7 +20,7 @@ HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/nvidia/doca/doca_conta
 IPXE_BANNER_VERSION = { script = ["echo ${VERSION:-$(git describe --tags --first-parent --always --long)}"] }
 DOCA_HBN_URI = "nvcr.io/nvidia/doca/doca_hbn:2.2.0-doca2.7.0"
 DOCA_TELEMETRY_URI = "nvcr.io/nvidia/doca/doca_telemetry:1.17.0-doca2.7.0"
-K8S_PAUSE_URI = "k8s.gcr.io/pause:3.2"
+K8S_PAUSE_URI = "k8s.gcr.io/pause:3.9"
 DPU_AGENT_PKG_VERSION = { script = ["echo $(git describe --tags --first-parent --always --long | cut -c 2-)"] }
 
 # https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release
