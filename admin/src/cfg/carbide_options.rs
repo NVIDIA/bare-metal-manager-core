@@ -432,10 +432,14 @@ pub enum RedfishCommand {
     BootHdd,
     /// Set PXE first in boot order
     BootPxe,
+    /// Set Boot order to UEFI Http First
+    BootUefiHttp,
     /// On next boot only, boot from hard drive
     BootOnceHdd,
     /// On next boot only, boot from PXE
     BootOncePxe,
+    /// Boot rom UEFI HTTP Once
+    BootOnceUefiHttp,
     /// Delete all pending jobs
     ClearPending,
     /// Create new BMC user

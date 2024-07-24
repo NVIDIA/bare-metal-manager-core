@@ -65,11 +65,17 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         BootPxe => {
             redfish.boot_first(Boot::Pxe).await?;
         }
+        BootUefiHttp => {
+            redfish.boot_first(Boot::UefiHttp).await?;
+        }
         BootOnceHdd => {
             redfish.boot_once(Boot::HardDisk).await?;
         }
         BootOncePxe => {
             redfish.boot_once(Boot::Pxe).await?;
+        }
+        BootOnceUefiHttp => {
+            redfish.boot_once(Boot::UefiHttp).await?;
         }
         ClearPending => {
             redfish.clear_pending().await?;
