@@ -44,7 +44,12 @@ build:
       sync:
         infer:
           - "bmc-mock"
-
+    - image: nvmetal-scout-burn-in
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.machine-validation-config.localdev
+      sync:
+        infer:
+          - "nvmetal-scout-burn-in"
 manifests:
   kustomize:
     paths:
