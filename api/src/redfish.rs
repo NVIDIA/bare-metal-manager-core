@@ -27,12 +27,13 @@ use forge_secrets::credentials::{
 use http::{header::InvalidHeaderName, HeaderName, StatusCode};
 use libredfish::{
     model::{
+        secure_boot::SecureBootMode,
         service_root::{RedfishVendor, ServiceRoot},
         task::Task,
         ODataId, ODataLinks,
     },
-    Chassis, Collection, Endpoint, JobState, NetworkAdapter, PowerState, Redfish, RedfishError,
-    Resource, RoleId, SystemPowerControl,
+    Chassis, Collection, EnabledDisabled, Endpoint, JobState, NetworkAdapter, PowerState, Redfish,
+    RedfishError, Resource, RoleId, SystemPowerControl,
 };
 use mac_address::MacAddress;
 use tokio::time;
@@ -784,7 +785,20 @@ impl Redfish for RedfishSimClient {
     async fn get_secure_boot(
         &self,
     ) -> Result<libredfish::model::secure_boot::SecureBoot, RedfishError> {
-        todo!()
+        Ok(libredfish::model::secure_boot::SecureBoot {
+            odata: ODataLinks {
+                odata_context: None,
+                odata_id: "/redfish/v1/Systems/Bluefield/SecureBoot".to_string(),
+                odata_type: "#SecureBoot.v1_1_0.SecureBoot".to_string(),
+                odata_etag: None,
+                links: None,
+            },
+            id: "SecureBoot".to_string(),
+            name: "UEFI Secure Boot".to_string(),
+            secure_boot_current_boot: Some(EnabledDisabled::Disabled),
+            secure_boot_enable: Some(false),
+            secure_boot_mode: Some(SecureBootMode::UserMode),
+        })
     }
 
     async fn disable_secure_boot(&self) -> Result<(), RedfishError> {

@@ -414,6 +414,10 @@ pub enum DpuDiscoveringState {
         substate: BmcFirmwareUpdateSubstate,
     },
     Configuring,
+    DisableSecureBoot {
+        count: u32,
+    },
+    SetUefiHttpBoot,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

@@ -17,16 +17,6 @@ use std::{
     task::Poll,
 };
 
-use chrono::{DateTime, Duration, Utc};
-use config_version::ConfigVersion;
-use eyre::eyre;
-use futures::TryFutureExt;
-use libredfish::{
-    model::task::{Task, TaskState},
-    Boot, PowerState, Redfish, SystemPowerControl,
-};
-use tokio::fs::File;
-
 use crate::{
     cfg::{DpuModel, FirmwareComponentType, FirmwareEntry, Vendor2Firmware},
     db::{
@@ -61,6 +51,15 @@ use crate::{
         },
     },
 };
+use chrono::{DateTime, Duration, Utc};
+use config_version::ConfigVersion;
+use eyre::eyre;
+use futures::TryFutureExt;
+use libredfish::{
+    model::task::{Task, TaskState},
+    Boot, PowerState, Redfish, SystemPowerControl,
+};
+use tokio::fs::File;
 
 mod ib;
 
@@ -1378,6 +1377,83 @@ impl DpuMachineStateHandler {
             retry_count: 0,
         }
     }
+
+    async fn is_secure_boot_enabled(
+        &self,
+        // passing in dpu_machine_id only for testing
+        dpu_machine_id: &MachineId,
+        dpu_redfish_client: Box<dyn Redfish>,
+    ) -> Result<bool, StateHandlerError> {
+        let secure_boot_status = dpu_redfish_client.get_secure_boot().await.map_err(|e| {
+            StateHandlerError::RedfishError {
+                operation: "disable_secure_boot",
+                error: e,
+            }
+        })?;
+
+        let secure_boot_enable =
+            secure_boot_status
+                .secure_boot_enable
+                .ok_or(StateHandlerError::MissingData {
+                    object_id: dpu_machine_id.to_string(),
+                    missing: "expected secure_boot_enable_field set in secure boot response",
+                })?;
+
+        let secure_boot_current_boot =
+            secure_boot_status
+                .secure_boot_current_boot
+                .ok_or(StateHandlerError::MissingData {
+                    object_id: dpu_machine_id.to_string(),
+                    missing: "expected secure_boot_enable_field set in secure boot response",
+                })?;
+
+        Ok(secure_boot_enable && secure_boot_current_boot.is_enabled())
+    }
+
+    async fn disable_secure_boot(
+        &self,
+        dpu_snapshot: &MachineSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<(), StateHandlerError> {
+        let dpu_redfish_client = build_redfish_client_from_bmc_ip(
+            dpu_snapshot.bmc_addr(),
+            &ctx.services.redfish_client_pool,
+            txn,
+        )
+        .await?;
+
+        // The Redfish calls here MUST be available without assistance from UEFI.
+        //
+        // On a newly reset DPU/BMC or brand new device, UEFI, nor the OS on the ARM cores may not
+        // have booted yet.
+        //
+        // Any redfish here that relies on UEFI having POSTed will fail.
+        //
+        //
+        // Disabling SecureBoot is required for iPXE to boot.
+        //
+        dpu_redfish_client
+            .disable_secure_boot()
+            .await
+            .map_err(|e| StateHandlerError::RedfishError {
+                operation: "disable_secure_boot",
+                error: e,
+            })?;
+
+        //
+        // Next just do a ForceRestart to netboot without secureboot.
+        //
+        // This will kick off the ARM OS install since we move to DPU/Init next.
+        //
+        dpu_redfish_client
+            .power(SystemPowerControl::GracefulRestart)
+            .await
+            .map_err(|e| StateHandlerError::RedfishError {
+                operation: "graceful_restart",
+                error: e,
+            })
+    }
 }
 
 #[async_trait::async_trait]
@@ -1628,24 +1704,132 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 }
 
-                //
-                // The Redfish calls here MUST be available without assistance from UEFI.
-                //
-                // On a newly reset DPU/BMC or brand new device, UEFI, nor the OS on the ARM cores may not
-                // have booted yet.
-                //
-                // Any redfish here that relies on UEFI having POSTed will fail.
-                //
-                //
-                // Disabling SecureBoot is required for iPXE to boot.
-                //
-                if let Err(e) = dpu_redfish_client.disable_secure_boot().await {
-                    tracing::error!(%e, "Failed to run disable_secure_boot call");
-                    return Err(StateHandlerError::RedfishError {
-                        operation: "disable_secure_boot",
-                        error: e,
-                    });
+                let next_state = ManagedHostState::DpuDiscoveringState {
+                    discovering_state: DpuDiscoveringState::DisableSecureBoot { count: 0 },
+                };
+                Ok(StateHandlerOutcome::Transition(next_state))
+            }
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state: DpuDiscoveringState::DisableSecureBoot { count },
+            } => {
+                let next_state: ManagedHostState;
+                // Use the host snapshot instead of the DPU snapshot because
+                // the state.host_snapshot.current.version might be a bit more correct:
+                // the state machine is driven by the host state
+                let wait_for_dpu_reboot = *count > 0
+                    && state
+                        .host_snapshot
+                        .current
+                        .version
+                        .since_state_change()
+                        .num_minutes()
+                        < 5;
+
+                tracing::debug!(
+                    "ManagedHostState::DpuDiscoveringState::DisableSecureBoot ({count}) for {dpu_machine_id}; waiting for DPU reboot: {wait_for_dpu_reboot} ({})",
+                    state
+                        .host_snapshot
+                        .current
+                        .version
+                        .since_state_change()
+                        .num_minutes()
+                );
+
+                let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
+                    state.dpu_snapshots[0].bmc_addr(),
+                    &ctx.services.redfish_client_pool,
+                    txn,
+                )
+                .await;
+
+                let dpu_redfish_client = match dpu_redfish_client_result {
+                    Ok(redfish_client) => redfish_client,
+                    Err(e) => {
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "Waiting for RedFish to become available: {:?}",
+                            e
+                        )))
+                    }
+                };
+
+                match self
+                    .is_secure_boot_enabled(dpu_machine_id, dpu_redfish_client)
+                    .await
+                {
+                    // Secure boot is still enabled
+                    Ok(true) => {
+                        if wait_for_dpu_reboot {
+                            return Ok(StateHandlerOutcome::Wait(format!(
+                                    "DisableSecureBootSubState::VerifySecureBootDisabled ({count}): waiting for for DPU {dpu_machine_id} to come up since {:?}",
+                                    state.dpu_snapshots[0].current.version.timestamp()
+                                )));
+                        }
+
+                        self.disable_secure_boot(&state.dpu_snapshots[0], ctx, txn)
+                            .await?;
+
+                        next_state = ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::DisableSecureBoot {
+                                count: *count + 1,
+                            },
+                        };
+                    }
+                    // we successfully disabled secure boot
+                    Ok(false) => {
+                        next_state = ManagedHostState::DpuDiscoveringState {
+                            discovering_state: DpuDiscoveringState::SetUefiHttpBoot,
+                        };
+                    }
+                    // we cant retrieve the secure boot status
+                    Err(e) => {
+                        tracing::error!(%e, "Failed to retrieve secure boot status ({count})");
+                        // We have requested a reboot, so wait for the DPU to come up
+                        if wait_for_dpu_reboot {
+                            return Ok(StateHandlerOutcome::Wait(format!(
+                                    "DisableSecureBootSubState::VerifySecureBootDisabled ({count}): waiting for for DPU {dpu_machine_id} to come up since {:?}",
+                                    state.dpu_snapshots[0].current.version.timestamp()
+                                )));
+                        }
+
+                        if *count > 1 {
+                            // We have tried (disabling secure boot -> rebooting the DPU -> waiting for 5 minutes) more than once. No need to try indefinitely
+                            next_state = ManagedHostState::DpuDiscoveringState {
+                                discovering_state: DpuDiscoveringState::SetUefiHttpBoot,
+                            };
+                        } else {
+                            self.disable_secure_boot(&state.dpu_snapshots[0], ctx, txn)
+                                .await?;
+
+                            next_state = ManagedHostState::DpuDiscoveringState {
+                                discovering_state: DpuDiscoveringState::DisableSecureBoot {
+                                    count: *count + 1,
+                                },
+                            };
+                        }
+                    }
                 }
+
+                Ok(StateHandlerOutcome::Transition(next_state))
+            }
+            ManagedHostState::DpuDiscoveringState {
+                discovering_state: DpuDiscoveringState::SetUefiHttpBoot,
+            } => {
+                let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
+                    state.dpu_snapshots[0].bmc_addr(),
+                    &ctx.services.redfish_client_pool,
+                    txn,
+                )
+                .await;
+
+                let dpu_redfish_client = match dpu_redfish_client_result {
+                    Ok(redfish_client) => redfish_client,
+                    Err(e) => {
+                        return Ok(StateHandlerOutcome::Wait(format!(
+                            "Waiting for RedFish to become available: {:?}",
+                            e
+                        )))
+                    }
+                };
 
                 // This configures the DPU to boot once from UEFI HTTP.
                 //
@@ -1666,16 +1850,7 @@ impl StateHandler for DpuMachineStateHandler {
                 //
                 // This will kick off the ARM OS install since we move to DPU/Init next.
                 //
-                if let Err(e) = dpu_redfish_client
-                    .power(SystemPowerControl::ForceRestart)
-                    .await
-                {
-                    tracing::error!(%e, "Failed to reboot a DPU");
-                    return Err(StateHandlerError::RedfishError {
-                        operation: "reboot",
-                        error: e,
-                    });
-                }
+                handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
 
                 let next_state = ManagedHostState::DPUNotReady {
                     machine_state: MachineState::Init,

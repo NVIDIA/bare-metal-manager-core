@@ -1139,6 +1139,36 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::DisableSecureBoot { count: 0 },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            discovering_state: DpuDiscoveringState::SetUefiHttpBoot,
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
         ManagedHostState::DPUNotReady {
             machine_state: MachineState::Init,
         },
