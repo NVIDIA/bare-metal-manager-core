@@ -16,8 +16,8 @@
 ///
 /// There is one for each vendor we support in the libredfish repo.
 use std::collections::{HashMap, VecDeque};
-use std::fs::File;
 use std::io::Read;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time;
@@ -28,17 +28,18 @@ use axum::http::{HeaderMap, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use bytes::Buf;
 use flate2::read::GzDecoder;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 const MAX_HISTORY_ENTRIES: usize = 1000;
-type EntryMap = Arc<Mutex<HashMap<String, String>>>;
+pub type EntryMap = Arc<Mutex<HashMap<String, String>>>;
 type HistoryMap = Arc<Mutex<HashMap<String, VecDeque<String>>>>;
 
 const POWER_CYLE_TIME_SECS: u64 = 5;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct BmcState {
     is_on: Arc<AtomicBool>,
     off_until: Arc<Mutex<Option<time::SystemTime>>>,
@@ -46,52 +47,84 @@ struct BmcState {
     history: HistoryMap,
 }
 
+/// Allows callers to specify an in-memory tar (like via include_bytes!()) or a path to one on the
+/// filesystem.
+pub enum TarGzOption<'a> {
+    Disk(&'a PathBuf),
+    Memory(&'a [u8]),
+}
+
+impl TarGzOption<'_> {
+    fn path(&self) -> Option<&PathBuf> {
+        match self {
+            TarGzOption::Disk(path) => Some(path),
+            TarGzOption::Memory(_) => None,
+        }
+    }
+}
+
 /// Create a mock of
 pub fn tar_router(
-    p: &std::path::Path,
+    targz: TarGzOption,
     existing_tars: Option<&mut HashMap<std::path::PathBuf, EntryMap>>,
 ) -> eyre::Result<Router> {
-    let bmc_state = if let Some(entries) = existing_tars.as_ref().and_then(|t| t.get(p)) {
-        BmcState {
-            is_on: Arc::new(AtomicBool::new(true)),
-            off_until: Arc::new(Mutex::new(None)),
-            entries: entries.clone(),
-            history: Arc::new(Mutex::new(HashMap::default())),
-        }
+    // Check if we've already read this tar.gz
+    let maybe_cached_entries = if let Some(existing_tars) = existing_tars.as_ref() {
+        targz.path().and_then(|p| existing_tars.get(p).cloned())
     } else {
-        let mut entries = HashMap::new();
+        None
+    };
 
-        let f = GzDecoder::new(File::open(p)?);
-        let mut archive = tar::Archive::new(f);
-        for r in archive.entries().unwrap() {
-            let mut r = r.unwrap();
-            let name = r
-                .path()
+    let entries = match maybe_cached_entries {
+        Some(entries) => entries,
+        None => {
+            let mut _owned_gz_data = None; // make sure data sent to gz_decoder lives long enough
+            let gz_decoder = match targz {
+                TarGzOption::Disk(path) => {
+                    _owned_gz_data = Some(std::fs::read(path)?);
+                    GzDecoder::new(_owned_gz_data.as_ref().unwrap().reader())
+                }
+                TarGzOption::Memory(bytes) => GzDecoder::new(bytes.reader()),
+            };
+
+            let entries = tar::Archive::new(gz_decoder)
+                .entries()
                 .unwrap()
-                .display()
-                .to_string()
-                .replace("/index.json", "");
-            if name.ends_with('/') {
-                // ignore directories
-                continue;
+                .map(Result::unwrap)
+                .filter_map(|mut entry| {
+                    let name = entry
+                        .path()
+                        .unwrap()
+                        .display()
+                        .to_string()
+                        .replace("/index.json", "");
+                    if name.ends_with('/') {
+                        // ignore directories
+                        None
+                    } else {
+                        let mut s = String::with_capacity(entry.size() as usize);
+                        let _ = entry.read_to_string(&mut s).unwrap();
+                        Some((name, s))
+                    }
+                })
+                .collect::<HashMap<_, _>>();
+            let entries = Arc::new(Mutex::new(entries));
+
+            // cache what we just built
+            if let (Some(path), Some(existing_tars)) = (targz.path(), existing_tars) {
+                existing_tars.insert(path.clone(), entries.clone());
             }
-            let mut s = String::with_capacity(r.size() as usize);
-            let _ = r.read_to_string(&mut s)?;
-            entries.insert(name, s);
-        }
-        let entries = Arc::new(Mutex::new(entries));
 
-        if let Some(existing_tars) = existing_tars {
-            existing_tars.insert(p.to_owned(), entries.clone());
-        }
-
-        BmcState {
-            is_on: Arc::new(AtomicBool::new(true)),
-            off_until: Arc::new(Mutex::new(None)),
-            entries,
-            history: Arc::new(Mutex::new(HashMap::default())),
+            entries
         }
     };
+
+    let bmc_state = BmcState {
+        is_on: Arc::new(AtomicBool::new(true)),
+        entries,
+        ..Default::default()
+    };
+
     Ok(Router::new()
         .route("/history", get(get_history_macs))
         .route("/history/:mac", get(get_history))

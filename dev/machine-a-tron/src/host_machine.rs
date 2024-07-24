@@ -5,17 +5,16 @@ use rpc::MachineId;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::bmc_mock_wrapper::MachineCommand;
 use crate::logging::{LogCollector, LogSink};
-use crate::machine_info::{HostMachineInfo, MachineInfo};
 use crate::machine_state_machine::{MachineStateError, MachineStateMachine};
 use crate::{
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::DhcpRelayClient,
     dpu_machine::DpuMachine,
-    machine_utils::{get_api_state, next_mac},
+    machine_utils::get_api_state,
     tui::{HostDetails, UiEvent},
 };
+use bmc_mock::{HostMachineInfo, MachineCommand, MachineInfo};
 
 const MAX_LOG_LINES: usize = 40;
 
@@ -99,13 +98,7 @@ impl HostMachine {
 
         let (control_tx, control_rx) = mpsc::unbounded_channel();
 
-        let bmc_mac_address = next_mac();
-
-        let host_info = HostMachineInfo {
-            bmc_mac_address,
-            serial: bmc_mac_address.to_string().replace(':', ""),
-            dpus: dpus.iter().map(|d| d.dpu_info().clone()).collect(),
-        };
+        let host_info = HostMachineInfo::new(dpus.iter().map(|d| d.dpu_info().clone()).collect());
 
         let state_machine = MachineStateMachine::new(
             MachineInfo::Host(host_info.clone()),
@@ -177,7 +170,7 @@ impl HostMachine {
         }
 
         self.logger.info(format!(
-            "H: start: mat state: {} api state: {}",
+            "start: mat state: {} api state: {}",
             self.state_machine, self.api_state
         ));
 
@@ -202,7 +195,7 @@ impl HostMachine {
 
         work_done |= self.state_machine.advance(dpus_ready).await?;
         self.logger.info(format!(
-            "H: end: mat state {} api state {}",
+            "end: mat state {} api state {}",
             self.state_machine, self.api_state
         ));
 

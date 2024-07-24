@@ -5,9 +5,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::bmc_mock_wrapper::MachineCommand;
 use crate::logging::LogSink;
-use crate::machine_info::{DpuMachineInfo, MachineInfo};
 use crate::machine_state_machine::MachineStateMachine;
 use crate::tui::HostDetails;
 use crate::{
@@ -16,6 +14,7 @@ use crate::{
     machine_state_machine::MachineStateError,
     machine_utils::get_api_state,
 };
+use bmc_mock::{DpuMachineInfo, MachineCommand, MachineInfo};
 
 #[derive(Debug)]
 pub struct DpuMachine {
@@ -77,21 +76,21 @@ impl DpuMachine {
 
         if let Some(time) = self.reboot_requested.take() {
             self.logger.info(format!(
-                "DPU: Reboot requested at {}: new state: {} api state: {}",
+                "Reboot requested at {}: new state: {} api state: {}",
                 time, self.state_machine, self.api_state
             ));
             self.state_machine.power_down()
         }
 
         self.logger.info(format!(
-            "D: start: mat state: {} api state: {}",
+            "start: mat state: {} api state: {}",
             self.state_machine, self.api_state
         ));
 
         let result = self.state_machine.advance(true).await;
 
         self.logger.info(format!(
-            "D: end: mat state {} api state {}",
+            "end: mat state {} api state {}",
             self.state_machine, self.api_state
         ));
 

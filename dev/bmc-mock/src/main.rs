@@ -11,11 +11,10 @@
  */
 mod command_line;
 
+use axum::Router;
+use bmc_mock::{ListenerOrAddress, TarGzOption};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-
-use axum::Router;
-use bmc_mock::ListenerOrAddress;
 use tracing::info;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt::Layer;
@@ -58,7 +57,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mac_router.targz.to_string_lossy(),
                 mac_router.mac_address
             );
-            let r = bmc_mock::tar_router(&mac_router.targz, Some(&mut tar_router_entries)).unwrap();
+            let r = bmc_mock::tar_router(
+                TarGzOption::Disk(&mac_router.targz),
+                Some(&mut tar_router_entries),
+            )
+            .unwrap();
             routers_by_mac.insert(mac_router.mac_address, r);
         }
     }
@@ -68,12 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Using cert_path: {:?}", args.cert_path);
     let router = if let Some(tar_path) = args.targz {
         info!("Using archive {} as default", tar_path.to_string_lossy());
-        bmc_mock::tar_router(&tar_path, Some(&mut tar_router_entries)).unwrap()
+        bmc_mock::tar_router(TarGzOption::Disk(&tar_path), Some(&mut tar_router_entries)).unwrap()
     } else {
-        info!("Using default handlers");
-        bmc_mock::default_router(bmc_mock::BmcState {
-            use_qemu: args.use_qemu,
-        })
+        info!("Using default targz handler");
+        bmc_mock::default_host_tar_router(args.use_qemu, Some(&mut tar_router_entries))
     };
 
     routers_by_mac.insert("".to_owned(), router);

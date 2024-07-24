@@ -6,10 +6,8 @@ pub mod dpu_machine;
 pub mod host_machine;
 pub mod logging;
 pub mod machine_a_tron;
-pub mod machine_info;
 pub mod machine_state_machine;
 pub mod machine_utils;
-mod redfish_rewriter;
 pub mod subnet;
 pub mod tui;
 pub mod vpc;
@@ -24,17 +22,22 @@ use forge_tls::client_config::{
 use machine_a_tron::MachineATron;
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::error::Error;
-use std::path::Path;
-
-use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
 use crate::config::{MachineATronArgs, MachineATronConfig, MachineATronContext};
 use crate::dhcp_relay::DhcpRelayService;
+use bmc_mock::TarGzOption;
+use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
 fn init_log(filename: &Option<String>) -> Result<(), Box<dyn Error>> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+        .from_env_lossy()
+        .add_directive("tower=warn".parse().unwrap())
+        .add_directive("rustls=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("hickory_proto=warn".parse().unwrap())
+        .add_directive("hickory_resolver=warn".parse().unwrap())
+        .add_directive("h2=warn".parse().unwrap());
 
     match filename {
         Some(filename) => {
@@ -79,17 +82,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     forge_client_config.socks_proxy(proxy);
 
     let dpu_bmc_mock_router =
-        bmc_mock::tar_router(Path::new(app_config.bmc_mock_dpu_tar.as_str()), None)?;
+        bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_dpu_tar), None)?;
     let host_bmc_mock_router =
-        bmc_mock::tar_router(Path::new(app_config.bmc_mock_host_tar.as_str()), None)?;
+        bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_host_tar), None)?;
 
     let mut app_context = MachineATronContext {
         app_config,
         forge_client_config,
         circuit_id: None,
         bmc_mock_certs_dir: None,
-        dpu_bmc_mock_router,
-        host_bmc_mock_router,
+        dpu_tar_router: dpu_bmc_mock_router,
+        host_tar_router: host_bmc_mock_router,
     };
 
     let (mut dhcp_client, mut dhcp_service) =

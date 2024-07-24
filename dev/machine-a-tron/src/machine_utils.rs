@@ -1,4 +1,3 @@
-use mac_address::MacAddress;
 use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action};
 
 use crate::{api_client, config::MachineATronContext};
@@ -7,7 +6,6 @@ use crate::machine_state_machine::AddressConfigError;
 use lazy_static::lazy_static;
 use reqwest::ClientBuilder;
 use rpc::forge::MachineArchitecture;
-use std::sync::atomic::{AtomicU32, Ordering};
 use tempfile::TempDir;
 
 lazy_static! {
@@ -16,8 +14,6 @@ lazy_static! {
         .tempdir()
         .unwrap();
 }
-
-static NEXT_MAC_ADDRESS: AtomicU32 = AtomicU32::new(1);
 
 pub enum PXEresponse {
     Exit,
@@ -28,19 +24,6 @@ pub enum PXEresponse {
 pub enum MockMachineType {
     Host,
     Dpu,
-}
-
-pub fn next_mac() -> MacAddress {
-    let next_mac_num = NEXT_MAC_ADDRESS.fetch_add(1, Ordering::Acquire);
-
-    let bytes: Vec<u8> = [0x02u8, 0x01]
-        .into_iter()
-        .chain(next_mac_num.to_be_bytes())
-        .collect();
-
-    let mac_bytes = <[u8; 6]>::try_from(bytes).unwrap();
-
-    MacAddress::from(mac_bytes)
 }
 
 pub async fn forge_agent_control(

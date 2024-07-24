@@ -67,7 +67,7 @@ async fn test_integration() -> eyre::Result<()> {
     let mut routers = HashMap::default();
     routers.insert(
         "".to_owned(),
-        bmc_mock::default_router(bmc_mock::BmcState { use_qemu: false }),
+        bmc_mock::default_host_tar_router(false, None),
     );
     tokio::spawn(bmc_mock::run_combined_mock::<String>(routers, None, None));
 
@@ -256,14 +256,14 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
             carbide_api_addr.port()
         )),
         log_file: None,
-        bmc_mock_host_tar: format!(
+        bmc_mock_host_tar: PathBuf::from(format!(
             "{}/dev/bmc-mock/dell_poweredge_r750.tar.gz",
             root_dir.to_string_lossy()
-        ),
-        bmc_mock_dpu_tar: format!(
+        )),
+        bmc_mock_dpu_tar: PathBuf::from(format!(
             "{}/dev/bmc-mock/nvidia_dpu.tar.gz",
             root_dir.to_string_lossy()
-        ),
+        )),
         use_pxe_api: true,
         pxe_server_host: None,
         pxe_server_port: None,

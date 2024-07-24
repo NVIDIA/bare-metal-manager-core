@@ -9,18 +9,18 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
-
+use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
 use machine_a_tron::config::{MachineATronConfig, MachineATronContext};
 use machine_a_tron::dhcp_relay::DhcpRelayService;
 use machine_a_tron::host_machine::HostMachine;
 use machine_a_tron::machine_a_tron::MachineATron;
 use rpc::forge_tls_client::ForgeClientConfig;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 /// Run a machine-a-tron instance with the given config in the background, returning a JoinHandle
 /// that can be waited on.
@@ -35,18 +35,18 @@ pub async fn run_local(
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
 
-    let dpu_bmc_mock_router =
-        bmc_mock::tar_router(Path::new(app_config.bmc_mock_dpu_tar.as_str()), None)?;
-    let host_bmc_mock_router =
-        bmc_mock::tar_router(Path::new(app_config.bmc_mock_host_tar.as_str()), None)?;
+    let dpu_tar_router =
+        bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_dpu_tar), None)?;
+    let host_tar_router =
+        bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_host_tar), None)?;
 
     let app_context = MachineATronContext {
         app_config,
         forge_client_config,
         circuit_id: None,
         bmc_mock_certs_dir: Some(repo_root.join("dev/bmc-mock")),
-        dpu_bmc_mock_router,
-        host_bmc_mock_router,
+        dpu_tar_router,
+        host_tar_router,
     };
 
     // Start DHCP relay
