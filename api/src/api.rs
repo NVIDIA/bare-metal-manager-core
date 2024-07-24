@@ -1127,37 +1127,35 @@ impl Forge for Api {
             }
         };
 
-        // Link BMC interfaces to their machines
-        for interface in interfaces.iter_mut() {
-            if interface.machine_id.is_some()
-                || !interface.primary_interface
-                || interface.address.len() != 1
-            {
-                continue;
-            }
-            // unwrap is safe, we checked `!= 1` above. or_default for double extra safety.
-            let Some(ip) = interface.address.first() else {
-                return Err(Status::internal(
-                    "Impossible interface.address array length",
-                ));
-            };
-            let maybe_machine_id = MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await;
-            match maybe_machine_id {
-                Ok(Some(machine_id)) => {
-                    let rpc_machine_id = Some(::rpc::common::MachineId {
-                        id: machine_id.to_string(),
-                    });
-                    interface.is_bmc = Some(true);
-                    match machine_id.machine_type() {
-                        MachineType::Dpu => interface.attached_dpu_machine_id = rpc_machine_id,
-                        MachineType::Host | MachineType::PredictedHost => {
-                            interface.machine_id = rpc_machine_id
+        // Link BMC interface to it's machine, for carbide-web and admin-cli.
+        // Don't link if the search returned multiple, in case perf is an issue.
+        if interfaces.len() == 1 {
+            let interface = interfaces.get_mut(0).unwrap();
+            let not_linked_yet = interface.machine_id.is_none();
+            let maybe_a_bmc_interface = interface.primary_interface && interface.address.len() == 1;
+            if not_linked_yet && maybe_a_bmc_interface {
+                let Some(ip) = interface.address.first() else {
+                    return Err(Status::internal(
+                        "Impossible interface.address array length",
+                    ));
+                };
+                match MachineTopology::find_machine_id_by_bmc_ip(&mut txn, ip).await {
+                    Ok(Some(machine_id)) => {
+                        let rpc_machine_id = Some(::rpc::common::MachineId {
+                            id: machine_id.to_string(),
+                        });
+                        interface.is_bmc = Some(true);
+                        match machine_id.machine_type() {
+                            MachineType::Dpu => interface.attached_dpu_machine_id = rpc_machine_id,
+                            MachineType::Host | MachineType::PredictedHost => {
+                                interface.machine_id = rpc_machine_id
+                            }
                         }
                     }
-                }
-                Ok(None) => {} // expected, not a BMC interface
-                Err(err) => {
-                    tracing::warn!(%err, %ip, "MachineTopology::find_machine_id_by_bmc_ip error");
+                    Ok(None) => {} // expected, not a BMC interface
+                    Err(err) => {
+                        tracing::warn!(%err, %ip, "MachineTopology::find_machine_id_by_bmc_ip error");
+                    }
                 }
             }
         }
