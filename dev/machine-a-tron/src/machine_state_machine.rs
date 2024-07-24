@@ -185,13 +185,17 @@ impl MachineStateMachine {
                 }
             }
             MachineState::MachineDown(inner_state) => {
-                if inner_state.since.elapsed() > Duration::from_secs(5) {
+                let reboot_delay_secs = match self.machine_info {
+                    MachineInfo::Dpu(_) => self.config.dpu_reboot_delay,
+                    MachineInfo::Host(_) => self.config.host_reboot_delay,
+                };
+                if inner_state.since.elapsed() > Duration::from_secs(reboot_delay_secs) {
                     Ok((
                         Some(MachineState::Init(inner_state.bmc_state.clone())),
                         true,
                     ))
                 } else {
-                    Ok((None, false))
+                    Ok((None, true))
                 }
             }
             MachineState::Init(inner_state) => {
