@@ -380,6 +380,10 @@ function main() {
 		return 1;
 	fi
 
+	if [ -z $file ]; then
+		file=$(basename $image_url)
+	fi
+
 	if [ ! -z "$image_auth_token" ]; then
 		if [ -z "$image_auth_type" ]; then
 		       image_auth_type=Bearer
