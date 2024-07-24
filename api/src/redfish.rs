@@ -19,12 +19,6 @@ use std::{
     time::Duration,
 };
 
-use crate::{
-    db::{machine::Machine, machine_interface::MachineInterface},
-    ipmitool::IPMITool,
-    model::machine::MachineSnapshot,
-    CarbideError, CarbideResult,
-};
 use async_trait::async_trait;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, CredentialType, Credentials,
@@ -37,11 +31,18 @@ use libredfish::{
         task::Task,
         ODataId, ODataLinks,
     },
-    Chassis, Collection, Endpoint, JobState, PowerState, Redfish, RedfishError, Resource, RoleId,
-    SystemPowerControl,
+    Chassis, Collection, Endpoint, JobState, NetworkAdapter, PowerState, Redfish, RedfishError,
+    Resource, RoleId, SystemPowerControl,
 };
 use mac_address::MacAddress;
 use tokio::time;
+
+use crate::{
+    db::{machine::Machine, machine_interface::MachineInterface},
+    ipmitool::IPMITool,
+    model::machine::MachineSnapshot,
+    CarbideError, CarbideResult,
+};
 
 const FORGE_DPU_BMC_USERNAME: &str = "forge_admin";
 const AMI_USERNAME: &str = "admin";
@@ -1079,6 +1080,21 @@ impl Redfish for RedfishSimClient {
         _current_uefi_password: &str,
     ) -> Result<Option<String>, RedfishError> {
         Ok(None)
+    }
+
+    async fn get_base_network_adapters(
+        &self,
+        _system_id: &str,
+    ) -> Result<Vec<String>, RedfishError> {
+        Ok(vec![])
+    }
+
+    async fn get_base_network_adapter(
+        &self,
+        _system_id: &str,
+        _id: &str,
+    ) -> Result<NetworkAdapter, RedfishError> {
+        todo!();
     }
 }
 
