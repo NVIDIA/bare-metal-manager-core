@@ -268,14 +268,16 @@ impl SiteExplorer {
     async fn explore_site(&self, metrics: &mut SiteExplorationMetrics) -> CarbideResult<()> {
         self.check_preconditions(metrics).await?;
 
-        self.update_explored_endpoints(metrics).await?;
+        let expected_machines = self.update_explored_endpoints(metrics).await?;
         // Note/TODO:
         // Since we generate the managed-host pair in a different transaction than endpoint discovery,
         // the generation of both reports is not necessarily atomic.
         // This is improvable
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
-        let identified_hosts = self.identify_managed_hosts(metrics).await?;
+        let identified_hosts = self
+            .identify_managed_hosts(metrics, expected_machines)
+            .await?;
 
         if **self.config.create_machines.load() {
             let start_create_machines = std::time::Instant::now();
@@ -384,6 +386,7 @@ impl SiteExplorer {
     async fn identify_managed_hosts(
         &self,
         metrics: &mut SiteExplorationMetrics,
+        expected_machines: HashMap<IpAddr, ExpectedMachine>,
     ) -> CarbideResult<Vec<ExploredManagedHost>> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(
@@ -428,6 +431,30 @@ impl SiteExplorer {
         }
 
         let mut managed_hosts = Vec::new();
+
+        let is_dpu_in_nic_mode = |dpu_ep: &&ExploredEndpoint, host_ep: &ExploredEndpoint| -> bool {
+            let nic_mode = dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic);
+            if nic_mode {
+                tracing::info!(
+                    address = %dpu_ep.address,
+                    exploration_report = ?dpu_ep.report,
+                    "discovered bluefield in NIC mode attached to host {}",
+                    host_ep.address
+                );
+            }
+            nic_mode
+        };
+
+        let get_host_pf_mac_address = |dpu_ep: &ExploredEndpoint| -> Option<MacAddress> {
+            match find_host_pf_mac_address(dpu_ep) {
+                Ok(m) => Some(m),
+                Err(error) => {
+                    tracing::error!(%error, dpu_ip = %dpu_ep.address, "Failed to find base mac address for DPU");
+                    None
+                }
+            }
+        };
+
         for ep in explored_hosts.values() {
             // the list of DPUs that the site-explorer has explored for this host
             let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
@@ -444,26 +471,13 @@ impl SiteExplorer {
                         let sn = net_adapter.serial_number.as_ref().unwrap().trim();
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.get(sn) {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic) {
+                            if is_dpu_in_nic_mode(dpu_ep, ep) {
                                 expected_num_dpus_attached_to_host -= 1;
-                                tracing::info!(
-                                    address = %dpu_ep.address,
-                                    exploration_report = ?dpu_ep.report,
-                                    "discovered bluefield in NIC mode attached to host {}",
-                                    ep.address
-                                );
                                 continue;
                             }
-                            let host_pf_mac_address = match find_host_pf_mac_address(dpu_ep) {
-                                Ok(m) => Some(m),
-                                Err(error) => {
-                                    tracing::error!(%error, dpu_ip = %dpu_ep.address, "Failed to find base mac address for DPU");
-                                    None
-                                }
-                            };
                             dpus_explored_for_host.push(ExploredDpu {
                                 bmc_ip: dpu_ep.address,
-                                host_pf_mac_address,
+                                host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
                                 report: dpu_ep.report.clone(),
                             });
                         }
@@ -471,20 +485,43 @@ impl SiteExplorer {
                 }
             }
 
-            // The site explorer should only create a managed host after exploring all of the DPUs attached to the host.
-            // If a host reports that it has two DPUs, the site explorer must wait until **both** DPUs have made the DHCP request.
-            // If only one of the two DPUs have made the DHCP request, the site explorer must wait until it has explored the latter DPU's BMC
-            // (ensuring that the second DPU has also made the DHCP request).
             if dpus_explored_for_host.is_empty()
                 || dpus_explored_for_host.len() != expected_num_dpus_attached_to_host
             {
-                tracing::info!(
-                    address = %ep.address,
-                    exploration_report = ?ep,
-                    "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs:\n{:#?}",
-                    dpus_explored_for_host.len(), expected_num_dpus_attached_to_host, dpus_explored_for_host
-                );
-                continue;
+                // Check if there are dpu serial(s) specified in expected_machine table for this host
+                let mut dpu_added = false;
+                if let Some(expected_machine) = expected_machines.get(&ep.address) {
+                    for dpu_sn in expected_machine.fallback_dpu_serial_numbers.clone() {
+                        if let Some(dpu_ep) = dpu_sn_to_endpoint.get(dpu_sn.as_str()) {
+                            // We do not want to attach bluefields that are in NIC mode as DPUs to the host
+                            if is_dpu_in_nic_mode(dpu_ep, ep)
+                                && expected_num_dpus_attached_to_host > 0
+                            {
+                                expected_num_dpus_attached_to_host -= 1;
+                                continue;
+                            }
+                            dpu_added = true;
+                            dpus_explored_for_host.push(ExploredDpu {
+                                bmc_ip: dpu_ep.address,
+                                host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
+                                report: dpu_ep.report.clone(),
+                            });
+                        }
+                    }
+                }
+                // The site explorer should only create a managed host after exploring all of the DPUs attached to the host.
+                // If a host reports that it has two DPUs, the site explorer must wait until **both** DPUs have made the DHCP request.
+                // If only one of the two DPUs have made the DHCP request, the site explorer must wait until it has explored the latter DPU's BMC
+                // (ensuring that the second DPU has also made the DHCP request).
+                if !dpu_added {
+                    tracing::info!(
+                        address = %ep.address,
+                        exploration_report = ?ep,
+                        "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs:\n{:#?}",
+                        dpus_explored_for_host.len(), expected_num_dpus_attached_to_host, dpus_explored_for_host
+                    );
+                    continue;
+                }
             }
 
             // If we know the booting interface of the host, we should use this for deciding
@@ -561,7 +598,7 @@ impl SiteExplorer {
     async fn update_explored_endpoints(
         &self,
         metrics: &mut SiteExplorationMetrics,
-    ) -> CarbideResult<()> {
+    ) -> CarbideResult<HashMap<IpAddr, ExpectedMachine>> {
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             DatabaseError::new(
                 file!(),
@@ -716,9 +753,14 @@ impl SiteExplorer {
         txn.commit().await.map_err(|e| {
             DatabaseError::new(file!(), line!(), "end find_many_by_bmc_mac_address", e)
         })?;
+        let mut expected_machines: HashMap<IpAddr, ExpectedMachine> = HashMap::new();
 
         for endpoint in explore_endpoint_data.iter_mut() {
             endpoint.expected = expected.remove(&endpoint.iface.mac_address);
+            if endpoint.expected.is_some() {
+                let em = endpoint.expected.clone().unwrap();
+                expected_machines.insert(endpoint.address, em);
+            }
         }
 
         for endpoint in explore_endpoint_data.into_iter() {
@@ -747,7 +789,7 @@ impl SiteExplorer {
                         .explore_endpoint(
                             bmc_target_addr,
                             &endpoint.iface,
-                            endpoint.expected,
+                            endpoint.expected.clone(),
                             endpoint.old_report.as_ref().map(|report| &report.1),
                         )
                         .await;
@@ -884,7 +926,7 @@ impl SiteExplorer {
             return Err(err.into());
         }
 
-        Ok(())
+        Ok(expected_machines)
     }
 
     fn can_visit(&self, explored_dpu: &ExploredDpu) -> CarbideResult<()> {

@@ -16,3 +16,40 @@ pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<St
         Wait | Error => p.outcome_msg.clone(),
     }
 }
+
+pub fn has_duplicates<T>(iter: T) -> bool
+where
+    T: IntoIterator,
+    T::Item: Eq + std::hash::Hash,
+{
+    let mut uniq = std::collections::HashSet::new();
+    !iter.into_iter().all(move |x| uniq.insert(x))
+}
+
+#[cfg(test)]
+mod tests {
+    pub use super::*;
+    #[test]
+    pub fn test_has_duplicates() {
+        assert!(!has_duplicates(vec![
+            "1".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+            "4".to_string()
+        ]));
+        assert!(has_duplicates(vec![
+            "1".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+            "2".to_string(),
+            "4".to_string()
+        ]));
+        assert!(!has_duplicates(vec![1, 2, 3, 4, 5]));
+        assert!(has_duplicates(vec![1, 2, 3, 4, 5, 1]));
+
+        let v1 = vec!["1", "3"];
+        // call  has_duplicates using ref
+        println!("{}", has_duplicates(&v1));
+        assert_eq!(v1.len(), 2);
+    }
+}

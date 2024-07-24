@@ -17,6 +17,7 @@ use carbide::{
 use common::api_fixtures::create_test_env;
 use rpc::forge::{forge_server::Forge, ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::Postgres;
+use std::default::Default;
 
 pub mod common;
 
@@ -65,6 +66,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         "ADMIN3".into(),
         "hmm".into(),
         "JFAKLJF".into(),
+        vec![],
     )
     .await;
 
@@ -153,6 +155,7 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "VVG121GI".into(),
+        ..Default::default()
     };
 
     env.api
@@ -239,6 +242,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
         bmc_username: "ADMIN_UPDATE".into(),
         bmc_password: "PASS_UPDATE".into(),
         chassis_serial_number: "VVG121GI".into(),
+        ..Default::default()
     };
 
     env.api
@@ -268,6 +272,7 @@ async fn test_update_expected_machine_error(pool: sqlx::PgPool) {
         bmc_username: "ADMIN_UPDATE".into(),
         bmc_password: "PASS_UPDATE".into(),
         chassis_serial_number: "VVG121GI".into(),
+        ..Default::default()
     };
 
     let err = env
@@ -298,7 +303,7 @@ async fn test_delete_all_expected_machines(pool: sqlx::PgPool) {
         .expected_machines
         .len();
 
-    assert_eq!(expected_machine_count, 3);
+    assert_eq!(expected_machine_count, 5);
 
     env.api
         .delete_all_expected_machines(tonic::Request::new(()))
@@ -330,7 +335,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         .expected_machines
         .len();
 
-    assert_eq!(expected_machine_count, 3);
+    assert_eq!(expected_machine_count, 5);
 
     let mut expected_machine_list = ExpectedMachineList {
         expected_machines: Vec::new(),
@@ -341,6 +346,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
         chassis_serial_number: "SERIAL_NEW".into(),
+        ..Default::default()
     };
 
     let expected_machine_2 = rpc::forge::ExpectedMachine {
@@ -348,6 +354,7 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
         bmc_username: "ADMIN_NEW".into(),
         bmc_password: "PASS_NEW".into(),
         chassis_serial_number: "SERIAL_NEW".into(),
+        ..Default::default()
     };
 
     expected_machine_list
@@ -409,7 +416,7 @@ async fn test_get_linked_expected_machines_unseen(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(out.expected_machines.len(), 3);
+    assert_eq!(out.expected_machines.len(), 5);
     // They are sorted by MAC server-side
     let em = out.expected_machines.first().unwrap();
     assert_eq!(em.chassis_serial_number, "VVG121GG");
@@ -456,6 +463,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
         bmc_username: "ADMIN".into(),
         bmc_password: "PASS".into(),
         chassis_serial_number: "GKTEST".into(),
+        ..Default::default()
     };
     env.api
         .add_expected_machine(tonic::Request::new(expected_machine.clone()))
@@ -485,4 +493,148 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
         host_machine_id.to_string(),
         "machine id should match via bmc_mac"
     );
+}
+
+#[sqlx::test()]
+async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let bmc_mac_address: String = "3A:3B:3C:3D:3E:3F".into();
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "VVG121GI".into(),
+        fallback_dpu_serial_numbers: vec!["dpu_serial1".to_string()],
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("unable to add expected machine ");
+
+    let expected_machine_query = rpc::forge::ExpectedMachineRequest { bmc_mac_address };
+
+    let retrieved_expected_machine = env
+        .api
+        .get_expected_machine(tonic::Request::new(expected_machine_query))
+        .await
+        .expect("unable to retrieve expected machine ")
+        .into_inner();
+
+    assert_eq!(retrieved_expected_machine, expected_machine);
+}
+
+#[sqlx::test(fixtures("create_expected_machine"))]
+async fn test_with_dpu_serial_numbers(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let fixture_mac_address_0 = "0a:0b:0c:0d:0e:0f".parse().unwrap();
+    let fixture_mac_address_3 = "3a:3b:3c:3d:3e:3f".parse().unwrap();
+    let fixture_mac_address_4 = "4a:4b:4c:4d:4e:4f".parse().unwrap();
+
+    let mut txn = pool
+        .begin()
+        .await
+        .expect("unable to create transaction on database pool");
+
+    let em0 = ExpectedMachine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_0)
+        .await
+        .unwrap()
+        .expect("Expected machine not found");
+    assert!(em0.fallback_dpu_serial_numbers.is_empty());
+
+    let em3 = ExpectedMachine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_3)
+        .await
+        .unwrap()
+        .expect("Expected machine not found");
+    assert_eq!(em3.fallback_dpu_serial_numbers, vec!["dpu_serial1"]);
+
+    let em4 = ExpectedMachine::find_by_bmc_mac_address(&mut txn, fixture_mac_address_4)
+        .await
+        .unwrap()
+        .expect("Expected machine not found");
+
+    assert_eq!(
+        em4.fallback_dpu_serial_numbers,
+        vec!["dpu_serial2", "dpu_serial3"]
+    );
+
+    Ok(())
+}
+
+#[sqlx::test()]
+async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let bmc_mac_address: String = "3A:3B:3C:3D:3E:3F".into();
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "VVG121GI".into(),
+        fallback_dpu_serial_numbers: vec!["dpu_serial1".to_string(), "dpu_serial1".to_string()],
+    };
+
+    assert!(env
+        .api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .is_err());
+}
+
+#[sqlx::test(fixtures("create_expected_machine"))]
+async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mut ee1 = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+        }))
+        .await
+        .expect("unable to get")
+        .into_inner();
+
+    ee1.fallback_dpu_serial_numbers = vec!["dpu_serial".to_string()];
+
+    env.api
+        .update_expected_machine(tonic::Request::new(ee1.clone()))
+        .await
+        .expect("unable to update")
+        .into_inner();
+
+    let ee2 = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+        }))
+        .await
+        .expect("unable to get")
+        .into_inner();
+
+    assert_eq!(ee1, ee2);
+}
+#[sqlx::test(fixtures("create_expected_machine"))]
+async fn test_update_expected_machine_add_duplicate_dpu_serial(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mut ee1 = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "2A:2B:2C:2D:2E:2F".into(),
+        }))
+        .await
+        .expect("unable to get")
+        .into_inner();
+
+    ee1.fallback_dpu_serial_numbers = vec![
+        "dpu_serial1".to_string(),
+        "dpu_serial2".to_string(),
+        "dpu_serial1".to_string(),
+    ];
+
+    assert!(env
+        .api
+        .update_expected_machine(tonic::Request::new(ee1.clone()))
+        .await
+        .is_err());
 }

@@ -735,7 +735,7 @@ impl From<ComputerSystemAttributes> for rpc::site_explorer::ComputerSystemAttrib
 }
 
 /// `ComputerSystem` definition. Matches redfish definition
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ComputerSystem {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -815,7 +815,7 @@ impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
 }
 
 /// `Chassis` definition. Matches redfish definition
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Chassis {
     pub id: String,

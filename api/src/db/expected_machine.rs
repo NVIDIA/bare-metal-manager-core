@@ -23,12 +23,13 @@ use crate::CarbideResult;
 
 const SQL_VIOLATION_DUPLICATE_MAC: &str = "expected_machines_bmc_mac_address_key";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     pub bmc_username: String,
     pub serial_number: String,
     pub bmc_password: String,
+    pub fallback_dpu_serial_numbers: Vec<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
@@ -38,6 +39,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
             bmc_username: row.try_get("bmc_username")?,
             bmc_password: row.try_get("bmc_password")?,
             serial_number: row.try_get("serial_number")?,
+            fallback_dpu_serial_numbers: row.try_get("fallback_dpu_serial_numbers")?,
         })
     }
 }
@@ -176,17 +178,19 @@ FROM expected_machines em
         bmc_username: String,
         bmc_password: String,
         serial_number: String,
+        fallback_dpu_serial_numbers: Vec<String>,
     ) -> CarbideResult<Self> {
         let query = "INSERT INTO expected_machines
-            (bmc_mac_address, bmc_username, bmc_password, serial_number)
+            (bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers)
             VALUES
-            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar) RETURNING *";
+            ($1::macaddr, $2::varchar, $3::varchar, $4::varchar, $5::text[]) RETURNING *";
 
         sqlx::query_as(query)
             .bind(bmc_mac_address)
             .bind(bmc_username)
             .bind(bmc_password)
             .bind(serial_number)
+            .bind(fallback_dpu_serial_numbers)
             .fetch_one(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| match err {
@@ -224,5 +228,37 @@ FROM expected_machines em
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(())
+    }
+    pub async fn update(
+        &mut self,
+        txn: &mut Transaction<'_, Postgres>,
+        bmc_username: String,
+        bmc_password: String,
+        serial_number: String,
+        fallback_dpu_serial_numbers: Vec<String>,
+    ) -> CarbideResult<&Self> {
+        let query = "UPDATE expected_machines SET bmc_username=$1, bmc_password=$2, serial_number=$3, fallback_dpu_serial_numbers=$4 WHERE bmc_mac_address=$5 RETURNING bmc_mac_address";
+
+        sqlx::query_as(query)
+            .bind(&bmc_username)
+            .bind(&bmc_password)
+            .bind(&serial_number)
+            .bind(&fallback_dpu_serial_numbers)
+            .bind(self.bmc_mac_address)
+            .fetch_one(txn.deref_mut())
+            .await
+            .map_err(|err: sqlx::Error| match err {
+                sqlx::Error::RowNotFound => CarbideError::NotFoundError {
+                    kind: "expected_machine",
+                    id: self.bmc_mac_address.to_string(),
+                },
+                _ => DatabaseError::new(file!(), line!(), query, err).into(),
+            })?;
+
+        self.serial_number = serial_number;
+        self.bmc_username = bmc_username;
+        self.bmc_password = bmc_password;
+        self.fallback_dpu_serial_numbers = fallback_dpu_serial_numbers;
+        Ok(self)
     }
 }

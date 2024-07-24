@@ -53,7 +53,7 @@ use cfg::carbide_options::{
     CarbideCommand, CarbideOptions, Domain, Instance, Machine, MaintenanceAction, ManagedHost,
     NetworkCommand, NetworkSegment, OutputFormat, ResourcePool, VpcOptions,
 };
-use clap::CommandFactory; // for CarbideOptions::command()
+use clap::CommandFactory;
 use forge_secrets::credentials::Credentials;
 use forge_tls::client_config::get_carbide_api_url;
 use forge_tls::client_config::get_client_cert_info;
@@ -881,11 +881,16 @@ async fn main() -> color_eyre::Result<()> {
                 }
             }
             cfg::carbide_options::ExpectedMachineAction::Add(expected_machine_data) => {
+                if expected_machine_data.has_duplicate_dpu_serials() {
+                    eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
+                    return Ok(());
+                }
                 rpc::add_expected_machine(
                     expected_machine_data.bmc_mac_address,
                     expected_machine_data.bmc_username,
                     expected_machine_data.bmc_password,
                     expected_machine_data.chassis_serial_number,
+                    expected_machine_data.fallback_dpu_serial_numbers,
                     api_config,
                 )
                 .await?;
@@ -895,11 +900,16 @@ async fn main() -> color_eyre::Result<()> {
                     .await?;
             }
             cfg::carbide_options::ExpectedMachineAction::Update(expected_machine_data) => {
+                if let Err(e) = expected_machine_data.validate() {
+                    eprintln!("{e}");
+                    return Ok(());
+                }
                 rpc::update_expected_machine(
                     expected_machine_data.bmc_mac_address,
                     expected_machine_data.bmc_username,
                     expected_machine_data.bmc_password,
                     expected_machine_data.chassis_serial_number,
+                    expected_machine_data.fallback_dpu_serial_numbers,
                     api_config,
                 )
                 .await?;
@@ -1238,4 +1248,203 @@ pub async fn password_validator(s: String) -> Result<String, CarbideCliError> {
     }
 
     Ok(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cfg::carbide_options::{
+        CarbideCommand, CarbideOptions, ExpectedMachine, ExpectedMachineAction::Update,
+        UpdateExpectedMachine,
+    };
+    use clap::Parser;
+
+    #[test]
+    fn forge_admin_cli_expected_machine_test() {
+        assert!(ExpectedMachine::try_parse_from([
+            "ExpectedMachine",
+            "--bmc-mac-address",
+            "0a:0b:0c:0d:0e:0f",
+            "--bmc-username",
+            "me",
+            "--bmc-password",
+            "my-pw",
+            "--chassis-serial-number",
+            "<CHASSIS_SERIAL_NUMBER>",
+        ])
+        .is_ok());
+
+        // No dpu serial
+        assert!(ExpectedMachine::try_parse_from([
+            "ExpectedMachine",
+            "--bmc-mac-address",
+            "0a:0b:0c:0d:0e:0f",
+            "--bmc-username",
+            "me",
+            "--bmc-password",
+            "my-pw",
+            "--chassis-serial-number",
+            "<CHASSIS_SERIAL_NUMBER>",
+        ])
+        .is_ok_and(|t1| { !t1.has_duplicate_dpu_serials() }));
+
+        assert!(ExpectedMachine::try_parse_from([
+            "ExpectedMachine",
+            "--bmc-mac-address",
+            "0a:0b:0c:0d:0e:0f",
+            "--bmc-username",
+            "me",
+            "--bmc-password",
+            "my-pw",
+            "--chassis-serial-number",
+            "<CHASSIS_SERIAL_NUMBER>",
+            "--fallback-dpu-serial-number",
+            "dpu_serial",
+        ])
+        .is_ok());
+
+        assert!(ExpectedMachine::try_parse_from([
+            "ExpectedMachine",
+            "--bmc-mac-address",
+            "0a:0b:0c:0d:0e:0f",
+            "--bmc-username",
+            "me",
+            "--bmc-password",
+            "my-pw",
+            "--chassis-serial-number",
+            "<CHASSIS_SERIAL_NUMBER>",
+            "--fallback-dpu-serial-number",
+            "dpu_serial",
+            "-d",
+            "dpu_serial2",
+        ])
+        .is_ok());
+
+        // Duplicate dpu_serial
+        assert!(ExpectedMachine::try_parse_from([
+            "ExpectedMachine",
+            "--bmc-mac-address",
+            "0a:0b:0c:0d:0e:0f",
+            "--bmc-username",
+            "me",
+            "--bmc-password",
+            "my-pw",
+            "--chassis-serial-number",
+            "<CHASSIS_SERIAL_NUMBER>",
+            "-d",
+            "dpu_serial1",
+            "-d",
+            "dpu_serial2",
+            "-d",
+            "dpu_serial3",
+            "-d",
+            "dpu_serial1"
+        ])
+        .is_ok_and(|t| { t.has_duplicate_dpu_serials() }));
+
+        // option --fallback-dpu-serial-number used w/o value
+        assert!(ExpectedMachine::try_parse_from([
+            "ExpectedMachine",
+            "--bmc-mac-address",
+            "0a:0b:0c:0d:0e:0f",
+            "--bmc-username",
+            "me",
+            "--bmc-password",
+            "my-pw",
+            "--chassis-serial-number",
+            "<CHASSIS_SERIAL_NUMBER>",
+            "--fallback-dpu-serial-number"
+        ])
+        .is_err());
+
+        fn test_update_expected_machine<F: Fn(UpdateExpectedMachine) -> bool>(
+            options: CarbideOptions,
+            pred: F,
+        ) -> bool {
+            let mut update_args = None;
+            if let Some(CarbideCommand::ExpectedMachine(Update(args))) = options.commands {
+                update_args = Some(args);
+            }
+            update_args.is_some() && pred(update_args.unwrap())
+        }
+        // update 1 dpu serial
+        assert!(test_update_expected_machine(
+            CarbideOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "<BMC_MAC_ADDRESS>",
+                "--fallback-dpu-serial-number",
+                "<DPU_SERIAL_NUMBER>",
+            ])
+            .ok()
+            .unwrap(),
+            |args| { args.validate().is_ok() }
+        ));
+        // update 2 dpu serials
+        assert!(test_update_expected_machine(
+            CarbideOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "<BMC_MAC_ADDRESS>",
+                "--fallback-dpu-serial-number",
+                "<DPU_SERIAL_NUMBER_1>",
+                "-d",
+                "<DPU_SERIAL_NUMBER_2>",
+            ])
+            .unwrap(),
+            |args| { args.validate().is_ok() }
+        ));
+
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "expected-machine",
+            "update",
+            "--bmc-mac-address",
+            "<BMC_MAC_ADDRESS>",
+            "--fallback-dpu-serial-number",
+        ])
+        .is_err());
+
+        // Fail if duplicate dpu serials are given
+        // duplicate dpu serials -
+        assert!(test_update_expected_machine(
+            CarbideOptions::try_parse_from([
+                "forge-admin-cli",
+                "expected-machine",
+                "update",
+                "--bmc-mac-address",
+                "<BMC_MAC_ADDRESS>",
+                "--fallback-dpu-serial-number",
+                "dpu1",
+                "-d",
+                "dpu2",
+                "-d",
+                "dpu3",
+                "-d",
+                "dpu2",
+                "-d",
+                "dpu4",
+            ])
+            .ok()
+            .unwrap(),
+            |args| { args.validate().is_err() }
+        ));
+
+        // Update credential
+        assert!(CarbideOptions::try_parse_from([
+            "forge-admin-cli",
+            "expected-machine",
+            "update",
+            "--bmc-mac-address",
+            "<BMC_MAC_ADDRESS>",
+            "--bmc-username",
+            "<BMC_USERNAME>",
+            "--bmc-password",
+            "<BMC_PASSWORD>",
+        ])
+        .is_ok());
+    }
 }

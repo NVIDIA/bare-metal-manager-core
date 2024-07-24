@@ -18,10 +18,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use itertools::Itertools;
-use mac_address::MacAddress;
-use tonic::Request;
-
+use carbide::db::explored_managed_host::DbExploredManagedHost;
+use carbide::db::ObjectFilter;
 use carbide::{
     cfg::SiteExplorerConfig,
     db::{
@@ -49,12 +47,15 @@ use carbide::{
     state_controller::machine::handler::MachineStateHandlerBuilder,
 };
 use common::api_fixtures::TestEnv;
+use itertools::Itertools;
+use mac_address::MacAddress;
 use rpc::{
     forge::{forge_server::Forge, DhcpDiscovery, GetSiteExplorationRequest},
     site_explorer::ExploredDpu as RpcExploredDpu,
     site_explorer::ExploredManagedHost as RpcExploredManagedHost,
     BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
+use tonic::Request;
 
 use crate::common::{
     api_fixtures::{
@@ -70,6 +71,7 @@ fn setup() {
     common::test_logging::init();
 }
 
+#[derive(Clone, Debug)]
 struct FakeMachine {
     pub mac: String,
     pub dhcp_vendor: String,
@@ -1817,6 +1819,377 @@ async fn test_disable_machine_creation_outside_site_explorer(
     // assert!(dm_response.is_err_and(|e| e.message().contains("was not discovered by site-explore")));
 
     Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc"))]
+async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = create_underlay_network_segment(&env).await;
+    let _admin_segment = create_admin_network_segment(&env).await;
+
+    const HOST1_DPU_MAC: &str = "B8:3F:D2:90:97:A6";
+    const HOST1_MAC: &str = "AA:AB:AC:AD:AA:02";
+    const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
+
+    let mut host1_dpu = FakeMachine {
+        mac: HOST1_DPU_MAC.to_string(),
+        dhcp_vendor: "Vendor1".to_string(),
+        segment: underlay_segment,
+        ip: String::new(),
+    };
+
+    let mut host1 = FakeMachine {
+        mac: HOST1_MAC.to_string(),
+        dhcp_vendor: "Vendor2".to_string(),
+        segment: underlay_segment,
+        ip: String::new(),
+    };
+
+    let dpu_exploration_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
+        machine_id: None,
+        managers: vec![Manager {
+            id: "bmc".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("eth0".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("b8:3f:d2:90:97:a6".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: Vec::new(),
+            manufacturer: None,
+            model: None,
+            serial_number: Some("MT2333XZ0X5W".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+                http_dev1_interface: None,
+            },
+            pcie_devices: vec![],
+        }],
+        chassis: vec![Chassis {
+            id: "Card1".to_string(),
+            manufacturer: Some("Nvidia".to_string()),
+            model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
+            part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+            serial_number: Some("MT2333XZ0X5W".to_string()),
+            network_adapters: vec![],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "DPU_NIC".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("32.38.1002".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_BSP".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("4.5.0.12984".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "BMC_Firmware".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("BF-23.10-3".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OFED".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("MLNX_OFED_LINUX-23.10-1.1.8".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_OS".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.20231129.prod".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "DPU_SYS_IMAGE".to_string(),
+                    description: Some("Host image".to_string()),
+                    version: Some("b83f:d203:0090:97a4".to_string()),
+                    release_date: None,
+                },
+            ],
+        }],
+        versions: Default::default(),
+    };
+
+    let host_exploration_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        vendor: Some(bmc_vendor::BMCVendor::Dell),
+        managers: vec![Manager {
+            id: "iDRAC.Embedded.1".to_string(),
+            ethernet_interfaces: vec![EthernetInterface {
+                id: Some("NIC.1".to_string()),
+                description: Some("Management Network Interface".to_string()),
+                interface_enabled: Some(true),
+                mac_address: Some("c8:4b:d6:7a:dc:bc".to_string()),
+            }],
+        }],
+        systems: vec![ComputerSystem {
+            id: "System.Embedded.1".to_string(),
+            manufacturer: Some("Dell Inc.".to_string()),
+            model: Some("PowerEdge R750".to_string()),
+            serial_number: Some("MXFC40025U031S".to_string()),
+            ethernet_interfaces: vec![
+                EthernetInterface {
+                    id: Some("NIC.Embedded.2-1-1".to_string()),
+                    description: Some("Embedded NIC 1 Port 2 Partition 1".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some("c8:4b:d6:7b:ab:93".to_string()),
+                },
+                EthernetInterface {
+                    id: Some("NIC.Embedded.1-1-1".to_string()),
+                    description: Some("Embedded NIC 1 Port 1 Partition 1".to_string()),
+                    interface_enabled: Some(false),
+                    mac_address: Some("c8:4b:d6:7b:ab:92".to_string()),
+                },
+                EthernetInterface {
+                    id: Some("NIC.Slot.5-1".to_string()),
+                    description: Some("NIC in Slot 5 Port 1".to_string()),
+                    interface_enabled: Some(true),
+                    mac_address: Some("b8:3f:d2:90:97:a4".to_string()),
+                },
+            ],
+            attributes: ComputerSystemAttributes::default(),
+            pcie_devices: vec![],
+        }],
+        chassis: vec![Chassis {
+            id: "1".to_string(),
+            manufacturer: Some("Lenovo".to_string()),
+            model: Some("7Z73CTOLWW".to_string()),
+            part_number: Some("SB27A42862".to_string()),
+            serial_number: Some("J304AYYZ".to_string()),
+            network_adapters: vec![
+                NetworkAdapter {
+                    id: "slot-1".to_string(),
+                    manufacturer: Some("MLNX".to_string()),
+                    model: Some("BlueField-3 P-Series DPU 200GbE/".to_string()),
+                    part_number: Some("900-9D3B6-00CV-A".to_string()),
+                    serial_number: None, //Some("MT2333XZ0X5W".to_string()),
+                },
+                NetworkAdapter {
+                    id: "slot-2".to_string(),
+                    manufacturer: Some("Broadcom Limited".to_string()),
+                    model: Some("5720".to_string()),
+                    part_number: Some("SN30L21970".to_string()),
+                    serial_number: Some("L2NV97J018G".to_string()),
+                },
+            ],
+        }],
+        service: vec![Service {
+            id: "FirmwareInventory".to_string(),
+            inventories: vec![
+                Inventory {
+                    id: "Slot_3.1".to_string(),
+                    description: Some("The information of Firmware firmware.".to_string()),
+                    version: Some("32.38.1002".to_string()),
+                    release_date: None,
+                },
+                Inventory {
+                    id: "BMC-Primary".to_string(),
+                    description: Some("The information of BMC (Primary) firmware.".to_string()),
+                    version: Some("38U-3.86".to_string()),
+                    release_date: Some("2023-09-12T00:00:00Z".to_string()),
+                },
+            ],
+        }],
+        machine_id: None,
+        versions: Default::default(),
+    };
+
+    let new_dpu_report = |sn: String| -> EndpointExplorationReport {
+        let mut ret = dpu_exploration_report.clone();
+        assert_eq!(ret.chassis.len(), 1);
+        assert_eq!(ret.systems.len(), 1);
+        let mut ch = ret.chassis.remove(0);
+        ch.serial_number = Some(sn.clone());
+        ret.chassis.push(ch);
+        assert_eq!(ret.chassis.len(), 1);
+
+        let mut cs = ret.systems.remove(0);
+        cs.serial_number = Some(sn);
+        ret.systems.push(cs);
+        ret
+    };
+
+    let new_host_report = |sn: String,
+                           nw_adapter_index: Option<usize>,
+                           dpu_sn: Option<String>|
+     -> EndpointExplorationReport {
+        let mut ret = host_exploration_report.clone();
+        assert_eq!(ret.chassis.len(), 1);
+        assert_eq!(ret.systems.len(), 1);
+        let mut ch = ret.chassis.remove(0);
+        ch.serial_number = Some(sn.clone());
+        // Change  NetWorkAdapter's Serial Number to dpu_sn
+        if let Some(adapter_index) = nw_adapter_index {
+            assert!(ch.network_adapters.len() > adapter_index);
+            let mut na = ch.network_adapters.remove(adapter_index);
+            na.serial_number = dpu_sn;
+            ch.network_adapters.insert(adapter_index, na);
+        }
+        ret.chassis.push(ch);
+        assert_eq!(ret.chassis.len(), 1);
+        let mut cs = ret.systems.remove(0);
+        cs.serial_number = Some(sn);
+        ret.systems.push(cs);
+        ret
+    };
+
+    // Create dhcp entries and machine_interface entries for the machines
+    for machine in [&mut host1_dpu, &mut host1] {
+        let response = env
+            .api
+            .discover_dhcp(tonic::Request::new(DhcpDiscovery {
+                mac_address: machine.mac.clone(),
+                relay_address: match machine.segment {
+                    s if s == underlay_segment => "192.0.1.1".to_string(),
+                    _ => "192.0.2.1".to_string(),
+                },
+                link_address: None,
+                vendor_string: Some(machine.dhcp_vendor.clone()),
+                circuit_id: None,
+                remote_id: None,
+            }))
+            .await?
+            .into_inner();
+        tracing::info!(
+            "DHCP with mac {} assigned ip {}",
+            machine.mac,
+            response.address
+        );
+        machine.ip = response.address;
+    }
+    let endpoint_explorer = Arc::new(FakeEndpointExplorer {
+        reports: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    // Create a host and dpu reports && host has no dpu_serial
+    {
+        let mut guard = endpoint_explorer.reports.lock().unwrap();
+        guard.insert(
+            host1_dpu.ip.parse().unwrap(),
+            Ok(new_dpu_report(HOST1_DPU_SERIAL_NUMBER.to_string())),
+        );
+        guard.insert(
+            host1.ip.parse().unwrap(),
+            Ok(new_host_report("host1".to_string(), None, None)),
+        );
+    }
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: true,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: carbide::dynamic_settings::create_machines(true),
+        override_target_ip: None,
+        override_target_port: None,
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+    );
+
+    // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
+    let mut txn = env.pool.begin().await?;
+    let mut host1_expected_machine = ExpectedMachine::create(
+        &mut txn,
+        HOST1_MAC.to_string().parse().unwrap(),
+        "user1".to_string(),
+        "pw".to_string(),
+        "host1".to_string(),
+        vec![],
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Run site explorer
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
+
+    // Mark explored endpoints as pre-ingestion_complete
+    for ee in explored_endpoints.clone() {
+        DbExploredEndpoint::set_preingestion_complete(ee.address, &mut txn).await?;
+    }
+    txn.commit().await?;
+
+    assert_eq!(explored_endpoints.len(), 2);
+
+    let mut txn = env.pool.begin().await?;
+    let mut explored_managed_hosts = DbExploredManagedHost::find_all(&mut txn).await?;
+    let mut machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+        .await
+        .unwrap();
+
+    txn.commit().await?;
+
+    // There should be no managed host
+    assert_eq!(explored_managed_hosts.len(), 0);
+    assert_eq!(machines.len(), 0);
+
+    // Now update expected_machine entry with fallback_dpu_serial
+    let mut txn = env.pool.begin().await?;
+    host1_expected_machine
+        .update(
+            &mut txn,
+            "user1".to_string(),
+            "pw".to_string(),
+            "host1".to_string(),
+            vec![HOST1_DPU_SERIAL_NUMBER.to_string()],
+        )
+        .await?;
+    txn.commit().await?;
+
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    explored_managed_hosts = DbExploredManagedHost::find_all(&mut txn).await?;
+    machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+        .await
+        .unwrap();
+    txn.commit().await?;
+    // We should see one explored_managed host && 2 machines
+    assert_eq!(
+        <Vec<ExploredManagedHost> as AsRef<Vec<ExploredManagedHost>>>::as_ref(
+            &explored_managed_hosts
+        )
+        .len(),
+        1
+    );
+    assert_eq!(
+        <Vec<Machine> as AsRef<Vec<Machine>>>::as_ref(&machines).len(),
+        2
+    );
+
+    // Make sure they are the machines we just created
+    let mut bmc_ip_addresses = vec![explored_managed_hosts[0].host_bmc_ip.clone().to_string()];
+    for dpu in explored_managed_hosts[0].clone().dpus {
+        bmc_ip_addresses.push(dpu.bmc_ip.to_string())
+    }
+    assert_eq!(bmc_ip_addresses.len(), 2);
+    for bmc_ip in bmc_ip_addresses {
+        assert!(<Vec<Machine> as AsRef<Vec<Machine>>>::as_ref(&machines)
+            .iter()
+            .any(|x| { x.bmc_info().ip.clone().unwrap_or_default() == bmc_ip }));
+    }
+    return Ok(());
 }
 
 /// EndpointExplorer which returns predefined data
