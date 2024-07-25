@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::State as AxumState;
+use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, Router};
@@ -44,11 +44,15 @@ mod vpc;
 
 const WEB_AUTH: &str = "admin:Welcome123";
 
+const SORTABLE_JS: &str = include_str!("../../templates/static/sortable.min.js");
+const SORTABLE_CSS: &str = include_str!("../../templates/static/sortable.min.css");
+
 /// All the URLs in the admin interface. Nested under /admin in api.rs.
 pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
     NormalizePath::trim_trailing_slash(
         Router::new()
             .route("/", get(root))
+            .route("/static/:filename", get(static_data))
             .route("/domain", get(domain::show_html))
             .route("/domain.json", get(domain::show_json))
             .route("/dpu", get(machine::show_dpus_html))
@@ -191,6 +195,27 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     };
 
     (StatusCode::OK, Html(index.render().unwrap()))
+}
+
+pub async fn static_data(
+    _state: AxumState<Arc<Api>>,
+    AxumPath(filename): AxumPath<String>,
+) -> Response {
+    match filename.as_str() {
+        "sortable.js" => (
+            StatusCode::OK,
+            [(http::header::CONTENT_TYPE, "text/javascript")],
+            SORTABLE_JS,
+        )
+            .into_response(),
+        "sortable.css" => (
+            StatusCode::OK,
+            [(http::header::CONTENT_TYPE, "text/css")],
+            SORTABLE_CSS,
+        )
+            .into_response(),
+        _ => (StatusCode::NOT_FOUND, "No such file").into_response(),
+    }
 }
 
 /// Creates a response that describes that `resource` was not found

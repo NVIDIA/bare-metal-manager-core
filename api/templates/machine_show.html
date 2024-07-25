@@ -6,7 +6,7 @@
 <div id="json"><a id="json-link" href="">JSON</a></div>
 <h1>{{ title }}</h1>
 
-<table>
+<table class="sortable">
 	<thead>
 	<tr>
 		<th>ID</th>
@@ -18,8 +18,10 @@
 		<th>MAC Address</th>
 		<th>Sys Vendor</th>
 		<th>Product Serial</th>
-		<th>GPU #</th>
-		<th>IB IFs #</th>
+		{% if machines[0].is_host %}
+			<th>GPU #</th>
+			<th>IB IFs #</th>
+		{% endif %}
 	</tr>
 	</thead>
 	<tbody>
@@ -41,8 +43,10 @@
 			<td>{{ m.mac_address }}</td>
 			<td>{{ m.sys_vendor}}</td>
 			<td>{{ m.product_serial }}</td>
-			<td>{{ m.num_gpus }}</td>
-			<td>{{ m.num_ib_ifs }}</td>
+			{% if m.is_host %}
+				<td>{{ m.num_gpus }}</td>
+				<td>{{ m.num_ib_ifs }}</td>
+			{% endif %}
 		</tr>
 	{% endfor %}
 	</tbody>
