@@ -112,7 +112,7 @@ impl<'r> FromRequest<'r> for RuntimeConfig {
             Outcome::Success(config.clone())
         } else {
             error!("error in client returned none");
-            Outcome::Failure((Status::BadRequest, RPCError::MissingClientConfig))
+            Outcome::Error((Status::BadRequest, RPCError::MissingClientConfig))
         }
     }
 }
@@ -142,7 +142,7 @@ impl<'r> FromRequest<'r> for Machine {
                             "error connecting to forge api from pxe - {:?} - url: {:?}",
                             err, runtime_config.internal_api_url
                         );
-                        return request::Outcome::Failure((
+                        return request::Outcome::Error((
                             Status::BadRequest,
                             RPCError::MissingClientConfig,
                         ));
@@ -151,7 +151,7 @@ impl<'r> FromRequest<'r> for Machine {
             }
             None => {
                 eprintln!("error in client returned none");
-                return request::Outcome::Failure((
+                return request::Outcome::Error((
                     Status::BadRequest,
                     RPCError::MissingClientConfig,
                 ));
@@ -170,7 +170,7 @@ impl<'r> FromRequest<'r> for Machine {
             let instructions = match client.get_cloud_init_instructions(request).await {
                 Ok(response) => response.into_inner(),
                 Err(err) => {
-                    return request::Outcome::Failure((
+                    return request::Outcome::Error((
                         Status::BadRequest,
                         RPCError::RequestError(err),
                     ));
@@ -180,7 +180,7 @@ impl<'r> FromRequest<'r> for Machine {
             request::Outcome::Success(Machine { instructions })
         } else {
             eprintln!("error in client ip is none");
-            request::Outcome::Failure((Status::BadRequest, RPCError::MissingMachineId))
+            request::Outcome::Error((Status::BadRequest, RPCError::MissingMachineId))
         }
     }
 }
@@ -196,14 +196,14 @@ impl<'r> FromRequest<'r> for MachineInterface {
                 "x86_64" => Some(forge::MachineArchitecture::X86),
                 arch => {
                     eprintln!("invalid architecture: {:#?}", arch);
-                    return request::Outcome::Failure((
+                    return request::Outcome::Error((
                         Status::BadRequest,
                         RPCError::InvalidBuildArch,
                     ));
                 }
             },
             Some(Err(errs)) => {
-                return request::Outcome::Failure((
+                return request::Outcome::Error((
                     Status::BadRequest,
                     RPCError::MalformedBuildArch(errs),
                 ));
@@ -213,7 +213,7 @@ impl<'r> FromRequest<'r> for MachineInterface {
         let interface_id = match request.query_value::<rocket::serde::uuid::Uuid>("uuid") {
             Some(Ok(uuid)) => uuid,
             Some(Err(errs)) => {
-                return request::Outcome::Failure((
+                return request::Outcome::Error((
                     Status::BadRequest,
                     RPCError::MalformedMachineId(errs),
                 ));
@@ -224,14 +224,14 @@ impl<'r> FromRequest<'r> for MachineInterface {
                     Some(uuid) => match uuid {
                         Ok(uuid) => uuid,
                         Err(_) => {
-                            return request::Outcome::Failure((
+                            return request::Outcome::Error((
                                 Status::BadRequest,
                                 RPCError::MissingMachineId,
                             ));
                         }
                     },
                     None => {
-                        return request::Outcome::Failure((
+                        return request::Outcome::Error((
                             Status::BadRequest,
                             RPCError::MissingMachineId,
                         ));
@@ -306,7 +306,8 @@ async fn main() -> Result<(), rocket::Error> {
         .ignite()
         .await?
         .launch()
-        .await
+        .await?;
+    Ok(())
 }
 
 fn extract_params(figment: &Figment) -> Result<RuntimeConfig, String> {
