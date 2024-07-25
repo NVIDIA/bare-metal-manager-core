@@ -53,7 +53,8 @@ pub fn subscriber() -> impl SubscriberInitExt {
         .add_directive("hickory_resolver::error=info".parse().unwrap())
         .add_directive("hickory_proto::xfer=info".parse().unwrap())
         .add_directive("hickory_resolver::name_server=info".parse().unwrap())
-        .add_directive("hickory_proto=info".parse().unwrap());
+        .add_directive("hickory_proto=info".parse().unwrap())
+        .add_directive("netlink_proto=warn".parse().unwrap());
     let stdout_formatter = logfmt::layer();
     Box::new(tracing_subscriber::registry().with(stdout_formatter.with_filter(env_filter)))
 }
