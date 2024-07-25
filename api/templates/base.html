@@ -193,9 +193,10 @@ div#json a {
 	cursor: pointer;
 }
 
-
 {% block css %}{% endblock %}
 </style>
+
+		<link href="/admin/static/sortable.css" rel="stylesheet" />
 		{% block head %}{% endblock %}
 	</head>
 	<body>
@@ -248,6 +249,7 @@ div#json a {
 			</ul>
 		</nav>
 		<main>{% block content %}{% endblock %}</main>
+		<script src="/admin/static/sortable.js"></script>
 		<script>
 
 			// On domains like api-dev3.frg.nvidia.com extract "dev3" and use that to build Grafana and Argo CD URLs
