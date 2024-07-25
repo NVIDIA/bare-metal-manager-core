@@ -24,9 +24,11 @@ use carbide::{
 
 pub mod common;
 use common::api_fixtures::{
-    create_test_env, host::create_host_hardware_info, network_segment::FIXTURE_NETWORK_SEGMENT_ID,
+    create_managed_host, create_test_env, host::create_host_hardware_info,
+    network_segment::FIXTURE_NETWORK_SEGMENT_ID,
 };
 use lazy_static::lazy_static;
+use rpc::forge::forge_server::Forge;
 
 #[ctor::ctor]
 fn setup() {
@@ -199,4 +201,36 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
         .unwrap();
 
     assert!(host.hardware_info().is_some());
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_find_machine_ids_by_bmc_ips(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    // Setup
+    let env = create_test_env(db_pool.clone()).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
+    let host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+
+    let bmc_ip = host_machine.bmc_info.as_ref().unwrap().ip();
+    let req = tonic::Request::new(rpc::forge::BmcIpList {
+        bmc_ips: vec![bmc_ip.to_string()],
+    });
+    let res = env
+        .api
+        .find_machine_ids_by_bmc_ips(req)
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(res.pairs.len(), 1);
+    let m = res.pairs.first().unwrap();
+    assert_eq!(
+        m.machine_id.as_ref().unwrap().to_string(),
+        host_machine_id.to_string()
+    );
+    assert_eq!(m.bmc_ip, bmc_ip);
+
+    Ok(())
 }

@@ -120,6 +120,7 @@ service Forge {
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
   rpc FindMachinesByIds(common.MachineIdList) returns (MachineList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
+  rpc FindMachineIdsByBmcIps(BmcIpList) returns (MachineIdBmcIpPairs);
   rpc IdentifyUuid(IdentifyUuidRequest) returns (IdentifyUuidResponse);
   rpc IdentifyMac(IdentifyMacRequest) returns (IdentifyMacResponse);
   rpc IdentifySerial(IdentifySerialRequest) returns (IdentifySerialResponse);
@@ -2538,6 +2539,19 @@ message ConnectedDevice {
 
 message ConnectedDeviceList {
   repeated ConnectedDevice connected_devices = 1;
+}
+
+message BmcIpList {
+  repeated string bmc_ips = 1;
+}
+
+message MachineIdBmcIpPairs {
+  repeated MachineIdBmcIp pairs = 1;
+}
+
+message MachineIdBmcIp {
+  common.MachineId machine_id = 1;
+  string bmc_ip = 2;
 }
 
 // NetworkDevice and Switch are used interchangeably.
