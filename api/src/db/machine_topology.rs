@@ -205,6 +205,27 @@ impl MachineTopology {
             .map(|db_id| db_id.into_inner()))
     }
 
+    pub async fn find_machine_bmc_pairs(
+        txn: &mut Transaction<'_, Postgres>,
+        bmc_ips: Vec<String>,
+    ) -> Result<Vec<(DbMachineId, String)>, DatabaseError> {
+        let query = r#"SELECT machine_id, topology->'bmc_info'->>'ip'
+            FROM machine_topologies
+            WHERE topology->'bmc_info'->>'ip' = ANY($1)"#;
+        sqlx::query_as::<_, (DbMachineId, String)>(query)
+            .bind(bmc_ips)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| {
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "machine_topologies find_machine_bmc_pairs",
+                    e,
+                )
+            })
+    }
+
     /// Search the topologyfor a string anywhere in the JSON.
     /// Used by the serial number finder.
     pub async fn find_freetext(

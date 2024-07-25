@@ -25,6 +25,7 @@ use serde::Deserialize;
 
 use super::filters;
 use crate::api::Api;
+use crate::model::machine::machine_id;
 
 #[derive(Template)]
 #[template(path = "explored_endpoints_show.html")]
@@ -232,7 +233,7 @@ pub async fn show_html_unpaired(
     AxumState(state): AxumState<Arc<Api>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let report = match fetch_explored_endpoints(state).await {
+    let report = match fetch_explored_endpoints(state.clone()).await {
         Ok(report) => report,
         Err(err) => {
             tracing::error!(%err, "fetch_explored_endpoints");
@@ -247,7 +248,7 @@ pub async fn show_html_unpaired(
     let paired_bmcs: HashSet<&str> = report
         .managed_hosts
         .iter()
-        .map(|mh| mh.host_bmc_ip.as_str())
+        .flat_map(|mh| [mh.host_bmc_ip.as_str(), mh.dpu_bmc_ip.as_str()])
         .collect();
     let endpoints: Vec<ExploredEndpointDisplay> = report
         .endpoints
@@ -255,6 +256,32 @@ pub async fn show_html_unpaired(
         .filter(|ep| !paired_bmcs.contains(ep.address.as_str()))
         .map(Into::into)
         .collect();
+
+    // We have filtered out the ones Site Explorer paired. Now filter the pre-site-explorer ones.
+    // Once we are 100% site explorer everywhere we can remove this part
+    let bmc_ips: Vec<String> = endpoints.iter().map(|ep| ep.address.clone()).collect();
+    let req = tonic::Request::new(forgerpc::BmcIpList { bmc_ips });
+    let legacy_paired_bmcs: HashSet<String> = match state.find_machine_ids_by_bmc_ips(req).await {
+        Ok(res) => res
+            .into_inner()
+            .pairs
+            .into_iter()
+            .map(|pair| pair.bmc_ip)
+            .collect(),
+        Err(err) => {
+            tracing::error!(%err, "find_machine_ids_by_bmc_ips");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error find_machine_ids_by_bmc_ips",
+            )
+                .into_response();
+        }
+    };
+    let endpoints: Vec<_> = endpoints
+        .into_iter()
+        .filter(|ep| !legacy_paired_bmcs.contains(ep.address.as_str()))
+        .collect();
+
     let vendors = vendors(&endpoints); // need vendors pre-filtering
 
     let vendor_filter = params
@@ -320,7 +347,7 @@ pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
 ) -> Response {
-    let report = match fetch_explored_endpoints(state).await {
+    let report = match fetch_explored_endpoints(state.clone()).await {
         Ok(report) => report,
         Err(err) => {
             tracing::error!(%err, "fetch_explored_endpoints");
@@ -332,7 +359,7 @@ pub async fn detail(
         }
     };
 
-    let endpoint = match report
+    let mut endpoint = match report
         .endpoints
         .into_iter()
         .find(|ep| ep.address.trim() == endpoint_ip.trim())
@@ -347,6 +374,37 @@ pub async fn detail(
                 .into_response();
         }
     };
+    // Site Explorer doesn't link Host Explored Endpoints with their machine, only DPUs.
+    // So do it here.
+    if let Some(ref mut report) = endpoint.report {
+        if report.machine_id.is_none() {
+            let req = tonic::Request::new(forgerpc::BmcIpList {
+                bmc_ips: vec![endpoint.address.clone()],
+            });
+            match state.find_machine_ids_by_bmc_ips(req).await {
+                Ok(res) => {
+                    if let Some(pair) = res.into_inner().pairs.first() {
+                        // we found a matching machine
+                        report.machine_id = pair
+                            .machine_id
+                            .as_ref()
+                            .and_then(|rpc_machine_id| {
+                                machine_id::try_parse_machine_id(rpc_machine_id).ok()
+                            })
+                            .map(|machine_id| machine_id.to_string());
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(%err, "find_machine_ids_by_bmc_ips");
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Error find_machine_ids_by_bmc_ips",
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
 
     let display = ExploredEndpointDetail::from(endpoint);
     (StatusCode::OK, Html(display.render().unwrap())).into_response()

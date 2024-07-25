@@ -2960,6 +2960,37 @@ impl Forge for Api {
         }))
     }
 
+    async fn find_machine_ids_by_bmc_ips(
+        &self,
+        request: Request<rpc::BmcIpList>,
+    ) -> Result<tonic::Response<rpc::MachineIdBmcIpPairs>, Status> {
+        log_request_data(&request);
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(
+                file!(),
+                line!(),
+                "begin find_machine_ids_by_bmc_ips",
+                e,
+            ))
+        })?;
+        let pairs = MachineTopology::find_machine_bmc_pairs(&mut txn, request.into_inner().bmc_ips)
+            .await
+            .map_err(CarbideError::from)?;
+        let rpc_pairs = rpc::MachineIdBmcIpPairs {
+            pairs: pairs
+                .into_iter()
+                .map(|(db_machine_id, bmc_ip)| rpc::MachineIdBmcIp {
+                    machine_id: Some(::rpc::common::MachineId {
+                        id: db_machine_id.into_inner().to_string(),
+                    }),
+                    bmc_ip,
+                })
+                .collect(),
+        };
+
+        Ok(tonic::Response::new(rpc_pairs))
+    }
+
     #[cfg(not(feature = "tss-esapi"))]
     async fn bind_attest_key(
         &self,
