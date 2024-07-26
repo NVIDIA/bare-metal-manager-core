@@ -21,11 +21,6 @@ pub enum PXEresponse {
     Error,
 }
 
-pub enum MockMachineType {
-    Host,
-    Dpu,
-}
-
 pub async fn forge_agent_control(
     app_context: &MachineATronContext,
     machine_id: rpc::common::MachineId,

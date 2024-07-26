@@ -15,7 +15,7 @@ use carbide::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPoo
 use forge_secrets::credentials::{CredentialProvider, Credentials, TestCredentialProvider};
 use http::HeaderName;
 use libredfish::{Endpoint, Redfish};
-use machine_a_tron::bmc_mock_wrapper::BmcMockAddressRegistry;
+use machine_a_tron::BmcMockAddressRegistry;
 use std::{net::Ipv4Addr, str::FromStr, sync::Arc};
 
 pub struct MachineATronBackedRedfishClientPool {

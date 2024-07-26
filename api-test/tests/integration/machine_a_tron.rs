@@ -11,10 +11,10 @@
  */
 use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
-use machine_a_tron::bmc_mock_wrapper::BmcMockAddressRegistry;
-use machine_a_tron::config::{MachineATronConfig, MachineATronContext};
-use machine_a_tron::dhcp_relay::DhcpRelayService;
-use machine_a_tron::machine_a_tron::MachineATron;
+use machine_a_tron::BmcMockAddressRegistry;
+use machine_a_tron::DhcpRelayService;
+use machine_a_tron::MachineATron;
+use machine_a_tron::{MachineATronConfig, MachineATronContext};
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
