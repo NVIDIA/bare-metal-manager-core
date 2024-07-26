@@ -115,6 +115,40 @@ impl ExploredEndpoint {
     }
 }
 
+impl EndpointExplorationReport {
+    pub fn fetch_host_primary_interface_mac(&self) -> Option<String> {
+        let Some(vendor) = self.vendor else {
+            return None;
+        };
+
+        if vendor.is_dell() {
+            // For Dell hosts, HttpDev1Interface field in Bios provides bootable interface details.
+            let Some(system) = self.systems.first() else {
+                return None;
+            };
+
+            let Some(interface_name) = system.attributes.http_dev1_interface.clone() else {
+                // This should not be None for Dell. Error is handled during fetching it from Bios
+                // params.
+                return None;
+            };
+
+            // If we know the bootable interface name, find the MAC address associated with it.
+            let mac_address = system.ethernet_interfaces.iter().find_map(|x| {
+                if x.id.clone().unwrap_or_default() == interface_name {
+                    x.mac_address.clone()
+                } else {
+                    None
+                }
+            });
+
+            return mac_address;
+        }
+
+        None
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum PreingestionState {
@@ -633,6 +667,7 @@ impl FromStr for NicMode {
 #[serde(rename_all = "PascalCase")]
 pub struct ComputerSystemAttributes {
     pub nic_mode: Option<NicMode>,
+    pub http_dev1_interface: Option<String>,
 }
 
 impl From<ComputerSystemAttributes> for rpc::site_explorer::ComputerSystemAttributes {
@@ -946,6 +981,7 @@ mod tests {
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
+                    http_dev1_interface: None,
                 },
                 pcie_devices: vec![],
             }],
@@ -994,6 +1030,7 @@ mod tests {
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
+                    http_dev1_interface: None,
                 },
                 pcie_devices: vec![],
             }],

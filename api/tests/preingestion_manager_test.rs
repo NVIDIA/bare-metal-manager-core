@@ -278,7 +278,10 @@ fn build_exploration_report(
             id: "".to_string(),
             manufacturer: Some(vendor.to_string()),
             serial_number: None,
-            attributes: ComputerSystemAttributes { nic_mode: None },
+            attributes: ComputerSystemAttributes {
+                nic_mode: None,
+                http_dev1_interface: Some("NIC.Slot.5-1".to_string()),
+            },
             pcie_devices: vec![],
         }],
         chassis: vec![Chassis {

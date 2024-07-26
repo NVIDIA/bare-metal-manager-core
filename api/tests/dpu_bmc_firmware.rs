@@ -116,6 +116,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             serial_number: Some("MT2328XZ185R".to_string()),
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
+                http_dev1_interface: None,
             },
             pcie_devices: vec![],
         }],

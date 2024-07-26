@@ -238,7 +238,7 @@ impl RedfishClient {
         let manager = fetch_manager(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-        let system = fetch_system(client.as_ref())
+        let system = fetch_system(client.as_ref(), vendor)
             .await
             .map_err(map_redfish_error)?;
         let chassis = fetch_chassis(client.as_ref())
@@ -271,7 +271,10 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     })
 }
 
-async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishError> {
+async fn fetch_system(
+    client: &dyn Redfish,
+    vendor: Option<BMCVendor>,
+) -> Result<ComputerSystem, RedfishError> {
     let mut system = client.get_system().await?;
     let is_dpu = system.id.to_lowercase().contains("bluefield");
     let ethernet_interfaces = fetch_ethernet_interfaces(client, true, is_dpu).await?;
@@ -310,9 +313,53 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, RedfishErr
         manufacturer: system.manufacturer,
         model: system.model,
         serial_number: system.serial_number,
-        attributes: ComputerSystemAttributes { nic_mode },
+        attributes: ComputerSystemAttributes {
+            nic_mode,
+            http_dev1_interface: get_bios_attribute(&bios_attributes, vendor, "HttpDev1Interface")?,
+        },
         pcie_devices,
     })
+}
+
+pub fn get_bios_attribute(
+    bios_params: &HashMap<String, serde_json::Value>,
+    vendor: Option<BMCVendor>,
+    attribute: &str,
+) -> Result<Option<String>, RedfishError> {
+    let mut http_dev1_interface = None;
+    if let Some(vendor) = vendor {
+        if vendor.is_dell() {
+            let attribute_value = bios_params
+                .get("Attributes")
+                .ok_or_else(|| RedfishError::MissingKey {
+                    key: "Attribute".to_string(),
+                    url: "Bios attributes".to_string(),
+                })?
+                .clone();
+
+            let attributes: HashMap<String, serde_json::Value> =
+                serde_json::from_value(attribute_value).map_err(|e| {
+                    RedfishError::InvalidValue {
+                        url: "Bios/Attribute".to_string(),
+                        field: "Attribute".to_string(),
+                        err: libredfish::model::InvalidValueError(e.to_string()),
+                    }
+                })?;
+
+            http_dev1_interface = Some(
+                attributes
+                    .get(attribute)
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| RedfishError::MissingKey {
+                        key: attribute.to_string(),
+                        url: "Bios attributes".to_string(),
+                    })?
+                    .to_string(),
+            );
+        }
+    }
+
+    Ok(http_dev1_interface)
 }
 
 async fn fetch_ethernet_interfaces(

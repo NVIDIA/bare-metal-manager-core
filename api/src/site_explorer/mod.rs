@@ -19,6 +19,7 @@ use std::{
 };
 
 use config_version::ConfigVersion;
+use itertools::Itertools;
 use mac_address::MacAddress;
 use managed_host::ManagedHost;
 use sqlx::PgPool;
@@ -454,13 +455,51 @@ impl SiteExplorer {
                 continue;
             }
 
-            dpus_explored_for_host.sort_by_key(|d| {
-                d.report.systems[0]
-                    .serial_number
-                    .clone()
-                    .unwrap_or("".to_string())
-                    .to_lowercase()
-            });
+            // If we know the booting interface of the host, we should use this for deciding
+            // primary interface.
+            let mut is_sorted = false;
+            if let Some(mac_address) = ep.report.fetch_host_primary_interface_mac() {
+                let primary_dpu_position = dpus_explored_for_host.iter().position(|x| {
+                    x.host_pf_mac_address
+                        .map(|x| x.to_string())
+                        .unwrap_or_default()
+                        .to_lowercase()
+                        == mac_address.to_lowercase()
+                });
+
+                if let Some(primary_dpu_position) = primary_dpu_position {
+                    if primary_dpu_position != 0 {
+                        let dpu = dpus_explored_for_host.remove(primary_dpu_position);
+                        dpus_explored_for_host.insert(0, dpu);
+                    }
+                    is_sorted = true;
+                } else {
+                    let all_mac = dpus_explored_for_host
+                        .iter()
+                        .map(|x| {
+                            x.host_pf_mac_address
+                                .map(|x| x.to_string())
+                                .unwrap_or_default()
+                        })
+                        .collect_vec()
+                        .join(",");
+
+                    return Err(CarbideError::GenericError(
+                        format!("Could not find mac_address {mac_address} in discovered DPU's list {all_mac}.")
+                    ));
+                }
+            }
+
+            if !is_sorted {
+                // Sort using usual way.
+                dpus_explored_for_host.sort_by_key(|d| {
+                    d.report.systems[0]
+                        .serial_number
+                        .clone()
+                        .unwrap_or("".to_string())
+                        .to_lowercase()
+                });
+            }
             managed_hosts.push(ExploredManagedHost {
                 host_bmc_ip: ep.address,
                 dpus: dpus_explored_for_host,
@@ -1042,6 +1081,9 @@ impl SiteExplorer {
                 );
 
                 explored_host.machine_id = Some(host_machine_id.clone());
+                host_machine_interface
+                    .set_primary_interface(txn, true)
+                    .await?;
                 Ok(host_machine_id)
             }
         }
