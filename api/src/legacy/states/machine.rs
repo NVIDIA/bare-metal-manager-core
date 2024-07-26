@@ -97,6 +97,7 @@ pub enum ManagedHostStateV1 {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum MachineState {
     Init,
+    WaitingForPlatformConfiguration,
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
     UefiSetup {
@@ -194,6 +195,9 @@ impl TryFrom<MachineState> for new_machine::MachineState {
                 new_machine::MachineState::UefiSetup { uefi_setup_info }
             }
             MachineState::WaitingForDiscovery => new_machine::MachineState::WaitingForDiscovery,
+            MachineState::WaitingForPlatformConfiguration => {
+                new_machine::MachineState::WaitingForPlatformConfiguration
+            }
             MachineState::Discovered => new_machine::MachineState::Discovered,
             MachineState::WaitingForLockdown { lockdown_info } => {
                 new_machine::MachineState::WaitingForLockdown { lockdown_info }
@@ -282,6 +286,9 @@ async fn migrate_machine_to_v2(
                 MachineState::Init => DpuInitState::Init,
                 MachineState::WaitingForNetworkConfig => DpuInitState::WaitingForNetworkConfig,
                 MachineState::WaitingForNetworkInstall => DpuInitState::WaitingForNetworkInstall,
+                MachineState::WaitingForPlatformConfiguration => {
+                    DpuInitState::WaitingForPlatformConfiguration
+                }
                 _ => {
                     return Err(CarbideError::GenericError(format!(
                         "State: {:?} is not correct for DPU for host: {}.",
@@ -303,16 +310,9 @@ async fn migrate_machine_to_v2(
         ManagedHostStateV1::HostNotReady { machine_state } => NewManagedHostState::HostInit {
             machine_state: machine_state.clone().try_into()?,
         },
+
         ManagedHostStateV1::Assigned { instance_state } => NewManagedHostState::Assigned {
-            instance_state: match instance_state {
-                InstanceState::DPUReprovision { .. } => instance_state.to_new_instance_state(&dpus),
-                _ => {
-                    return Err(CarbideError::GenericError(format!(
-                        "State should not be here, host: {}, state: {:?}",
-                        host_id, old_machine.controller_state
-                    )))
-                }
-            },
+            instance_state: instance_state.to_new_instance_state(&dpus),
         },
         ManagedHostStateV1::DPUReprovision { reprovision_state } => {
             NewManagedHostState::DPUReprovision {
