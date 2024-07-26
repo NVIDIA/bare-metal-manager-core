@@ -514,9 +514,8 @@ impl SiteExplorer {
                         .collect_vec()
                         .join(",");
 
-                    return Err(CarbideError::GenericError(
-                        format!("Could not find mac_address {mac_address} in discovered DPU's list {all_mac}.")
-                    ));
+                    tracing::error!("Could not find mac_address {mac_address} in discovered DPU's list {all_mac}, host bmc: {}.", ep.address);
+                    continue;
                 }
             }
 
