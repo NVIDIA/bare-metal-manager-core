@@ -254,6 +254,8 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         enable_dhcp: false,
         host_interface_id: None,
         min_dpu_functioning_links: None,
+        is_primary_dpu: true,
+        multidpu_enabled: false,
     };
     common::respond(netconf)
 }

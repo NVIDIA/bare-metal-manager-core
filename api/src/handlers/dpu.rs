@@ -22,6 +22,7 @@ use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::{Instance, InstanceId};
 use crate::db::machine::{Machine, MachineSearchConfig};
+use crate::db::machine_interface::MachineInterface;
 use crate::db::network_segment::{
     NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
 };
@@ -200,6 +201,15 @@ pub(crate) async fn get_managed_host_network_config(
         }
     };
 
+    let primary_dpu_snapshot = snapshot
+        .host_snapshot
+        .interfaces
+        .iter()
+        .find(|x| x.is_primary)
+        .ok_or_else(|| CarbideError::GenericError("Primary Interface is missing.".to_string()))?;
+
+    let primary_dpu = MachineInterface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
+
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(
             file!(),
@@ -262,6 +272,12 @@ pub(crate) async fn get_managed_host_network_config(
         vpc_vni: vpc_vni.map(|vni| vni as u32),
         enable_dhcp: api.runtime_config.dpu_dhcp_server_enabled,
         host_interface_id: Some(host_interface_id.to_string()),
+        is_primary_dpu: primary_dpu
+            .attached_dpu_machine_id()
+            .clone()
+            .map(|x| x == dpu_snapshot.machine_id)
+            .unwrap_or(false),
+        multidpu_enabled: api.runtime_config.multi_dpu.enabled,
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
     };
 
