@@ -506,15 +506,15 @@ impl PartialEq for SiteExplorerConfig {
 }
 
 impl SiteExplorerConfig {
-    const fn default_run_interval() -> std::time::Duration {
+    pub const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
     }
 
-    const fn default_concurrent_explorations() -> u64 {
+    pub const fn default_concurrent_explorations() -> u64 {
         30
     }
 
-    const fn default_explorations_per_run() -> u64 {
+    pub const fn default_explorations_per_run() -> u64 {
         90
     }
 }
@@ -729,7 +729,9 @@ pub struct FirmwareGlobal {
     )]
     pub run_interval: Duration,
     #[serde(default = "FirmwareGlobal::max_uploads_default")]
-    pub max_uploads: i64,
+    pub max_uploads: usize,
+    #[serde(default = "FirmwareGlobal::concurrency_limit_default")]
+    pub concurrency_limit: usize,
 }
 
 /// DPU related config.
@@ -760,8 +762,11 @@ impl FirmwareGlobal {
     pub fn run_interval_default() -> Duration {
         Duration::seconds(30)
     }
-    pub fn max_uploads_default() -> i64 {
+    pub fn max_uploads_default() -> usize {
         4
+    }
+    pub fn concurrency_limit_default() -> usize {
+        16
     }
 }
 
@@ -773,6 +778,7 @@ impl Default for FirmwareGlobal {
             host_disable_autoupdate: vec![],
             run_interval: FirmwareGlobal::run_interval_default(),
             max_uploads: FirmwareGlobal::max_uploads_default(),
+            concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
         }
     }
 }

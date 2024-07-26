@@ -15,54 +15,23 @@ use carbide::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPoo
 use forge_secrets::credentials::{CredentialProvider, Credentials, TestCredentialProvider};
 use http::HeaderName;
 use libredfish::{Endpoint, Redfish};
-use machine_a_tron::host_machine::HostMachine;
-use std::net::SocketAddr;
+use machine_a_tron::bmc_mock_wrapper::BmcMockAddressRegistry;
 use std::{net::Ipv4Addr, str::FromStr, sync::Arc};
-use tokio::sync::Mutex;
 
 pub struct MachineATronBackedRedfishClientPool {
     inner: libredfish::RedfishClientPool,
-    // host_machines is intended to be mutable: We need to dynamically add machines to this pool as
-    // machine-a-tron constructs them. This is because we need to pass a RedfishClientPool to the
-    // API server when it initializes, but the API server needs to be already running in order to
-    // construct a machine-a-tron context. So we start with an empty vec and add machines when
-    // machine-a-tron starts up.
-    pub host_machines: Mutex<Vec<Arc<Mutex<HostMachine>>>>,
+    bmc_address_registry: BmcMockAddressRegistry,
 }
 
 impl MachineATronBackedRedfishClientPool {
-    pub fn new() -> MachineATronBackedRedfishClientPool {
+    pub fn new(
+        bmc_address_registry: BmcMockAddressRegistry,
+    ) -> MachineATronBackedRedfishClientPool {
         let rf_pool = libredfish::RedfishClientPool::builder().build().unwrap();
         MachineATronBackedRedfishClientPool {
             inner: rf_pool,
-            host_machines: Mutex::new(Vec::new()),
+            bmc_address_registry,
         }
-    }
-}
-
-impl MachineATronBackedRedfishClientPool {
-    async fn bmc_mock_addr_for_machine_ip(&self, address: &Ipv4Addr) -> Option<SocketAddr> {
-        for host in self.host_machines.lock().await.iter() {
-            let host = host.lock().await;
-
-            // If the machine BMC has this address and is running the BMC mock, return the address
-            // of that mock
-            if let Some(bmc_ip) = host.bmc_ip() {
-                if bmc_ip.eq(address) {
-                    return host.active_bmc_mock_address();
-                }
-            }
-
-            // Look at the DPUs for this machine
-            for dpu in host.dpu_machines.iter() {
-                if let Some(bmc_ip) = dpu.get_bmc_ip() {
-                    if bmc_ip.eq(address) {
-                        return dpu.active_bmc_mock_address();
-                    }
-                }
-            }
-        }
-        None
     }
 }
 
@@ -85,7 +54,13 @@ impl RedfishClientPool for MachineATronBackedRedfishClientPool {
             return Err(RedfishClientCreationError::NotImplemented);
         };
 
-        let Some(addr) = self.bmc_mock_addr_for_machine_ip(&ip_addr).await else {
+        let Some(addr) = self
+            .bmc_address_registry
+            .read()
+            .await
+            .get(&ip_addr)
+            .cloned()
+        else {
             tracing::info!("could not create redfish client: BMC mock is not listening for {host}");
             return Err(RedfishClientCreationError::NotImplemented);
         };

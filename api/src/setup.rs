@@ -58,7 +58,7 @@ use crate::{
         },
     },
 };
-use tokio::sync::oneshot::Receiver;
+use tokio::sync::oneshot::{Receiver, Sender};
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -204,6 +204,7 @@ pub async fn start_api(
     shared_redfish_pool: Arc<dyn RedfishClientPool>,
     vault_client: Arc<ForgeVaultClient>,
     stop_channel: Receiver<()>,
+    ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let ipmi_tool = create_ipmi_tool(vault_client.clone(), &carbide_config);
 
@@ -421,6 +422,7 @@ pub async fn start_api(
         authorizer,
         meter,
         stop_channel,
+        ready_channel,
     )
     .await
 }

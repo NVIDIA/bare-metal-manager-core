@@ -14,6 +14,7 @@ use crate::{
     tui::{Tui, UiEvent},
 };
 
+use crate::bmc_mock_wrapper::BmcMockAddressRegistry;
 use crate::subnet::Subnet;
 use crate::vpc::Vpc;
 use tokio::sync::mpsc::channel;
@@ -35,6 +36,7 @@ impl MachineATron {
     pub async fn make_machines(
         &self,
         dhcp_client: &DhcpRelayClient,
+        bmc_address_registry: Option<BmcMockAddressRegistry>,
     ) -> eyre::Result<Vec<HostMachine>> {
         let machines = self
             .app_context
@@ -49,6 +51,7 @@ impl MachineATron {
                         config.clone(),
                         None,
                         dhcp_client.clone(),
+                        bmc_address_registry.clone(),
                     )
                 })
             })

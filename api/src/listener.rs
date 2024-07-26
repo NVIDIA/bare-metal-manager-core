@@ -17,7 +17,7 @@ use hyper::server::conn::Http;
 use opentelemetry::{metrics::Meter, KeyValue};
 use tokio::net::TcpListener;
 use tokio::select;
-use tokio::sync::oneshot::Receiver;
+use tokio::sync::oneshot::{Receiver, Sender};
 use tokio_rustls::{
     rustls::{
         server::AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore,
@@ -152,6 +152,7 @@ pub async fn listen_and_serve(
     authorizer: auth::Authorizer,
     meter: Meter,
     mut stop_channel: Receiver<()>,
+    ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let api_reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
@@ -209,6 +210,11 @@ pub async fn listen_and_serve(
 
     let mut tls_acceptor_created = Instant::now();
     let mut initialize_tls_acceptor = true;
+    _ = ready_channel.send(()).inspect_err(|_e| {
+        // Note: the `_e` here is just sending us back (rejecting) the () that we sent to the ready
+        // channel. This will only happen if the other end is closed.
+        tracing::warn!("Bug: api server ready_channel is closed, could not notify readiness status")
+    });
     loop {
         let incoming_connection = select! {
             incoming_connection = listener.accept() => incoming_connection,

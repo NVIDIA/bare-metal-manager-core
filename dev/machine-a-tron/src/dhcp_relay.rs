@@ -32,7 +32,6 @@ static NEXT_XID: AtomicU32 = AtomicU32::new(1000);
 type DhcpRelayResult = Result<(), DhcpRelayError>;
 
 pub struct DhcpRelayService {
-    last_dhcp_request: Instant,
     app_context: MachineATronContext,
     app_config: MachineATronConfig,
     request_tx: Sender<RequestType>,
@@ -135,7 +134,6 @@ impl DhcpRelayService {
                 request_tx: request_tx.clone(),
             },
             DhcpRelayService {
-                last_dhcp_request: Instant::now(),
                 app_context,
                 app_config,
                 request_tx,
@@ -193,11 +191,6 @@ impl DhcpRelayService {
                             running = false;
                         }
                         Some(request_info) => {
-                            if self.last_dhcp_request.elapsed() < Duration::from_millis(500) {
-                                tokio::time::sleep(Duration::from_millis(400)).await;
-                            }
-                            self.last_dhcp_request = Instant::now();
-
                             if let Some(udp_socket) = udp_socket.as_ref() {
                                 running = self.handle_request_message(udp_socket, &mut requests, request_info).await;
                             } else if let RequestType::Request(request_info) = request_info {

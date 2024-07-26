@@ -12,7 +12,7 @@ use crate::api_client;
 use crate::api_client::{
     get_site_exploration_report, record_dpu_network_status, ClientApiError, MockDiscoveryData,
 };
-use crate::bmc_mock_wrapper::{BmcMockWrapper, ListenMode};
+use crate::bmc_mock_wrapper::{BmcMockAddressRegistry, BmcMockWrapper, ListenMode};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
 use crate::logging::LogSink;
@@ -40,6 +40,7 @@ pub struct MachineStateMachine {
     app_context: MachineATronContext,
     dhcp_client: DhcpRelayClient,
     logger: LogSink,
+    bmc_address_registry: Option<BmcMockAddressRegistry>,
 }
 
 #[derive(Debug)]
@@ -61,6 +62,7 @@ impl MachineStateMachine {
         dhcp_client: DhcpRelayClient,
         logger: LogSink,
         command_channel: mpsc::UnboundedSender<MachineCommand>,
+        bmc_address_registry: Option<BmcMockAddressRegistry>,
     ) -> MachineStateMachine {
         MachineStateMachine {
             state: MachineState::BmcInit,
@@ -72,6 +74,7 @@ impl MachineStateMachine {
             app_context,
             dhcp_client,
             logger,
+            bmc_address_registry,
         }
     }
 
@@ -143,7 +146,15 @@ impl MachineStateMachine {
                         },
                     )
                 };
-                bmc_mock.start().await?;
+                let listen_addr = bmc_mock.start().await?;
+
+                // Inform the registry of this bmc-mock's address
+                if let Some(registry) = self.bmc_address_registry.as_ref() {
+                    registry
+                        .write()
+                        .await
+                        .insert(dhcp_info.ip_address, listen_addr);
+                }
 
                 let next_state = MachineState::WaitForSiteExplorer(BmcInitializedState {
                     bmc_mock: Arc::new(bmc_mock),

@@ -1,8 +1,9 @@
 use axum::Router;
 use std::collections::HashMap;
-use std::net::{SocketAddr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::config::MachineATronContext;
@@ -58,7 +59,7 @@ impl BmcMockWrapper {
         }
     }
 
-    pub async fn start(&mut self) -> Result<(), MachineStateError> {
+    pub async fn start(&mut self) -> Result<SocketAddr, MachineStateError> {
         let root_ca_path = self.app_context.forge_client_config.root_ca_path.as_str();
         let certs_dir = self
             .app_context
@@ -115,7 +116,7 @@ impl BmcMockWrapper {
         }));
         self.active_address = Some(address);
 
-        Ok(())
+        Ok(address)
     }
 
     pub fn stop(&mut self) {
@@ -128,3 +129,8 @@ impl BmcMockWrapper {
         self.active_address
     }
 }
+
+/// BmcMockAddressRegistry is shared state that MachineATron's mock hosts can use to write the
+/// actual address of the BMC-mocks they run, and that MachineATronBackedRedfishClientPool reads
+/// from to know the "real" address of a mocked BMC.
+pub type BmcMockAddressRegistry = Arc<RwLock<HashMap<Ipv4Addr, SocketAddr>>>;

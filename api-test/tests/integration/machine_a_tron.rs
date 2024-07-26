@@ -11,9 +11,9 @@
  */
 use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
+use machine_a_tron::bmc_mock_wrapper::BmcMockAddressRegistry;
 use machine_a_tron::config::{MachineATronConfig, MachineATronContext};
 use machine_a_tron::dhcp_relay::DhcpRelayService;
-use machine_a_tron::host_machine::HostMachine;
 use machine_a_tron::machine_a_tron::MachineATron;
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::path::PathBuf;
@@ -31,6 +31,7 @@ use tokio::task::JoinHandle;
 pub async fn run_local(
     app_config: MachineATronConfig,
     repo_root: PathBuf,
+    bmc_address_registry: BmcMockAddressRegistry,
 ) -> eyre::Result<MachineATronInstance> {
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
@@ -61,7 +62,7 @@ pub async fn run_local(
 
     let mat = MachineATron::new(app_context);
     let machines = mat
-        .make_machines(&dhcp_client)
+        .make_machines(&dhcp_client, Some(bmc_address_registry.clone()))
         .await?
         .into_iter()
         .map(|m| Arc::new(Mutex::new(m)))
@@ -109,12 +110,10 @@ pub async fn run_local(
     });
 
     Ok(MachineATronInstance {
-        host_machines: machines,
         join_handle: all_machines_job,
     })
 }
 
 pub struct MachineATronInstance {
-    pub host_machines: Vec<Arc<Mutex<HostMachine>>>,
     pub join_handle: JoinHandle<eyre::Result<()>>,
 }

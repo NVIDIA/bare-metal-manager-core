@@ -19,7 +19,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::net::SocketAddr;
 use std::{default::Default, sync::Arc, time::Duration};
 use tokio::{
-    sync::{oneshot, Mutex},
+    sync::{oneshot, Mutex, Semaphore},
     task::JoinSet,
 };
 
@@ -46,12 +46,13 @@ pub struct PreingestionManager {
 
 struct PreingestionManagerStatic {
     run_interval: Duration,
-    max_uploads: i64,
+    max_uploads: usize,
     database_connection: PgPool,
     firmware_global: FirmwareGlobal,
     host_info: Vendor2Firmware,
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     downloader: FirmwareDownloader,
+    concurrency_limit: usize,
 }
 
 impl PreingestionManager {
@@ -87,6 +88,7 @@ impl PreingestionManager {
                 host_info: config.get_parsed_hosts(),
                 redfish_client_pool,
                 downloader: FirmwareDownloader::new(),
+                concurrency_limit: config.firmware_global.concurrency_limit,
             }),
             metric_holder,
         }
@@ -162,17 +164,26 @@ impl PreingestionManager {
         } else {
             tracing::debug!("PreingestionManager: Working on {} items", items.len())
         }
+
+        // Limit the number of concurrent preingestion tasks.
+        // This does not affect how many endpoints are done in a single iteration, it just avoids opening
+        // too many simultaneous postgres transactions, which can cause things to deadlock.
+        let limit_sem = Arc::new(Semaphore::new(self.static_info.concurrency_limit));
         let mut task_set = JoinSet::new();
         let active_uploads = Arc::new(Mutex::new(0));
 
         for endpoint in items.iter() {
+            let permit = limit_sem.clone().acquire_owned().await.unwrap();
             let static_info = self.static_info.clone();
             let endpoint = endpoint.clone();
             let active_uploads = active_uploads.clone();
             let _abort_handle = task_set
                 .build_task()
                 .name(&format!("preingestion {}", endpoint.address))
-                .spawn(async move { one_endpoint(static_info, endpoint, active_uploads).await });
+                .spawn(async move {
+                    let _permit = permit; // retain semaphore until we're done
+                    one_endpoint(static_info, endpoint, active_uploads).await
+                });
         }
 
         while let Some(result) = task_set.join_next().await {
@@ -228,7 +239,7 @@ struct EndpointResult {
 async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
     endpoint: ExploredEndpoint,
-    active_uploads: Arc<Mutex<i64>>,
+    active_uploads: Arc<Mutex<usize>>,
 ) -> DatabaseResult<EndpointResult> {
     let mut txn = static_info.database_connection.begin().await.map_err(|e| {
         DatabaseError::new(
@@ -352,7 +363,7 @@ impl PreingestionManagerStatic {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
-        active_uploads: Arc<Mutex<i64>>,
+        active_uploads: Arc<Mutex<usize>>,
     ) -> DatabaseResult<bool> {
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
         let fw_info = match self.find_fw_info_for_host(endpoint) {
@@ -412,7 +423,7 @@ impl PreingestionManagerStatic {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
-        active_uploads: Arc<Mutex<i64>>,
+        active_uploads: Arc<Mutex<usize>>,
     ) -> DatabaseResult<bool> {
         if endpoint.waiting_for_explorer_refresh {
             tracing::info!(
@@ -482,7 +493,7 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         fw_info: &Firmware,
         fw_type: FirmwareComponentType,
-        active_uploads: &Arc<Mutex<i64>>,
+        active_uploads: &Arc<Mutex<usize>>,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(bool, bool), DatabaseError> {
         {

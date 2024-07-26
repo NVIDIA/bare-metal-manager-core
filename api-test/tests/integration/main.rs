@@ -13,7 +13,10 @@
 use crate::machine_a_tron::MachineATronInstance;
 use crate::redfish::MachineATronBackedRedfishClientPool;
 use crate::utils::IntegrationTestEnvironment;
-use ::machine_a_tron::config::{MachineATronConfig, MachineConfig};
+use ::machine_a_tron::{
+    bmc_mock_wrapper::BmcMockAddressRegistry,
+    config::{MachineATronConfig, MachineConfig},
+};
 use std::{
     collections::{BTreeMap, HashMap},
     env, fs,
@@ -238,7 +241,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         machines: BTreeMap::from([(
             "config".to_string(),
             MachineConfig {
-                host_count: 1,
+                host_count: 10,
                 dpu_per_host_count: 1,
                 boot_delay: 1,
                 dpu_reboot_delay: 1,
@@ -280,29 +283,20 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         use_dhcp_api: true,
     };
 
-    // Note: We need to start the API server before running machine-a-tron, or it will fail to
-    // initialize. This means we need to construct an empty mock redfish pool first, then start the
-    // API server with it, then start machine-a-tron, *then* we can add the machines to the pool.
-    let mock_redfish_pool = Arc::new(MachineATronBackedRedfishClientPool::new());
+    let bmc_address_registry = BmcMockAddressRegistry::default();
+    let mock_redfish_pool = Arc::new(MachineATronBackedRedfishClientPool::new(
+        bmc_address_registry.clone(),
+    ));
     let server_handle =
         utils::start_api_server(test_env.clone(), Some(mock_redfish_pool.clone()), true).await?;
 
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
     subnet::create(carbide_api_addr, &tenant1_vpc)?;
 
-    let MachineATronInstance {
-        join_handle,
-        host_machines,
-    } = machine_a_tron::run_local(mat_config, root_dir)
-        .await
-        .unwrap();
-
-    // Now that machine-a-tron is started, we can add its machines to mock_redfish_pool
-    mock_redfish_pool
-        .host_machines
-        .lock()
-        .await
-        .extend_from_slice(&host_machines);
+    let MachineATronInstance { join_handle } =
+        machine_a_tron::run_local(mat_config, root_dir, bmc_address_registry.clone())
+            .await
+            .unwrap();
 
     let timeout = Duration::from_secs(20 * 60);
     tokio::select! {
