@@ -12,7 +12,7 @@
 
 //! Contains DPU related fixtures
 
-use std::net::IpAddr;
+use std::{collections::HashMap, net::IpAddr};
 
 use carbide::{
     db::{
@@ -23,7 +23,7 @@ use carbide::{
         hardware_info::HardwareInfo,
         machine::{
             machine_id::{try_parse_machine_id, MachineId},
-            ManagedHostState,
+            DpuInitState, MachineState, ManagedHostState,
         },
     },
     state_controller::machine::handler::MachineStateHandler,
@@ -96,8 +96,13 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         handler.clone(),
         4,
         &mut txn,
-        ManagedHostState::DPUNotReady {
-            machine_state: carbide::model::machine::MachineState::WaitingForNetworkConfig,
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    DpuInitState::WaitingForNetworkConfig,
+                )]),
+            },
         },
     )
     .await;
@@ -111,8 +116,8 @@ pub async fn create_dpu_machine(env: &TestEnv, host_config: &ManagedHostConfig) 
         handler,
         4,
         &mut txn,
-        ManagedHostState::HostNotReady {
-            machine_state: carbide::model::machine::MachineState::WaitingForDiscovery,
+        ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForDiscovery,
         },
     )
     .await;
@@ -192,8 +197,13 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         handler,
         4,
         &mut txn,
-        ManagedHostState::DPUNotReady {
-            machine_state: carbide::model::machine::MachineState::WaitingForNetworkConfig,
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    DpuInitState::WaitingForNetworkConfig,
+                )]),
+            },
         },
     )
     .await;

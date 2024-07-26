@@ -199,6 +199,9 @@ pub enum StateHandlerError {
 
     #[error("Invalid state: {0}")]
     InvalidState(String),
+
+    #[error("Dpu: {0} is missing from states.")]
+    MissingDpuFromState(MachineId),
 }
 
 impl StateHandlerError {
@@ -226,6 +229,7 @@ impl StateHandlerError {
                 _ => "redfish_other_error",
             },
             StateHandlerError::ManualInterventionRequired(_) => "manual_intervention_required",
+            StateHandlerError::MissingDpuFromState(_) => "missing_dpu_from_managedhost_state",
         }
     }
 }

@@ -164,20 +164,13 @@ impl TestEnv {
         //This block is to fill data that is populated within statemachine
         match state.clone() {
             ManagedHostState::DpuDiscoveringState { .. } => state.clone(),
-            ManagedHostState::DPUNotReady { .. } => state.clone(),
-            ManagedHostState::HostNotReady { machine_state } => {
+            ManagedHostState::DPUInit { .. } => state.clone(),
+            ManagedHostState::HostInit { machine_state } => {
                 let mc = match machine_state {
                     carbide::model::machine::MachineState::Init => machine_state,
-                    carbide::model::machine::MachineState::WaitingForPlatformPowercycle {
-                        ..
-                    } => machine_state,
                     carbide::model::machine::MachineState::WaitingForPlatformConfiguration => {
                         machine_state
                     }
-                    carbide::model::machine::MachineState::WaitingForNetworkInstall => {
-                        machine_state
-                    }
-                    carbide::model::machine::MachineState::WaitingForNetworkConfig => machine_state,
                     carbide::model::machine::MachineState::UefiSetup { .. } => machine_state,
                     carbide::model::machine::MachineState::WaitingForDiscovery => machine_state,
                     carbide::model::machine::MachineState::Discovered => machine_state,
@@ -204,7 +197,7 @@ impl TestEnv {
                         }
                     }
                 };
-                ManagedHostState::HostNotReady { machine_state: mc }
+                ManagedHostState::HostInit { machine_state: mc }
             }
             ManagedHostState::Ready => state.clone(),
             ManagedHostState::Assigned { .. } => state.clone(),
@@ -270,7 +263,7 @@ impl TestEnv {
         .unwrap();
 
         panic!(
-            "Expected Machine state to be {} after {max_iterations} iterations, but state is {}",
+            "Expected Machine state to be {:?} after {max_iterations} iterations, but state is {:?}",
             expected_state.clone(),
             machine.current_state()
         );

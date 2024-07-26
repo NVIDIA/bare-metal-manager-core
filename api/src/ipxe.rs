@@ -2,14 +2,14 @@ pub use ::rpc::forge as rpc;
 use sqlx::{Postgres, Transaction};
 
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::model::machine::{FailureCause, FailureDetails, ReprovisionState};
+use crate::model::machine::{DpuInitState, FailureCause, FailureDetails, ReprovisionState};
 use crate::{
     db::{
         instance::Instance,
         machine::{Machine, MachineSearchConfig},
         machine_interface::{MachineInterface, MachineInterfaceId},
     },
-    model::machine::{InstanceState, MachineState, ManagedHostState},
+    model::machine::{InstanceState, ManagedHostState},
     CarbideError,
 };
 
@@ -150,7 +150,7 @@ exit ||
         // The second boot enables HBN.  This is handled here when the DPU is
         // waiting for the network install
         if machine.is_dpu() {
-            if let Some(reprov_state) = &machine.current_state().as_reprovision_state() {
+            if let Some(reprov_state) = &machine.current_state().as_reprovision_state(&machine_id) {
                 if matches!(
                     reprov_state,
                     ReprovisionState::FirmwareUpgrade | ReprovisionState::WaitingForNetworkInstall
@@ -165,15 +165,24 @@ exit ||
             }
 
             match &machine.current_state() {
-                ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::Init,
-                } => {
-                    return Ok(PxeInstructions::get_pxe_instruction_for_arch(
-                        arch,
-                        interface_id,
-                        mac,
-                        console,
-                    ));
+                ManagedHostState::DPUInit { dpu_states } => {
+                    let Some(dpu_state) = dpu_states.states.get(&machine_id) else {
+                        return Err(CarbideError::MissingDpu(machine_id));
+                    };
+
+                    match dpu_state {
+                        DpuInitState::Init => {
+                            return Ok(PxeInstructions::get_pxe_instruction_for_arch(
+                                arch,
+                                interface_id,
+                                mac,
+                                console,
+                            ));
+                        }
+                        _ => {
+                            return Ok("exit".to_string());
+                        }
+                    }
                 }
                 _ => {
                     return Ok("exit".to_string());
@@ -191,7 +200,7 @@ exit ||
 
         let pxe_script = match &machine.current_state() {
             ManagedHostState::Ready
-            | ManagedHostState::HostNotReady { .. }
+            | ManagedHostState::HostInit { .. }
             | ManagedHostState::Failed {
                 details:
                     FailureDetails {

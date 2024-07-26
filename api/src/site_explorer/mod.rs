@@ -42,7 +42,9 @@ use crate::{
     model::{
         bmc_info::BmcInfo,
         hardware_info::HardwareInfo,
-        machine::{machine_id::MachineId, DpuDiscoveringState, ManagedHostState},
+        machine::{
+            machine_id::MachineId, DpuDiscoveringState, DpuDiscoveringStates, ManagedHostState,
+        },
         site_explorer::{
             EndpointExplorationReport, EndpointType, ExploredDpu, ExploredEndpoint,
             ExploredManagedHost, NicMode, Service,
@@ -319,10 +321,15 @@ impl SiteExplorer {
             DatabaseError::new(file!(), line!(), "begin load create_managed_host", e)
         })?;
 
+        let mut dpu_ids = vec![];
+
         for dpu_report in managed_host.explored_host.dpus.clone().iter() {
             // can_visit makes sure that all optional fields on dpu_report are actually set (like the machine-id etc)
             // Thats why we can unwrap the results of dpu_report directly going forward (though, we shouldnt -- TODO (sp))
             self.can_visit(dpu_report)?;
+
+            let dpu_machine_id = dpu_report.report.machine_id.clone().unwrap();
+            dpu_ids.push(dpu_machine_id);
 
             if !self.create_dpu(&mut txn, dpu_report).await? {
                 // Site explorer has already created a machine for this DPU previously.
@@ -340,6 +347,29 @@ impl SiteExplorer {
             self.attach_dpu_to_host(&mut txn, &mut managed_host, dpu_report)
                 .await?;
         }
+
+        // Now since all DPUs are created, update host and DPUs state correctly.
+        let host_machine_id = managed_host
+            .clone()
+            .machine_id
+            .ok_or(CarbideError::GenericError(format!(
+                "Failed to get machine ID for host: {:#?}",
+                managed_host
+            )))?;
+
+        Machine::update_state(
+            &mut txn,
+            &host_machine_id,
+            ManagedHostState::DpuDiscoveringState {
+                dpu_states: DpuDiscoveringStates {
+                    states: dpu_ids
+                        .into_iter()
+                        .map(|x| (x.clone(), DpuDiscoveringState::Initializing))
+                        .collect::<HashMap<MachineId, DpuDiscoveringState>>(),
+                },
+            },
+        )
+        .await?;
 
         txn.commit()
             .await
@@ -909,15 +939,7 @@ impl SiteExplorer {
         match Machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default()).await? {
             // Do nothing if machine exists. It'll be reprovisioned via redfish
             Some(_existing_machine) => Ok(None),
-            None => match Machine::create(
-                txn,
-                dpu_machine_id,
-                ManagedHostState::DpuDiscoveringState {
-                    discovering_state: DpuDiscoveringState::Initializing,
-                },
-            )
-            .await
-            {
+            None => match Machine::create(txn, dpu_machine_id, ManagedHostState::Created).await {
                 Ok(machine) => {
                     tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
                     Ok(Some(machine))
@@ -1059,14 +1081,8 @@ impl SiteExplorer {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         let predicted_machine_id = MachineId::host_id_from_dpu_hardware_info(&dpu_hw_info)
             .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
-        let _host_machine = Machine::create(
-            txn,
-            &predicted_machine_id,
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state: DpuDiscoveringState::Initializing,
-            },
-        )
-        .await?;
+        let _host_machine =
+            Machine::create(txn, &predicted_machine_id, ManagedHostState::Created).await?;
 
         let host_bmc_info = explored_host.bmc_info();
         let host_hardware_info = HardwareInfo::default();

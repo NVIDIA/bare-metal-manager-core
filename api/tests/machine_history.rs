@@ -44,13 +44,14 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert_eq!(
         text_history(machine.history()),
         vec![
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"init\"}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformpowercycle\", \"substate\": {\"state\": \"off\"}}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformpowercycle\", \"substate\": {\"state\": \"on\"}}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkconfig\"}}",
-            "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
-            "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}"]
+            "{\"state\": \"created\"}", 
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformconfiguration\"}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingfornetworkconfig\"}}}}}}}}", dpu_machine_id),
+            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
+            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}"]
     );
 
     let machine = Machine::find_one(
@@ -112,7 +113,7 @@ async fn test_old_machine_state_history(
         "INSERT INTO machine_state_history (machine_id, state, state_version) VALUES ($1, $2::jsonb, $3)";
     sqlx::query(query)
         .bind(dpu_machine_id.to_string())
-        .bind(r#"{"state": "dpunotready", "machine_state": {"state": "nolongerarealstate"}}"#)
+        .bind(r#"{"state": "dpuinit", "machine_state": {"state": "nolongerarealstate"}}"#)
         .bind(version.to_string())
         .execute(&mut *txn)
         .await?;
@@ -135,14 +136,15 @@ async fn test_old_machine_state_history(
     assert_eq!(
         states,
         vec![
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"init\"}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformpowercycle\", \"substate\": {\"state\": \"off\"}}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformpowercycle\", \"substate\": {\"state\": \"on\"}}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"waitingfornetworkconfig\"}}",
-            "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
-            "{\"state\": \"hostnotready\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}",
-            "{\"state\": \"dpunotready\", \"machine_state\": {\"state\": \"nolongerarealstate\"}}",
+            "{\"state\": \"created\"}", 
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformconfiguration\"}}}}}}}}", dpu_machine_id),
+            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingfornetworkconfig\"}}}}}}}}", dpu_machine_id),
+            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
+            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}",
+            "{\"state\": \"dpuinit\", \"machine_state\": {\"state\": \"nolongerarealstate\"}}",
         ],
     );
 

@@ -56,7 +56,8 @@ use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineType};
 use crate::model::machine::{
-    FailureCause, FailureDetails, FailureSource, InstanceState, ManagedHostState, ReprovisionState,
+    get_action_for_dpu_state, DpuInitState, DpuInitStates, FailureCause, FailureDetails,
+    FailureSource, ManagedHostState,
 };
 use crate::model::network_devices::{DpuToNetworkDeviceMap, NetworkDevice, NetworkTopologyData};
 use crate::model::RpcDataConversionError;
@@ -667,6 +668,20 @@ impl Forge for Api {
                 let proactive_machine =
                     Machine::get_or_create(&mut txn, &predicted_machine_id, &machine_interface)
                         .await?;
+
+                // Update host and DPUs state correctly.
+                Machine::update_state(
+                    &mut txn,
+                    &predicted_machine_id,
+                    ManagedHostState::DPUInit {
+                        dpu_states: DpuInitStates {
+                            states: HashMap::from([(machine.id().clone(), DpuInitState::Init)]),
+                        },
+                    },
+                )
+                .await
+                .map_err(CarbideError::from)?;
+
                 tracing::info!(
                     ?mi_id,
                     machine_id = %proactive_machine.id(),
@@ -1478,39 +1493,13 @@ impl Forge for Api {
         // Respond based on machine current state
         let state = host_machine.current_state();
         let (action, action_data) = if is_dpu {
-            match state {
-                ManagedHostState::DPUReprovision {
-                    reprovision_state: ReprovisionState::BufferTime,
-                } => (Action::Retry, None),
-                ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::Init,
-                }
-                | ManagedHostState::DPUReprovision {
-                    reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-                }
-                | ManagedHostState::Assigned {
-                    instance_state:
-                        InstanceState::DPUReprovision {
-                            reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-                        },
-                } => (Action::Discovery, None),
-                _ => {
-                    // Later this might go to site admin dashboard for manual intervention
-                    tracing::info!(
-                        machine_id = %machine.id(),
-                        machine_type = "DPU",
-                        %state,
-                        "forge agent control",
-                    );
-                    (Action::Noop, None)
-                }
-            }
+            get_action_for_dpu_state(&state, &machine_id)?
         } else {
             match state {
-                ManagedHostState::HostNotReady {
+                ManagedHostState::HostInit {
                     machine_state: MachineState::Init,
                 } => (Action::Retry, None),
-                ManagedHostState::HostNotReady {
+                ManagedHostState::HostInit {
                     machine_state:
                         MachineState::MachineValidating {
                             context,
@@ -1536,7 +1525,7 @@ impl Forge for Api {
                         },
                     ),
                 ),
-                ManagedHostState::HostNotReady {
+                ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 }
                 | ManagedHostState::Failed {
@@ -2192,25 +2181,24 @@ impl Forge for Api {
         let host = Machine::find_host_by_dpu_machine_id(&mut txn, &dpu_id)
             .await
             .map_err(CarbideError::from)?
-            .ok_or_else(|| {
-                Status::not_found(format!("Host not found attached with dpu id: {dpu_id}"))
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "Host Machine",
+                id: dpu_id.to_string(),
             })?;
 
-        let state = ManagedHostState::DPUNotReady {
-            machine_state: MachineState::Init,
-        };
+        let state = DpuInitState::Init
+            .next_state(&dpu.current_state(), &dpu_id)
+            .map_err(|e| CarbideError::GenericError(e.to_string()))?;
 
         let mut message = "Success";
 
         match dpu.current_state() {
-            ManagedHostState::DPUNotReady { .. } => {
+            ManagedHostState::DPUInit { .. } => {
                 MachineTopology::set_topology_update_needed(&mut txn, &dpu_id, true)
                     .await
                     .map_err(CarbideError::from)?;
-                dpu.advance(&mut txn, state.clone(), None)
-                    .await
-                    .map_err(CarbideError::from)?;
-                host.advance(&mut txn, state, None)
+
+                Machine::update_state(&mut txn, host.id(), state)
                     .await
                     .map_err(CarbideError::from)?;
 

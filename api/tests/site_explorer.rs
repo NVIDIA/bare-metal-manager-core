@@ -34,7 +34,7 @@ use carbide::{
         DatabaseError,
     },
     model::{
-        machine::{machine_id::MachineId, DpuDiscoveringState, MachineState, ManagedHostState},
+        machine::{machine_id::MachineId, DpuDiscoveringState, DpuInitState, ManagedHostState},
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
             EndpointExplorationReport, EndpointType, EthernetInterface, ExploredDpu,
@@ -1041,7 +1041,12 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::Initializing,
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::Initializing
+                )]),
+            },
         }
     );
     assert_eq!(
@@ -1093,7 +1098,12 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         host_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::Initializing,
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::Initializing
+                )]),
+            },
         }
     );
     assert!(host_machine.bmc_info().ip.is_some());
@@ -1125,7 +1135,12 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::Configuring,
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::Configuring
+                )]),
+            },
         }
     );
 
@@ -1140,7 +1155,12 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::DisableSecureBoot { count: 0 },
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::DisableSecureBoot { count: 0 },
+                )]),
+            },
         }
     );
 
@@ -1155,7 +1175,31 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::SetUefiHttpBoot,
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::SetUefiHttpBoot,
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+    let dpu_machine = Machine::find_one(&mut txn, dpu_machine.id(), MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::RebootAllDPUS
+                )]),
+            },
         }
     );
 
@@ -1169,8 +1213,10 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         dpu_machine.current_state(),
-        ManagedHostState::DPUNotReady {
-            machine_state: MachineState::Init,
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: HashMap::from([(dpu_machine.id().clone(), DpuInitState::Init,)]),
+            },
         },
     );
 
@@ -1226,8 +1272,10 @@ async fn test_site_explorer_creates_managed_host(
 
     assert_eq!(
         host_machine.current_state(),
-        ManagedHostState::DPUNotReady {
-            machine_state: MachineState::Init
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: HashMap::from([(dpu_machine.id().clone(), DpuInitState::Init,)]),
+            },
         }
     );
 
@@ -1463,6 +1511,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
     let mut host_machine_id: Option<MachineId> = None;
     let mut dpu_machines = Vec::new();
+    let mut host_machine = None;
 
     for dpu in explored_dpus {
         let dpu_machine = Machine::find_one(
@@ -1476,12 +1525,6 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         .await
         .unwrap()
         .unwrap();
-        assert_eq!(
-            dpu_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state: DpuDiscoveringState::Initializing,
-            }
-        );
 
         let expected_loopback_ip = dpu_machine
             .network_config()
@@ -1507,22 +1550,32 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                 .loopback_ip
         );
 
-        let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())
-            .await?
-            .unwrap();
-        assert_eq!(
-            host_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state: DpuDiscoveringState::Initializing,
-            }
-        );
-        assert!(host_machine.bmc_info().ip.is_some());
+        if host_machine.is_none() {
+            host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id()).await?;
+        }
+        let hm = host_machine.clone().unwrap();
+        assert!(hm.bmc_info().ip.is_some());
         if host_machine_id.is_none() {
-            host_machine_id = Some(host_machine.id().clone());
+            host_machine_id = Some(hm.id().clone());
         }
 
-        assert_eq!(host_machine.id(), host_machine_id.as_ref().unwrap());
+        assert_eq!(hm.id(), host_machine_id.as_ref().unwrap());
         dpu_machines.push(dpu_machine);
+    }
+
+    let expected_state = ManagedHostState::DpuDiscoveringState {
+        dpu_states: carbide::model::machine::DpuDiscoveringStates {
+            states: dpu_machines
+                .iter()
+                .map(|x| (x.id().clone(), DpuDiscoveringState::Initializing))
+                .collect::<HashMap<MachineId, DpuDiscoveringState>>(),
+        },
+    };
+
+    assert_eq!(host_machine.unwrap().current_state(), expected_state);
+
+    for dpu in &dpu_machines {
+        assert_eq!(dpu.current_state(), expected_state);
     }
 
     let mut interfaces_map = MachineInterface::find_by_machine_ids(

@@ -238,7 +238,12 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::Initializing,
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::Initializing
+                )]),
+            },
         }
     );
 
@@ -264,53 +269,70 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(
         host_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::Initializing,
-        }
-    );
-
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
-
-    let dpu_machine = Machine::find_one(
-        &mut txn,
-        dpu_report.machine_id.as_ref().unwrap(),
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
-    assert_eq!(
-        dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::Configuring,
-        }
-    );
-
-    env.run_machine_state_controller_iteration(handler.clone())
-        .await;
-
-    let dpu_machine = Machine::find_one(
-        &mut txn,
-        dpu_report.machine_id.as_ref().unwrap(),
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-
-    assert_eq!(
-        dpu_machine.current_state(),
-        ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                substate: BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                    firmware_type: FirmwareComponentType::Bmc,
-                    task_id: "0".to_string()
-                }
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::Initializing
+                )]),
             },
         }
     );
 
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let dpu_machine = Machine::find_one(
+        &mut txn,
+        dpu_report.machine_id.as_ref().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::Configuring
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let dpu_machine = Machine::find_one(
+        &mut txn,
+        dpu_report.machine_id.as_ref().unwrap(),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        dpu_machine.current_state(),
+        ManagedHostState::DpuDiscoveringState {
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::BmcFirmwareUpdate {
+                        substate: BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                            firmware_type: FirmwareComponentType::Bmc,
+                            task_id: "0".to_string()
+                        }
+                    }
+                )]),
+            },
+        }
+    );
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -329,8 +351,13 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 }
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::BmcFirmwareUpdate {
+                        substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 }
+                    }
+                )]),
             },
         }
     );
@@ -354,7 +381,12 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(
         dpu_machine.current_state(),
         ManagedHostState::DpuDiscoveringState {
-            discovering_state: DpuDiscoveringState::Configuring,
+            dpu_states: carbide::model::machine::DpuDiscoveringStates {
+                states: HashMap::from([(
+                    dpu_machine.id().clone(),
+                    DpuDiscoveringState::Configuring
+                )]),
+            },
         }
     );
 

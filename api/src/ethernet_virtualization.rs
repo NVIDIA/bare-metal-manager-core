@@ -18,7 +18,7 @@ use crate::{
     db::{
         domain::Domain,
         instance::InstanceId,
-        machine_interface::MachineInterface,
+        machine_interface::{MachineInterface, MachineInterfaceId},
         machine_interface_address::MachineInterfaceAddress,
         network_prefix::NetworkPrefix,
         network_segment::{
@@ -87,7 +87,8 @@ impl SiteFabricPrefixList {
 pub async fn admin_network(
     txn: &mut Transaction<'_, Postgres>,
     host_machine_id: &MachineId,
-) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
+    dpu_machine_id: &MachineId,
+) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
     let admin_segment = NetworkSegment::admin(txn)
         .await
         .map_err(CarbideError::from)?;
@@ -116,10 +117,25 @@ pub async fn admin_network(
         None => "unknowndomain".to_string(),
     };
 
-    let interface =
+    let interfaces =
         MachineInterface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
             .await
             .map_err(CarbideError::from)?;
+
+    let interface = interfaces.into_iter().find(|x| {
+        if let Some(id) = x.attached_dpu_machine_id() {
+            id == dpu_machine_id
+        } else {
+            false
+        }
+    });
+
+    let Some(interface) = interface else {
+        return Err(CarbideError::InvalidArgument(format!(
+            "No interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
+        ))
+        .into());
+    };
 
     let address = MachineInterfaceAddress::find_ipv4_for_interface(txn, interface.id)
         .await
@@ -137,7 +153,7 @@ pub async fn admin_network(
         fqdn: format!("{}.{}", interface.hostname(), domain),
         booturl: None,
     };
-    Ok(cfg)
+    Ok((cfg, *interface.id()))
 }
 
 pub async fn tenant_network(

@@ -386,7 +386,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         handler.clone(),
         3,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::MachineValidating {
                 context: "Cleanup".to_string(),
                 id: uuid::Uuid::default(),
@@ -438,7 +438,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(
         handler.clone(),
         3,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::Discovered,
         },
     )

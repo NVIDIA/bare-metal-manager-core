@@ -81,8 +81,8 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
 		exit 3
 	fi
 
-  # Start the agent in the background to apply the networking configuration
-  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
+	# Start the agent in the background to apply the networking configuration
+	cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
 fi
 
 # Check Instance state
@@ -106,8 +106,8 @@ if [[ "$1" == "test" || "$1" == "create" ]]; then
 		i=$((i + 1))
 	done
 
-  kill $(pidof forge-dpu-agent)
-  export PATH=${PREV_PATH}
+	kill $(pidof forge-dpu-agent)
+	export PATH=${PREV_PATH}
 
 	if [[ $i == "$MAX_RETRY" ]]; then
 		echo "Even after $MAX_RETRY retries, instance did not come in READY state."
@@ -156,8 +156,8 @@ if [[ "$1" == "test" || "$1" == "delete" ]]; then
 		exit 3
 	fi
 
-  # Start the agent in the background to apply the networking configuration
-  cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
+	# Start the agent in the background to apply the networking configuration
+	cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
 
 	# Boot host up with discovery image on admin network.
 	echo "Machine comes up, forge-scout tells API that we're back"
@@ -175,8 +175,8 @@ if [[ "$1" == "test" || "$1" == "delete" ]]; then
 
 	if [[ $i == "$MAX_RETRY" ]]; then
 		echo "Even after $MAX_RETRY retries, instance is not deleted."
-    kill $(pidof forge-dpu-agent)
-    export PATH=${PREV_PATH}
+		kill $(pidof forge-dpu-agent)
+		export PATH=${PREV_PATH}
 		exit 2
 	fi
 
@@ -190,8 +190,8 @@ if [[ "$1" == "test" || "$1" == "delete" ]]; then
 		sleep 10
 	done
 
-  kill $(pidof forge-dpu-agent)
-  export PATH=${PREV_PATH}
+	kill $(pidof forge-dpu-agent)
+	export PATH=${PREV_PATH}
 
 	if [[ $i == "$MAX_RETRY" ]]; then
 		echo "Even after $MAX_RETRY retries, machine did not reach in WaitingForCleanup state."
@@ -204,7 +204,7 @@ if [[ "$1" == "test" || "$1" == "delete" ]]; then
 
 	MACHINE_STATE=""
 	i=0
-	while [[ $MACHINE_STATE != "Host/Discovered" && $i -lt $MAX_RETRY ]]; do
+	while [[ $MACHINE_STATE != "HostInitializing/Discovered" && $i -lt $MAX_RETRY ]]; do
 		echo "Checking machine state. Waiting for it to be in Host/Discovered state. Current: $MACHINE_STATE"
 		MACHINE_STATE=$(grpcurl -d "{\"id\":\"$HOST_MACHINE_ID\"}" -insecure ${API_SERVER} forge.Forge/GetMachine | jq ".state" | tr -d '"')
 		i=$((i + 1))

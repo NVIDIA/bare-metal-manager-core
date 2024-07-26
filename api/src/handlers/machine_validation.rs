@@ -157,7 +157,7 @@ pub(crate) async fn persist_validation_result(
     };
     // Check state
     match machine.current_state() {
-        ManagedHostState::HostNotReady { machine_state } => {
+        ManagedHostState::HostInit { machine_state } => {
             match machine_state {
                 MachineState::MachineValidating { .. } => {
                     tracing::info!("machine state is  {}", machine.current_state());
