@@ -17,8 +17,8 @@ use std::sync::Arc;
 use carbide::cfg::{
     default_max_find_by_ids, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, FirmwareGlobal,
     IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-    MachineStateControllerConfig, NetworkSegmentStateControllerConfig, SiteExplorerConfig,
-    StateControllerConfig, TlsConfig,
+    MachineStateControllerConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
+    SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };
 use carbide::logging::setup::TelemetrySetup;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
@@ -232,6 +232,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         },
         max_find_by_ids: default_max_find_by_ids(),
         min_dpu_functioning_links: None,
+        multi_dpu: MultiDpuConfig::default(),
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

@@ -191,3 +191,6 @@ known_firmware = [
     { version = "0.9", mandatory_upgrade_from_priority = "security" },
     { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
 ]
+
+[multi_dpu]
+enabled=false

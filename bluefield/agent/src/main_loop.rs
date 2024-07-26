@@ -438,6 +438,17 @@ pub async fn run(
                             status_out.network_config_error = Some(err.to_string());
                         }
                     }
+
+                    // In case of secondary DPU, physical interface must be disabled.
+                    // TODO:  multidpu: This logic has to be improved to support instance handling where physical
+                    // interface should be enabled on secondary DPU also.
+                    if let Err(err) =
+                        ethernet_virtualization::update_interface_state(conf, agent.hbn.skip_reload)
+                            .await
+                    {
+                        tracing::error!(error = format!("{err:#}"), "Updating interface state.");
+                        // no need to mark anything fail. It is just a temporary fix.
+                    };
                 }
 
                 // Feed the latest instance metadata to FMDS and acknowledge it

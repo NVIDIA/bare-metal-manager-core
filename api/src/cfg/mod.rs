@@ -18,6 +18,6 @@ pub use file::{
     default_max_find_by_ids, default_site_explorer_config, AgentUpgradePolicyChoice, AuthConfig,
     CarbideConfig, DpuModel, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
     FirmwareGlobal, IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-    MachineStateControllerConfig, NetworkSegmentStateControllerConfig, SiteExplorerConfig,
-    StateControllerConfig, TlsConfig, Vendor2Firmware,
+    MachineStateControllerConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
+    SiteExplorerConfig, StateControllerConfig, TlsConfig, Vendor2Firmware,
 };

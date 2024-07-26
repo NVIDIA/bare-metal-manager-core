@@ -26,7 +26,8 @@ use carbide::{
     cfg::{
         default_max_find_by_ids, CarbideConfig, Firmware, FirmwareComponent, FirmwareComponentType,
         FirmwareEntry, FirmwareGlobal, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-        MachineStateControllerConfig, NetworkSegmentStateControllerConfig, StateControllerConfig,
+        MachineStateControllerConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
+        StateControllerConfig,
     },
     db::machine::Machine,
     ethernet_virtualization::{EthVirtData, SiteFabricPrefixList},
@@ -538,6 +539,7 @@ pub fn get_config() -> CarbideConfig {
         },
         max_find_by_ids: default_max_find_by_ids(),
         min_dpu_functioning_links: None,
+        multi_dpu: MultiDpuConfig::default(),
     }
 }
 

@@ -188,6 +188,9 @@ pub struct CarbideConfig {
     /// if not present, all links must be functional.
     #[serde(default)]
     pub min_dpu_functioning_links: Option<u32>,
+
+    #[serde(default)]
+    pub multi_dpu: MultiDpuConfig,
 }
 
 impl CarbideConfig {
@@ -795,6 +798,12 @@ impl Vendor2Firmware {
 
 pub fn default_max_find_by_ids() -> u32 {
     100
+}
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MultiDpuConfig {
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 impl From<CarbideConfig> for rpc::forge::RuntimeConfig {

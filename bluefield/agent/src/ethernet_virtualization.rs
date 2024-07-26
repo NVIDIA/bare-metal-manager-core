@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{fmt, fs, io, net::Ipv4Addr};
 
-use ::rpc::forge::{self as rpc, FlatInterfaceConfig};
+use ::rpc::forge::{self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse};
 use eyre::WrapErr;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
@@ -380,6 +380,32 @@ async fn do_post(
         eyre::bail!(err_message);
     }
     Ok(has_changes)
+}
+
+pub async fn update_interface_state(
+    nc: &ManagedHostNetworkConfigResponse,
+    skip_reload: bool,
+) -> eyre::Result<bool> {
+    let cmd = if (nc.use_admin_network && !nc.is_primary_dpu) || !nc.multidpu_enabled {
+        "ifdown pf0hpf_sf"
+    } else {
+        "ifup pf0hpf_sf"
+    };
+
+    if !skip_reload {
+        return match hbn::run_in_container_shell(cmd).await {
+            Ok(_) => {
+                tracing::info!("{cmd} is executed successfully.");
+                Ok(true)
+            }
+            Err(err) => {
+                tracing::error!("{cmd} execution failed with error: {err}");
+                Err(err)
+            }
+        };
+    }
+
+    Ok(false)
 }
 
 pub async fn update_dhcp(
@@ -1426,7 +1452,9 @@ mod tests {
             deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
             enable_dhcp: false,
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
+            is_primary_dpu: true,
             min_dpu_functioning_links: None,
+            multidpu_enabled: false,
         }
     }
 
@@ -1705,6 +1733,8 @@ mod tests {
             enable_dhcp: true,
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
             min_dpu_functioning_links: None,
+            is_primary_dpu: true,
+            multidpu_enabled: false,
         };
 
         let f = tempfile::NamedTempFile::new()?;
