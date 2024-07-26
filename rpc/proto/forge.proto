@@ -482,6 +482,8 @@ message RuntimeConfig {
 
     uint32 max_find_by_ids = 30;
     bool attestation_enabled = 31;
+
+    optional string dpu_network_pinger_type = 32;
 }
 
 message EchoRequest {
@@ -1696,6 +1698,9 @@ message ManagedHostNetworkConfigResponse {
 
   // IPv4 prefixes to be denied in the DPU ACL rules.
   repeated string deny_prefixes = 16;
+
+  // Network monitor pinger type
+  optional string dpu_network_pinger_type = 17;
 
   // Enable forge DHCP on HBN
   bool enable_dhcp = 100;

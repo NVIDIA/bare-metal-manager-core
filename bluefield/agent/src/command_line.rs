@@ -13,6 +13,8 @@ use std::{fmt, net::Ipv4Addr, path::PathBuf};
 
 use clap::{Parser, ValueEnum};
 
+use crate::network_monitor::NetworkPingerType;
+
 #[derive(Parser)]
 #[clap(name = "forge-dpu-agent")]
 pub struct Options {
@@ -43,7 +45,7 @@ pub enum AgentCommand {
     Health,
 
     #[clap(about = "One-off network monitor")]
-    Network,
+    Network(NetworkOptions),
 
     #[clap(about = "Write a templated config file", subcommand)]
     Write(WriteTarget),
@@ -189,6 +191,15 @@ pub struct RunOptions {
         help = "Do not perform upgrade checks. This is for development only. Do not use in production."
     )]
     pub skip_upgrade_check: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct NetworkOptions {
+    #[clap(
+        long,
+        help = "Use this network_pinger_type for the interface used for pinging."
+    )]
+    pub network_pinger_type: Option<NetworkPingerType>,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy)]

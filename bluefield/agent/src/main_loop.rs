@@ -30,6 +30,7 @@ use opentelemetry_sdk::metrics;
 use rand::Rng;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
 use version_compare::Version;
 use {opentelemetry_sdk as sdk, opentelemetry_semantic_conventions as semcov};
 
@@ -42,7 +43,7 @@ use crate::instance_metadata_endpoint::{
 };
 use crate::instrumentation::{create_metrics, get_metrics_router, MetricsState, WithTracingLayer};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
-use crate::network_monitor::{self, Pinger};
+use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::UrlResolver;
 use crate::{
     command_line, ethernet_virtualization, hbn, health, instance_metadata_endpoint,
@@ -184,25 +185,40 @@ pub async fn run(
 
     // Get all DPU Ip addresses via gRPC call
     let (close_sender, mut close_receiver) = watch::channel(false);
-    // @TODO(Felicity): Start with empty list instead of exiting
-    let peer_dpus =
-        network_monitor::find_peer_dpu_machines(machine_id, forge_api, forge_client_config.clone())
-            .await?;
-    // Initialize network monitor and perform network check once
-    let mut network_monitor = network_monitor::NetworkMonitor::new(
-        machine_id.to_string(),
-        peer_dpus,
-        metrics,
-        Arc::new(Pinger),
-    );
 
-    let forge_api_clone = forge_api.clone();
-    let client_config_clone = forge_client_config.clone();
-    let network_monitor_handle = tokio::spawn(async move {
-        network_monitor
-            .run(&forge_api_clone, client_config_clone, &mut close_receiver)
-            .await
-    });
+    // Initialize network monitor and perform network check once
+    let network_pinger_type = network_config_reader
+        .read()
+        .as_ref()
+        .as_ref()
+        .and_then(|response| response.dpu_network_pinger_type.as_ref())
+        .and_then(|value| NetworkPingerType::from_str(value).ok());
+
+    let network_monitor_handle: Option<JoinHandle<()>> = match network_pinger_type {
+        Some(pinger_type) => {
+            tracing::debug!("Starting network monitor with {} pinger", pinger_type);
+            let mut network_monitor = network_monitor::NetworkMonitor::new(
+                machine_id.to_string(),
+                metrics,
+                Arc::from(pinger_type),
+                forge_api,
+                forge_client_config.clone(),
+            )
+            .await;
+            let forge_api_clone = forge_api.clone();
+            let client_config_clone = forge_client_config.clone();
+            let network_monitor_handle = tokio::spawn(async move {
+                network_monitor
+                    .run(&forge_api_clone, client_config_clone, &mut close_receiver)
+                    .await
+            });
+            Some(network_monitor_handle)
+        }
+        None => {
+            tracing::debug!("No network pinger type provided from ManagedHostNetworkConfigResponse. Network monitor not started.");
+            None
+        }
+    };
 
     loop {
         let loop_start = Instant::now();
@@ -590,8 +606,11 @@ pub async fn run(
             biased;
             _ = term_signal.recv() => {
                 systemd::notify_stop().await?;
+                // @TODO(Felicity): make sure network monitor exits if send fails
                 let _ = close_sender.send(true);
-                let _ = network_monitor_handle.await;
+                if let Some(handle) = network_monitor_handle {
+                    let _ = handle.await;
+                }
                 tracing::info!(version=forge_version::v!(build_version), "TERM signal received, clean exit");
                 return Ok(());
             }

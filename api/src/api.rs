@@ -2429,7 +2429,7 @@ impl Forge for Api {
             CarbideError::from(DatabaseError::new(
                 file!(),
                 line!(),
-                "commit get_managed_host_network_config",
+                "commit get_dpu_info_list",
                 e,
             ))
         })?;

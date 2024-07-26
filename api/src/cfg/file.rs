@@ -80,6 +80,9 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub site_fabric_prefixes: Vec<Ipv4Network>,
 
+    #[serde(default)]
+    pub dpu_network_monitor_pinger_type: Option<String>,
+
     /// TLS related configuration
     pub tls: Option<TlsConfig>,
 
@@ -871,6 +874,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             host_enable_autoupdate: value.firmware_global.host_enable_autoupdate,
             host_disable_autoupdate: value.firmware_global.host_disable_autoupdate,
             max_find_by_ids: value.max_find_by_ids,
+            dpu_network_pinger_type: value.dpu_network_monitor_pinger_type,
         }
     }
 }
@@ -1054,6 +1058,7 @@ mod tests {
             IbPartitionStateControllerConfig::default()
         );
         assert_eq!(config.max_find_by_ids, default_max_find_by_ids());
+        assert_eq!(config.dpu_network_monitor_pinger_type, None);
     }
 
     #[test]
@@ -1152,6 +1157,10 @@ mod tests {
             }
         );
         assert_eq!(config.max_find_by_ids, 50);
+        assert_eq!(
+            config.dpu_network_monitor_pinger_type,
+            Some("OobNetBind".to_string())
+        );
     }
 
     #[test]
@@ -1285,6 +1294,7 @@ mod tests {
         assert_eq!(config.firmware_global.max_uploads, 3);
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
         assert_eq!(config.max_find_by_ids, 75);
+        assert_eq!(config.dpu_network_monitor_pinger_type, None);
     }
 
     #[test]
@@ -1408,6 +1418,10 @@ mod tests {
                 },
             }
         );
+        assert_eq!(
+            config.dpu_network_monitor_pinger_type,
+            Some("OobNetBind".to_string())
+        );
     }
 
     #[test]
@@ -1439,6 +1453,7 @@ mod tests {
                 vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
             );
             assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+            assert_eq!(config.dpu_network_monitor_pinger_type, None);
             assert_eq!(
                 config.tls.as_ref().unwrap().identity_pemfile_path,
                 "/patched/path/to/cert"

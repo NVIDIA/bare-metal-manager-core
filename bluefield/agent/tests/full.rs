@@ -256,6 +256,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         min_dpu_functioning_links: None,
         is_primary_dpu: true,
         multidpu_enabled: false,
+        dpu_network_pinger_type: Some("HbnExec".to_string()),
     };
     common::respond(netconf)
 }
