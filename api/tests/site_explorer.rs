@@ -181,6 +181,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                     serial_number: Some("MT2333XZ0X5W".to_string()),
                     attributes: ComputerSystemAttributes {
                         nic_mode: Some(NicMode::Dpu),
+                        http_dev1_interface: None,
                     },
                     pcie_devices: vec![],
                 }],
@@ -662,6 +663,7 @@ async fn test_site_explorer_reexplore(
                     serial_number: Some("MT2333XZ0X5W".to_string()),
                     attributes: ComputerSystemAttributes {
                         nic_mode: Some(NicMode::Dpu),
+                        http_dev1_interface: None,
                     },
                     pcie_devices: vec![],
                 }],
@@ -918,6 +920,7 @@ async fn test_site_explorer_creates_managed_host(
             serial_number: Some("MT2328XZ185R".to_string()),
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
+                http_dev1_interface: None,
             },
             pcie_devices: vec![],
         }],
@@ -1381,6 +1384,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                 serial_number: Some(serial_number.to_string()),
                 attributes: ComputerSystemAttributes {
                     nic_mode: Some(NicMode::Dpu),
+                    http_dev1_interface: None,
                 },
                 pcie_devices: vec![],
             }],
@@ -1650,6 +1654,7 @@ async fn test_site_explorer_clear_last_known_error(
             serial_number: Some("MT2328XZ185R".to_string()),
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
+                http_dev1_interface: None,
             },
             pcie_devices: vec![],
         }],
@@ -1873,6 +1878,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
             serial_number: Some(serial_number.to_string()),
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
+                http_dev1_interface: None,
             },
             pcie_devices: vec![],
         }],
@@ -2057,6 +2063,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
             serial_number: Some(serial_number.to_string()),
             attributes: ComputerSystemAttributes {
                 nic_mode: Some(NicMode::Dpu),
+                http_dev1_interface: None,
             },
             pcie_devices: vec![],
         }],
