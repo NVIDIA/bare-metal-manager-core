@@ -1417,7 +1417,7 @@ impl DpuMachineStateHandler {
         }
     }
 
-    async fn is_secure_boot_enabled(
+    async fn is_secure_boot_disabled(
         &self,
         // passing in dpu_machine_id only for testing
         dpu_machine_id: &MachineId,
@@ -1446,7 +1446,7 @@ impl DpuMachineStateHandler {
                     missing: "expected secure_boot_enable_field set in secure boot response",
                 })?;
 
-        Ok(secure_boot_enable && secure_boot_current_boot.is_enabled())
+        Ok(!secure_boot_enable && !secure_boot_current_boot.is_enabled())
     }
 
     async fn disable_secure_boot(
@@ -1812,11 +1812,16 @@ impl DpuMachineStateHandler {
                 };
 
                 match self
-                    .is_secure_boot_enabled(dpu_machine_id, dpu_redfish_client)
+                    .is_secure_boot_disabled(dpu_machine_id, dpu_redfish_client)
                     .await
                 {
-                    // Secure boot is still enabled
+                    // we successfully disabled secure boot
                     Ok(true) => {
+                        next_state = DpuDiscoveringState::SetUefiHttpBoot
+                            .next_state(&state.managed_state, dpu_machine_id)?;
+                    }
+                    // Secure boot is still enabled
+                    Ok(false) => {
                         if wait_for_dpu_reboot {
                             return Ok(StateHandlerOutcome::Wait(format!(
                                     "DisableSecureBootSubState::VerifySecureBootDisabled ({count}): waiting for for DPU {dpu_machine_id} to come up since {:?}",
@@ -1828,11 +1833,6 @@ impl DpuMachineStateHandler {
                             .await?;
 
                         next_state = DpuDiscoveringState::DisableSecureBoot { count: *count + 1 }
-                            .next_state(&state.managed_state, dpu_machine_id)?;
-                    }
-                    // we successfully disabled secure boot
-                    Ok(false) => {
-                        next_state = DpuDiscoveringState::SetUefiHttpBoot
                             .next_state(&state.managed_state, dpu_machine_id)?;
                     }
                     // we cant retrieve the secure boot status
