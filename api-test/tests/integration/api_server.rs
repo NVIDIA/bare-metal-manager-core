@@ -236,6 +236,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         max_find_by_ids: default_max_find_by_ids(),
         min_dpu_functioning_links: None,
         multi_dpu: MultiDpuConfig::default(),
+        dpu_network_monitor_pinger_type: None,
     };
 
     std::env::set_var("VAULT_ADDR", "http://127.0.0.1:8200");

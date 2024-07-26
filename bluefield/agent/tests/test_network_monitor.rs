@@ -5,7 +5,7 @@ use std::time::Duration;
 use ::rpc::forge::{self as rpc};
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use agent::instrumentation::create_metrics;
-use agent::network_monitor::{self, DpuInfo, DpuPingResult, NetworkMonitor, Ping};
+use agent::network_monitor::{DpuInfo, DpuPingResult, NetworkMonitor, Ping};
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
@@ -96,21 +96,15 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     let client_config_clone = forge_client_config.clone();
     let (close_sender, mut close_receiver) = watch::channel(false);
 
-    info!("Initializing peer dpus");
-    let peer_dpus = network_monitor::find_peer_dpu_machines(
-        machine_id,
-        &forge_api_clone,
-        forge_client_config.clone(),
-    )
-    .await?;
-
     info!("Initializing network monitor");
     let mut network_monitor = NetworkMonitor::new(
         machine_id.to_string(),
-        peer_dpus,
         Some(metrics_states.clone()),
         Arc::new(MockPinger),
-    );
+        &forge_api,
+        forge_client_config.clone(),
+    )
+    .await;
 
     info!("Starting network monitor");
     tokio::spawn(async move {
@@ -119,7 +113,7 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
             .await
     });
 
-    sleep(Duration::from_secs(10)).await;
+    sleep(Duration::from_secs(5)).await;
     info!("Sending close signal");
     let _ = close_sender.send(true);
 
@@ -285,7 +279,7 @@ impl Default for TestMeter {
 pub struct MockPinger;
 #[async_trait]
 impl Ping for MockPinger {
-    async fn ping_dpu(&self, dpu_info: DpuInfo) -> Result<DpuPingResult> {
+    async fn ping_dpu(&self, dpu_info: DpuInfo, _interface: String) -> Result<DpuPingResult> {
         info!("Received ping request for {}", dpu_info);
         let ping_result = DpuPingResult {
             dpu_info,

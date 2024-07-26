@@ -121,14 +121,18 @@ pub async fn run_in_container(
         .wrap_err_with(|| format!("timeout calling {cmd_str}"))?;
     let out = cmd_res.wrap_err(cmd_str.to_string())?;
 
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
     if need_success && !out.status.success() {
-        tracing::debug!("STDERR {cmd_str}: {}", String::from_utf8_lossy(&out.stderr));
+        tracing::debug!("STDERR {cmd_str}: {}", stderr);
         return Err(eyre::eyre!(
-            "{} for cmd '{cmd_str}'",
+            "cmd '{cmd_str}' failed with status: {}, stderr: {}, stdout: {}",
             out.status, // includes the string "exit status"
+            stderr,
+            stdout
         ));
     }
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     if !stdout.is_empty() {
         tracing::trace!("{stdout}");
     }

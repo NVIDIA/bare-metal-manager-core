@@ -279,6 +279,7 @@ pub(crate) async fn get_managed_host_network_config(
             .unwrap_or(false),
         multidpu_enabled: api.runtime_config.multi_dpu.enabled,
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
+        dpu_network_pinger_type: api.runtime_config.dpu_network_monitor_pinger_type.clone(),
     };
 
     // If this all worked, we shouldn't emit a log line

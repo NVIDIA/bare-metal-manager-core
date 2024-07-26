@@ -541,6 +541,7 @@ pub fn get_config() -> CarbideConfig {
         max_find_by_ids: default_max_find_by_ids(),
         min_dpu_functioning_links: None,
         multi_dpu: MultiDpuConfig::default(),
+        dpu_network_monitor_pinger_type: None,
     }
 }
 

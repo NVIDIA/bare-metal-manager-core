@@ -24,7 +24,7 @@ use forge_host_support::agent_config::AgentConfig;
 use forge_host_support::hardware_enumeration::enumerate_hardware;
 use forge_host_support::registration::register_machine;
 use forge_tls::client_config::ClientCert;
-use network_monitor::Pinger;
+use network_monitor::{NetworkPingerType, Ping};
 
 use crate::frr::FrrVlanConfig;
 
@@ -157,26 +157,28 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
 
         // One-off network monitor check.
         // dumps JSON-formatted peer DPU network reachability and latency status
-        Some(AgentCommand::Network) => {
+        Some(AgentCommand::Network(options)) => {
             let machine_id = register(&agent)
                 .await
                 .wrap_err("network check machine registration error")?
                 .machine_id;
 
-            let peer_dpus = network_monitor::find_peer_dpu_machines(
-                &machine_id,
+            let pinger: Arc<dyn Ping> = if let Some(pinger_type) = options.network_pinger_type {
+                tracing::info!("Using {}", pinger_type);
+                Arc::from(pinger_type)
+            } else {
+                tracing::info!("Using OobNetBind");
+                Arc::from(NetworkPingerType::OobNetBind)
+            };
+
+            let mut network_monitor = network_monitor::NetworkMonitor::new(
+                machine_id.to_string(),
+                None,
+                pinger,
                 &agent.forge_system.api_server,
                 forge_client_config.clone(),
             )
-            .await?;
-
-            // Initialize network monitor and perform network check once
-            let mut network_monitor = network_monitor::NetworkMonitor::new(
-                machine_id.to_string(),
-                peer_dpus,
-                None,
-                Arc::new(Pinger),
-            );
+            .await;
 
             network_monitor.run_onetime(true).await;
         }

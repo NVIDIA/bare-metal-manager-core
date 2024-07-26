@@ -1347,6 +1347,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     assert!(!network_config.use_admin_network);
     assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.2.3");
     assert_eq!(network_config.tenant_interfaces[1].ip, "192.0.3.3");
+    assert_eq!(network_config.dpu_network_pinger_type, None);
 }
 
 // TODO(gk) Restore after https://jirasw.nvidia.com/browse/FORGE-2243

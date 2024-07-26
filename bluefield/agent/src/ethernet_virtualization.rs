@@ -1461,6 +1461,9 @@ mod tests {
             ),
             remote_id: "test".to_string(),
 
+            // For NetworkMonitor
+            dpu_network_pinger_type: None,
+
             // For FNN:
             // vpc_vni: Some(2024500),
             // route_servers: vec![],
@@ -1745,6 +1748,8 @@ mod tests {
                     .into(),
             ),
             remote_id: "test".to_string(),
+
+            dpu_network_pinger_type: None,
 
             network_virtualization_type: None,
             vpc_vni: None,
