@@ -35,14 +35,14 @@ iface vlan185
     vlan-raw-device br_default
     vlan-id 185
 
-auto vxlan5555
-iface vxlan5555
+auto vxlan48
+iface vxlan48
     bridge-vlan-vni-map  196=1025196  185=1025185
     bridge-learning off
 
 auto br_default
 iface br_default
-    bridge-ports pf0vf0_sf pf0hpf_sf   vxlan5555
+    bridge-ports pf0vf0_sf pf0hpf_sf   vxlan48
     bridge-vlan-aware yes
     bridge-vids  196   185
     bridge-pvid 1

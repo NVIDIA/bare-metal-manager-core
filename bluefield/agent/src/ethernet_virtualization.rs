@@ -1423,7 +1423,7 @@ mod tests {
             asn: 4259912557,
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
-            vni_device: "vxlan5555".to_string(),
+            vni_device: "vxlan48".to_string(),
 
             managed_host_config: Some(netconf),
             managed_host_config_version: "V1-T1666644937952267".to_string(),
@@ -1708,7 +1708,7 @@ mod tests {
             asn: 4259912557,
             // yes it's in there twice I dunno either
             dhcp_servers: vec!["10.217.5.197".to_string(), "10.217.5.197".to_string()],
-            vni_device: "vxlan5555".to_string(),
+            vni_device: "vxlan48".to_string(),
 
             managed_host_config: Some(netconf),
             managed_host_config_version: "V1-T1666644937952267".to_string(),

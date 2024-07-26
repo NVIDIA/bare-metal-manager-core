@@ -156,7 +156,7 @@ fn append_arp_suppression_contents(file_buffer: &mut String) {
 pub const ARP_SUPPRESSION_RULE: &str = r"
 [ebtables]
 # Suppress ARP packets before they get encapsulated.
--A OUTPUT -o vxlan5555 -p ARP -j DROP
+-A OUTPUT -o vxlan48 -p ARP -j DROP
 ";
 
 #[cfg(test)]

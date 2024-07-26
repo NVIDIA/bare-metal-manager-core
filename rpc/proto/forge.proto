@@ -1667,8 +1667,8 @@ message ManagedHostNetworkConfigResponse {
   // DHCP servers that the host DHCP requests should be relayed to
   repeated string dhcp_servers = 3;
 
-  // "" when on admin network, "vxlan5555" otherwise.
-  // vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
+  // "" when on admin network, "vxlan48" otherwise.
+  // vxlan48 is special HBN single vxlan device. It handles networking between machines on the
   // same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
   // VNI device is not versioned
   string vni_device = 4;

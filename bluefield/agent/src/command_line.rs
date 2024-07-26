@@ -144,7 +144,7 @@ pub struct InterfacesOptions {
     pub path: String,
     #[clap(long)]
     pub loopback_ip: Ipv4Addr,
-    #[clap(long, help = "Blank for admin network, vxlan5555 for tenant networks")]
+    #[clap(long, help = "Blank for admin network, vxlan48 for tenant networks")]
     pub vni_device: String,
     #[clap(
         long,
