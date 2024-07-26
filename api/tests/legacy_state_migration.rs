@@ -44,6 +44,17 @@ async fn update_host_state(
         .unwrap();
 }
 
+async fn get_model_version(txn: &mut Transaction<'_, Postgres>, machine_id: &MachineId) -> i32 {
+    let query = "SELECT machine_state_model_version from machines where id=$1";
+    let id: (i32,) = sqlx::query_as(query)
+        .bind(machine_id.to_string())
+        .fetch_one(&mut **txn)
+        .await
+        .unwrap();
+
+    id.0
+}
+
 async fn validate_all_machines(
     txn: &mut Transaction<'_, Postgres>,
     host_machine_id: MachineId,
@@ -189,6 +200,68 @@ async fn test_state_migration_2(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_state_migration_2_1(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host_machine_id = create_managed_host_multi_dpu(&env, 2).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    update_host_state(
+        &mut txn,
+        OldStates::DPUNotReady {
+            machine_state: legacy::states::machine::MachineState::WaitingForPlatformConfiguration,
+        },
+        host_machine_id.clone(),
+    )
+    .await;
+
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+
+    if let Err(DatabaseError {
+        source: sqlx::Error::ColumnDecode { index, .. },
+        ..
+    }) = host
+    {
+        assert_eq!(index, "\"controller_state\"");
+    } else {
+        panic!("Unexpected value: {:?}", host);
+    }
+
+    assert_eq!(get_model_version(&mut txn, &host_machine_id).await, 1);
+    txn.rollback().await.unwrap();
+
+    migrate_machines(env.pool.clone()).await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default()).await;
+    let dpus = Machine::find_dpu_machine_ids_by_host_machine_id(&mut txn, &host_machine_id)
+        .await
+        .unwrap();
+
+    assert_eq!(get_model_version(&mut txn, &host_machine_id).await, 2);
+    txn.rollback().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    assert!(host.is_ok());
+    validate_all_machines(
+        &mut txn,
+        host_machine_id,
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: dpus
+                    .clone()
+                    .into_iter()
+                    .map(|dpu_id| (dpu_id, DpuInitState::WaitingForPlatformConfiguration))
+                    .collect::<HashMap<MachineId, DpuInitState>>(),
+            },
+        },
+    )
+    .await;
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
 async fn test_state_migration_2_fail(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
@@ -322,6 +395,8 @@ async fn test_state_migration_5(pool: sqlx::PgPool) {
     )
     .await;
 
+    assert_eq!(get_model_version(&mut txn, &host_machine_id).await, 1);
+
     txn.commit().await.unwrap();
 
     migrate_machines(env.pool.clone()).await.unwrap();
@@ -332,6 +407,7 @@ async fn test_state_migration_5(pool: sqlx::PgPool) {
     let dpus = Machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id)
         .await
         .unwrap();
+    assert_eq!(get_model_version(&mut txn, &host_machine_id).await, 2);
     txn.rollback().await.unwrap();
 
     assert!(host.is_ok());
@@ -342,9 +418,12 @@ async fn test_state_migration_5(pool: sqlx::PgPool) {
         },
     );
 
-    // Since migrate_machines does not process this managed host, DPU state must not change.
-    // update_host_state updates only Host's state, not DPUs. DPUs state should be 'Ready'.
-    assert_eq!(dpus[0].current_state(), ManagedHostState::Ready,);
+    assert_eq!(
+        dpus[0].current_state(),
+        ManagedHostState::Assigned {
+            instance_state: carbide::model::machine::InstanceState::SwitchToAdminNetwork,
+        },
+    );
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
