@@ -382,16 +382,35 @@ async fn do_post(
     Ok(has_changes)
 }
 
+fn get_interface_cmd(
+    is_primary_dpu: bool,
+    use_admin_network: bool,
+    multidpu_enabled: bool,
+) -> &'static str {
+    // Interface is always UP on primary DPU.
+    if is_primary_dpu {
+        return "ifup pf0hpf_sf";
+    }
+
+    // In case feature is not enabled, always disable the interface.
+    if !multidpu_enabled {
+        return "ifdown pf0hpf_sf";
+    }
+
+    // If secondary, feature is enabled and on tenant network, enable the interfcae.
+    if !use_admin_network {
+        return "ifup pf0hpf_sf";
+    }
+
+    // If secondary, feature is enabled and on admin network, disable the interfcae.
+    "ifdown pf0hpf_sf"
+}
+
 pub async fn update_interface_state(
     nc: &ManagedHostNetworkConfigResponse,
     skip_reload: bool,
 ) -> eyre::Result<bool> {
-    let cmd = if (nc.use_admin_network && !nc.is_primary_dpu) || !nc.multidpu_enabled {
-        "ifdown pf0hpf_sf"
-    } else {
-        "ifup pf0hpf_sf"
-    };
-
+    let cmd = get_interface_cmd(nc.is_primary_dpu, nc.use_admin_network, nc.multidpu_enabled);
     if !skip_reload {
         return match hbn::run_in_container_shell(cmd).await {
             Ok(_) => {
@@ -1257,6 +1276,7 @@ mod tests {
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use super::FPath;
+    use crate::ethernet_virtualization::get_interface_cmd;
     use crate::nvue;
 
     #[ctor::ctor]
@@ -1834,5 +1854,32 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_cmd_return_val() {
+        // Primary dpu admin network multidpu enabled
+        assert_eq!(get_interface_cmd(true, true, true), "ifup pf0hpf_sf");
+
+        // Primary dpu tenant network multidpu enabled
+        assert_eq!(get_interface_cmd(true, false, true), "ifup pf0hpf_sf");
+
+        // Primary dpu admin network multidpu disabled
+        assert_eq!(get_interface_cmd(true, true, false), "ifup pf0hpf_sf");
+
+        // Primary dpu tenant network multidpu disabled
+        assert_eq!(get_interface_cmd(true, false, false), "ifup pf0hpf_sf");
+
+        // Secondary dpu admin network multidpu enabled
+        assert_eq!(get_interface_cmd(false, true, true), "ifdown pf0hpf_sf");
+
+        // Secondary dpu tenant network multidpu enabled
+        assert_eq!(get_interface_cmd(false, false, true), "ifup pf0hpf_sf");
+
+        // Secondary dpu admin network multidpu disabled
+        assert_eq!(get_interface_cmd(false, true, false), "ifdown pf0hpf_sf");
+
+        // Secondary dpu tenant network multidpu disabled
+        assert_eq!(get_interface_cmd(false, false, false), "ifdown pf0hpf_sf");
     }
 }
