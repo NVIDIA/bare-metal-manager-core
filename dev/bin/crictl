@@ -249,7 +249,7 @@ command = /var/support/forge-dhcp/bin/forge-dhcp-server  --interfaces vlan23  --
 autostart = true
 '
 
-FDB='[{"mac":"7e:f6:b2:b2:f0:97","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"4e:1f:bd:97:23:3e","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"00:04:4b:b7:e5:00","ifname":"br_default","vlan":21,"flags":[],"master":"br_default","state":"permanent"},{"mac":"16:3c:3d:a8:81:40","ifname":"vxlan5555","vlan":21,"flags":[],"master":"br_default","state":"permanent"}]'
+FDB='[{"mac":"7e:f6:b2:b2:f0:97","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"4e:1f:bd:97:23:3e","ifname":"pf0vf0_sf","vlan":21,"flags":[],"master":"br_default","state":""},{"mac":"00:04:4b:b7:e5:00","ifname":"br_default","vlan":21,"flags":[],"master":"br_default","state":"permanent"},{"mac":"16:3c:3d:a8:81:40","ifname":"vxlan48","vlan":21,"flags":[],"master":"br_default","state":"permanent"}]'
 
 NVUE_STARTUP_TMP=/tmp/carbide-integration-nvue.tmp
 

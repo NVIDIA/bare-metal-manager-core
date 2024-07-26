@@ -38,9 +38,9 @@ use crate::model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
 use crate::model::RpcDataConversionError;
 use crate::{ethernet_virtualization, CarbideError};
 
-/// vxlan5555 is special HBN single vxlan device. It handles networking between machines on the
+/// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
-const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan5555";
+const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
 
 pub(crate) async fn get_managed_host_network_config(
     api: &Api,

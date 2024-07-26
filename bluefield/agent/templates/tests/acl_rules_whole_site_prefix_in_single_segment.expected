@@ -11,4 +11,4 @@
 
 [ebtables]
 # Suppress ARP packets before they get encapsulated.
--A OUTPUT -o vxlan5555 -p ARP -j DROP
+-A OUTPUT -o vxlan48 -p ARP -j DROP
