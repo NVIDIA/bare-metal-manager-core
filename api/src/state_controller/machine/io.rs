@@ -13,6 +13,7 @@
 //! State Controller IO implementation for Machines
 
 use config_version::{ConfigVersion, Versioned};
+use itertools::Itertools;
 
 use crate::{
     db::{
@@ -23,7 +24,7 @@ use crate::{
     model::{
         controller_outcome::PersistentStateHandlerOutcome,
         machine::{
-            machine_id::MachineId, DpuDiscoveringState, InstanceState, MachineState,
+            machine_id::MachineId, DpuDiscoveringState, DpuInitState, InstanceState, MachineState,
             ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
         },
     },
@@ -32,6 +33,9 @@ use crate::{
         machine::{context::MachineStateHandlerContextObjects, metrics::MachineMetricsEmitter},
     },
 };
+
+// This should be updated on each new model introdunction
+pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
 
 /// State Controller IO implementation for Machines
 #[derive(Default, Debug)]
@@ -111,13 +115,20 @@ impl StateControllerIO for MachineStateControllerIO {
     fn metric_state_names(state: &ManagedHostState) -> (&'static str, &'static str) {
         use crate::model::machine::{CleanupState, InstanceState, MachineState};
 
+        fn dpuinit_state_name(dpu_state: &DpuInitState) -> &'static str {
+            match dpu_state {
+                DpuInitState::Init => "init",
+                DpuInitState::WaitingForNetworkInstall => "waitingfornetworkinstall",
+                DpuInitState::WaitingForNetworkConfig => "waitingfornetworkconfig",
+                DpuInitState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
+                DpuInitState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
+            }
+        }
+
         fn machine_state_name(machine_state: &MachineState) -> &'static str {
             match machine_state {
                 MachineState::Init => "init",
                 MachineState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
-                MachineState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
-                MachineState::WaitingForNetworkInstall => "waitingfornetworkinstall",
-                MachineState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 MachineState::UefiSetup { .. } => "uefisetup",
                 MachineState::WaitingForDiscovery => "waitingfordiscovery",
                 MachineState::Discovered => "discovered",
@@ -133,6 +144,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuDiscoveringState::BmcFirmwareUpdate { .. } => "dpubmcfirmwareupdate",
                 DpuDiscoveringState::DisableSecureBoot { .. } => "disablesecureboot",
                 DpuDiscoveringState::SetUefiHttpBoot { .. } => "setuefihttpboot",
+                DpuDiscoveringState::RebootAllDPUS => "rebootalldpus",
             }
         }
 
@@ -163,13 +175,21 @@ impl StateControllerIO for MachineStateControllerIO {
         }
 
         match state {
-            ManagedHostState::DpuDiscoveringState { discovering_state } => {
-                ("dpudiscovering", discovering_state_name(discovering_state))
+            ManagedHostState::DpuDiscoveringState { dpu_states } => {
+                let dpu_state = dpu_states.states.values().collect_vec();
+                let Some(dpu_state) = dpu_state.first() else {
+                    return ("unknown", "dpu");
+                };
+                ("dpudiscovering", discovering_state_name(dpu_state))
             }
-            ManagedHostState::DPUNotReady { machine_state } => {
-                ("dpunotready", machine_state_name(machine_state))
+            ManagedHostState::DPUInit { dpu_states } => {
+                let dpu_state = dpu_states.states.values().collect_vec();
+                let Some(dpu_state) = dpu_state.first() else {
+                    return ("unknown", "dpu");
+                };
+                ("dpunotready", dpuinit_state_name(dpu_state))
             }
-            ManagedHostState::HostNotReady { machine_state } => {
+            ManagedHostState::HostInit { machine_state } => {
                 ("hostnotready", machine_state_name(machine_state))
             }
             ManagedHostState::Ready => ("ready", ""),
@@ -196,12 +216,19 @@ impl StateControllerIO for MachineStateControllerIO {
             .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
         match &state.value {
-            ManagedHostState::DpuDiscoveringState { discovering_state } => {
-                match discovering_state {
+            ManagedHostState::DpuDiscoveringState { dpu_states } => {
+                // TODO: multidpu: handle it for all DPUs.
+                let dpu_state = dpu_states.states.values().collect_vec();
+                let Some(dpu_state) = dpu_state.first() else {
+                    return false;
+                };
+
+                match dpu_state {
                     DpuDiscoveringState::Initializing
                     | DpuDiscoveringState::Configuring
                     | DpuDiscoveringState::DisableSecureBoot { .. }
-                    | DpuDiscoveringState::SetUefiHttpBoot => {
+                    | DpuDiscoveringState::SetUefiHttpBoot
+                    | DpuDiscoveringState::RebootAllDPUS => {
                         time_in_state > std::time::Duration::from_secs(30 * 60)
                     }
                     DpuDiscoveringState::BmcFirmwareUpdate { .. } => {
@@ -209,15 +236,20 @@ impl StateControllerIO for MachineStateControllerIO {
                     }
                 }
             }
-            ManagedHostState::DPUNotReady { machine_state } => {
+            ManagedHostState::DPUInit { dpu_states } => {
+                // TODO: multidpu: handle it for all DPUs.
+                let dpu_state = dpu_states.states.values().collect_vec();
+                let Some(dpu_state) = dpu_state.first() else {
+                    return false;
+                };
+
                 // Init has no SLA since starting discovery requires a manual action
-                match machine_state {
-                    MachineState::Init => false,
-                    MachineState::WaitingForDiscovery => false,
+                match dpu_state {
+                    DpuInitState::Init => false,
                     _ => time_in_state > std::time::Duration::from_secs(30 * 60),
                 }
             }
-            ManagedHostState::HostNotReady { machine_state } => match machine_state {
+            ManagedHostState::HostInit { machine_state } => match machine_state {
                 MachineState::Init => false,
                 MachineState::WaitingForDiscovery => false,
                 _ => time_in_state > std::time::Duration::from_secs(30 * 60),

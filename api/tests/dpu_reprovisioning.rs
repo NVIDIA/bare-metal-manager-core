@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
@@ -12,7 +14,8 @@
 use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::db::machine_interface::MachineInterface;
 use carbide::model::machine::{
-    InstanceState, MachineLastRebootRequestedMode, MachineState, ManagedHostState, ReprovisionState,
+    DpuInitState, InstanceState, MachineLastRebootRequestedMode, MachineState, ManagedHostState,
+    ReprovisionState,
 };
 use carbide::state_controller::machine::handler::MachineStateHandler;
 use common::api_fixtures::create_test_env;
@@ -186,13 +189,17 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         last_reboot_requested_time.unwrap().time
     );
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::FirmwareUpgrade,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::FirmwareUpgrade
+                )]),
+            },
         }
-    ));
+    );
 
     let pxe = env
         .api
@@ -221,13 +228,14 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::PowerDown,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::PowerDown)]),
+            },
         }
-    ));
+    );
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -236,13 +244,17 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::WaitingForNetworkInstall
+                )]),
+            },
         }
-    ));
+    );
 
     let pxe = env
         .api
@@ -273,13 +285,14 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::BufferTime,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+            },
         }
-    ));
+    );
     txn.commit().await.unwrap();
 
     let pxe = env
@@ -305,13 +318,17 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::WaitingForNetworkConfig,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::WaitingForNetworkConfig
+                )]),
+            },
         }
-    ));
+    );
     txn.commit().await.unwrap();
     let pxe = env
         .api
@@ -344,7 +361,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(matches!(
         dpu.current_state(),
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::Discovered
         }
     ));
@@ -485,13 +502,17 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::WaitingForNetworkInstall
+                )]),
+            },
         }
-    ));
+    );
 
     let pxe = env
         .api
@@ -522,13 +543,14 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::BufferTime,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+            },
         }
-    ));
+    );
     txn.commit().await.unwrap();
     let response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     assert_eq!(
@@ -545,13 +567,17 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::WaitingForNetworkConfig,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::WaitingForNetworkConfig
+                )]),
+            },
         }
-    ));
+    );
     txn.commit().await.unwrap();
     let _response = forge_agent_control(&env, dpu_rpc_id.clone()).await;
     let _ = network_configured(&env, &dpu_machine_id).await;
@@ -566,7 +592,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
 
     assert!(matches!(
         dpu.current_state(),
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::Discovered
         }
     ));
@@ -688,15 +714,19 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                reprovision_state: ReprovisionState::FirmwareUpgrade,
-                ..
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::FirmwareUpgrade
+                    )]),
+                },
             }
         }
-    ));
+    );
 
     let pxe = env
         .api
@@ -726,15 +756,16 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                reprovision_state: ReprovisionState::PowerDown,
-                ..
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::PowerDown)]),
+                },
             }
         }
-    ));
+    );
 
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -744,15 +775,19 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-                ..
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::WaitingForNetworkInstall
+                    )]),
+                },
             }
         }
-    ));
+    );
 
     let pxe = env
         .api
@@ -783,15 +818,16 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                reprovision_state: ReprovisionState::BufferTime,
-                ..
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+                },
             }
         }
-    ));
+    );
     txn.commit().await.unwrap();
 
     let pxe = env
@@ -817,15 +853,19 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                reprovision_state: ReprovisionState::WaitingForNetworkConfig,
-                ..
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::WaitingForNetworkConfig
+                    )]),
+                },
             }
         }
-    ));
+    );
     txn.commit().await.unwrap();
     let pxe = env
         .api
@@ -1027,15 +1067,19 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         id: dpu_machine_id.to_string(),
     };
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-                ..
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::WaitingForNetworkInstall
+                    )]),
+                },
             }
         }
-    ));
+    );
 
     let pxe = env
         .api
@@ -1066,15 +1110,16 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                reprovision_state: ReprovisionState::BufferTime,
-                ..
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::BufferTime)]),
+                },
             }
         }
-    ));
+    );
     txn.commit().await.unwrap();
 
     let pxe = env
@@ -1100,15 +1145,19 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                reprovision_state: ReprovisionState::WaitingForNetworkConfig,
-                ..
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::WaitingForNetworkConfig
+                    )]),
+                },
             }
         }
-    ));
+    );
     txn.commit().await.unwrap();
     let pxe = env
         .api
@@ -1300,13 +1349,17 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         last_reboot_requested_time.unwrap().time
     );
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::FirmwareUpgrade,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::FirmwareUpgrade
+                )]),
+            },
         }
-    ));
+    );
 
     txn.commit().await.unwrap();
 
@@ -1539,8 +1592,13 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
         handler.clone(),
         4,
         &mut txn,
-        ManagedHostState::DPUNotReady {
-            machine_state: carbide::model::machine::MachineState::WaitingForNetworkConfig,
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    DpuInitState::WaitingForNetworkConfig,
+                )]),
+            },
         },
     )
     .await;
@@ -1563,12 +1621,14 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
-        ManagedHostState::DPUNotReady {
-            machine_state: MachineState::Init
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: HashMap::from([(dpu_machine_id.clone(), DpuInitState::Init)]),
+            }
         }
-    ));
+    );
 
     let mut txn = env.pool.begin().await.unwrap();
     let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
@@ -1669,13 +1729,17 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::FirmwareUpgrade,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::FirmwareUpgrade,
+                )]),
+            }
         }
-    ));
+    );
 
     let restart_time = dpu
         .reprovisioning_requested()
@@ -1700,13 +1764,12 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
             .restart_reprovision_requested_at
     );
 
-    assert!(matches!(
-        dpu.current_state(),
-        ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::FirmwareUpgrade,
-            ..
-        }
-    ));
+    let _expected_state = ManagedHostState::DPUReprovision {
+        dpu_states: carbide::model::machine::DpuReprovisionStates {
+            states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::FirmwareUpgrade)]),
+        },
+    };
+    assert!(matches!(dpu.current_state(), _expected_state));
 
     // change the mode
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Restart, false).await;
@@ -1726,11 +1789,15 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
             .restart_reprovision_requested_at
     );
 
-    assert!(matches!(
+    assert_eq!(
         dpu.current_state(),
         ManagedHostState::DPUReprovision {
-            reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-            ..
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::WaitingForNetworkInstall
+                )]),
+            },
         }
-    ));
+    );
 }

@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use carbide::{
     db::{
         machine::Machine,
         machine_interface::{MachineInterface, MachineInterfaceId},
     },
-    model::machine::{machine_id::MachineId, MachineState, ManagedHostState},
+    model::machine::{machine_id::MachineId, DpuInitState, MachineState, ManagedHostState},
 };
 use common::api_fixtures::create_test_env;
 use mac_address::MacAddress;
@@ -107,8 +109,13 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 
     assert_eq!(
         machine.current_state(),
-        ManagedHostState::DPUNotReady {
-            machine_state: MachineState::WaitingForNetworkConfig
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    DpuInitState::WaitingForNetworkConfig,
+                )]),
+            },
         }
     );
 
@@ -164,7 +171,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
     move_machine_to_needed_state(
         host_id.clone(),
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
         },
         &env.pool,
@@ -181,7 +188,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
     move_machine_to_needed_state(
         host_id.clone(),
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::Discovered,
         },
         &env.pool,
@@ -300,8 +307,10 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
     let (_host_id, dpu_id) = common::api_fixtures::create_managed_host(&env).await;
     move_machine_to_needed_state(
         dpu_id.clone(),
-        ManagedHostState::DPUNotReady {
-            machine_state: MachineState::Init,
+        ManagedHostState::DPUInit {
+            dpu_states: carbide::model::machine::DpuInitStates {
+                states: HashMap::from([(dpu_id.clone(), DpuInitState::Init)]),
+            },
         },
         &env.pool,
     )

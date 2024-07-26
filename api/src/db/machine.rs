@@ -20,6 +20,7 @@ use ::rpc::forge::{self as rpc, DpuInfo};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use health_report::HealthReport;
+use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::Serialize;
 use sqlx::postgres::PgRow;
@@ -40,10 +41,11 @@ use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHos
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
     CurrentMachineState, FailureDetails, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineSnapshot, MachineState, ManagedHostState,
-    ReprovisionRequest, UpgradeDecision,
+    MachineLastRebootRequestedMode, MachineSnapshot, ManagedHostState, ReprovisionRequest,
+    UpgradeDecision,
 };
 use crate::resource_pool::common::CommonPools;
+use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{resource_pool, CarbideError, CarbideResult};
 
 /// MachineSearchConfig: Search parameters
@@ -385,7 +387,11 @@ impl From<Machine> for rpc::Machine {
 
         rpc::Machine {
             id: Some(machine.id.to_string().into()),
-            state: machine.state.value.to_string(),
+            state: if machine.is_dpu() {
+                machine.state.value.dpu_state_string(machine.id())
+            } else {
+                machine.state.value.to_string()
+            },
             state_version: machine.state.version.version_string(),
             machine_type: *RpcMachineTypeWrapper::from(machine.machine_type()) as i32,
             events: machine
@@ -600,9 +606,7 @@ impl Machine {
             // Old manual discovery path.
             // Host and DPU machines are created in same `discover_machine` call. Update same
             // state in both machines.
-            let state = ManagedHostState::DPUNotReady {
-                machine_state: MachineState::Init,
-            };
+            let state = ManagedHostState::Created;
             let machine = Self::create(txn, stable_machine_id, state).await?;
             interface
                 .associate_interface_with_machine(txn, &machine.id)
@@ -1219,6 +1223,24 @@ SELECT m.id FROM
         Ok(machines)
     }
 
+    pub async fn find_dpu_machine_ids_by_host_machine_id(
+        txn: &mut Transaction<'_, Postgres>,
+        host_machine_id: &MachineId,
+    ) -> Result<Vec<MachineId>, DatabaseError> {
+        let query = r#"SELECT m.id From machines m
+                INNER JOIN machine_interfaces mi
+                  ON m.id = mi.attached_dpu_machine_id
+                WHERE mi.machine_id=$1"#;
+
+        let machine_ids: Vec<DbMachineId> = sqlx::query_as(query)
+            .bind(host_machine_id.to_string())
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(machine_ids.into_iter().map(MachineId::from).collect_vec())
+    }
+
     /// Only does the update if the passed observation is newer than any existing one
     pub async fn update_network_status_observation(
         txn: &mut Transaction<'_, Postgres>,
@@ -1486,13 +1508,15 @@ SELECT m.id FROM
         let network_config_version = ConfigVersion::initial();
         let network_config = ManagedHostNetworkConfig::default();
 
-        let query = "INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config) VALUES($1, $2, $3, $4, $5) RETURNING id";
+        let query = r#"INSERT INTO machines(id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version) 
+                                VALUES($1, $2, $3, $4, $5, $6) RETURNING id"#;
         let row: (DbMachineId,) = sqlx::query_as(query)
             .bind(&stable_machine_id_string)
             .bind(state_version.version_string())
             .bind(sqlx::types::Json(&state))
             .bind(network_config_version.version_string())
             .bind(sqlx::types::Json(&network_config))
+            .bind(CURRENT_STATE_MODEL_VERSION)
             .fetch_one(&mut **txn)
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
@@ -1778,6 +1802,29 @@ SELECT m.id FROM
         Ok(machine_ids.into_iter().map(MachineId::from).collect())
     }
 
+    pub async fn get_host_machine_ids_for_state_model_version(
+        txn: &mut Transaction<'_, Postgres>,
+        version: i16,
+    ) -> Result<Vec<MachineId>, CarbideError> {
+        let query = r#"SELECT id FROM machines WHERE 
+                               (starts_with(id, 'fm100h') OR starts_with(id, 'fm100p')) 
+                               AND machine_state_model_version=$1"#;
+        let machine_ids: Vec<DbMachineId> = sqlx::query_as(query)
+            .bind(version)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| {
+                DatabaseError::new(
+                    file!(),
+                    line!(),
+                    "get_host_machine_ids_with_model_version",
+                    e,
+                )
+            })?;
+
+        Ok(machine_ids.into_iter().map(MachineId::from).collect())
+    }
+
     pub async fn update_state(
         txn: &mut Transaction<'_, Postgres>,
         host_id: &MachineId,
@@ -1799,7 +1846,7 @@ SELECT m.id FROM
         })?;
 
         let version = host.current_version().increment();
-        tracing::info!(machine_id = %host.id(), %new_state, "Updating host state");
+        tracing::info!(machine_id = %host.id(), ?new_state, "Updating host state");
         host.advance(txn, new_state.clone(), Some(version)).await?;
 
         // Keep both host and dpu's states in sync.
@@ -1808,6 +1855,43 @@ SELECT m.id FROM
         for dpu in dpus {
             dpu.advance(txn, new_state.clone(), Some(version)).await?;
         }
+        Ok(())
+    }
+
+    pub async fn update_state_with_state_model_version_update(
+        txn: &mut Transaction<'_, Postgres>,
+        host_id: &MachineId,
+        dpu_ids: &[MachineId],
+        new_state: ManagedHostState,
+        state_model_version: i16,
+    ) -> CarbideResult<()> {
+        tracing::info!(machine_id = %host_id, %new_state, "Updating host state (no version update, state model version update)");
+        // Keep both host and dpus's states in sync.
+
+        let all_machines = {
+            let mut all = dpu_ids.to_vec();
+            all.push(host_id.clone());
+            all
+        };
+
+        let ids: Vec<(String,)> =
+            sqlx::query_as("UPDATE machines SET controller_state=$1, machine_state_model_version=$2 WHERE id=ANY($3) RETURNING id")
+                .bind(sqlx::types::Json(new_state))
+                .bind(state_model_version)
+                .bind(all_machines.clone())
+                .fetch_all(&mut **txn)
+                .await
+                .map_err(|e| {
+                    DatabaseError::new(file!(), line!(), "update machines state no version", e)
+                })?;
+
+        if ids.len() != all_machines.len() {
+            return Err(CarbideError::GenericError(format!(
+                "Expected updates: {:?}, Actual updates: {:?}",
+                all_machines, ids,
+            )));
+        }
+
         Ok(())
     }
 

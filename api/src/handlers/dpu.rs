@@ -98,9 +98,12 @@ pub(crate) async fn get_managed_host_network_config(
     };
     let use_admin_network = dpu_snapshot.use_admin_network();
 
-    let admin_interface_rpc =
-        ethernet_virtualization::admin_network(&mut txn, &snapshot.host_snapshot.machine_id)
-            .await?;
+    let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
+        &mut txn,
+        &snapshot.host_snapshot.machine_id,
+        &dpu_snapshot.machine_id,
+    )
+    .await?;
 
     let mut vpc_vni = None;
 
@@ -258,13 +261,7 @@ pub(crate) async fn get_managed_host_network_config(
         }),
         vpc_vni: vpc_vni.map(|vni| vni as u32),
         enable_dhcp: api.runtime_config.dpu_dhcp_server_enabled,
-        host_interface_id: snapshot.host_snapshot.interfaces.iter().find_map(|x| {
-            if x.is_primary {
-                Some(x.id.to_string())
-            } else {
-                None
-            }
-        }),
+        host_interface_id: Some(host_interface_id.to_string()),
         min_dpu_functioning_links: api.runtime_config.min_dpu_functioning_links,
     };
 

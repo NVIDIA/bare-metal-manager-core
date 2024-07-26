@@ -165,7 +165,11 @@ async fn test_integration() -> eyre::Result<()> {
 
     machine::cleanup_completed(carbide_api_addr, &host_machine_id)?;
 
-    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Host/MachineValidating")?;
+    machine::wait_for_state(
+        carbide_api_addr,
+        &host_machine_id,
+        "HostInitializing/MachineValidating",
+    )?;
 
     machine::machine_validation_completed(carbide_api_addr, &host_machine_id)?;
 
@@ -320,12 +324,20 @@ async fn host_boostrap(carbide_api_addr: SocketAddr) -> eyre::Result<String> {
     // There are hard coded sleeps in carbide-api before this happens.
     machine::wait_for_state(carbide_api_addr, &host_machine_id, "WaitForDPUUp")?;
 
-    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Host/MachineValidating")?;
+    machine::wait_for_state(
+        carbide_api_addr,
+        &host_machine_id,
+        "HostInitializing/MachineValidating",
+    )?;
 
     machine_validation_completed(carbide_api_addr, &host_machine_id)?;
 
     // After DPU reboot forge_dpu_agent reports health to carbide-api, triggering state transition
-    machine::wait_for_state(carbide_api_addr, &host_machine_id, "Host/Discovered")?;
+    machine::wait_for_state(
+        carbide_api_addr,
+        &host_machine_id,
+        "HostInitializing/Discovered",
+    )?;
 
     grpcurl(
         carbide_api_addr,

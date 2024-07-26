@@ -197,7 +197,7 @@ pub async fn create_host_machine(
         handler.clone(),
         1,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
         },
     )
@@ -234,7 +234,7 @@ pub async fn create_host_machine(
         handler.clone(),
         2,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForLockdown {
                 lockdown_info: LockdownInfo {
                     state: LockdownState::WaitForDPUUp,
@@ -256,7 +256,7 @@ pub async fn create_host_machine(
         handler.clone(),
         3,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::MachineValidating {
                 context: "Discovery".to_string(),
                 id: uuid::Uuid::default(),
@@ -276,7 +276,7 @@ pub async fn create_host_machine(
         handler.clone(),
         3,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::Discovered,
         },
     )
@@ -335,7 +335,7 @@ pub async fn host_uefi_setup(
             handler.clone(),
             1,
             &mut txn,
-            ManagedHostState::HostNotReady {
+            ManagedHostState::HostInit {
                 machine_state: UefiSetup {
                     uefi_setup_info: UefiSetupInfo {
                         uefi_password_jid: None,
@@ -396,7 +396,7 @@ pub async fn create_host_with_machine_validation(
         handler.clone(),
         1,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForDiscovery,
         },
     )
@@ -433,7 +433,7 @@ pub async fn create_host_with_machine_validation(
         handler.clone(),
         2,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForLockdown {
                 lockdown_info: LockdownInfo {
                     state: LockdownState::WaitForDPUUp,
@@ -455,7 +455,7 @@ pub async fn create_host_with_machine_validation(
         handler.clone(),
         3,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::MachineValidating {
                 context: "Discovery".to_string(),
                 id: uuid::Uuid::default(),
@@ -504,7 +504,7 @@ pub async fn create_host_with_machine_validation(
             handler.clone(),
             3,
             &mut txn,
-            ManagedHostState::HostNotReady {
+            ManagedHostState::HostInit {
                 machine_state: MachineState::Discovered,
             },
         )

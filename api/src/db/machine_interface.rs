@@ -856,13 +856,13 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         segment_id: NetworkSegmentId,
-    ) -> Result<Self, DatabaseError> {
+    ) -> Result<Vec<Self>, DatabaseError> {
         let query =
             "SELECT * FROM machine_interfaces WHERE machine_id = $1 AND segment_id = $2::uuid";
         sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(segment_id)
-            .fetch_one(&mut **txn)
+            .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

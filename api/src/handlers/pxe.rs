@@ -146,7 +146,9 @@ pub(crate) async fn get_cloud_init_instructions(
                             .map_err(CarbideError::from)?;
 
                     if let Some(machine) = machine {
-                        if let Some(reprov_state) = machine.current_state().as_reprovision_state() {
+                        if let Some(reprov_state) =
+                            machine.current_state().as_reprovision_state(machine_id)
+                        {
                             matches!(reprov_state, ReprovisionState::FirmwareUpgrade,)
                         } else {
                             false

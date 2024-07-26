@@ -16,7 +16,7 @@ use carbide::db::machine::{Machine, MachineSearchConfig};
 use carbide::measured_boot::dto::records::MeasurementBundleState;
 use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
-use carbide::model::machine::{FailureDetails, MachineState, ManagedHostState};
+use carbide::model::machine::{DpuInitState, FailureDetails, MachineState, ManagedHostState};
 use carbide::state_controller::machine::handler::{
     handler_host_power_control, MachineStateHandler,
 };
@@ -24,6 +24,7 @@ use common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install
 use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
 use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::Action;
+use std::collections::HashMap;
 use tonic::Request;
 
 use crate::common::api_fixtures::{
@@ -425,7 +426,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     assert!(matches!(
         host.current_state(),
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForLockdown { .. },
         }
     ));
@@ -441,7 +442,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         handler.clone(),
         3,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::MachineValidating {
                 context: "Discovery".to_string(),
                 id: uuid::Uuid::default(),
@@ -461,7 +462,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         handler.clone(),
         3,
         &mut txn,
-        ManagedHostState::HostNotReady {
+        ManagedHostState::HostInit {
             machine_state: MachineState::Discovered,
         },
     )
@@ -592,12 +593,15 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
     txn.rollback().await.unwrap();
-    assert!(matches!(
-        host_machine.current_state(),
-        ManagedHostState::DPUNotReady {
-            machine_state: MachineState::WaitingForNetworkConfig
-        }
-    ));
+    let _expected_state = ManagedHostState::DPUInit {
+        dpu_states: carbide::model::machine::DpuInitStates {
+            states: HashMap::from([(
+                dpu_machine_id.clone(),
+                DpuInitState::WaitingForNetworkConfig,
+            )]),
+        },
+    };
+    assert!(matches!(host_machine.current_state(), _expected_state));
     assert!(
         matches!(
             host_machine.current_state_iteration_outcome(),

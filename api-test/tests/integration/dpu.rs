@@ -104,7 +104,7 @@ pub async fn bootstrap(
     wait_for_state(
         carbide_api_addr,
         &dpu_machine_id,
-        "DPU/WaitingForNetworkInstall",
+        "DPUInitializing/WaitingForNetworkInstall",
     )?;
 
     let firmware_version = get_firmware_version(carbide_api_addr, &dpu_machine_id)?;
@@ -118,7 +118,7 @@ pub async fn bootstrap(
     wait_for_state(
         carbide_api_addr,
         &dpu_machine_id,
-        "DPU/WaitingForNetworkConfig",
+        "DPUInitializing/WaitingForNetworkConfig",
     )?;
 
     let firmware_version = get_firmware_version(carbide_api_addr, &dpu_machine_id)?;
@@ -149,7 +149,7 @@ pub async fn bootstrap(
     wait_for_state(
         carbide_api_addr,
         &dpu_machine_id,
-        "Host/WaitingForDiscovery",
+        "HostInitializing/WaitingForDiscovery",
     )?;
     tracing::info!("DPU is up now.");
 

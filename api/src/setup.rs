@@ -29,6 +29,7 @@ use forge_secrets::{
 use opentelemetry::metrics::{Meter, Observer, Unit};
 use sqlx::{postgres::PgSslMode, ConnectOptions, PgPool};
 
+use crate::legacy;
 use crate::{
     api::Api,
     auth,
@@ -314,6 +315,11 @@ pub async fn start_api(
         carbide_config.initial_dpu_agent_upgrade_policy,
     )
     .await?;
+
+    // This can take couple of seconds to migrate, by this time machine state controller will throw
+    // error. Ignore it.
+    // This can be removed once all environments are updated to new states.
+    legacy::states::machine::start_migration(db_pool.clone()).await?;
 
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called

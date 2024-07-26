@@ -57,6 +57,7 @@ pub mod ib_fabric_monitor;
 pub mod instance;
 pub mod ipmitool;
 mod ipxe;
+pub mod legacy;
 mod listener;
 pub mod logging;
 pub mod machine_update_manager;
@@ -225,6 +226,9 @@ pub enum CarbideError {
 
     #[error("Unsupported firmware version: {0}")]
     UnsupportedFirmwareVersion(String),
+
+    #[error("DPU {0} is missing from host snapshot")]
+    MissingDpu(MachineId),
 
     #[error("Attestation Verify Quote Error: {0}")]
     AttestationVerifyQuoteError(String),

@@ -11,12 +11,13 @@
  */
 
 use std::net::SocketAddr;
-use std::{fmt::Display, net::Ipv4Addr};
+use std::{collections::HashMap, fmt::Display, net::Ipv4Addr};
 
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::HealthReport;
 use libredfish::SystemPowerControl;
+use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize};
 
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -28,7 +29,8 @@ use crate::cfg::FirmwareComponentType;
 use crate::db::domain::DomainId;
 use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::network_segment::NetworkSegmentId;
-use crate::model::hardware_info::HardwareInfo;
+use crate::state_controller::state_handler::StateHandlerError;
+use crate::{model::hardware_info::HardwareInfo, CarbideError};
 
 pub mod machine_id;
 pub mod network;
@@ -251,6 +253,21 @@ pub struct CurrentMachineState {
     pub version: ConfigVersion,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct DpuDiscoveringStates {
+    pub states: HashMap<MachineId, DpuDiscoveringState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct DpuInitStates {
+    pub states: HashMap<MachineId, DpuInitState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct DpuReprovisionStates {
+    pub states: HashMap<MachineId, ReprovisionState>,
+}
+
 /// Possible Machine state-machine implementation
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -259,25 +276,27 @@ pub struct CurrentMachineState {
 /// used to derive state for DPU and Host both.
 pub enum ManagedHostState {
     /// Dpu was discovered by a site-explorer and is being configuring via redfish.
-    DpuDiscoveringState {
-        discovering_state: DpuDiscoveringState,
-    },
+    DpuDiscoveringState { dpu_states: DpuDiscoveringStates },
     /// DPU is not yet ready.
-    DPUNotReady { machine_state: MachineState },
+    DPUInit { dpu_states: DpuInitStates },
     /// DPU is ready, Host is not yet Ready.
-    HostNotReady { machine_state: MachineState },
+    // We don't need dpu_states as DPU's machine state is always Ready here.
+    HostInit { machine_state: MachineState },
     /// Host is Ready for instance creation.
     Ready,
     /// Host is assigned to an Instance.
     Assigned { instance_state: InstanceState },
     /// Some cleanup is going on.
+    // This is host specific state. We expect DPU to be in Ready state.
     WaitingForCleanup { cleanup_state: CleanupState },
-    /// Intermediate state for machine to be created.
-    /// This state is not processed anywhere. Correct state is updated immediately.
-    Created,
+
     /// A forced deletion process has been triggered by the admin CLI
     /// State controller will no longer manage the Machine
     ForceDeletion,
+
+    /// A dummy state used to create DPU in beginning. State will sync to Init when host will be
+    /// created.
+    Created,
 
     /// Machine moved to failed state. Recovery will be based on FailedCause
     Failed {
@@ -288,22 +307,23 @@ pub enum ManagedHostState {
     },
 
     /// State used to indicate that DPU reprovisioning is going on.
-    DPUReprovision { reprovision_state: ReprovisionState },
+    DPUReprovision { dpu_states: DpuReprovisionStates },
 
     /// State used to indicate the API is currently waiting on the
     /// machine to send attestation measurements, or waiting for
     /// measurements to match a valid/approved measurement bundle,
     /// before continuing on towards a Ready state.
+    // This is host specific state. We expect DPU to be in Ready state.
     Measuring { measuring_state: MeasuringState },
 }
 
 impl ManagedHostState {
-    pub fn as_reprovision_state(&self) -> Option<&ReprovisionState> {
+    pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
         match self {
-            ManagedHostState::DPUReprovision { reprovision_state } => Some(reprovision_state),
+            ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.get(dpu_id),
             ManagedHostState::Assigned {
-                instance_state: InstanceState::DPUReprovision { reprovision_state },
-            } => Some(reprovision_state),
+                instance_state: InstanceState::DPUReprovision { dpu_states },
+            } => dpu_states.states.get(dpu_id),
             _ => None,
         }
     }
@@ -313,10 +333,60 @@ impl ManagedHostState {
 #[serde(rename_all = "lowercase")]
 pub enum ReprovisionState {
     FirmwareUpgrade,
+    WaitingForAllFirmwareUpgrade,
     PowerDown,
     BufferTime,
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
+}
+
+impl ReprovisionState {
+    pub fn next_state(
+        self,
+        current_state: &ManagedHostState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        match current_state {
+            ManagedHostState::DPUReprovision { dpu_states } => {
+                let mut states = dpu_states.states.clone();
+                let entry = states.entry(dpu_id.clone()).or_insert(self.clone());
+                *entry = self;
+
+                Ok(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates { states },
+                })
+            }
+
+            ManagedHostState::Assigned { instance_state } => match instance_state {
+                InstanceState::DPUReprovision { dpu_states } => {
+                    let mut states = dpu_states.states.clone();
+                    let entry = states.entry(dpu_id.clone()).or_insert(self.clone());
+                    *entry = self;
+
+                    Ok(ManagedHostState::Assigned {
+                        instance_state: InstanceState::DPUReprovision {
+                            dpu_states: DpuReprovisionStates { states },
+                        },
+                    })
+                }
+                InstanceState::BootingWithDiscoveryImage { retry: _ } => {
+                    Ok(ManagedHostState::Assigned {
+                        instance_state: InstanceState::DPUReprovision {
+                            dpu_states: DpuReprovisionStates {
+                                states: HashMap::from([(dpu_id.clone(), self.clone())]),
+                            },
+                        },
+                    })
+                }
+                _ => Err(StateHandlerError::InvalidState(
+                    "Invalid State passed to Reprovision::Assigned::next_state.".to_string(),
+                )),
+            },
+            _ => Err(StateHandlerError::InvalidState(
+                "Invalid State passed to Reprovision::next_state.".to_string(),
+            )),
+        }
+    }
 }
 
 /// MeasuringState contains states used for host attestion (or
@@ -399,6 +469,9 @@ pub enum BmcFirmwareUpdateSubstate {
         firmware_type: FirmwareComponentType,
         task_id: String,
     },
+    WaitingForAllUpdateCompletion {
+        firmware_type: FirmwareComponentType,
+    },
     HostPowerOff,
     Reboot {
         count: u32,
@@ -414,10 +487,66 @@ pub enum DpuDiscoveringState {
         substate: BmcFirmwareUpdateSubstate,
     },
     Configuring,
+    RebootAllDPUS,
     DisableSecureBoot {
         count: u32,
     },
     SetUefiHttpBoot,
+}
+
+impl DpuDiscoveringState {
+    pub fn next_state(
+        self,
+        current_state: &ManagedHostState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        match current_state {
+            ManagedHostState::DpuDiscoveringState { dpu_states } => {
+                let mut states = dpu_states.states.clone();
+                let entry = states.entry(dpu_id.clone()).or_insert(self.clone());
+                *entry = self;
+
+                Ok(ManagedHostState::DpuDiscoveringState {
+                    dpu_states: DpuDiscoveringStates { states },
+                })
+            }
+            _ => Err(StateHandlerError::InvalidState(
+                "Invalid State passed to DpuDiscoveringState::next_state.".to_string(),
+            )),
+        }
+    }
+
+    pub fn next_state_with_all_dpus_updated(
+        self,
+        current_state: &ManagedHostState,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        match current_state {
+            ManagedHostState::DpuDiscoveringState { dpu_states } => {
+                let states = dpu_states
+                    .states
+                    .keys()
+                    .map(|x| (x.clone(), self.clone()))
+                    .collect::<HashMap<MachineId, DpuDiscoveringState>>();
+
+                Ok(ManagedHostState::DpuDiscoveringState {
+                    dpu_states: DpuDiscoveringStates { states },
+                })
+            }
+            _ => Err(StateHandlerError::InvalidState(
+                "Invalid State passed to DpuDiscoveringState::next_state_all_dpu.".to_string(),
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "dpustate", rename_all = "lowercase")]
+pub enum DpuInitState {
+    Init,
+    WaitingForNetworkInstall,
+    WaitingForNetworkConfig,
+    WaitingForPlatformPowercycle { substate: PerformPowerOperation },
+    WaitingForPlatformConfiguration,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -432,11 +561,6 @@ pub enum PerformPowerOperation {
 pub enum MachineState {
     Init,
     WaitingForPlatformConfiguration,
-    WaitingForPlatformPowercycle {
-        substate: PerformPowerOperation,
-    },
-    WaitingForNetworkInstall,
-    WaitingForNetworkConfig,
     UefiSetup {
         uefi_setup_info: UefiSetupInfo,
     },
@@ -452,6 +576,63 @@ pub enum MachineState {
         completed: usize,
         total: usize,
     },
+}
+
+impl DpuInitState {
+    pub fn next_state(
+        self,
+        current_state: &ManagedHostState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        match current_state {
+            ManagedHostState::DPUInit { dpu_states } => {
+                let mut states = dpu_states.states.clone();
+                let entry = states.entry(dpu_id.clone()).or_insert(self.clone());
+                *entry = self;
+
+                Ok(ManagedHostState::DPUInit {
+                    dpu_states: DpuInitStates { states },
+                })
+            }
+
+            _ => Err(StateHandlerError::InvalidState(
+                "Invalid State passed to DpuNotReady::next_state.".to_string(),
+            )),
+        }
+    }
+
+    pub fn next_state_with_all_dpus_updated(
+        self,
+        current_state: &ManagedHostState,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        match current_state {
+            ManagedHostState::DPUInit { dpu_states } => {
+                let states = dpu_states
+                    .states
+                    .keys()
+                    .map(|x| (x.clone(), self.clone()))
+                    .collect::<HashMap<MachineId, DpuInitState>>();
+
+                Ok(ManagedHostState::DPUInit {
+                    dpu_states: DpuInitStates { states },
+                })
+            }
+            ManagedHostState::DpuDiscoveringState { dpu_states } => {
+                // All DPUs must be moved to same DPUInit state.
+                let states = dpu_states
+                    .states
+                    .keys()
+                    .map(|x| (x.clone(), DpuInitState::Init))
+                    .collect::<HashMap<MachineId, DpuInitState>>();
+                Ok(ManagedHostState::DPUInit {
+                    dpu_states: DpuInitStates { states },
+                })
+            }
+            _ => Err(StateHandlerError::InvalidState(
+                "Invalid State passed to DpuNotReady::next_state_all_dpu.".to_string(),
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -525,7 +706,7 @@ pub enum InstanceState {
     SwitchToAdminNetwork,
     WaitingForNetworkReconfig,
     DPUReprovision {
-        reprovision_state: ReprovisionState,
+        dpu_states: DpuReprovisionStates,
     },
 }
 
@@ -564,6 +745,12 @@ impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateStatus {
 }
 
 impl Display for DpuDiscoveringState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Display for DpuInitState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
@@ -637,29 +824,80 @@ impl Display for MeasuringState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ManagedHostState::DpuDiscoveringState { discovering_state } => {
-                write!(f, "DPUDiscovering/{}", discovering_state)
+            ManagedHostState::DpuDiscoveringState { .. } => {
+                write!(f, "DPUDiscovering")
             }
-            ManagedHostState::DPUNotReady { machine_state } => write!(f, "DPU/{}", machine_state),
-            ManagedHostState::HostNotReady { machine_state } => write!(f, "Host/{}", machine_state),
+            ManagedHostState::DPUInit { .. } => write!(f, "DPUInitializing"),
+            ManagedHostState::HostInit { machine_state } => {
+                write!(f, "HostInitializing/{}", machine_state)
+            }
             ManagedHostState::Ready => write!(f, "Ready"),
-            ManagedHostState::Assigned { instance_state } => {
+            ManagedHostState::Assigned { instance_state, .. } => {
                 write!(f, "Assigned/{}", instance_state)
             }
             ManagedHostState::WaitingForCleanup { cleanup_state } => {
                 write!(f, "WaitingForCleanup/{}", cleanup_state)
             }
             ManagedHostState::ForceDeletion => write!(f, "ForceDeletion"),
-            ManagedHostState::Created => write!(f, "Created"),
             ManagedHostState::Failed { details, .. } => {
                 write!(f, "Failed/{}", details.cause)
             }
-            ManagedHostState::DPUReprovision { reprovision_state } => {
-                write!(f, "Reprovisioning/{}", reprovision_state)
+            ManagedHostState::DPUReprovision { .. } => {
+                write!(f, "Reprovisioning")
             }
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{}", measuring_state)
             }
+            ManagedHostState::Created => write!(f, "Created"),
+        }
+    }
+}
+
+impl ManagedHostState {
+    pub fn dpu_state_string(&self, dpu_id: &MachineId) -> String {
+        match self {
+            ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
+                .states
+                .get(dpu_id)
+                .map(|x| x.to_string())
+                .unwrap_or("Unknown DPU".to_string()),
+            ManagedHostState::DPUInit { dpu_states } => format!(
+                "DPUInitializing/{}",
+                dpu_states
+                    .states
+                    .get(dpu_id)
+                    .map(|x| x.to_string())
+                    .unwrap_or("Unknown DPU".to_string())
+            ),
+            ManagedHostState::HostInit { machine_state } => {
+                format!("HostInitializing/{}", machine_state)
+            }
+            ManagedHostState::Ready => "Ready".to_string(),
+            ManagedHostState::Assigned { instance_state } => {
+                // TODO: multidpu: add DPU state if state is reprov.
+                format!("Assigned/{}", instance_state)
+            }
+            ManagedHostState::WaitingForCleanup { cleanup_state } => {
+                format!("WaitingForCleanup/{}", cleanup_state)
+            }
+            ManagedHostState::ForceDeletion => "ForceDeletion".to_string(),
+            ManagedHostState::Failed { details, .. } => {
+                format!("Failed/{}", details.cause)
+            }
+            ManagedHostState::DPUReprovision { dpu_states } => {
+                format!(
+                    "Reprovisioning/{}",
+                    dpu_states
+                        .states
+                        .get(dpu_id)
+                        .map(|x| x.to_string())
+                        .unwrap_or("Unknown DPU".to_string())
+                )
+            }
+            ManagedHostState::Measuring { measuring_state } => {
+                format!("Measuring/{}", measuring_state)
+            }
+            ManagedHostState::Created => "Created".to_string(),
         }
     }
 }
@@ -683,63 +921,167 @@ pub struct InstanceNextStateResolver;
 pub struct MachineNextStateResolver;
 
 pub trait NextReprovisionState {
-    fn next_state(&self, current_state: &ReprovisionState) -> ManagedHostState;
+    fn next_state(
+        &self,
+        current_state: &ManagedHostState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError>;
 }
 
 impl NextReprovisionState for MachineNextStateResolver {
-    fn next_state(&self, current_state: &ReprovisionState) -> ManagedHostState {
-        match current_state {
-            ReprovisionState::FirmwareUpgrade => ManagedHostState::DPUReprovision {
-                reprovision_state: ReprovisionState::PowerDown,
-            },
-            ReprovisionState::PowerDown => ManagedHostState::DPUReprovision {
-                reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-            },
-            ReprovisionState::WaitingForNetworkInstall => ManagedHostState::DPUReprovision {
-                reprovision_state: ReprovisionState::BufferTime,
-            },
-            ReprovisionState::BufferTime => ManagedHostState::DPUReprovision {
-                reprovision_state: ReprovisionState::WaitingForNetworkConfig,
-            },
-            ReprovisionState::WaitingForNetworkConfig => ManagedHostState::HostNotReady {
+    fn next_state(
+        &self,
+        current_state: &ManagedHostState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        let reprovision_state = current_state
+            .as_reprovision_state(dpu_id)
+            .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_id.clone()))?;
+
+        match reprovision_state {
+            ReprovisionState::FirmwareUpgrade => {
+                ReprovisionState::PowerDown.next_state(current_state, dpu_id)
+            }
+            ReprovisionState::PowerDown => {
+                ReprovisionState::WaitingForNetworkInstall.next_state(current_state, dpu_id)
+            }
+            ReprovisionState::WaitingForNetworkInstall => {
+                ReprovisionState::BufferTime.next_state(current_state, dpu_id)
+            }
+            ReprovisionState::BufferTime => {
+                ReprovisionState::WaitingForNetworkConfig.next_state(current_state, dpu_id)
+            }
+            ReprovisionState::WaitingForNetworkConfig => Ok(ManagedHostState::HostInit {
                 machine_state: MachineState::Discovered,
-            },
+            }),
+            ReprovisionState::WaitingForAllFirmwareUpgrade => todo!(),
         }
     }
 }
 
 impl NextReprovisionState for InstanceNextStateResolver {
-    fn next_state(&self, current_state: &ReprovisionState) -> ManagedHostState {
-        match current_state {
-            ReprovisionState::FirmwareUpgrade => ManagedHostState::Assigned {
-                instance_state: InstanceState::DPUReprovision {
-                    reprovision_state: ReprovisionState::PowerDown,
-                },
-            },
-            ReprovisionState::PowerDown => ManagedHostState::Assigned {
-                instance_state: InstanceState::DPUReprovision {
-                    reprovision_state: ReprovisionState::WaitingForNetworkInstall,
-                },
-            },
-            ReprovisionState::WaitingForNetworkInstall => ManagedHostState::Assigned {
-                instance_state: InstanceState::DPUReprovision {
-                    reprovision_state: ReprovisionState::BufferTime,
-                },
-            },
-            ReprovisionState::BufferTime => ManagedHostState::Assigned {
-                instance_state: InstanceState::DPUReprovision {
-                    reprovision_state: ReprovisionState::WaitingForNetworkConfig,
-                },
-            },
-            ReprovisionState::WaitingForNetworkConfig => ManagedHostState::Assigned {
+    fn next_state(
+        &self,
+        current_state: &ManagedHostState,
+        dpu_id: &MachineId,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        let reprovision_state = current_state
+            .as_reprovision_state(dpu_id)
+            .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_id.clone()))?;
+
+        match reprovision_state {
+            ReprovisionState::FirmwareUpgrade => {
+                ReprovisionState::PowerDown.next_state(current_state, dpu_id)
+            }
+            ReprovisionState::PowerDown => {
+                ReprovisionState::WaitingForNetworkInstall.next_state(current_state, dpu_id)
+            }
+            ReprovisionState::WaitingForNetworkInstall => {
+                ReprovisionState::BufferTime.next_state(current_state, dpu_id)
+            }
+            ReprovisionState::BufferTime => {
+                ReprovisionState::WaitingForNetworkConfig.next_state(current_state, dpu_id)
+            }
+            ReprovisionState::WaitingForNetworkConfig => Ok(ManagedHostState::Assigned {
                 instance_state: InstanceState::Ready,
-            },
+            }),
+            ReprovisionState::WaitingForAllFirmwareUpgrade => todo!(),
+        }
+    }
+}
+
+pub fn get_action_for_dpu_state(
+    state: &ManagedHostState,
+    dpu_machine_id: &MachineId,
+) -> Result<(Action, Option<ForgeAgentControlExtraInfo>), CarbideError> {
+    Ok(match state {
+        ManagedHostState::DPUReprovision { .. }
+        | ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision { .. },
+        } => {
+            let dpu_state = state
+                .as_reprovision_state(dpu_machine_id)
+                .ok_or_else(|| CarbideError::MissingDpu(dpu_machine_id.clone()))?;
+            match dpu_state {
+                ReprovisionState::BufferTime => (Action::Retry, None),
+                ReprovisionState::WaitingForNetworkInstall => (Action::Discovery, None),
+                _ => {
+                    tracing::info!(
+                        dpu_machine_id = %dpu_machine_id,
+                        machine_type = "DPU",
+                        %state,
+                        "forge agent control",
+                    );
+                    (Action::Noop, None)
+                }
+            }
+        }
+        ManagedHostState::DPUInit { dpu_states } => {
+            let dpu_state = dpu_states
+                .states
+                .get(dpu_machine_id)
+                .ok_or_else(|| CarbideError::MissingDpu(dpu_machine_id.clone()))?;
+
+            match dpu_state {
+                DpuInitState::Init => (Action::Discovery, None),
+                _ => {
+                    tracing::info!(
+                        dpu_machine_id = %dpu_machine_id,
+                        machine_type = "DPU",
+                        %state,
+                        "forge agent control",
+                    );
+                    (Action::Noop, None)
+                }
+            }
+        }
+        _ => {
+            // Later this might go to site admin dashboard for manual intervention
+            tracing::info!(
+                dpu_machine_id = %dpu_machine_id,
+                machine_type = "DPU",
+                %state,
+                "forge agent control",
+            );
+            (Action::Noop, None)
+        }
+    })
+}
+
+fn all_equal<A>(states: &[A]) -> Result<bool, StateHandlerError>
+where
+    A: PartialEq,
+{
+    let Some(first) = states.first() else {
+        return Err(StateHandlerError::MissingData {
+            object_id: "NA".to_string(),
+            missing: "DPU states.",
+        });
+    };
+
+    Ok(states.iter().all(|x| x == first))
+}
+
+impl ManagedHostState {
+    pub fn all_dpu_states_in_sync(&self) -> Result<bool, StateHandlerError> {
+        match self {
+            // Don't now why but if I use itertools::Itertools in header, EnumIter creates problem.
+            ManagedHostState::DpuDiscoveringState { dpu_states } => all_equal(
+                &itertools::Itertools::collect_vec(dpu_states.states.values()),
+            ),
+            ManagedHostState::DPUInit { dpu_states } => all_equal(
+                &itertools::Itertools::collect_vec(dpu_states.states.values()),
+            ),
+            // TODO: multidpu: reprovision state handling.
+            _ => Ok(true),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -771,27 +1113,43 @@ mod tests {
 
     #[test]
     fn test_json_deserialize_reprovisioning_state() {
-        let serialized = r#"{"state":"dpureprovision","reprovision_state":"firmwareupgrade"}"#;
+        let serialized = r#"{"state":"dpureprovision","dpu_states":{"states":{"fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng":"firmwareupgrade"}}}"#;
         let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
-
         assert_eq!(
             deserialized,
             ManagedHostState::DPUReprovision {
-                reprovision_state: ReprovisionState::FirmwareUpgrade
+                dpu_states: DpuReprovisionStates {
+                    states: HashMap::from([(
+                        MachineId::from_str(
+                            "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng"
+                        )
+                        .unwrap(),
+                        ReprovisionState::FirmwareUpgrade
+                    )])
+                }
             }
         );
     }
 
     #[test]
     fn test_json_deserialize_reprovisioning_state_for_instance() {
-        let serialized = r#"{"state":"assigned","instance_state":{"state":"dpureprovision","reprovision_state":"firmwareupgrade"}}"#;
+        let serialized = r#"{"state":"assigned","instance_state":{"state":"dpureprovision","dpu_states":{"states":{"fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng":"firmwareupgrade"}}}}"#;
+
         let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
 
         assert_eq!(
             deserialized,
             ManagedHostState::Assigned {
                 instance_state: InstanceState::DPUReprovision {
-                    reprovision_state: ReprovisionState::FirmwareUpgrade,
+                    dpu_states: DpuReprovisionStates {
+                        states: HashMap::from([(
+                            MachineId::from_str(
+                                "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng"
+                            )
+                            .unwrap(),
+                            ReprovisionState::FirmwareUpgrade
+                        )])
+                    }
                 },
             }
         );

@@ -13,6 +13,7 @@
 //! State Handler implementation for Machines
 
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     task::Poll,
 };
@@ -31,8 +32,9 @@ use crate::{
         get_display_ids,
         machine_id::MachineId,
         network::HealthStatus,
-        BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, FailureCause, FailureDetails,
-        FailureSource, InstanceNextStateResolver, InstanceState, LockdownInfo,
+        BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, DpuInitState,
+        DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
+        InstanceNextStateResolver, InstanceState, LockdownInfo,
         LockdownMode::{self, Enable},
         LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver, MachineSnapshot,
         MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
@@ -55,6 +57,7 @@ use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use eyre::eyre;
 use futures::TryFutureExt;
+use itertools::Itertools;
 use libredfish::{
     model::task::{Task, TaskState},
     Boot, PowerState, Redfish, SystemPowerControl,
@@ -279,17 +282,34 @@ impl MachineStateHandler {
 
         match &managed_state {
             ManagedHostState::DpuDiscoveringState { .. } => {
-                self.dpu_handler
-                    .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
-                    .await
+                let mut state_handler_outcome = StateHandlerOutcome::DoNothing;
+
+                for dpu_snapshot in &state.dpu_snapshots.clone() {
+                    state_handler_outcome = self
+                        .dpu_handler
+                        .handle_dpu_discovering_state(
+                            state,
+                            dpu_snapshot,
+                            controller_state,
+                            txn,
+                            ctx,
+                        )
+                        .await?;
+
+                    if let StateHandlerOutcome::Transition(..) = state_handler_outcome {
+                        return Ok(state_handler_outcome);
+                    }
+                }
+
+                Ok(state_handler_outcome)
             }
-            ManagedHostState::DPUNotReady { .. } => {
+            ManagedHostState::DPUInit { .. } => {
                 self.dpu_handler
                     .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
                     .await
             }
 
-            ManagedHostState::HostNotReady { .. } => {
+            ManagedHostState::HostInit { .. } => {
                 self.host_handler
                     .handle_object_state(host_machine_id, state, controller_state, txn, ctx)
                     .await
@@ -307,12 +327,18 @@ impl MachineStateHandler {
                         txn,
                     )
                     .await?;
+                    let reprov_state = if reprovisioning_requested.update_firmware {
+                        ReprovisionState::FirmwareUpgrade
+                    } else {
+                        set_managed_host_topology_update_needed(txn, state).await?;
+                        ReprovisionState::WaitingForNetworkInstall
+                    };
                     let next_state = ManagedHostState::DPUReprovision {
-                        reprovision_state: if reprovisioning_requested.update_firmware {
-                            ReprovisionState::FirmwareUpgrade
-                        } else {
-                            set_managed_host_topology_update_needed(txn, state).await?;
-                            ReprovisionState::WaitingForNetworkInstall
+                        dpu_states: DpuReprovisionStates {
+                            states: HashMap::from([(
+                                state.dpu_snapshots[0].machine_id.clone(),
+                                reprov_state,
+                            )]),
                         },
                     };
                     return Ok(StateHandlerOutcome::Transition(next_state));
@@ -398,7 +424,7 @@ impl MachineStateHandler {
                         )
                         .await?;
                         // Link to machine
-                        let next_state = ManagedHostState::HostNotReady {
+                        let next_state = ManagedHostState::HostInit {
                             machine_state: MachineState::MachineValidating {
                                 context: "Cleanup".to_string(),
                                 id: validation_id,
@@ -591,9 +617,8 @@ impl MachineStateHandler {
                     }
                 }
             }
-            ManagedHostState::DPUReprovision { reprovision_state } => {
+            ManagedHostState::DPUReprovision { .. } => {
                 if let Some(next_state) = handle_dpu_reprovision(
-                    reprovision_state,
                     state,
                     &self.reachability_params,
                     ctx.services,
@@ -643,6 +668,7 @@ impl MachineStateHandler {
         reprov_request: &ReprovisionRequest,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let mut next_state = None;
+        let dpu_machine_id = &state.dpu_snapshots[0].machine_id.clone();
         match managed_state {
             ManagedHostState::Assigned {
                 instance_state: InstanceState::DPUReprovision { .. },
@@ -660,31 +686,28 @@ impl MachineStateHandler {
                     tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
                 }
 
-                next_state = Some(ManagedHostState::Assigned {
-                    instance_state: InstanceState::DPUReprovision {
-                        // FIXME: if reprov initiated by admincli, ignore the feature flag.
-                        reprovision_state: if reprov_request.update_firmware
-                            && self
-                                .instance_handler
-                                .dpu_nic_firmware_reprovision_update_enabled
-                        {
-                            ReprovisionState::FirmwareUpgrade
-                        } else {
-                            set_managed_host_topology_update_needed(txn, state).await?;
-                            ReprovisionState::WaitingForNetworkInstall
-                        },
-                    },
-                });
+                let next_reprov_state = if reprov_request.update_firmware
+                    && self
+                        .instance_handler
+                        .dpu_nic_firmware_reprovision_update_enabled
+                {
+                    ReprovisionState::FirmwareUpgrade
+                } else {
+                    set_managed_host_topology_update_needed(txn, state).await?;
+                    ReprovisionState::WaitingForNetworkInstall
+                };
+                next_state =
+                    Some(next_reprov_state.next_state(&state.managed_state, dpu_machine_id)?);
             }
             ManagedHostState::DPUReprovision { .. } => {
-                next_state = Some(ManagedHostState::DPUReprovision {
-                    reprovision_state: if reprov_request.update_firmware {
-                        ReprovisionState::FirmwareUpgrade
-                    } else {
-                        set_managed_host_topology_update_needed(txn, state).await?;
-                        ReprovisionState::WaitingForNetworkInstall
-                    },
-                });
+                let next_reprov_state = if reprov_request.update_firmware {
+                    ReprovisionState::FirmwareUpgrade
+                } else {
+                    set_managed_host_topology_update_needed(txn, state).await?;
+                    ReprovisionState::WaitingForNetworkInstall
+                };
+                next_state =
+                    Some(next_reprov_state.next_state(&state.managed_state, dpu_machine_id)?);
             }
             _ => {}
         };
@@ -1060,7 +1083,6 @@ async fn get_measurement_failure_cause(
 
 /// Handle workflow of DPU reprovision
 async fn handle_dpu_reprovision(
-    reprovision_state: &ReprovisionState,
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
@@ -1068,6 +1090,12 @@ async fn handle_dpu_reprovision(
     next_state_resolver: &impl NextReprovisionState,
 ) -> Result<Option<ManagedHostState>, StateHandlerError> {
     // TODO: multidpu: Check for all DPUs
+    let dpu_machine_id = &state.dpu_snapshots[0].machine_id.clone();
+    let reprovision_state = state
+        .managed_state
+        .as_reprovision_state(dpu_machine_id)
+        .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_machine_id.clone()))?;
+
     match reprovision_state {
         ReprovisionState::FirmwareUpgrade => {
             // Firmware upgrade is going on.
@@ -1086,7 +1114,9 @@ async fn handle_dpu_reprovision(
 
             handler_host_power_control(state, services, SystemPowerControl::ForceOff, txn).await?;
             set_managed_host_topology_update_needed(txn, state).await?;
-            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+            Ok(Some(
+                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
+            ))
         }
         ReprovisionState::PowerDown => {
             let basetime = state
@@ -1120,17 +1150,23 @@ async fn handle_dpu_reprovision(
                 return Ok(None);
             }
             handler_host_power_control(state, services, SystemPowerControl::On, txn).await?;
-            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+            Ok(Some(
+                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
+            ))
         }
         ReprovisionState::WaitingForNetworkInstall => {
-            if (try_wait_for_dpu_discovery_and_reboot(state, reachability_params, services, txn)
-                .await?)
+            if (try_wait_for_dpu_discovery(state, reachability_params, services, txn).await?)
                 .is_pending()
             {
                 return Ok(None);
             }
 
-            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+            for dpu_snapshot in &state.dpu_snapshots {
+                handler_restart_dpu(dpu_snapshot, services, txn).await?;
+            }
+            Ok(Some(
+                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
+            ))
         }
         ReprovisionState::BufferTime => {
             // This state just waits for some time to avoid race condition where
@@ -1143,7 +1179,9 @@ async fn handle_dpu_reprovision(
             ) {
                 return Ok(None);
             }
-            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+            Ok(Some(
+                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
+            ))
         }
         ReprovisionState::WaitingForNetworkConfig => {
             if !is_dpu_up_and_network_ready(state) {
@@ -1162,13 +1200,16 @@ async fn handle_dpu_reprovision(
 
             // We need to wait for the host to reboot and submit it's new Hardware information in
             // case of Ready.
-            Ok(Some(next_state_resolver.next_state(reprovision_state)))
+            Ok(Some(
+                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
+            ))
         }
+        ReprovisionState::WaitingForAllFirmwareUpgrade => todo!(),
     }
 }
 
 /// This function waits for DPU to finish discovery and reboots it.
-async fn try_wait_for_dpu_discovery_and_reboot(
+async fn try_wait_for_dpu_discovery(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
@@ -1177,25 +1218,24 @@ async fn try_wait_for_dpu_discovery_and_reboot(
     // We are waiting for the `DiscoveryCompleted` RPC call to update the
     // `last_discovery_time` timestamp.
     // This indicates that all forge-scout actions have succeeded.
-    // TODO: multidpu: Check for all DPUs
-    if !discovered_after_state_transition(
-        state.dpu_snapshots[0].current.version,
-        state.dpu_snapshots[0].last_discovery_time,
-    ) {
-        let _status = trigger_reboot_if_needed(
-            &state.dpu_snapshots[0],
-            state,
-            None,
-            reachability_params,
-            services,
-            txn,
-        )
-        .await?;
-        // TODO propagate the status.status message to a StateHandlerOutcome::Wait
-        return Ok(Poll::Pending);
+    for dpu_snapshot in &state.dpu_snapshots {
+        if !discovered_after_state_transition(
+            dpu_snapshot.current.version,
+            dpu_snapshot.last_discovery_time,
+        ) {
+            let _status = trigger_reboot_if_needed(
+                dpu_snapshot,
+                state,
+                None,
+                reachability_params,
+                services,
+                txn,
+            )
+            .await?;
+            // TODO propagate the status.status message to a StateHandlerOutcome::Wait
+            return Ok(Poll::Pending);
+        }
     }
-
-    handler_restart_dpu(&state.dpu_snapshots[0], services, txn).await?;
 
     Ok(Poll::Ready(()))
 }
@@ -1255,9 +1295,8 @@ impl DpuMachineStateHandler {
     }
 
     /// Return `DpuModel` if the explored endpoint is a DPU
-    pub fn identify_dpu(&self, state: &mut ManagedHostStateSnapshot) -> DpuModel {
-        // TODO: multidpu: Check for all DPUs
-        let model = state.dpu_snapshots[0]
+    pub fn identify_dpu(&self, dpu_snapshot: &MachineSnapshot) -> DpuModel {
+        let model = dpu_snapshot
             .hardware_info
             .as_ref()
             .and_then(|hi| {
@@ -1456,37 +1495,39 @@ impl DpuMachineStateHandler {
     }
 }
 
-#[async_trait::async_trait]
-impl StateHandler for DpuMachineStateHandler {
-    type State = ManagedHostStateSnapshot;
-    type ControllerState = ManagedHostState;
-    type ObjectId = MachineId;
-    type ContextObjects = MachineStateHandlerContextObjects;
-
-    async fn handle_object_state(
+impl DpuMachineStateHandler {
+    async fn handle_dpu_discovering_state(
         &self,
-        host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
-        txn: &mut sqlx::Transaction<sqlx::Postgres>,
-        ctx: &mut StateHandlerContext<Self::ContextObjects>,
+        dpu_snapshot: &MachineSnapshot,
+        _controller_state: &mut ControllerStateReader<'_, ManagedHostState>,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        // TODO: multidpu: Check for all DPUs
-        let dpu_machine_id = &state.dpu_snapshots[0].machine_id.clone();
-        match &state.managed_state {
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state: DpuDiscoveringState::Initializing,
-            } => {
-                let next_state = ManagedHostState::DpuDiscoveringState {
-                    discovering_state: DpuDiscoveringState::Configuring,
-                };
+        let dpu_machine_id = &dpu_snapshot.machine_id.clone();
+        let (dpu_states, current_dpu_state) = match &state.managed_state {
+            ManagedHostState::DpuDiscoveringState { dpu_states } => (
+                dpu_states.states.values().collect_vec(),
+                dpu_states.states.get(dpu_machine_id).ok_or_else(|| {
+                    StateHandlerError::MissingDpuFromState(dpu_machine_id.clone())
+                })?,
+            ),
+            _ => {
+                return Err(StateHandlerError::InvalidState(
+                    "Unexpected state.".to_string(),
+                ));
+            }
+        };
+
+        match current_dpu_state {
+            DpuDiscoveringState::Initializing => {
+                let next_state = DpuDiscoveringState::Configuring
+                    .next_state(&state.managed_state, dpu_machine_id)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state:
-                    DpuDiscoveringState::BmcFirmwareUpdate {
-                        substate: BmcFirmwareUpdateSubstate::HostPowerOff,
-                    },
+
+            DpuDiscoveringState::BmcFirmwareUpdate {
+                substate: BmcFirmwareUpdateSubstate::HostPowerOff,
             } => {
                 let host_client = build_redfish_client_from_bmc_ip(
                     state.host_snapshot.bmc_addr(),
@@ -1502,18 +1543,17 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 })? {
                     PowerState::Off => {
-                        host_client
-                            .power(SystemPowerControl::On)
-                            .await
-                            .map_err(|e| StateHandlerError::RedfishError {
-                                operation: "host_power_on",
-                                error: e,
-                            })?;
-                        let next_state = ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
-                            },
-                        };
+                        handler_host_power_control(
+                            state,
+                            ctx.services,
+                            SystemPowerControl::On,
+                            txn,
+                        )
+                        .await?;
+                        let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
+                            substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
+                        }
+                        .next_state_with_all_dpus_updated(&state.managed_state)?;
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                     _ => Ok(StateHandlerOutcome::Wait(format!(
@@ -1522,18 +1562,78 @@ impl StateHandler for DpuMachineStateHandler {
                     ))),
                 }
             }
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state:
-                    DpuDiscoveringState::BmcFirmwareUpdate {
+            DpuDiscoveringState::BmcFirmwareUpdate {
+                substate:
+                    BmcFirmwareUpdateSubstate::WaitingForAllUpdateCompletion { firmware_type: _ },
+            } => {
+                // Wait until all DPU reaches into WaitingForAllUpdateCompletion state.
+                if !state.managed_state.all_dpu_states_in_sync()? {
+                    return Ok(StateHandlerOutcome::Wait(
+                        "All dpus are not in WaitingForAllUpdateCompletion state.".to_string(),
+                    ));
+                }
+
+                let mut cec_updated = false;
+                for dpu_state in dpu_states {
+                    if let DpuDiscoveringState::BmcFirmwareUpdate {
                         substate:
-                            BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                firmware_type,
-                                task_id,
-                            },
+                            BmcFirmwareUpdateSubstate::WaitingForAllUpdateCompletion { firmware_type },
+                    } = dpu_state
+                    {
+                        if *firmware_type == FirmwareComponentType::Cec {
+                            cec_updated = true;
+                            break;
+                        }
+                    }
+                }
+
+                if cec_updated {
+                    // For Cec firmware update need also to reboot a host
+                    handler_host_power_control(
+                        state,
+                        ctx.services,
+                        SystemPowerControl::ForceOff,
+                        txn,
+                    )
+                    .await?;
+
+                    let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
+                        substate: BmcFirmwareUpdateSubstate::HostPowerOff,
+                    }
+                    .next_state_with_all_dpus_updated(&state.managed_state)?;
+                    return Ok(StateHandlerOutcome::Transition(next_state));
+                }
+
+                for dpu_snapshot in &state.dpu_snapshots {
+                    let dpu_redfish_client = build_redfish_client_from_bmc_ip(
+                        dpu_snapshot.bmc_addr(),
+                        &ctx.services.redfish_client_pool,
+                        txn,
+                    )
+                    .await?;
+
+                    dpu_redfish_client.bmc_reset().await.map_err(|e| {
+                        StateHandlerError::RedfishError {
+                            operation: "bmc_reset",
+                            error: e,
+                        }
+                    })?;
+                }
+                let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
+                    substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
+                }
+                .next_state_with_all_dpus_updated(&state.managed_state)?;
+                Ok(StateHandlerOutcome::Transition(next_state))
+            }
+            DpuDiscoveringState::BmcFirmwareUpdate {
+                substate:
+                    BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                        firmware_type,
+                        task_id,
                     },
             } => {
                 let dpu_redfish_client = build_redfish_client_from_bmc_ip(
-                    state.dpu_snapshots[0].bmc_addr(),
+                    dpu_snapshot.bmc_addr(),
                     &ctx.services.redfish_client_pool,
                     txn,
                 )
@@ -1550,42 +1650,12 @@ impl StateHandler for DpuMachineStateHandler {
 
                 match task.task_state {
                     Some(TaskState::Completed) => {
-                        if *firmware_type == FirmwareComponentType::Cec {
-                            // For Cec firmware update need also to reboot a host
-
-                            let host_redfish_client = build_redfish_client_from_bmc_ip(
-                                state.host_snapshot.bmc_addr(),
-                                &ctx.services.redfish_client_pool,
-                                txn,
-                            )
-                            .await?;
-
-                            host_redfish_client
-                                .power(SystemPowerControl::ForceOff)
-                                .await
-                                .map_err(|e| StateHandlerError::RedfishError {
-                                    operation: "host_power_off",
-                                    error: e,
-                                })?;
-                            let next_state = ManagedHostState::DpuDiscoveringState {
-                                discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                    substate: BmcFirmwareUpdateSubstate::HostPowerOff,
-                                },
-                            };
-                            return Ok(StateHandlerOutcome::Transition(next_state));
-                        }
-
-                        dpu_redfish_client.bmc_reset().await.map_err(|e| {
-                            StateHandlerError::RedfishError {
-                                operation: "bmc_reset",
-                                error: e,
-                            }
-                        })?;
-                        let next_state = ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                substate: BmcFirmwareUpdateSubstate::Reboot { count: 0 },
+                        let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
+                            substate: BmcFirmwareUpdateSubstate::WaitingForAllUpdateCompletion {
+                                firmware_type: *firmware_type,
                             },
-                        };
+                        }
+                        .next_state(&state.managed_state, dpu_machine_id)?;
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                     Some(TaskState::Exception) => {
@@ -1608,40 +1678,33 @@ impl StateHandler for DpuMachineStateHandler {
                     ))),
                 }
             }
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state:
-                    DpuDiscoveringState::BmcFirmwareUpdate {
-                        substate: BmcFirmwareUpdateSubstate::Reboot { count },
-                    },
+            DpuDiscoveringState::BmcFirmwareUpdate {
+                substate: BmcFirmwareUpdateSubstate::Reboot { count },
             } => {
                 match build_redfish_client_from_bmc_ip(
-                    state.dpu_snapshots[0].bmc_addr(),
+                    dpu_snapshot.bmc_addr(),
                     &ctx.services.redfish_client_pool,
                     txn,
                 )
                 .await
                 {
                     Ok(_client) => {
-                        let next_state = ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::Configuring {},
-                        };
+                        let next_state = DpuDiscoveringState::Configuring
+                            .next_state(&state.managed_state, dpu_machine_id)?;
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                     Err(_e) => {
-                        let next_state = ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                substate: BmcFirmwareUpdateSubstate::Reboot { count: count + 1 },
-                            },
-                        };
+                        let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
+                            substate: BmcFirmwareUpdateSubstate::Reboot { count: count + 1 },
+                        }
+                        .next_state(&state.managed_state, dpu_machine_id)?;
                         Ok(StateHandlerOutcome::Transition(next_state))
                     }
                 }
             }
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state: DpuDiscoveringState::Configuring,
-            } => {
+            DpuDiscoveringState::Configuring => {
                 let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
-                    state.dpu_snapshots[0].bmc_addr(),
+                    dpu_snapshot.bmc_addr(),
                     &ctx.services.redfish_client_pool,
                     txn,
                 )
@@ -1657,7 +1720,7 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 };
 
-                let model = self.identify_dpu(state);
+                let model = self.identify_dpu(dpu_snapshot);
                 if let Some(dpu_desc) = self.hardware_models.find(
                     state.dpu_snapshots[0]
                         .bmc_info
@@ -1688,15 +1751,14 @@ impl StateHandler for DpuMachineStateHandler {
                                     )
                                     .await?;
                                 if task.is_some() {
-                                    let next_state = ManagedHostState::DpuDiscoveringState {
-                                        discovering_state: DpuDiscoveringState::BmcFirmwareUpdate {
-                                            substate:
-                                                BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
-                                                    firmware_type: dpu_component,
-                                                    task_id: task.unwrap().id,
-                                                },
-                                        },
-                                    };
+                                    let next_state = DpuDiscoveringState::BmcFirmwareUpdate {
+                                        substate:
+                                            BmcFirmwareUpdateSubstate::WaitForUpdateCompletion {
+                                                firmware_type: dpu_component,
+                                                task_id: task.unwrap().id,
+                                            },
+                                    }
+                                    .next_state(&state.managed_state, dpu_machine_id)?;
                                     return Ok(StateHandlerOutcome::Transition(next_state));
                                 };
                             }
@@ -1704,14 +1766,11 @@ impl StateHandler for DpuMachineStateHandler {
                     }
                 }
 
-                let next_state = ManagedHostState::DpuDiscoveringState {
-                    discovering_state: DpuDiscoveringState::DisableSecureBoot { count: 0 },
-                };
+                let next_state = DpuDiscoveringState::DisableSecureBoot { count: 0 }
+                    .next_state(&state.managed_state, dpu_machine_id)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state: DpuDiscoveringState::DisableSecureBoot { count },
-            } => {
+            DpuDiscoveringState::DisableSecureBoot { count } => {
                 let next_state: ManagedHostState;
                 // Use the host snapshot instead of the DPU snapshot because
                 // the state.host_snapshot.current.version might be a bit more correct:
@@ -1768,17 +1827,13 @@ impl StateHandler for DpuMachineStateHandler {
                         self.disable_secure_boot(&state.dpu_snapshots[0], ctx, txn)
                             .await?;
 
-                        next_state = ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::DisableSecureBoot {
-                                count: *count + 1,
-                            },
-                        };
+                        next_state = DpuDiscoveringState::DisableSecureBoot { count: *count + 1 }
+                            .next_state(&state.managed_state, dpu_machine_id)?;
                     }
                     // we successfully disabled secure boot
                     Ok(false) => {
-                        next_state = ManagedHostState::DpuDiscoveringState {
-                            discovering_state: DpuDiscoveringState::SetUefiHttpBoot,
-                        };
+                        next_state = DpuDiscoveringState::SetUefiHttpBoot
+                            .next_state(&state.managed_state, dpu_machine_id)?;
                     }
                     // we cant retrieve the secure boot status
                     Err(e) => {
@@ -1793,27 +1848,23 @@ impl StateHandler for DpuMachineStateHandler {
 
                         if *count > 1 {
                             // We have tried (disabling secure boot -> rebooting the DPU -> waiting for 5 minutes) more than once. No need to try indefinitely
-                            next_state = ManagedHostState::DpuDiscoveringState {
-                                discovering_state: DpuDiscoveringState::SetUefiHttpBoot,
-                            };
+                            next_state = DpuDiscoveringState::SetUefiHttpBoot
+                                .next_state(&state.managed_state, dpu_machine_id)?;
                         } else {
                             self.disable_secure_boot(&state.dpu_snapshots[0], ctx, txn)
                                 .await?;
 
-                            next_state = ManagedHostState::DpuDiscoveringState {
-                                discovering_state: DpuDiscoveringState::DisableSecureBoot {
-                                    count: *count + 1,
-                                },
-                            };
+                            next_state =
+                                DpuDiscoveringState::DisableSecureBoot { count: *count + 1 }
+                                    .next_state(&state.managed_state, dpu_machine_id)?;
                         }
                     }
                 }
 
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-            ManagedHostState::DpuDiscoveringState {
-                discovering_state: DpuDiscoveringState::SetUefiHttpBoot,
-            } => {
+
+            DpuDiscoveringState::SetUefiHttpBoot => {
                 let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
                     state.dpu_snapshots[0].bmc_addr(),
                     &ctx.services.redfish_client_pool,
@@ -1845,29 +1896,58 @@ impl StateHandler for DpuMachineStateHandler {
                     })
                     .await?;
 
+                let next_state = DpuDiscoveringState::RebootAllDPUS
+                    .next_state(&state.managed_state, dpu_machine_id)?;
+                Ok(StateHandlerOutcome::Transition(next_state))
+            }
+            DpuDiscoveringState::RebootAllDPUS => {
+                if !state.managed_state.all_dpu_states_in_sync()? {
+                    return Ok(StateHandlerOutcome::Wait(
+                        "Waiting for all dpus to finish configuring.".to_string(),
+                    ));
+                }
+
                 //
                 // Next just do a ForceRestart to netboot without secureboot.
                 //
                 // This will kick off the ARM OS install since we move to DPU/Init next.
                 //
-                handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
+                for dpu_snapshot in &state.dpu_snapshots {
+                    handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
+                }
 
-                let next_state = ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::Init,
-                };
+                let next_state =
+                    DpuInitState::Init.next_state_with_all_dpus_updated(&state.managed_state)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-            ManagedHostState::DPUNotReady {
-                machine_state: MachineState::Init,
-            } => {
+        }
+    }
+
+    async fn handle_dpuinit_state(
+        &self,
+        state: &mut ManagedHostStateSnapshot,
+        dpu_snapshot: &MachineSnapshot,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        let dpu_machine_id = &dpu_snapshot.machine_id;
+        let dpu_state = match &state.managed_state {
+            ManagedHostState::DPUInit { dpu_states } => dpu_states
+                .states
+                .get(dpu_machine_id)
+                .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_machine_id.clone()))?,
+            _ => {
+                return Err(StateHandlerError::InvalidState(
+                    "Unexpected state.".to_string(),
+                ));
+            }
+        };
+        match &dpu_state {
+            DpuInitState::Init => {
                 // initial restart, firmware update and scout is run, first reboot of dpu discovery
-                let dpu_discovery_poll = try_wait_for_dpu_discovery_and_reboot(
-                    state,
-                    &self.reachability_params,
-                    ctx.services,
-                    txn,
-                )
-                .await?;
+                let dpu_discovery_poll =
+                    try_wait_for_dpu_discovery(state, &self.reachability_params, ctx.services, txn)
+                        .await?;
 
                 if dpu_discovery_poll.is_pending() {
                     return Ok(StateHandlerOutcome::Wait(
@@ -1880,28 +1960,30 @@ impl StateHandler for DpuMachineStateHandler {
                     self.dpu_nic_firmware_initial_update_enabled
                 );
 
-                // TODO: multidpu: Check for all DPUs
-                MachineTopology::set_topology_update_needed(
-                    txn,
-                    &state.dpu_snapshots[0].machine_id,
-                    true,
-                )
-                .await?;
+                // All DPUs are discovered. Reboot them to proceed.
+                for dpu_snapshot in &state.dpu_snapshots {
+                    handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
+                }
 
-                let next_state = ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::WaitingForPlatformPowercycle {
-                        substate: PerformPowerOperation::Off,
-                    },
+                let machine_state = DpuInitState::WaitingForPlatformPowercycle {
+                    substate: PerformPowerOperation::Off,
                 };
-
+                let next_state =
+                    machine_state.next_state_with_all_dpus_updated(&state.managed_state)?;
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-            ManagedHostState::DPUNotReady {
-                machine_state:
-                    MachineState::WaitingForPlatformPowercycle {
-                        substate: PerformPowerOperation::Off,
-                    },
+
+            DpuInitState::WaitingForPlatformPowercycle {
+                substate: PerformPowerOperation::Off,
             } => {
+                // Wait until all DPUs arrive in Off state.
+                if !state.managed_state.all_dpu_states_in_sync()? {
+                    return Ok(StateHandlerOutcome::Wait(
+                        "Waiting for all dpus to move to off state.".to_string(),
+                    ));
+                }
+
+                // All DPUs are in Off state, turn off the host.
                 let host_redfish_client = ctx
                     .services
                     .redfish_client_pool
@@ -1916,19 +1998,15 @@ impl StateHandler for DpuMachineStateHandler {
                         error: e,
                     })?;
 
-                let next_state = ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::WaitingForPlatformPowercycle {
-                        substate: PerformPowerOperation::On,
-                    },
-                };
+                let next_state = DpuInitState::WaitingForPlatformPowercycle {
+                    substate: PerformPowerOperation::On,
+                }
+                .next_state_with_all_dpus_updated(&state.managed_state)?;
 
-                return Ok(StateHandlerOutcome::Transition(next_state));
+                Ok(StateHandlerOutcome::Transition(next_state))
             }
-            ManagedHostState::DPUNotReady {
-                machine_state:
-                    MachineState::WaitingForPlatformPowercycle {
-                        substate: PerformPowerOperation::On,
-                    },
+            DpuInitState::WaitingForPlatformPowercycle {
+                substate: PerformPowerOperation::On,
             } => {
                 let host_redfish_client = ctx
                     .services
@@ -1940,34 +2018,23 @@ impl StateHandler for DpuMachineStateHandler {
                     .power(SystemPowerControl::On)
                     .await
                     .map_err(|e| StateHandlerError::RedfishError {
-                        operation: "host_power_on",
+                        operation: "host_power_off",
                         error: e,
                     })?;
 
-                let next_state = ManagedHostState::DPUNotReady {
-                    machine_state: MachineState::WaitingForPlatformConfiguration,
-                };
+                let next_state = DpuInitState::WaitingForPlatformConfiguration
+                    .next_state_with_all_dpus_updated(&state.managed_state)?;
 
-                return Ok(StateHandlerOutcome::Transition(next_state));
+                Ok(StateHandlerOutcome::Transition(next_state))
             }
-            ManagedHostState::DPUNotReady {
-                machine_state: MachineState::WaitingForPlatformConfiguration,
-            } => {
-                let dpu_redfish_client_result = ctx
-                    .services
-                    .redfish_client_pool
-                    .create_client_from_machine_snapshot(&state.dpu_snapshots[0], txn)
-                    .await;
 
-                let dpu_redfish_client = match dpu_redfish_client_result {
-                    Ok(redfish_client) => redfish_client,
-                    Err(e) => {
-                        return Ok(StateHandlerOutcome::Wait(format!(
-                            "Waiting for RedFish to become available: {:?}",
-                            e
-                        )))
-                    }
-                };
+            DpuInitState::WaitingForPlatformConfiguration => {
+                let dpu_redfish_client = build_redfish_client_from_bmc_ip(
+                    dpu_snapshot.bmc_addr(),
+                    &ctx.services.redfish_client_pool,
+                    txn,
+                )
+                .await?;
 
                 if let Err(e) = dpu_redfish_client.forge_setup().await {
                     tracing::error!(%e, "Failed to run forge_setup call");
@@ -1987,15 +2054,15 @@ impl StateHandler for DpuMachineStateHandler {
                     return Err(StateHandlerError::RedfishClientCreationError(e));
                 }
 
-                Ok(StateHandlerOutcome::Transition(
-                    ManagedHostState::DPUNotReady {
-                        machine_state: MachineState::WaitingForNetworkConfig,
-                    },
-                ))
+                let next_state = DpuInitState::WaitingForNetworkConfig
+                    .next_state(&state.managed_state, dpu_machine_id)?;
+
+                Ok(StateHandlerOutcome::Transition(next_state))
             }
-            ManagedHostState::DPUNotReady {
-                machine_state: MachineState::WaitingForNetworkConfig,
-            } => {
+
+            DpuInitState::WaitingForNetworkConfig => {
+                // is_network_ready is syncing over all DPUs.
+                // The code will move only when all DPUs returns network_ready signal.
                 if !is_network_ready(&state.dpu_snapshots) {
                     // TODO: Make is_network_ready give us more details as a string
                     return Ok(StateHandlerOutcome::Wait(
@@ -2004,19 +2071,53 @@ impl StateHandler for DpuMachineStateHandler {
                     ));
                 }
 
-                let next_state = ManagedHostState::HostNotReady {
+                let next_state = ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForPlatformConfiguration,
                 };
                 Ok(StateHandlerOutcome::Transition(next_state))
             }
-            state => {
-                tracing::warn!(machine_id = %host_machine_id, ?state, "Unhandled State for DPU machine");
+            DpuInitState::WaitingForNetworkInstall => {
+                tracing::warn!(
+                    "Invalid State WaitingForNetworkConfig for dpu Machine {}",
+                    dpu_machine_id
+                );
                 Err(StateHandlerError::InvalidHostState(
                     dpu_machine_id.clone(),
-                    state.clone(),
+                    state.managed_state.clone(),
                 ))
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl StateHandler for DpuMachineStateHandler {
+    type State = ManagedHostStateSnapshot;
+    type ControllerState = ManagedHostState;
+    type ObjectId = MachineId;
+    type ContextObjects = MachineStateHandlerContextObjects;
+
+    async fn handle_object_state(
+        &self,
+        _host_machine_id: &MachineId,
+        state: &mut ManagedHostStateSnapshot,
+        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        txn: &mut sqlx::Transaction<sqlx::Postgres>,
+        ctx: &mut StateHandlerContext<Self::ContextObjects>,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        let mut state_handler_outcome = StateHandlerOutcome::DoNothing;
+
+        for dpu_snapshot in &state.dpu_snapshots.clone() {
+            state_handler_outcome = self
+                .handle_dpuinit_state(state, dpu_snapshot, txn, ctx)
+                .await?;
+
+            if let StateHandlerOutcome::Transition(..) = state_handler_outcome {
+                return Ok(state_handler_outcome);
+            }
+        }
+
+        Ok(state_handler_outcome)
     }
 }
 
@@ -2273,7 +2374,7 @@ async fn handler_host_lockdown(
     // Enable Bios/BMC lockdown now.
     lockdown_host(txn, state, ctx.services).await?;
 
-    Ok(ManagedHostState::HostNotReady {
+    Ok(ManagedHostState::HostInit {
         machine_state: MachineState::WaitingForLockdown {
             lockdown_info: LockdownInfo {
                 state: LockdownState::TimeWaitForDPUDown,
@@ -2309,7 +2410,7 @@ async fn handle_host_uefi_setup(
             .map_err(|e| StateHandlerError::GenericError(eyre::eyre!("{}", e)))?;
 
             Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostNotReady {
+                ManagedHostState::HostInit {
                     machine_state: MachineState::UefiSetup {
                         uefi_setup_info: UefiSetupInfo {
                             uefi_password_jid: job_id,
@@ -2320,7 +2421,7 @@ async fn handle_host_uefi_setup(
             ))
             */
             Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostNotReady {
+                ManagedHostState::HostInit {
                     machine_state: MachineState::UefiSetup {
                         uefi_setup_info: UefiSetupInfo {
                             uefi_password_jid: None,
@@ -2348,7 +2449,7 @@ async fn handle_host_uefi_setup(
             }
 
             Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostNotReady {
+                ManagedHostState::HostInit {
                     machine_state: MachineState::UefiSetup {
                         uefi_setup_info: UefiSetupInfo {
                             uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
@@ -2382,7 +2483,7 @@ async fn handle_host_uefi_setup(
             */
 
             Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostNotReady {
+                ManagedHostState::HostInit {
                     machine_state: MachineState::UefiSetup {
                         uefi_setup_info: UefiSetupInfo {
                             uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
@@ -2429,7 +2530,7 @@ async fn handle_host_uefi_setup(
             */
 
             Ok(StateHandlerOutcome::Transition(
-                ManagedHostState::HostNotReady {
+                ManagedHostState::HostInit {
                     machine_state: MachineState::UefiSetup {
                         uefi_setup_info: UefiSetupInfo {
                             uefi_password_jid: uefi_setup_info.uefi_password_jid.clone(),
@@ -2462,30 +2563,14 @@ impl StateHandler for HostMachineStateHandler {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        if let ManagedHostState::HostNotReady { machine_state } = &state.managed_state {
+        if let ManagedHostState::HostInit { machine_state } = &state.managed_state {
             match machine_state {
                 MachineState::Init => Err(StateHandlerError::InvalidHostState(
                     host_machine_id.clone(),
                     state.managed_state.clone(),
                 )),
-                MachineState::WaitingForPlatformPowercycle { substate: _ } => {
-                    Err(StateHandlerError::InvalidHostState(
-                        host_machine_id.clone(),
-                        state.managed_state.clone(),
-                    ))
-                }
-                MachineState::WaitingForNetworkConfig => {
-                    tracing::warn!(
-                        machine_id = %host_machine_id,
-                        "Invalid State WaitingForNetworkConfig for Host Machine",
-                    );
-                    Err(StateHandlerError::InvalidHostState(
-                        host_machine_id.clone(),
-                        state.managed_state.clone(),
-                    ))
-                }
                 MachineState::WaitingForPlatformConfiguration => {
-                    let next_state = ManagedHostState::HostNotReady {
+                    let next_state = ManagedHostState::HostInit {
                         machine_state: MachineState::WaitingForDiscovery,
                     };
 
@@ -2560,7 +2645,7 @@ impl StateHandler for HostMachineStateHandler {
                     }
 
                     Ok(StateHandlerOutcome::Transition(
-                        ManagedHostState::HostNotReady {
+                        ManagedHostState::HostInit {
                             machine_state: MachineState::UefiSetup {
                                 uefi_setup_info: UefiSetupInfo {
                                     uefi_password_jid: None,
@@ -2588,7 +2673,7 @@ impl StateHandler for HostMachineStateHandler {
                                     self.host_handler_params.reachability_params.dpu_wait_time
                                 )))
                             } else {
-                                let next_state = ManagedHostState::HostNotReady {
+                                let next_state = ManagedHostState::HostInit {
                                     machine_state: MachineState::WaitingForLockdown {
                                         lockdown_info: LockdownInfo {
                                             state: LockdownState::WaitForDPUUp,
@@ -2622,7 +2707,7 @@ impl StateHandler for HostMachineStateHandler {
                                         "Discovery".to_string(),
                                     )
                                     .await?;
-                                    let next_state = ManagedHostState::HostNotReady {
+                                    let next_state = ManagedHostState::HostInit {
                                         machine_state: MachineState::MachineValidating {
                                             context: "Discovery".to_string(),
                                             id: validation_id,
@@ -2670,16 +2755,6 @@ impl StateHandler for HostMachineStateHandler {
                         )))
                     }
                 }
-                MachineState::WaitingForNetworkInstall => {
-                    tracing::warn!(
-                        "Invalid State WaitingForNetworkConfig for Host Machine {}",
-                        host_machine_id
-                    );
-                    Err(StateHandlerError::InvalidHostState(
-                        host_machine_id.clone(),
-                        state.managed_state.clone(),
-                    ))
-                }
                 MachineState::MachineValidating {
                     context,
                     id,
@@ -2721,7 +2796,7 @@ impl StateHandler for HostMachineStateHandler {
                             )
                             .await?;
                             return Ok(StateHandlerOutcome::Transition(
-                                ManagedHostState::HostNotReady {
+                                ManagedHostState::HostInit {
                                     machine_state: MachineState::Discovered,
                                 },
                             ));
@@ -2980,18 +3055,18 @@ impl StateHandler for InstanceStateHandler {
                         // approval, but a repeat check doesn't harm anyway.
                         if reprovisioning_requested.user_approval_received {
                             handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
-                            let next_state = ManagedHostState::Assigned {
-                                instance_state: InstanceState::DPUReprovision {
-                                    reprovision_state: if reprovisioning_requested.update_firmware
-                                        && self.dpu_nic_firmware_reprovision_update_enabled
-                                    {
-                                        ReprovisionState::FirmwareUpgrade
-                                    } else {
-                                        set_managed_host_topology_update_needed(txn, state).await?;
-                                        ReprovisionState::WaitingForNetworkInstall
-                                    },
-                                },
+                            let reprovision_state = if reprovisioning_requested.update_firmware
+                                && self.dpu_nic_firmware_reprovision_update_enabled
+                            {
+                                ReprovisionState::FirmwareUpgrade
+                            } else {
+                                set_managed_host_topology_update_needed(txn, state).await?;
+                                ReprovisionState::WaitingForNetworkInstall
                             };
+                            let next_state = reprovision_state.next_state(
+                                &state.managed_state,
+                                &state.dpu_snapshots[0].machine_id,
+                            )?;
                             Ok(StateHandlerOutcome::Transition(next_state))
                         } else {
                             Ok(StateHandlerOutcome::Wait(
@@ -3063,9 +3138,8 @@ impl StateHandler for InstanceStateHandler {
                     };
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
-                InstanceState::DPUReprovision { reprovision_state } => {
+                InstanceState::DPUReprovision { .. } => {
                     match handle_dpu_reprovision(
-                        reprovision_state,
                         state,
                         &self.reachability_params,
                         ctx.services,
@@ -3164,20 +3238,12 @@ async fn restart_dpu(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), StateHandlerError> {
-    let dpu_redfish_client_result = services
-        .redfish_client_pool
-        .create_client_from_machine_snapshot(machine_snapshot, txn)
-        .await;
-
-    let dpu_redfish_client = match dpu_redfish_client_result {
-        Ok(redfish_client) => redfish_client,
-        Err(e) => {
-            return Err(StateHandlerError::GenericError(eyre::eyre!(
-                "Failed in creating redfish client/restart_dpu: {}",
-                e
-            )));
-        }
-    };
+    let dpu_redfish_client = build_redfish_client_from_bmc_ip(
+        machine_snapshot.bmc_addr(),
+        &services.redfish_client_pool,
+        txn,
+    )
+    .await?;
 
     if let Err(e) = dpu_redfish_client
         .power(SystemPowerControl::ForceRestart)
