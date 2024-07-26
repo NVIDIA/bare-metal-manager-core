@@ -24,7 +24,7 @@ use carbide::logging::setup::TelemetrySetup;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
 use carbide::redfish::RedfishClientPool;
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
-use tokio::sync::oneshot::Receiver;
+use tokio::sync::oneshot::{Receiver, Sender};
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
 
@@ -38,6 +38,7 @@ pub struct StartArgs {
     pub telemetry_setup: TelemetrySetup,
     pub site_explorer_create_machines: bool,
     pub stop_channel: Receiver<()>,
+    pub ready_channel: Sender<()>,
 }
 
 pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
@@ -50,6 +51,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         telemetry_setup,
         site_explorer_create_machines,
         stop_channel,
+        ready_channel,
     } = start_args;
 
     let mut dpu_nic_firmware_update_versions = HashMap::new();
@@ -182,8 +184,8 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         site_explorer: SiteExplorerConfig {
             enabled: true,
             run_interval: std::time::Duration::from_secs(5),
-            concurrent_explorations: 5,
-            explorations_per_run: 10,
+            concurrent_explorations: SiteExplorerConfig::default_concurrent_explorations(),
+            explorations_per_run: SiteExplorerConfig::default_explorations_per_run(),
             create_machines: carbide::dynamic_settings::create_machines(
                 site_explorer_create_machines,
             ),
@@ -229,6 +231,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
             host_disable_autoupdate: vec![],
             max_uploads: 4,
             run_interval: Duration::seconds(30),
+            concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
         },
         max_find_by_ids: default_max_find_by_ids(),
         min_dpu_functioning_links: None,
@@ -249,6 +252,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         override_redfish_pool,
         Some(telemetry_setup),
         stop_channel,
+        ready_channel,
     )
     .await
 }

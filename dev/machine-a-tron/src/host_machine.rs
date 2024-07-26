@@ -5,6 +5,7 @@ use rpc::MachineId;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::bmc_mock_wrapper::BmcMockAddressRegistry;
 use crate::logging::{LogCollector, LogSink};
 use crate::machine_state_machine::{MachineStateError, MachineStateMachine};
 use crate::{
@@ -80,8 +81,9 @@ impl HostMachine {
     pub fn new(
         app_context: MachineATronContext,
         config: MachineConfig,
-        ui_event_tx: Option<tokio::sync::mpsc::Sender<UiEvent>>,
+        ui_event_tx: Option<mpsc::Sender<UiEvent>>,
         dhcp_client: DhcpRelayClient,
+        bmc_address_registry: Option<BmcMockAddressRegistry>,
     ) -> Self {
         let log_collector = LogCollector::new();
 
@@ -92,6 +94,7 @@ impl HostMachine {
                     config.clone(),
                     dhcp_client.clone(),
                     log_collector.log_sink(Some(format!("D{index}:"))),
+                    bmc_address_registry.clone(),
                 )
             })
             .collect::<Vec<_>>();
@@ -107,6 +110,7 @@ impl HostMachine {
             dhcp_client.clone(),
             log_collector.log_sink(Some("H:".to_string())),
             control_tx,
+            bmc_address_registry,
         );
 
         HostMachine {

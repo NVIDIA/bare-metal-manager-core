@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::bmc_mock_wrapper::BmcMockAddressRegistry;
 use crate::logging::LogSink;
 use crate::machine_state_machine::MachineStateMachine;
 use crate::tui::HostDetails;
@@ -35,6 +36,7 @@ impl DpuMachine {
         config: MachineConfig,
         dhcp_client: DhcpRelayClient,
         logger: LogSink,
+        bmc_address_registry: Option<BmcMockAddressRegistry>,
     ) -> Self {
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         let dpu_info = DpuMachineInfo::new();
@@ -45,6 +47,7 @@ impl DpuMachine {
             dhcp_client,
             logger.clone(),
             control_tx.clone(),
+            bmc_address_registry,
         );
         DpuMachine {
             mat_id: Uuid::new_v4(),

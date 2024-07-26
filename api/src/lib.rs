@@ -28,7 +28,7 @@ use model::{
     hardware_info::HardwareInfoError, machine::machine_id::MachineId, network_devices::LldpError,
     tenant::TenantError, ConfigValidationError, RpcDataConversionError,
 };
-use tokio::sync::oneshot::Receiver;
+use tokio::sync::oneshot::{Receiver, Sender};
 use tonic::Status;
 use tracing::subscriber::NoSubscriber;
 
@@ -312,6 +312,7 @@ pub async fn run(
     override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
     override_telemetry_setup: Option<TelemetrySetup>,
     stop_channel: Receiver<()>,
+    ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
     let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
     let tconf = match override_telemetry_setup {
@@ -395,6 +396,7 @@ pub async fn run(
         redfish_pool,
         vault_client,
         stop_channel,
+        ready_channel,
     )
     .await
 }

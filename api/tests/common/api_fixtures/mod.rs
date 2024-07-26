@@ -536,6 +536,7 @@ pub fn get_config() -> CarbideConfig {
             host_disable_autoupdate: vec![],
             max_uploads: 4,
             run_interval: Duration::seconds(30),
+            concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
         },
         max_find_by_ids: default_max_find_by_ids(),
         min_dpu_functioning_links: None,

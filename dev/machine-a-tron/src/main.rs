@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("version: {}", info.build_version);
 
     let mut mat = MachineATron::new(app_context);
-    let machines = mat.make_machines(&dhcp_client).await?;
+    let machines = mat.make_machines(&dhcp_client, None).await?;
     mat.run(machines).await?;
 
     dhcp_client.stop_service().await;

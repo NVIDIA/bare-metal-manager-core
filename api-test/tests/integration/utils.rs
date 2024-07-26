@@ -196,6 +196,7 @@ pub async fn start_api_server(
     let vault_token = vault.token().to_string();
     let root_dir_clone = root_dir.to_str().unwrap().to_string();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let telemetry_setup_clone = telemetry_setup.clone();
     let join_handle = tokio::spawn(async move {
         api_server::start(StartArgs {
@@ -207,6 +208,7 @@ pub async fn start_api_server(
             telemetry_setup: telemetry_setup_clone,
             site_explorer_create_machines,
             stop_channel: stop_rx,
+            ready_channel: ready_tx,
         })
         .await
         .inspect_err(|e| {
@@ -214,7 +216,7 @@ pub async fn start_api_server(
         })
     });
 
-    sleep(Duration::from_secs(5)).await;
+    ready_rx.await.unwrap();
     populate_initial_vault_secrets(&telemetry_setup).await?;
 
     Ok(ApiServerHandle {
