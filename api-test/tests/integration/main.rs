@@ -13,10 +13,7 @@
 use crate::machine_a_tron::MachineATronInstance;
 use crate::redfish::MachineATronBackedRedfishClientPool;
 use crate::utils::IntegrationTestEnvironment;
-use ::machine_a_tron::{
-    bmc_mock_wrapper::BmcMockAddressRegistry,
-    config::{MachineATronConfig, MachineConfig},
-};
+use ::machine_a_tron::{BmcMockAddressRegistry, MachineATronConfig, MachineConfig};
 use std::{
     collections::{BTreeMap, HashMap},
     env, fs,

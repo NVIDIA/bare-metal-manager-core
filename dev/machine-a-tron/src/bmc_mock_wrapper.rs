@@ -119,12 +119,6 @@ impl BmcMockWrapper {
         Ok(address)
     }
 
-    pub fn stop(&mut self) {
-        if let Some(j) = self.join_handle.take() {
-            j.abort();
-        }
-    }
-
     pub fn active_address(&self) -> Option<SocketAddr> {
         self.active_address
     }

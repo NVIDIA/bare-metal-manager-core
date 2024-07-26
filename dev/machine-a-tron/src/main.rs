@@ -1,17 +1,3 @@
-pub mod api_client;
-pub mod bmc_mock_wrapper;
-pub mod config;
-pub mod dhcp_relay;
-pub mod dpu_machine;
-pub mod host_machine;
-pub mod logging;
-pub mod machine_a_tron;
-pub mod machine_state_machine;
-pub mod machine_utils;
-pub mod subnet;
-pub mod tui;
-pub mod vpc;
-
 use clap::Parser;
 use figment::providers::{Format, Toml};
 use figment::Figment;
@@ -23,9 +9,10 @@ use machine_a_tron::MachineATron;
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::error::Error;
 
-use crate::config::{MachineATronArgs, MachineATronConfig, MachineATronContext};
-use crate::dhcp_relay::DhcpRelayService;
 use bmc_mock::TarGzOption;
+use machine_a_tron::{
+    api_client, DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext,
+};
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
 fn init_log(filename: &Option<String>) -> Result<(), Box<dyn Error>> {
