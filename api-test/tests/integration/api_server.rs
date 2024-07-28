@@ -230,7 +230,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
             host_enable_autoupdate: vec![],
             host_disable_autoupdate: vec![],
             max_uploads: 4,
-            run_interval: Duration::seconds(30),
+            run_interval: Duration::seconds(5),
             concurrency_limit: FirmwareGlobal::concurrency_limit_default(),
         },
         max_find_by_ids: default_max_find_by_ids(),

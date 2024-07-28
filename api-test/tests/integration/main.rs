@@ -239,7 +239,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
             "config".to_string(),
             MachineConfig {
                 host_count: 10,
-                dpu_per_host_count: 1,
+                dpu_per_host_count: 2,
                 boot_delay: 1,
                 dpu_reboot_delay: 1,
                 host_reboot_delay: 1,
