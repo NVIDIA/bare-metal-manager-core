@@ -11,7 +11,7 @@
  */
 
 use carbide::{
-    db::machine_interface::MachineInterface,
+    db::{machine::Machine, machine_interface::MachineInterface},
     model::{
         hardware_info::TpmEkCertificate,
         machine::machine_id::{try_parse_machine_id, MachineId},
@@ -62,6 +62,10 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
         )
         .unwrap();
 
+        tracing::info!(
+            "Created extra mh: host: {extra_host_machine_id} dpu: {extra_dpu_machine_id}"
+        );
+
         let interface =
             MachineInterface::find_by_machine_ids(&mut txn, &[extra_host_machine_id.clone()])
                 .await
@@ -74,6 +78,11 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
 
         associate_interface_with_machine_as_non_primary(&interface, &mut txn, &host_machine_id)
             .await;
+
+        tracing::info!("Deleting extra host: {extra_host_machine_id}");
+        if let Err(e) = Machine::force_cleanup(&mut txn, &extra_host_machine_id).await {
+            tracing::warn!("Failed to clean up extra host: {e}");
+        }
     }
 
     // Make sure any calls to the API will see the changes we just wrote.
