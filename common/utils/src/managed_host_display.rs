@@ -156,21 +156,9 @@ pub struct ManagedHostOutput {
 impl From<&Machine> for ManagedHostOutput {
     fn from(machine: &Machine) -> ManagedHostOutput {
         let primary_interface = machine.interfaces.iter().find(|x| x.primary_interface);
-
-        let (ip_address, mac): (Vec<String>, Vec<String>) = machine
-            .interfaces
-            .iter()
-            .map(|x| {
-                if x.primary_interface {
-                    (
-                        format!("{}(P)", x.address.join("/")),
-                        format!("{}(P)", x.mac_address.clone()),
-                    )
-                } else {
-                    (x.address.join("/"), x.mac_address.clone())
-                }
-            })
-            .unzip();
+        let (host_admin_ip, host_admin_mac) = primary_interface
+            .map(|x| (x.address.first().cloned(), Some(x.mac_address.clone())))
+            .unwrap_or((None, None));
 
         ManagedHostOutput {
             discovery_info: machine.discovery_info.clone().unwrap_or_default(),
@@ -192,8 +180,8 @@ impl From<&Machine> for ManagedHostOutput {
             host_bmc_mac: get_bmc_info_from_machine!(machine, mac),
             host_bmc_version: get_bmc_info_from_machine!(machine, version),
             host_bmc_firmware_version: get_bmc_info_from_machine!(machine, firmware_version),
-            host_admin_ip: Some(ip_address.join(", ")),
-            host_admin_mac: Some(mac.join(", ")),
+            host_admin_ip,
+            host_admin_mac,
             host_gpu_count: machine
                 .discovery_info
                 .as_ref()
