@@ -35,7 +35,7 @@ mod machine_info;
 mod mock_machine_router;
 mod tar_router;
 pub use machine_info::{DpuMachineInfo, HostMachineInfo, MachineInfo};
-pub use mock_machine_router::{wrap_router_with_mock_machine, MachineCommand};
+pub use mock_machine_router::{wrap_router_with_mock_machine, BmcCommand};
 pub use tar_router::{tar_router, EntryMap, TarGzOption};
 
 static DEFAULT_HOST_MOCK_TAR: &[u8] = include_bytes!("../dell_poweredge_r750.tar.gz");
@@ -197,7 +197,7 @@ pub fn default_host_tar_router(
     )
 }
 
-fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<MachineCommand> {
+fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
     let (command_tx, mut command_rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
@@ -206,7 +206,7 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<MachineCommand> {
                     let Some(command) = command else {
                         break;
                     };
-                    if !matches!(command, MachineCommand::Reboot(_)) {
+                    if !matches!(command, BmcCommand::Reboot(_)) {
                         continue;
                     }
             let reboot_output = match Command::new("virsh")

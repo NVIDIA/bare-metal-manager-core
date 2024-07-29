@@ -42,6 +42,8 @@ http-body = "1.0.0"
 regex = "1.10.5"
 bytes = "1.6.0"
 tempfile = "3"
+duration-str = "0.11"
+rand = "0.8"
 
 # [local-dependencies]
 rpc = { path = "../../rpc" }

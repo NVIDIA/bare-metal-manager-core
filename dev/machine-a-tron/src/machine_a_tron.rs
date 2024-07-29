@@ -1,11 +1,3 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
-
 use crate::{
     api_client,
     config::MachineATronContext,
@@ -18,6 +10,8 @@ use crate::bmc_mock_wrapper::BmcMockAddressRegistry;
 use crate::subnet::Subnet;
 use crate::vpc::Vpc;
 use tokio::sync::mpsc::channel;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
 #[derive(PartialEq, Eq)]
 pub enum AppEvent {
@@ -26,6 +20,11 @@ pub enum AppEvent {
 
 pub struct MachineATron {
     app_context: MachineATronContext,
+}
+
+pub struct MachineHandle {
+    stop_tx: Option<oneshot::Sender<()>>,
+    join_handle: JoinHandle<()>,
 }
 
 impl MachineATron {
@@ -49,7 +48,6 @@ impl MachineATron {
                     HostMachine::new(
                         self.app_context.clone(),
                         config.clone(),
-                        None,
                         dhcp_client.clone(),
                         bmc_address_registry.clone(),
                     )
@@ -70,7 +68,6 @@ impl MachineATron {
     }
 
     pub async fn run(&mut self, machines: Vec<HostMachine>) -> eyre::Result<()> {
-        let running = Arc::new(AtomicBool::new(true));
         let (app_tx, mut app_rx) = channel(5000);
         let mut machine_ids: Vec<String> = Vec::new();
         let mut vpc_handles: Vec<Vpc> = Vec::new();
@@ -121,38 +118,28 @@ impl MachineATron {
         }
 
         let mut machine_handles = Vec::default();
-        for mut machine in machines {
-            let running = running.clone();
-            machine.connect_ui_events(ui_event_tx.clone());
+        for machine in machines {
             machine_ids.push(machine.machine_id_with_fallback());
+            let (stop_tx, stop_rx) = oneshot::channel();
 
-            let join_handle = tokio::spawn(async move {
-                machine.update_tui().await;
-                while running.as_ref().load(Ordering::Relaxed) {
-                    let work_done = machine
-                        .process_state()
-                        .await
-                        .inspect_err(|e| tracing::error!("Error processing state: {e}"))
-                        .unwrap_or(false);
-                    if work_done {
-                        machine.update_tui().await;
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    } else {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                    }
-                }
-            });
-            machine_handles.push(join_handle);
+            let join_handle = machine.start(stop_rx, ui_event_tx.clone(), false);
+
+            machine_handles.push(MachineHandle {
+                join_handle,
+                stop_tx: Some(stop_tx),
+            })
         }
         tracing::info!("Machine construction complete");
 
-        while running.as_ref().load(Ordering::Relaxed)
-            && !tui_handle.as_ref().is_some_and(|t| t.is_finished())
-        {
-            if let Some(msg) = app_rx.recv().await {
-                if msg == AppEvent::Quit {
+        if let Some(msg) = app_rx.recv().await {
+            match msg {
+                AppEvent::Quit => {
                     tracing::info!("quit");
-                    running.store(false, Ordering::Relaxed);
+                    for handle in machine_handles.iter_mut() {
+                        if let Some(stop_tx) = handle.stop_tx.take() {
+                            _ = stop_tx.send(());
+                        }
+                    }
                 }
             }
         }
@@ -169,7 +156,7 @@ impl MachineATron {
             }
         }
 
-        for m in machine_handles {
+        for m in machine_handles.into_iter().map(|m| m.join_handle) {
             m.abort();
             if let Err(e) = m.await {
                 if !e.is_cancelled() {

@@ -67,6 +67,7 @@ impl SubnetDetails {
     }
 }
 
+#[derive(Default)]
 pub struct HostDetails {
     pub mat_id: Uuid,
     pub machine_id: Option<String>,
@@ -102,13 +103,14 @@ impl HostDetails {
         ));
         result.push_str(&format!("Machine IP: {}\n", self.machine_ip));
         result.push_str(&format!("BMC IP: {}\n", self.oob_ip));
-        result.push('\n');
         result.push_str(&format!("MAT State: {}\n", self.mat_state));
         result.push_str(&format!("API State: {}\n", self.api_state));
 
         if !self.dpus.is_empty() {
+            result.push('\n');
             result.push_str("DPUs:\n");
             for d in self.dpus.iter() {
+                result.push('\n');
                 result.push_str(&d.details());
             }
         }
