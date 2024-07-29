@@ -2,32 +2,6 @@
 
 {% block title %}{{ filter_name }} Explored Endpoints{% endblock %}
 
-{% block css %}
-  form#filter-container {
-      margin: 20px 0;
-      display: flex;
-      align-items: center;
-      gap: 20px;
-  }
-
-  form#filter-container label {
-      font-weight: bold;
-  }
-
-  form#filter-container select, form#filter-container input[type="checkbox"] {
-      padding: 5px;
-      border: 1px solid #999;
-      outline: none;
-  }
-  form#filter-container select {
-      height: 30px;
-  }
-  form#filter-container input[type="checkbox"] {
-      width: 20px;
-      height: 20px;
-  }
-{% endblock %}
-
 {% block content %}
 {% if filter_name == "All" %}
 <div id="json"><a id="json-link" href="">JSON</a></div>

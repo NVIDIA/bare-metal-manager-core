@@ -4,53 +4,63 @@
 
 {% block content %}
 <div id="json"><a id="json-link" href="">JSON</a></div>
-<h1>DPU Network Status</h1>
+<h1>DPU Network Status - {{ active_filter|capitalize }}</h1>
 
-{% if !unhealthy.is_empty() %}
-<h2>Unhealthy</h2>
+<form id="filter-container" action="" method="get">
+	<label><input type="radio" name="filter" value="all" {% if active_filter == "all" %}checked="checked"{% endif %}>All ({{ all_count }})</label>
+	<label><input type="radio" name="filter" value="healthy" {% if active_filter == "healthy" %}checked="checked"{% endif %}>Healthy ({{ healthy_count }})</label>
+	<label><input type="radio" name="filter" value="unhealthy" {% if active_filter == "unhealthy" %}checked="checked"{% endif %}>Unhealthy ({{ unhealthy_count }})</label>
+	<label><input type="radio" name="filter" value="outdated" {% if active_filter == "outdated" %}checked="checked"{% endif %}>Outdated ({{ outdated_count }})</label>
+</form>
 <table class="sortable">
 	<thead>
 	<tr>
 		<th>Last seen</th>
 		<th>DPU ID</th>
-		<th>Check failed</th>
+		{% if active_filter == "unhealthy" %}
+			<th>Check failed</th>
+		{% endif %}
 		<th>Agent version</th>
 		<th>Network config version</th>
 	</tr>
 	</thead>
 	<tbody>
-		{% for st in unhealthy %}
-		<tr>
-			<td>{{ st.observed_at }}</td>
-			<td>{{ st.dpu_machine_id|machine_id_link|safe}}</td>
-			<td>{{ st.check_failed }}</td>
-			<td {% if !st.is_agent_updated %}style="color: red"{% endif %}>{{ st.agent_version }}</td>
-			<td>{{ st.network_config_version|config_version|safe }}</td>
-		</tr>
-		{% endfor %}
-	</tbody>
-</table>
-{% endif %}
-
-<h2>Healthy</h2>
-<table class="sortable">
-	<thead>
-	<tr>
-		<th>Last seen</th>
-		<th>DPU ID</th>
-		<th>Agent version</th>
-		<th>Network config version</th>
-	</tr>
-	</thead>
-	<tbody>
-		{% for st in healthy %}
+		{% for st in dpus %}
 		<tr>
 			<td>{{ st.observed_at }}</td>
 			<td>{{ st.dpu_machine_id|machine_id_link|safe }}</td>
+			{% if active_filter == "unhealthy" %}
+				<td>{{ st.check_failed }}</td>
+			{% endif %}
 			<td {% if !st.is_agent_updated %}style="color: red"{% endif %}>{{ st.agent_version }}</td>
 			<td>{{ st.network_config_version|config_version|safe }}</td>
 		</tr>
 		{% endfor %}
 	</tbody>
+	<tfoot>
+		<tr>
+			<th>{{ dpus.len() }} item{% if dpus.len() != 1 %}s{% endif %}</th>
+			<th></th>
+			{% if active_filter == "unhealthy" %}
+				<th></th>
+			{% endif %}
+			<th></th>
+			<th></th>
+		</tr>
+	</tfoot>
 </table>
+
+{% endblock %}
+
+{% block script %}
+document.addEventListener('DOMContentLoaded', function() {
+	const form = document.getElementById('filter-container');
+	const radioButtons = form.querySelectorAll('input[type="radio"]');
+
+	radioButtons.forEach(function(radioButton) {
+		radioButton.addEventListener('change', function() {
+			form.submit();
+		});
+	});
+});
 {% endblock %}
