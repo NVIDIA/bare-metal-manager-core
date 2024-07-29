@@ -81,7 +81,7 @@ impl LogSink {
 
         // For the log_tx object, prepend a timestamp (trace logging already prepends one.)
         let message = format!("{log_time} {message}");
-        self.log_tx.send(LogMessage { message, level }).unwrap();
+        _ = self.log_tx.send(LogMessage { message, level });
     }
 
     pub fn info(&self, message: String) {

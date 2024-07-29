@@ -25,11 +25,11 @@ lazy_static! {
 struct MockWrapperState {
     machine_info: MachineInfo,
     inner_router: Router,
-    command_channel: Option<mpsc::UnboundedSender<MachineCommand>>,
+    command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
 }
 
 #[derive(Debug, Clone)]
-pub enum MachineCommand {
+pub enum BmcCommand {
     Reboot(DateTime<Utc>),
 }
 
@@ -38,7 +38,7 @@ pub enum MachineCommand {
 pub fn wrap_router_with_mock_machine(
     inner_router: Router,
     machine_info: MachineInfo,
-    command_channel: Option<mpsc::UnboundedSender<MachineCommand>>,
+    command_channel: Option<mpsc::UnboundedSender<BmcCommand>>,
 ) -> Router {
     Router::new()
         .route(
@@ -453,9 +453,7 @@ async fn post_reset_system(
     request: Request<Body>,
 ) -> impl IntoResponse {
     if let Some(command_channel) = &state.command_channel {
-        command_channel
-            .send(MachineCommand::Reboot(Utc::now()))
-            .unwrap();
+        _ = command_channel.send(BmcCommand::Reboot(Utc::now()))
     }
     state.call_inner_router(request).await
 }

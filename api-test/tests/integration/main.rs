@@ -252,6 +252,9 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
                 oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
                 vpc_count: 0,
                 subnets_per_vpc: 0,
+                run_interval_idle: Duration::from_secs(1),
+                run_interval_working: Duration::from_millis(100),
+                network_status_run_interval: Duration::from_secs(1),
             },
         )]),
         carbide_api_url: Some(format!(

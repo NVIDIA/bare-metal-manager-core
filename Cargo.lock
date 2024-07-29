@@ -814,7 +814,7 @@ dependencies = [
  "ctor",
  "dashmap",
  "data-encoding",
- "duration-str",
+ "duration-str 0.7.1",
  "eyre",
  "figment",
  "forge-tls",
@@ -1943,6 +1943,20 @@ dependencies = [
  "serde",
  "thiserror",
  "time 0.3.36",
+]
+
+[[package]]
+name = "duration-str"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709d653e7c92498eb29fb86a2a6f0f3502b97530f33aedb32ef848d4d28b31a3"
+dependencies = [
+ "chrono",
+ "rust_decimal",
+ "serde",
+ "thiserror",
+ "time 0.3.36",
+ "winnow",
 ]
 
 [[package]]
@@ -3496,6 +3510,7 @@ dependencies = [
  "clap 4.5.4",
  "crossterm 0.25.0",
  "dhcproto 0.11.0",
+ "duration-str 0.11.2",
  "eyre",
  "figment",
  "forge-tls",
@@ -3504,6 +3519,7 @@ dependencies = [
  "lazy_static",
  "libredfish",
  "mac_address",
+ "rand 0.8.5",
  "ratatui",
  "regex",
  "reqwest",

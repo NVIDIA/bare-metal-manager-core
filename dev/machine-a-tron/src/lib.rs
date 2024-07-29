@@ -16,3 +16,14 @@ pub use bmc_mock_wrapper::BmcMockAddressRegistry;
 pub use config::{MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig};
 pub use dhcp_relay::DhcpRelayService;
 pub use machine_a_tron::MachineATron;
+use std::time::{Duration, Instant};
+
+/// Add a Duration to an Instant, defaulting to a time in the far future if there is an overflow.
+/// This allows using Duration::MAX and being able to add it to Instant::now(), which overflows by
+/// default.
+pub fn saturating_add_duration_to_instant(instant: Instant, duration: Duration) -> Instant {
+    instant
+        .checked_add(duration)
+        // Roughly 30 years from now
+        .unwrap_or(Instant::now() + Duration::from_secs(30 * 365 * 24 * 3600))
+}

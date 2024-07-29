@@ -17,9 +17,7 @@ use machine_a_tron::MachineATron;
 use machine_a_tron::{MachineATronConfig, MachineATronContext};
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::Mutex;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 /// Run a machine-a-tron instance with the given config in the background, returning a JoinHandle
@@ -63,46 +61,23 @@ pub async fn run_local(
     let mat = MachineATron::new(app_context);
     let machines = mat
         .make_machines(&dhcp_client, Some(bmc_address_registry.clone()))
-        .await?
-        .into_iter()
-        .map(|m| Arc::new(Mutex::new(m)))
-        .collect::<Vec<_>>();
+        .await?;
 
     let machine_jobs = machines
-        .iter()
+        .into_iter()
         .map(|machine| {
-            let machine = machine.clone();
-
-            tokio::spawn(async move {
-                loop {
-                    let mut machine = machine.lock().await;
-                    let work_done = machine
-                        .process_state()
-                        .await
-                        .inspect_err(|e| tracing::error!("Error processing state: {e}"))?;
-
-                    if machine.is_up_and_ready() {
-                        tracing::info!(
-                            "Machine {} has made it to Ready/MachineUp, all done.",
-                            machine.machine_id_with_fallback()
-                        );
-                        break;
-                    }
-
-                    if work_done {
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    } else {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    }
-                }
-                Ok::<_, eyre::Report>(())
-            })
+            let (_stop_tx, stop_rx) = oneshot::channel();
+            let join_handle = machine.start(stop_rx, None, true);
+            MachineJob {
+                join_handle,
+                _stop_tx,
+            }
         })
         .collect::<Vec<_>>();
 
     let all_machines_job = tokio::spawn(async move {
         for machine_job in machine_jobs {
-            machine_job.await??;
+            machine_job.join_handle.await?
         }
         dhcp_client.stop_service().await;
         dhcp_handle.await?;
@@ -116,4 +91,9 @@ pub async fn run_local(
 
 pub struct MachineATronInstance {
     pub join_handle: JoinHandle<eyre::Result<()>>,
+}
+
+struct MachineJob {
+    join_handle: JoinHandle<()>,
+    _stop_tx: oneshot::Sender<()>,
 }

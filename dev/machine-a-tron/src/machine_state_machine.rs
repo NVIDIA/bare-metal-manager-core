@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mac_address::MacAddress;
+use rand::Rng;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -18,7 +19,7 @@ use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     forge_agent_control, get_fac_action, get_validation_id, send_pxe_boot_request, PXEresponse,
 };
-use bmc_mock::{MachineCommand, MachineInfo};
+use bmc_mock::{BmcCommand, MachineInfo};
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, MachineType};
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
@@ -32,7 +33,7 @@ pub struct MachineStateMachine {
     machine_info: MachineInfo,
     machine_dhcp_id: Uuid,
     bmc_dhcp_id: Uuid,
-    command_channel: mpsc::UnboundedSender<MachineCommand>,
+    bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
 
     config: MachineConfig,
     app_context: MachineATronContext,
@@ -51,6 +52,12 @@ pub enum MachineState {
     MachineUp(MachineUpState),
 }
 
+enum NextState {
+    Some(MachineState),
+    SleepFor(Duration),
+    UpdateAndDelay(MachineState, Duration),
+}
+
 impl MachineStateMachine {
     pub fn new(
         machine_info: MachineInfo,
@@ -58,13 +65,13 @@ impl MachineStateMachine {
         app_context: MachineATronContext,
         dhcp_client: DhcpRelayClient,
         logger: LogSink,
-        command_channel: mpsc::UnboundedSender<MachineCommand>,
+        bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
         bmc_address_registry: Option<BmcMockAddressRegistry>,
     ) -> MachineStateMachine {
         MachineStateMachine {
             state: MachineState::BmcInit,
             machine_info,
-            command_channel,
+            bmc_command_channel,
             machine_dhcp_id: Uuid::new_v4(),
             bmc_dhcp_id: Uuid::new_v4(),
             config,
@@ -75,18 +82,34 @@ impl MachineStateMachine {
         }
     }
 
-    pub async fn advance(&mut self, nic_available: bool) -> Result<bool, MachineStateError> {
-        let (next_state, work_done) = self.next_state(nic_available).await?;
-        if let Some(next_state) = next_state {
-            self.state = next_state;
+    pub async fn advance(&mut self, nic_available: bool) -> Duration {
+        let next_state = self.next_state(nic_available).await;
+        match next_state {
+            Ok(NextState::Some(next_state)) => {
+                self.state = next_state;
+                self.config.run_interval_working
+            }
+            Ok(NextState::SleepFor(duration)) => duration,
+            Ok(NextState::UpdateAndDelay(next_state, duration)) => {
+                self.state = next_state;
+                duration
+            }
+            Err(e) => {
+                // TODO:
+                // For now, any unhandled errors will just retry in the same state after sleeping
+                // for a random interval (in this case, between 5 and 15 seconds.) Going forward we
+                // should strive to emulate real machinese in these cases: For instance, failing to
+                // get DHCP may mean we just boot to the host OS (ie. PXE boot failure), the correct
+                // state for which depends on whether we've installed forge-agent or not, etc.
+                self.logger
+                    .error(format!("Error running state machine, will retry: {e}"));
+                let jitter_ms = rand::thread_rng().gen::<u64>() % 10_000;
+                Duration::from_millis(jitter_ms + 5_000)
+            }
         }
-        Ok(work_done)
     }
 
-    async fn next_state(
-        &self,
-        nic_available: bool,
-    ) -> Result<(Option<MachineState>, bool), MachineStateError> {
+    async fn next_state(&self, nic_available: bool) -> Result<NextState, MachineStateError> {
         match &self.state {
             MachineState::BmcInit => {
                 self.logger.debug(format!(
@@ -110,9 +133,7 @@ impl MachineStateMachine {
                     .await;
 
                 let Ok(Some(dhcp_info)) = response_rx.await else {
-                    self.logger
-                        .warn("Failed waiting for dhcp response".to_string());
-                    return Ok((None, false));
+                    return Err(MachineStateError::DhcpError);
                 };
 
                 self.logger.info(format!(
@@ -124,7 +145,7 @@ impl MachineStateMachine {
                 let mut bmc_mock = if self.app_context.app_config.bmc_mock_dynamic_ports {
                     BmcMockWrapper::new(
                         self.machine_info.clone(),
-                        self.command_channel.clone(),
+                        self.bmc_command_channel.clone(),
                         self.app_context.clone(),
                         ListenMode::LocalhostWithDynamicPort,
                     )
@@ -135,7 +156,7 @@ impl MachineStateMachine {
                     );
                     BmcMockWrapper::new(
                         self.machine_info.clone(),
-                        self.command_channel.clone(),
+                        self.bmc_command_channel.clone(),
                         self.app_context.clone(),
                         ListenMode::SpecifiedAddress {
                             address,
@@ -153,36 +174,34 @@ impl MachineStateMachine {
                         .insert(dhcp_info.ip_address, listen_addr);
                 }
 
-                let next_state = MachineState::Init(BmcInitializedState {
+                Ok(NextState::Some(MachineState::Init(BmcInitializedState {
                     bmc_mock: Arc::new(bmc_mock),
                     bmc_dhcp_info: dhcp_info,
-                });
-                Ok((Some(next_state), true))
+                })))
             }
             MachineState::MachineDown(inner_state) => {
                 let reboot_delay_secs = match self.machine_info {
                     MachineInfo::Dpu(_) => self.config.dpu_reboot_delay,
                     MachineInfo::Host(_) => self.config.host_reboot_delay,
                 };
-                if inner_state.since.elapsed() > Duration::from_secs(reboot_delay_secs) {
-                    Ok((
-                        Some(MachineState::Init(inner_state.bmc_state.clone())),
-                        true,
-                    ))
+                let elapsed = inner_state.since.elapsed();
+                let delay = Duration::from_secs(reboot_delay_secs);
+                if elapsed >= delay {
+                    Ok(NextState::Some(MachineState::Init(
+                        inner_state.bmc_state.clone(),
+                    )))
                 } else {
-                    Ok((None, true))
+                    Ok(NextState::SleepFor(delay - elapsed))
                 }
             }
             MachineState::Init(inner_state) => {
                 if !nic_available {
                     self.logger
                         .info("Machine NIC not available yet, not initializing".to_string());
-                    return Ok((None, false));
+                    return Ok(NextState::SleepFor(Duration::from_secs(5)));
                 }
                 let Some(primary_mac) = self.machine_info.dhcp_mac_addresses().first().cloned()
                 else {
-                    self.logger
-                        .error("No machine_mac_addresses, cannot perform DHCP request".to_string());
                     return Err(MachineStateError::NoMachineMacAddress);
                 };
                 self.logger
@@ -206,15 +225,14 @@ impl MachineStateMachine {
                 ));
 
                 let Ok(Some(machine_dhcp_info)) = response_rx.await else {
-                    tracing::warn!("Failed waiting on dhcp response");
-                    return Ok((None, false));
+                    return Err(MachineStateError::DhcpError);
                 };
 
                 let next_state = MachineState::DhcpComplete(DhcpCompleteState {
                     bmc_state: inner_state.clone(),
                     machine_dhcp_info,
                 });
-                Ok((Some(next_state), true))
+                Ok(NextState::Some(next_state))
             }
             MachineState::DhcpComplete(inner_state) => {
                 let Some(machine_interface_id) = inner_state
@@ -225,9 +243,7 @@ impl MachineStateMachine {
                         value: u.to_string(),
                     })
                 else {
-                    self.logger
-                        .warn("Machine has no machine_dhcp_info.interface_id".to_string());
-                    return Ok((None, false));
+                    return Err(MachineStateError::MissingInterfaceId);
                 };
 
                 let architecture = match self.machine_info {
@@ -249,11 +265,10 @@ impl MachineStateMachine {
                             machine_discovery_result: None,
                             last_network_status_update: None,
                         });
-                        return Ok((Some(next_state), true));
+                        return Ok(NextState::Some(next_state));
                     }
                     PXEresponse::Error => {
-                        tracing::warn!("PXE request failed. Retrying...");
-                        return Ok((None, false));
+                        return Err(MachineStateError::PxeError);
                     }
                     PXEresponse::Efi => {
                         // Continue to the next state
@@ -261,7 +276,7 @@ impl MachineStateMachine {
                 }
 
                 let start = Instant::now();
-                let machine_discovery_result = match api_client::discover_machine(
+                let machine_discovery_result = api_client::discover_machine(
                     &self.app_context,
                     &self.config.template_dir,
                     rpc_machine_type(&self.machine_info),
@@ -281,14 +296,7 @@ impl MachineStateMachine {
                             .map(|m| m.to_string()),
                     },
                 )
-                .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        self.logger.warn(format!("discover_machine failed: {e}"));
-                        return Ok((None, false));
-                    }
-                };
+                .await?;
 
                 self.logger.info(format!(
                     "discover_machine took {}ms",
@@ -300,13 +308,13 @@ impl MachineStateMachine {
                         bmc_state: inner_state.bmc_state.clone(),
                         machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
                     });
-                Ok((Some(next_state), true))
+                Ok(NextState::Some(next_state))
             }
             MachineState::HardwareDiscoveryComplete(inner_state) => {
                 let machine_id = self.machine_id()?;
 
                 let start = Instant::now();
-                if let Err(e) = api_client::update_bmc_metadata(
+                api_client::update_bmc_metadata(
                     &self.app_context,
                     &self.config.template_dir,
                     rpc_machine_type(&self.machine_info),
@@ -314,11 +322,7 @@ impl MachineStateMachine {
                     inner_state.bmc_state.bmc_dhcp_info.ip_address,
                     self.machine_info.bmc_mac_address(),
                 )
-                .await
-                {
-                    tracing::warn!("update_bmc_metadata failed: {e}");
-                    return Ok((None, false));
-                }
+                .await?;
 
                 self.logger.info(format!(
                     "update_bmc_metadata took {}ms",
@@ -335,12 +339,7 @@ impl MachineStateMachine {
                 ));
 
                 let start = Instant::now();
-                if let Err(e) =
-                    api_client::discovery_complete(&self.app_context, machine_id.clone()).await
-                {
-                    tracing::warn!("discovery_complete failed: {e}");
-                    return Ok((None, false));
-                }
+                api_client::discovery_complete(&self.app_context, machine_id.clone()).await?;
                 self.logger.info(format!(
                     "discovery_complete took {}ms",
                     start.elapsed().as_millis()
@@ -377,57 +376,62 @@ impl MachineStateMachine {
                     machine_discovery_result: Some(inner_state.machine_discovery_result.clone()),
                     last_network_status_update: None,
                 });
-                Ok((Some(next_state), true))
+                Ok(NextState::Some(next_state))
             }
             MachineState::MachineUp(inner_state) => {
                 if let MachineInfo::Host(_) = self.machine_info {
-                    // Hosts don't run forge-agent, return
-                    return Ok((None, false));
+                    // Hosts don't run forge-agent, return. We're now booted up, so we don't need to
+                    // run again until we get rebooted.
+                    return Ok(NextState::SleepFor(Duration::MAX));
                 }
 
-                let do_network_status_update = match inner_state.last_network_status_update {
-                    Some(instant) => instant.elapsed() > Duration::from_secs(20),
-                    None => true,
-                };
-
-                if do_network_status_update {
-                    let machine_id = self.machine_id()?;
-
-                    match api_client::get_managed_host_network_config(
-                        &self.app_context,
-                        machine_id.clone(),
-                    )
-                    .await
-                    {
-                        Ok(network_config) => {
-                            if let Err(e) = record_dpu_network_status(
-                                &self.app_context,
-                                machine_id.clone(),
-                                network_config.managed_host_config_version,
-                            )
-                            .await
-                            {
-                                self.logger
-                                    .warn(format!("record_dpu_network_status failed: {e}"));
-                                return Ok((None, false));
-                            }
-                        }
-                        Err(e) => {
-                            self.logger
-                                .warn(format!("get_managed_host_network_config failed: {e}"));
-                            return Ok((None, false));
+                let wait = match inner_state.last_network_status_update {
+                    Some(instant) => {
+                        let elapsed = instant.elapsed();
+                        if elapsed >= self.config.network_status_run_interval {
+                            Duration::default()
+                        } else {
+                            self.config.network_status_run_interval - elapsed
                         }
                     }
-                    let next_state = MachineState::MachineUp(MachineUpState {
-                        last_network_status_update: Some(Instant::now()),
-                        bmc_state: inner_state.bmc_state.clone(),
-                        machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
-                        machine_discovery_result: inner_state.machine_discovery_result.clone(),
-                    });
-                    return Ok((Some(next_state), true));
+                    None => Duration::default(),
+                };
+
+                if wait > Duration::default() {
+                    return Ok(NextState::SleepFor(wait));
                 }
 
-                Ok((None, false))
+                let Ok(machine_id) = self.machine_id() else {
+                    // When a DPU first boots it doesn't have a machine-id allocated yet. So we
+                    // can't send any network config. Wait until we get rebooted.
+                    return Ok(NextState::SleepFor(Duration::MAX));
+                };
+
+                let network_config = api_client::get_managed_host_network_config(
+                    &self.app_context,
+                    machine_id.clone(),
+                )
+                .await?;
+
+                record_dpu_network_status(
+                    &self.app_context,
+                    machine_id.clone(),
+                    network_config.managed_host_config_version,
+                )
+                .await?;
+
+                let next_state = MachineState::MachineUp(MachineUpState {
+                    last_network_status_update: Some(Instant::now()),
+                    bmc_state: inner_state.bmc_state.clone(),
+                    machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
+                    machine_discovery_result: inner_state.machine_discovery_result.clone(),
+                });
+
+                // Wake us up again to do more network status updates.
+                Ok(NextState::UpdateAndDelay(
+                    next_state,
+                    self.config.network_status_run_interval,
+                ))
             }
         }
     }
@@ -566,21 +570,25 @@ impl Display for MachineStateMachine {
 #[derive(thiserror::Error, Debug)]
 pub enum MachineStateError {
     #[error(
+        "Invalid Machine state: Missing interface_id for this machine in machine discovery results"
+    )]
+    MissingInterfaceId,
+    #[error(
         "Invalid Machine state: Missing machine_id for this machine in machine discovery results"
     )]
     MissingMachineId,
     #[error("No mac addresses specified for machine")]
     NoMachineMacAddress,
-    #[error("{0}")]
-    InvalidAddress(String),
-    #[error("Error launching BMC mock service: {0}")]
-    BmcMockServiceError(String),
     #[error("Error configuring listening address: {0}")]
     ListenAddressConfigError(#[from] AddressConfigError),
     #[error("Could not find certificates at {0}")]
     MissingCertificates(String),
     #[error("Error calling forge API: {0}")]
     ClientApi(#[from] ClientApiError),
+    #[error("Failed to get DHCP address")]
+    DhcpError,
+    #[error("Failed to get PXE response")]
+    PxeError,
 }
 
 #[derive(thiserror::Error, Debug)]

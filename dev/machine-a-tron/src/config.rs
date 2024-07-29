@@ -1,8 +1,10 @@
 use axum::Router;
 use clap::Parser;
+use duration_str::deserialize_duration;
 use rpc::forge_tls_client::ForgeClientConfig;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use std::path::PathBuf;
+use std::time::Duration;
 use std::{collections::BTreeMap, net::Ipv4Addr};
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
@@ -43,6 +45,25 @@ pub struct MachineConfig {
     pub template_dir: String,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
+
+    #[serde(
+        default = "default_run_interval_working",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval_working: Duration,
+    #[serde(
+        default = "default_run_interval_idle",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval_idle: Duration,
+    #[serde(
+        default = "default_network_status_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub network_status_run_interval: Duration,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -88,6 +109,18 @@ fn default_template_dir() -> String {
     String::from("dev/machine-a-tron/templates")
 }
 
+fn default_run_interval_working() -> Duration {
+    Duration::from_secs(5)
+}
+
+fn default_run_interval_idle() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn default_network_status_run_interval() -> Duration {
+    Duration::from_secs(20)
+}
+
 fn default_false() -> bool {
     false
 }
@@ -104,4 +137,11 @@ pub struct MachineATronContext {
     pub bmc_mock_certs_dir: Option<PathBuf>,
     pub host_tar_router: Router,
     pub dpu_tar_router: Router,
+}
+
+fn as_std_duration<S>(d: &std::time::Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("{}s", d.as_secs()))
 }

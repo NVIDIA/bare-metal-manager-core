@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use crate::config::MachineATronContext;
 use crate::machine_state_machine::{AddressConfigError, MachineStateError};
 use crate::machine_utils::add_address_to_interface;
-use bmc_mock::{BmcMockError, ListenerOrAddress, MachineCommand, MachineInfo};
+use bmc_mock::{BmcCommand, BmcMockError, ListenerOrAddress, MachineInfo};
 
 /// BmcMockWrapper launches a single instance of bmc-mock, configured to mock a single BMC for
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines
@@ -35,7 +35,7 @@ pub enum ListenMode {
 impl BmcMockWrapper {
     pub fn new(
         machine_info: MachineInfo,
-        command_channel: mpsc::UnboundedSender<MachineCommand>,
+        command_channel: mpsc::UnboundedSender<BmcCommand>,
         app_context: MachineATronContext,
         listen_mode: ListenMode,
     ) -> Self {
