@@ -9,9 +9,7 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::api_client;
-use crate::api_client::{
-    get_site_exploration_report, record_dpu_network_status, ClientApiError, MockDiscoveryData,
-};
+use crate::api_client::{record_dpu_network_status, ClientApiError, MockDiscoveryData};
 use crate::bmc_mock_wrapper::{BmcMockAddressRegistry, BmcMockWrapper, ListenMode};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
@@ -46,7 +44,6 @@ pub struct MachineStateMachine {
 #[derive(Debug)]
 pub enum MachineState {
     BmcInit,
-    WaitForSiteExplorer(BmcInitializedState),
     MachineDown(MachineDownState),
     Init(BmcInitializedState),
     DhcpComplete(DhcpCompleteState),
@@ -156,44 +153,11 @@ impl MachineStateMachine {
                         .insert(dhcp_info.ip_address, listen_addr);
                 }
 
-                let next_state = MachineState::WaitForSiteExplorer(BmcInitializedState {
+                let next_state = MachineState::Init(BmcInitializedState {
                     bmc_mock: Arc::new(bmc_mock),
                     bmc_dhcp_info: dhcp_info,
                 });
                 Ok((Some(next_state), true))
-            }
-            MachineState::WaitForSiteExplorer(inner_state) => {
-                // Don't send host DHCP until site explorer has had a chance to build predicted
-                // hosts. This is similar to how DCOPS may opt to avoid powering on machines until
-                // site-explorer has run. If we didn't do this here, we may send DHCP before site
-                // explorer gets a chance to build the predicted host, and we end up with wrong info.
-                let report = get_site_exploration_report(&self.app_context).await?;
-                let has_matching_managed_host =
-                    report
-                        .managed_hosts
-                        .iter()
-                        .any(|managed_host| match self.machine_info {
-                            MachineInfo::Host(_) => managed_host
-                                .host_bmc_ip
-                                .eq(&inner_state.bmc_dhcp_info.ip_address.to_string()),
-                            MachineInfo::Dpu(_) => managed_host.dpus.iter().any(|d| {
-                                d.bmc_ip
-                                    .eq(&inner_state.bmc_dhcp_info.ip_address.to_string())
-                            }),
-                        });
-
-                if has_matching_managed_host {
-                    self.logger.info(
-                        "Site-Explorer Managed host found with this machine, proceeding to boot"
-                            .to_string(),
-                    );
-                    Ok((Some(MachineState::Init(inner_state.clone())), true))
-                } else {
-                    tracing::info!(
-                        "Site-Explorer Managed host not found yet with this machine, will wait"
-                    );
-                    Ok((None, false))
-                }
             }
             MachineState::MachineDown(inner_state) => {
                 let reboot_delay_secs = match self.machine_info {
@@ -471,7 +435,6 @@ impl MachineStateMachine {
     pub fn power_down(&mut self) {
         let bmc_state = match &self.state {
             MachineState::BmcInit => return,
-            MachineState::WaitForSiteExplorer(s) => s,
             MachineState::MachineDown(s) => &s.bmc_state,
             MachineState::Init(s) => s,
             MachineState::DhcpComplete(s) => &s.bmc_state,
@@ -487,7 +450,6 @@ impl MachineStateMachine {
     pub fn machine_id(&self) -> Result<rpc::MachineId, MachineStateError> {
         match &self.state {
             MachineState::BmcInit => None,
-            MachineState::WaitForSiteExplorer(state) => state.bmc_dhcp_info.machine_id.as_ref(),
             MachineState::MachineDown(state) => state.bmc_state.bmc_dhcp_info.machine_id.as_ref(),
             MachineState::Init(state) => state.bmc_dhcp_info.machine_id.as_ref(),
             MachineState::DhcpComplete(state) => state.machine_dhcp_info.machine_id.as_ref(),
@@ -509,7 +471,6 @@ impl MachineStateMachine {
     pub fn machine_ip(&self) -> Option<Ipv4Addr> {
         match &self.state {
             MachineState::BmcInit => None,
-            MachineState::WaitForSiteExplorer(_) => None,
             MachineState::MachineDown(_) => None,
             MachineState::Init(_) => None,
             MachineState::DhcpComplete(s) => Some(s.machine_dhcp_info.ip_address),
@@ -521,7 +482,6 @@ impl MachineStateMachine {
     pub fn bmc_ip(&self) -> Option<Ipv4Addr> {
         match &self.state {
             MachineState::BmcInit => None,
-            MachineState::WaitForSiteExplorer(s) => Some(s.bmc_dhcp_info.ip_address),
             MachineState::MachineDown(s) => Some(s.bmc_state.bmc_dhcp_info.ip_address),
             MachineState::Init(s) => Some(s.bmc_dhcp_info.ip_address),
             MachineState::DhcpComplete(s) => Some(s.bmc_state.bmc_dhcp_info.ip_address),
@@ -536,7 +496,6 @@ impl MachineStateMachine {
     pub fn bmc_mock_address(&self) -> Option<SocketAddr> {
         match &self.state {
             MachineState::BmcInit => None,
-            MachineState::WaitForSiteExplorer(s) => s.bmc_mock.active_address(),
             MachineState::MachineDown(s) => s.bmc_state.bmc_mock.active_address(),
             MachineState::Init(s) => s.bmc_mock.active_address(),
             MachineState::DhcpComplete(s) => s.bmc_state.bmc_mock.active_address(),
@@ -588,7 +547,6 @@ impl Display for MachineState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str_repr = match self {
             Self::BmcInit => "BmcInit",
-            Self::WaitForSiteExplorer(_) => "WaitForSiteExplorer",
             Self::MachineDown(_) => "MachineDown",
             Self::Init(_) => "Init",
             Self::DhcpComplete(_) => "DhcpComplete",
