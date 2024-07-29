@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::State as AxumState;
+use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
 use http::StatusCode;
@@ -26,10 +27,15 @@ use crate::api::Api;
 #[derive(Template)]
 #[template(path = "network_status.html")]
 struct NetworkStatus {
-    healthy: Vec<NetworkStatusDisplay>,
-    unhealthy: Vec<NetworkStatusDisplay>,
+    dpus: Vec<NetworkStatusDisplay>,
+    active_filter: String,
+    all_count: usize,
+    healthy_count: usize,
+    unhealthy_count: usize,
+    outdated_count: usize,
 }
 
+#[derive(Clone)]
 struct NetworkStatusDisplay {
     observed_at: String,
     dpu_machine_id: String,
@@ -74,7 +80,12 @@ impl From<forgerpc::DpuNetworkStatus> for NetworkStatusDisplay {
     }
 }
 
-pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
+pub async fn show_html(
+    AxumState(state): AxumState<Arc<Api>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    let filter = params.get("filter").cloned().unwrap_or("all".to_string());
+
     let all_status = match fetch_network_status(state).await {
         Ok(all) => all,
         Err(err) => {
@@ -86,18 +97,49 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
                 .into_response();
         }
     };
-    let mut healthy = Vec::new();
-    let mut unhealthy = Vec::new();
-    //for st in all_status.into_iter().filter(|st| st.health.is_some()) {
+    let all_count = all_status.len();
+    let mut dpus = Vec::with_capacity(all_status.len());
+    let (mut healthy_count, mut unhealthy_count, mut outdated_count) = (0, 0, 0);
     for st in all_status.into_iter() {
         let display: NetworkStatusDisplay = st.into();
         if display.is_healthy {
-            healthy.push(display);
+            healthy_count += 1;
         } else {
-            unhealthy.push(display);
+            unhealthy_count += 1;
+        }
+        if !display.is_agent_updated {
+            outdated_count += 1;
+        }
+        match filter.as_str() {
+            "all" => dpus.push(display),
+            "healthy" => {
+                if display.is_healthy {
+                    dpus.push(display);
+                }
+            }
+            "unhealthy" => {
+                if !display.is_healthy {
+                    dpus.push(display);
+                }
+            }
+            "outdated" => {
+                if !display.is_agent_updated {
+                    dpus.push(display);
+                }
+            }
+            _ => {
+                return (StatusCode::BAD_REQUEST, "Unknown filter").into_response();
+            }
         }
     }
-    let tmpl = NetworkStatus { healthy, unhealthy };
+    let tmpl = NetworkStatus {
+        dpus,
+        active_filter: filter,
+        all_count,
+        healthy_count,
+        unhealthy_count,
+        outdated_count,
+    };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
