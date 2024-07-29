@@ -90,8 +90,8 @@ admin_cli.force_delete_machine(machine_under_test)
 # If there is a failure anywhere here attempt to put the machine into maintenance mode
 # for investigation (this will prevent future runs affecting the machine).
 try:
-    # Wait up to 1 hour for Host/WaitingForDiscovery
-    print(f"Wait for DPU {machine_under_test_dpu} to report state 'Host/WaitingForDiscovery'")
+    # Wait up to 1 hour for HostInitializing/WaitingForDiscovery
+    print(f"Wait for DPU {machine_under_test_dpu} to report state 'HostInitializing/WaitingForDiscovery'")
     admin_cli.wait_for_machine_waitingforhostdiscovery(machine_under_test_dpu, timeout=60 * 60)
 
     # Wait for Ready state
