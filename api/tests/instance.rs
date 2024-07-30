@@ -35,7 +35,7 @@ use carbide::{
         machine::{machine_id::try_parse_machine_id, InstanceState, ManagedHostState},
         metadata::Metadata,
     },
-    state_controller::machine::handler::MachineStateHandler,
+    state_controller::machine::handler::MachineStateHandlerBuilder,
 };
 use chrono::Utc;
 use common::api_fixtures::{
@@ -1517,14 +1517,11 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         .await
         .expect("Delete instance failed.");
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(

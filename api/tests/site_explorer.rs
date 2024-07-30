@@ -43,7 +43,7 @@ use carbide::{
     },
     resource_pool::ResourcePoolStats,
     site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
-    state_controller::machine::handler::MachineStateHandler,
+    state_controller::machine::handler::MachineStateHandlerBuilder,
 };
 use common::api_fixtures::TestEnv;
 use rpc::{
@@ -1119,14 +1119,12 @@ async fn test_site_explorer_creates_managed_host(
     );
 
     // Run ManagedHost state iteration
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(1),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .dpu_up_threshold(chrono::Duration::minutes(1))
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 

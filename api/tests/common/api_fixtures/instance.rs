@@ -20,7 +20,7 @@ use carbide::{
         machine::machine_id::MachineId, machine::CleanupState, machine::MachineState,
         machine::ManagedHostState,
     },
-    state_controller::machine::handler::MachineStateHandler,
+    state_controller::machine::handler::{MachineStateHandler, MachineStateHandlerBuilder},
 };
 use rpc::{forge::forge_server::Forge, InstanceReleaseRequest, Timestamp};
 
@@ -201,14 +201,11 @@ pub async fn advance_created_instance_into_ready_state(
     host_machine_id: &MachineId,
     instance_id: InstanceId,
 ) -> rpc::Instance {
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
 
     // - first run: state controller moves state to WaitingForNetworkConfig
     env.run_machine_state_controller_iteration(handler.clone())
@@ -278,14 +275,11 @@ pub async fn delete_instance(
         rpc::TenantState::Terminating
     );
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
 
     let mut txn = env.pool.begin().await.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(

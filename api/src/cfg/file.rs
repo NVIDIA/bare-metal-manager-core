@@ -786,7 +786,7 @@ impl Default for FirmwareGlobal {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Vendor2Firmware {
     map: HashMap<String, Firmware>,
 }

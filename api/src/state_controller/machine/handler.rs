@@ -92,31 +92,105 @@ pub struct MachineStateHandler {
     reachability_params: ReachabilityParams,
 }
 
-impl MachineStateHandler {
-    pub fn new(
-        dpu_up_threshold: chrono::Duration,
+pub struct MachineStateHandlerBuilder {
+    dpu_up_threshold: chrono::Duration,
+    dpu_nic_firmware_initial_update_enabled: bool,
+    dpu_nic_firmware_reprovision_update_enabled: bool,
+    hardware_models: Option<Vendor2Firmware>,
+    reachability_params: ReachabilityParams,
+    attestation_enabled: bool,
+}
+
+impl MachineStateHandlerBuilder {
+    pub fn builder() -> Self {
+        Self {
+            dpu_up_threshold: chrono::Duration::minutes(5),
+            dpu_nic_firmware_initial_update_enabled: true,
+            dpu_nic_firmware_reprovision_update_enabled: true,
+            hardware_models: None,
+            reachability_params: ReachabilityParams {
+                dpu_wait_time: chrono::Duration::minutes(5),
+                power_down_wait: chrono::Duration::minutes(2),
+                failure_retry_time: chrono::Duration::minutes(30),
+            },
+            attestation_enabled: true,
+        }
+    }
+
+    pub fn dpu_up_threshold(mut self, dpu_up_threshold: chrono::Duration) -> Self {
+        self.dpu_up_threshold = dpu_up_threshold;
+        self
+    }
+
+    pub fn dpu_nic_firmware_initial_update_enabled(
+        mut self,
         dpu_nic_firmware_initial_update_enabled: bool,
-        dpu_nic_firmware_reprovision_update_enabled: bool,
-        hardware_models: Vendor2Firmware,
-        reachability_params: ReachabilityParams,
-        attestation_enabled: bool,
     ) -> Self {
+        self.dpu_nic_firmware_initial_update_enabled = dpu_nic_firmware_initial_update_enabled;
+        self
+    }
+
+    pub fn dpu_nic_firmware_reprovision_update_enabled(
+        mut self,
+        dpu_nic_firmware_reprovision_update_enabled: bool,
+    ) -> Self {
+        self.dpu_nic_firmware_reprovision_update_enabled =
+            dpu_nic_firmware_reprovision_update_enabled;
+        self
+    }
+
+    pub fn reachability_params(mut self, reachability_params: ReachabilityParams) -> Self {
+        self.reachability_params = reachability_params;
+        self
+    }
+    pub fn dpu_wait_time(mut self, dpu_wait_time: chrono::Duration) -> Self {
+        self.reachability_params.dpu_wait_time = dpu_wait_time;
+        self
+    }
+
+    pub fn power_down_wait(mut self, power_down_wait: chrono::Duration) -> Self {
+        self.reachability_params.power_down_wait = power_down_wait;
+        self
+    }
+
+    pub fn failure_retry_time(mut self, failure_retry_time: chrono::Duration) -> Self {
+        self.reachability_params.failure_retry_time = failure_retry_time;
+        self
+    }
+
+    pub fn hardware_models(mut self, hardware_models: Vendor2Firmware) -> Self {
+        self.hardware_models = Some(hardware_models);
+        self
+    }
+
+    pub fn attestation_enabled(mut self, attestation_enabled: bool) -> Self {
+        self.attestation_enabled = attestation_enabled;
+        self
+    }
+
+    pub fn build(self) -> MachineStateHandler {
+        MachineStateHandler::new(self)
+    }
+}
+
+impl MachineStateHandler {
+    fn new(builder: MachineStateHandlerBuilder) -> Self {
         MachineStateHandler {
-            dpu_up_threshold,
+            dpu_up_threshold: builder.dpu_up_threshold,
             host_handler: HostMachineStateHandler::new(HostHandlerParams {
-                attestation_enabled,
-                reachability_params,
+                attestation_enabled: builder.attestation_enabled,
+                reachability_params: builder.reachability_params,
             }),
             dpu_handler: DpuMachineStateHandler::new(
-                dpu_nic_firmware_initial_update_enabled,
-                hardware_models,
-                reachability_params,
+                builder.dpu_nic_firmware_initial_update_enabled,
+                builder.hardware_models.clone().unwrap_or_default(),
+                builder.reachability_params,
             ),
             instance_handler: InstanceStateHandler::new(
-                dpu_nic_firmware_reprovision_update_enabled,
-                reachability_params,
+                builder.dpu_nic_firmware_reprovision_update_enabled,
+                builder.reachability_params,
             ),
-            reachability_params,
+            reachability_params: builder.reachability_params,
         }
     }
 

@@ -26,7 +26,7 @@ use carbide::{
             ManagedHostState,
         },
     },
-    state_controller::machine::handler::MachineStateHandler,
+    state_controller::machine::handler::{MachineStateHandler, MachineStateHandlerBuilder},
 };
 use rpc::forge::MachineValidationResult;
 use rpc::{
@@ -178,14 +178,11 @@ pub async fn create_host_machine(
 
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
@@ -377,14 +374,11 @@ pub async fn create_host_with_machine_validation(
 
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
     let host_rpc_machine_id: rpc::MachineId = host_machine_id.to_string().into();
