@@ -49,10 +49,7 @@ use crate::{
     state_controller::{
         controller::StateController,
         ib_partition::{handler::IBPartitionStateHandler, io::IBPartitionStateControllerIO},
-        machine::{
-            handler::{MachineStateHandler, ReachabilityParams},
-            io::MachineStateControllerIO,
-        },
+        machine::{handler::MachineStateHandlerBuilder, io::MachineStateControllerIO},
         network_segment::{
             handler::NetworkSegmentStateHandler, io::NetworkSegmentStateControllerIO,
         },
@@ -331,18 +328,19 @@ pub async fn start_api(
         .ib_fabric_manager(ib_fabric_manager.clone())
         .forge_api(api_service.clone())
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
-        .state_handler(Arc::new(MachineStateHandler::new(
-            carbide_config.machine_state_controller.dpu_up_threshold,
-            carbide_config.dpu_nic_firmware_initial_update_enabled,
-            carbide_config.dpu_nic_firmware_reprovision_update_enabled,
-            carbide_config.get_parsed_hosts(),
-            ReachabilityParams {
-                dpu_wait_time: carbide_config.machine_state_controller.dpu_wait_time,
-                power_down_wait: carbide_config.machine_state_controller.power_down_wait,
-                failure_retry_time: carbide_config.machine_state_controller.failure_retry_time,
-            },
-            carbide_config.attestation_enabled,
-        )))
+        .state_handler(Arc::new(
+            MachineStateHandlerBuilder::builder()
+                .dpu_up_threshold(carbide_config.machine_state_controller.dpu_up_threshold)
+                .dpu_nic_firmware_reprovision_update_enabled(
+                    carbide_config.dpu_nic_firmware_reprovision_update_enabled,
+                )
+                .dpu_wait_time(carbide_config.machine_state_controller.dpu_wait_time)
+                .power_down_wait(carbide_config.machine_state_controller.power_down_wait)
+                .failure_retry_time(carbide_config.machine_state_controller.failure_retry_time)
+                .hardware_models(carbide_config.get_parsed_hosts())
+                .attestation_enabled(carbide_config.attestation_enabled)
+                .build(),
+        ))
         .ipmi_tool(ipmi_tool.clone())
         .build_and_spawn()
         .expect("Unable to build MachineStateController");

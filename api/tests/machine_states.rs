@@ -18,7 +18,7 @@ use carbide::measured_boot::model::bundle::MeasurementBundle;
 use carbide::model::controller_outcome::PersistentStateHandlerOutcome;
 use carbide::model::machine::{DpuInitState, FailureDetails, MachineState, ManagedHostState};
 use carbide::state_controller::machine::handler::{
-    handler_host_power_control, MachineStateHandler,
+    handler_host_power_control, MachineStateHandlerBuilder,
 };
 use common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
 use common::api_fixtures::{create_managed_host, create_test_env, machine_validation_completed};
@@ -163,14 +163,11 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
 
     // let state machine check the failure condition.
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -213,14 +210,11 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         .unwrap();
 
     // let state machine check the failure condition.
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -289,14 +283,12 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     assert!(matches!(dpu_machine.has_healthy_network(), Ok(true)));
 
     // Tell state handler to mark DPU as unhealthy after 1 second
-    let handler = MachineStateHandler::new(
-        chrono::Duration::seconds(1),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .dpu_up_threshold(chrono::Duration::seconds(1))
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Run the state state handler
@@ -339,14 +331,11 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     // let state machine check the failure condition.
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -614,14 +603,11 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
 
     let _ = forge_agent_control(&env, dpu_machine_id.to_string().into()).await;
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
 
     // Now we're stuck waiting for DPU agent to run
     env.run_machine_state_controller_iteration(handler.clone())
@@ -661,14 +647,11 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 

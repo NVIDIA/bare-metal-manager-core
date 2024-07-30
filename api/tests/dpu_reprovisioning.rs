@@ -17,7 +17,7 @@ use carbide::model::machine::{
     DpuInitState, InstanceState, MachineLastRebootRequestedMode, MachineState, ManagedHostState,
     ReprovisionState,
 };
-use carbide::state_controller::machine::handler::MachineStateHandler;
+use carbide::state_controller::machine::handler::MachineStateHandlerBuilder;
 use common::api_fixtures::create_test_env;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
@@ -168,14 +168,11 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -482,14 +479,11 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         "AdminCli"
     );
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
 
     let dpu_rpc_id = rpc::common::MachineId {
         id: dpu_machine_id.to_string(),
@@ -678,14 +672,11 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -993,14 +984,11 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         "AdminCli"
     );
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -1328,14 +1316,11 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -1567,14 +1552,11 @@ async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
 async fn test_dpu_reset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
 
     let (dpu_machine_id, host_machine_id) =
         create_dpu_machine_in_waiting_for_network_install(&env, &host_sim.config).await;
@@ -1712,14 +1694,11 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(5),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 

@@ -22,7 +22,7 @@ use carbide::{
         },
     },
     site_explorer::{EndpointExplorer, SiteExplorationMetrics, SiteExplorer},
-    state_controller::machine::handler::MachineStateHandler,
+    state_controller::machine::handler::MachineStateHandlerBuilder,
 };
 use mac_address::MacAddress;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
@@ -255,14 +255,12 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let mut bmc_fw = File::create(bmc_fw_path.clone()).await?;
     bmc_fw.write_all(b"Fake BMC FW").await?;
 
-    let handler = MachineStateHandler::new(
-        chrono::Duration::minutes(1),
-        true,
-        true,
-        env.config.get_parsed_hosts(),
-        env.reachability_params,
-        env.attestation_enabled,
-    );
+    let handler = MachineStateHandlerBuilder::builder()
+        .dpu_up_threshold(chrono::Duration::minutes(1))
+        .hardware_models(env.config.get_parsed_hosts())
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
 
     let host_machine = Machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine.id())
         .await?
