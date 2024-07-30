@@ -906,6 +906,23 @@ pages:
     - if: $CI_PIPELINE_SOURCE != 'merge_request_event'
 
 #
+# Build and push the generic CI tools image
+#
+build-ci-tools-container:
+  extends: build-container
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - changes:
+        - dev/docker/Dockerfile.ci-tools-container-lite
+  variables:
+    DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.ci-tools-container-lite
+    BUILD_DOCKER_IMAGE: $CI_TOOLS_IMAGE
+  script:
+    - docker build --pull --add-host=gitlab-master.nvidia.com:10.120.180.120 --file $DOCKER_FILE --tag $BUILD_DOCKER_IMAGE .
+    - docker push $BUILD_DOCKER_IMAGE
+
+#
 # Build and push the image that contains the dependencies for job 'scheduled-test:auto-deploy-site-controller'
 #
 build-site-auto-deploy-container:
@@ -919,7 +936,7 @@ build-site-auto-deploy-container:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.site-auto-deploy-container
     BUILD_DOCKER_IMAGE: $CONTAINER_SITE_AUTO_DEPLOY
   script:
-    - docker build --add-host=gitlab-master.nvidia.com:10.120.180.120 --file $DOCKER_FILE --tag $BUILD_DOCKER_IMAGE .
+    - docker build --pull --add-host=gitlab-master.nvidia.com:10.120.180.120 --file $DOCKER_FILE --tag $BUILD_DOCKER_IMAGE .
     - docker push $BUILD_DOCKER_IMAGE
 
 #
@@ -952,7 +969,7 @@ scheduled-test:prepare:
       - runner_system_failure
     max: 1
   image:
-    name: $CONTAINER_SITE_AUTO_DEPLOY
+    name: $CI_TOOLS_IMAGE
     entrypoint: [ "" ]
   variables:
     # This variable is specified in GitLab UI > Scheduled Pipelines
