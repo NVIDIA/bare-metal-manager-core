@@ -225,6 +225,7 @@ impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
             report: Some(endpoint.report.into()),
             report_version: endpoint.report_version.to_string(),
             exploration_requested: endpoint.exploration_requested,
+            preingestion_state: format!("{:?}", endpoint.preingestion_state),
         }
     }
 }

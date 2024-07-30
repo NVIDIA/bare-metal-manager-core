@@ -1931,7 +1931,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "thiserror",
- "time 0.3.36",
+ "time",
  "winnow",
 ]
 
