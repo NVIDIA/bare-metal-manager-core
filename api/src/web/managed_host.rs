@@ -10,10 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use http::StatusCode;
@@ -32,8 +33,13 @@ const UNKNOWN: &str = "Unknown";
 #[derive(Template)]
 #[template(path = "managed_host_show.html")]
 struct ManagedHostShow {
-    active: Vec<ManagedHostRowDisplay>,
-    maintenance: Vec<ManagedHostRowDisplay>,
+    hosts: Vec<ManagedHostRowDisplay>,
+    active_vendor_filter: String,
+    vendors: Vec<String>,
+    active_state_filter: String,
+    states: Vec<String>,
+    active_category_filter: String,
+    categories: [&'static str; 4],
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -47,6 +53,7 @@ struct ManagedHostRowDisplay {
     host_admin_mac: String,
     host_bmc_ip: String,
     host_bmc_mac: String,
+    vendor: String,
     num_gpus: usize,
     num_ib_ifs: usize,
     host_memory: String,
@@ -120,6 +127,11 @@ impl From<utils::ManagedHostOutput> for ManagedHostRowDisplay {
             host_bmc_mac: o.host_bmc_mac.unwrap_or_default(),
             host_admin_ip: o.host_admin_ip.unwrap_or_default(),
             host_admin_mac: o.host_admin_mac.unwrap_or_default(),
+            vendor: o
+                .discovery_info
+                .dmi_data
+                .map(|dmi| dmi.sys_vendor)
+                .unwrap_or_default(),
             num_gpus: o.host_gpu_count,
             num_ib_ifs: o.host_ib_ifs_count,
             host_memory: o.host_memory.unwrap_or(UNKNOWN.to_string()),
@@ -150,7 +162,10 @@ impl From<ManagedHostAttachedDpu> for AttachedDpuRowDisplay {
 }
 
 /// List managed hosts
-pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
+pub async fn show_html(
+    state: AxumState<Arc<Api>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
     let managed_hosts = match fetch_managed_hosts(state).await {
         Ok(m) => m,
         Err(err) => {
@@ -162,21 +177,90 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
                 .into_response();
         }
     };
-    let mut active = Vec::new();
-    let mut maintenance = Vec::new();
+
+    let active_vendor_filter = params
+        .get("vendor-filter")
+        .cloned()
+        .unwrap_or("all".to_string());
+    let active_state_filter = params
+        .get("state-filter")
+        .cloned()
+        .unwrap_or("all".to_string());
+    let active_category_filter = params
+        .get("category-filter")
+        .cloned()
+        .unwrap_or("all".to_string());
+
+    let mut hosts = Vec::new();
+    let mut vendors = HashSet::new();
+    let mut states = HashSet::new();
     for mo in managed_hosts.into_iter() {
         let m: ManagedHostRowDisplay = mo.into();
-        if m.maintenance_reference.is_empty() {
-            active.push(m);
-        } else {
-            maintenance.push(m);
+        if !m.vendor.is_empty() {
+            vendors.insert(m.vendor.clone());
         }
+        states.insert(m.state.clone());
+
+        if active_vendor_filter != "all" && active_vendor_filter != m.vendor.to_lowercase() {
+            continue;
+        }
+        if active_state_filter != "all" && active_state_filter != m.state.to_lowercase() {
+            continue;
+        }
+        match active_category_filter.as_str() {
+            "all" => {}
+            "maintenance" => {
+                if m.maintenance_reference.is_empty() {
+                    continue;
+                }
+            }
+            "active" => {
+                if !m.maintenance_reference.is_empty() {
+                    continue;
+                }
+            }
+            "active not ready" => {
+                if !m.maintenance_reference.is_empty() {
+                    continue;
+                }
+                let state = m.state.to_lowercase();
+                if state == "ready" || state == "assigned/ready" {
+                    continue;
+                }
+            }
+            "unhealthy network" => {
+                if m.is_network_healthy {
+                    continue;
+                }
+            }
+            _ => {
+                return (StatusCode::BAD_REQUEST, "Unknown category filter").into_response();
+            }
+        }
+
+        hosts.push(m);
     }
-    active.sort_unstable();
-    maintenance.sort_unstable();
+    hosts.sort_unstable();
+
+    let mut vendors: Vec<String> = vendors.into_iter().collect();
+    vendors.sort_unstable();
+
+    let mut states: Vec<String> = states.into_iter().collect();
+    states.sort_unstable();
+
     let tmpl = ManagedHostShow {
-        active,
-        maintenance,
+        hosts,
+        active_vendor_filter,
+        vendors,
+        active_state_filter,
+        states,
+        active_category_filter,
+        categories: [
+            "maintenance",
+            "active",
+            "active not ready",
+            "unhealthy network",
+        ],
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
