@@ -199,7 +199,7 @@ pub async fn show_html_all(
     let vendor_filter = params
         .get("vendor-filter")
         .cloned()
-        .unwrap_or("ALL".to_string());
+        .unwrap_or("all".to_string());
     let is_errors_only = params.get("errors-only").is_some();
     let query_filter = query_filter_for(params);
     let tmpl = ExploredEndpointsShow {
@@ -287,7 +287,7 @@ pub async fn show_html_unpaired(
     let vendor_filter = params
         .get("vendor-filter")
         .cloned()
-        .unwrap_or("ALL".to_string());
+        .unwrap_or("all".to_string());
     let is_errors_only = params.get("errors-only").is_some();
     let query_filter = query_filter_for(params);
     let tmpl = ExploredEndpointsShow {
@@ -453,8 +453,8 @@ fn query_filter_for(
 ) -> Box<dyn Fn(&ExploredEndpointDisplay) -> bool> {
     let vf: Box<dyn Fn(&ExploredEndpointDisplay) -> bool> =
         match params.remove("vendor-filter").map(|v| v.trim().to_string()) {
-            Some(v) if v != "ALL" => Box::new(move |ep: &ExploredEndpointDisplay| {
-                ep.vendor.to_uppercase() == v || v == "NONE" && ep.vendor.is_empty()
+            Some(v) if v != "all" => Box::new(move |ep: &ExploredEndpointDisplay| {
+                ep.vendor.to_lowercase() == v || v == "none" && ep.vendor.is_empty()
             }),
             _ => Box::new(|_| true),
         };
