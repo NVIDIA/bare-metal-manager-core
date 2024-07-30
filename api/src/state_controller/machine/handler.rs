@@ -2586,14 +2586,23 @@ impl StateHandler for HostMachineStateHandler {
                     .await
                     {
                         Ok(redfish_client) => {
-                            redfish_client.forge_setup().await.map_err(|e| {
-                                StateHandlerError::RedfishError {
-                                    operation: "forge_setup",
-                                    error: e,
+                            let forge_setup_failed = match redfish_client.forge_setup().await {
+                                Ok(_) => false,
+                                Err(e) => {
+                                    tracing::warn!("redfish forge_setup failed, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}", e);
+                                    true
                                 }
-                            })?;
+                            };
 
-                            // Host needs to be rebooted to pick up the changes
+                            // Host needs to be rebooted to pick up the changes, or, if
+                            // forge_setup failed, rebooted to potentially work around
+                            // a known race between the DPU UEFI and the BMC, where if
+                            // the BMC is not up when DPU UEFI runs, then Attributes might
+                            // not come through. The fix is to force-restart the DPU to
+                            // re-POST.
+                            //
+                            // As of July 2024, Josh Price said there's an NBU FR to fix
+                            // this, but it wasn't target to a release yet.
                             handler_host_power_control(
                                 state,
                                 ctx.services,
@@ -2601,6 +2610,17 @@ impl StateHandler for HostMachineStateHandler {
                                 txn,
                             )
                             .await?;
+
+                            // If there's an error during forge_setup, don't progress to the
+                            // next state, and just let the ForceRestart fire off in an attempt
+                            // to get around the race condition; keep hanging out here.
+                            //
+                            // See larger comment above for more details.
+                            if forge_setup_failed {
+                                return Ok(StateHandlerOutcome::Wait(
+                                    "restarting due to UEFI POST/BMC attributes race".to_string(),
+                                ));
+                            }
 
                             Ok(StateHandlerOutcome::Transition(next_state))
                         }
