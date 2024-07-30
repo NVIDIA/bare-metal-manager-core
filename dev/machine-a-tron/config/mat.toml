@@ -48,9 +48,9 @@ pxe_server_port = "8080"
 
 # bmc_mock_host_tar configures default mocked data for BMC-mock to use for host
 # machines in machine-a-tron. Path is relative to REPO_ROOT.  Defaults to data
-# captured from a lenovo server.
+# captured from a dell server (check `default_bmc_mock_host_tar` in config.rs).
 #
-# bmc_mock_host_tar = "dev/bmc-mock/lenovo_thinksystem_sr670.tar.gz"
+# bmc_mock_host_tar = "dev/bmc-mock/dell_poweredge_r750.tar.gz"
 
 # bmc_mock_dpu_tar configures default mocked data for BMC-mock to use for dpu
 # machines in machine-a-tron. Path is relative to REPO_ROOT.  Defaults to data
