@@ -30,6 +30,21 @@ message HealthReport {
 message HealthProbeAlert {
     // Stable ID of the health probe that raised an alert
     string id = 1;
+    // The component that the probe is targeting.
+    // This could be e.g.
+    // - a physical component (e.g. a Fan probe might check various chassis fans)
+    // - a logical component (a check which probes whether disk space is available
+    //   can list the volume name as target)
+    //
+    // The field is optional. It can be absent if the probe ID already fully
+    // describes what is tested.
+    //
+    // Targets are useful if the same type of probe checks the health of multiple components.
+    // If a health report lists multiple probes of the same type and with different targets,
+    // then those probe/target combinations are treated individually.
+    // E.g. the `in_alert_since` and `classifications` fields for each probe/target
+    // combination are calculated individually when reports are merged.
+    optional string target = 6;
     // The first time the probe raised an alert
     // If this field is empty while the HealthReport is sent to carbide-api
     // the behavior is as follows:
@@ -50,4 +65,19 @@ message HealthProbeAlert {
 message HealthProbeSuccess {
     // Stable ID of the health probe that succeeded
     string id = 1;
+    // The component that the probe is targeting.
+    // This could be e.g.
+    // - a physical component (e.g. a Fan probe might check various chassis fans)
+    // - a logical component (a check which probes whether disk space is available
+    //   can list the volume name as target)
+    //
+    // The field is optional. It can be absent if the probe ID already fully
+    // describes what is tested.
+    //
+    // Targets are useful if the same type of probe checks the health of multiple components.
+    // If a health report lists multiple probes of the same type and with different targets,
+    // then those probe/target combinations are treated individually.
+    // E.g. the `in_alert_since` and `classifications` fields for each probe/target
+    // combination are calculated individually when reports are merged.
+    optional string target = 2;
 }

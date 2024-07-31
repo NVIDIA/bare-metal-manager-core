@@ -75,9 +75,11 @@ async fn test_machine_health_reporting(
         observed_at: None,
         successes: vec![health_report::HealthProbeSuccess {
             id: "Success1".parse().unwrap(),
+            target: None,
         }],
         alerts: vec![health_report::HealthProbeAlert {
             id: "Failure1".parse().unwrap(),
+            target: None,
             in_alert_since: None,
             message: "Failure1".to_string(),
             tenant_message: None,

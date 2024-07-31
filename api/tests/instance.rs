@@ -1379,6 +1379,7 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
             successes: vec![],
             alerts: vec![rpc::health::HealthProbeAlert {
                 id: "everything".to_string(),
+                target: None,
                 in_alert_since: None,
                 message: "test_cannot_create_instance_on_unhealthy_dpu".to_string(),
                 tenant_message: None,

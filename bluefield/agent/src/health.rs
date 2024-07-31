@@ -560,11 +560,13 @@ impl TryFrom<&HealthReport> for health_report::HealthReport {
         for passed in r.checks_passed.iter() {
             report.successes.push(health_report::HealthProbeSuccess {
                 id: passed.to_string().parse().unwrap(),
+                target: None,
             })
         }
         for failed in r.checks_failed.iter() {
             report.alerts.push(health_report::HealthProbeAlert {
                 id: failed.0.to_string().parse().unwrap(),
+                target: None,
                 in_alert_since: None,
                 message: failed.1.clone(),
                 tenant_message: None,

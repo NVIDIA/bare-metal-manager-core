@@ -133,9 +133,11 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         successes: vec![
             rpc::health::HealthProbeSuccess {
                 id: "ContainerExists".to_string(),
+                target: Some("c1".to_string()),
             },
             rpc::health::HealthProbeSuccess {
                 id: "checkTwo".to_string(),
+                target: None,
             },
         ],
         alerts: vec![],
@@ -263,10 +265,12 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
             source: "forge-dpu-agent".to_string(),
             observed_at: None,
             successes: vec![rpc::health::HealthProbeSuccess {
-                id: "Success2".to_string()
+                id: "Success2".to_string(),
+                target: None,
             }],
             alerts: vec![rpc::health::HealthProbeAlert {
                 id: "Fail1".to_string(),
+                target: None,
                 in_alert_since: None,
                 message: "Fail1".to_string(),
                 tenant_message: None,
@@ -297,9 +301,11 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
         observed_at: None,
         successes: vec![rpc::health::HealthProbeSuccess {
             id: "SuccessA".to_string(),
+            target: None,
         }],
         alerts: vec![rpc::health::HealthProbeAlert {
             id: "AlertA".to_string(),
+            target: None,
             in_alert_since: None,
             message: "AlertA".to_string(),
             tenant_message: None,

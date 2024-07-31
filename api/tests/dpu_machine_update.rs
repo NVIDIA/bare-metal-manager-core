@@ -104,6 +104,7 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         successes: vec![],
         alerts: vec![health_report::HealthProbeAlert {
             id: "TestFailed".parse().unwrap(),
+            target: Some("t1".to_string()),
             in_alert_since: Some(chrono::Utc::now()),
             message: "Test Failed".to_string(),
             tenant_message: None,
