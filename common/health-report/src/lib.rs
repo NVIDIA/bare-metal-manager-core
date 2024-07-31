@@ -67,16 +67,21 @@ impl HealthReport {
         if let Some(previous) = previous {
             for prev_alert in previous.alerts.iter() {
                 if let Some(timestamp) = prev_alert.in_alert_since {
-                    previous_in_alert_times.insert(prev_alert.id.clone(), timestamp);
+                    previous_in_alert_times.insert(
+                        (prev_alert.id.clone(), prev_alert.target.clone()),
+                        timestamp,
+                    );
                 }
             }
         }
 
         for alert in self.alerts.iter_mut() {
-            alert.in_alert_since = Some(match previous_in_alert_times.get(&alert.id) {
-                Some(time) => *time,
-                None => chrono::Utc::now(),
-            });
+            alert.in_alert_since = Some(
+                match previous_in_alert_times.get(&(alert.id.clone(), alert.target.clone())) {
+                    Some(time) => *time,
+                    None => chrono::Utc::now(),
+                },
+            );
         }
     }
 }
@@ -86,16 +91,34 @@ impl HealthReport {
 pub struct HealthProbeAlert {
     /// Stable ID of the health probe that raised an alert
     pub id: HealthProbeId,
+    /// The component that the probe is targeting.
+    /// This could be e.g.
+    /// - a physical component (e.g. a Fan probe might check various chassis fans)
+    /// - a logical component (a check which probes whether disk space is available
+    ///   can list the volume name as target)
+    ///
+    /// The field is optional. It can be absent if the probe ID already fully
+    /// describes what is tested.
+    ///
+    /// Targets are useful if the same type of probe checks the health of multiple components.
+    /// If a health report lists multiple probes of the same type and with different targets,
+    /// then those probe/target combinations are treated individually.
+    /// E.g. the `in_alert_since` and `classifications` fields for each probe/target
+    /// combination are calculated individually when reports are merged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
     /// The first time the probe raised an alert
     /// If this field is empty while the HealthReport is sent to carbide-api
     /// the behavior is as follows:
     /// - If an alert of the same `id` was reported before, the timestamp of the
     /// previous alert will be retained.
     /// - If this is a new alert, the timestamp will be set to "now".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_alert_since: Option<chrono::DateTime<chrono::Utc>>,
     /// A message that describes the alert
     pub message: String,
     /// An optional message that will be relayed to tenants
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant_message: Option<String>,
     /// Classifications for this alert
     /// A string is used here to maintain flexibility
@@ -107,6 +130,7 @@ impl HealthProbeAlert {
     pub fn heartbeat_timeout(message: String) -> Self {
         Self {
             id: HealthProbeId::heartbeat_timeout(),
+            target: None,
             in_alert_since: Some(chrono::Utc::now()),
             message,
             tenant_message: None,
@@ -120,6 +144,22 @@ impl HealthProbeAlert {
 pub struct HealthProbeSuccess {
     /// Stable ID of the health probe that succeeded
     pub id: HealthProbeId,
+    /// The component that the probe is targeting.
+    /// This could be e.g.
+    /// - a physical component (e.g. a Fan probe might check various chassis fans)
+    /// - a logical component (a check which probes whether disk space is available
+    ///   can list the volume name as target)
+    ///
+    /// The field is optional. It can be absent if the probe ID already fully
+    /// describes what is tested.
+    ///
+    /// Targets are useful if the same type of probe checks the health of multiple components.
+    /// If a health report lists multiple probes of the same type and with different targets,
+    /// then those probe/target combinations are treated individually.
+    /// E.g. the `in_alert_since` and `classifications` fields for each probe/target
+    /// combination are calculated individually when reports are merged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 /// A well-known name of a probe that generated an alert
@@ -231,14 +271,17 @@ mod tests {
             successes: vec![
                 HealthProbeSuccess {
                     id: HealthProbeId("Probe1".to_string()),
+                    target: None,
                 },
                 HealthProbeSuccess {
                     id: HealthProbeId("Probe2".to_string()),
+                    target: Some("c1".to_string()),
                 },
             ],
             alerts: vec![
                 HealthProbeAlert {
                     id: HealthProbeId("Probe3".to_string()),
+                    target: None,
                     in_alert_since: Some("2024-01-02T21:00:01.100Z".parse().unwrap()),
                     message: "Probe3 failed".to_string(),
                     tenant_message: Some("Internal Error".to_string()),
@@ -249,6 +292,7 @@ mod tests {
                 },
                 HealthProbeAlert {
                     id: HealthProbeId("Probe4".to_string()),
+                    target: Some("c4".to_string()),
                     in_alert_since: None,
                     message: "Probe4 failed".to_string(),
                     tenant_message: None,
@@ -260,7 +304,7 @@ mod tests {
         let serialized = serde_json::to_string(&report).unwrap();
         assert_eq!(
             serialized,
-            "{\"source\":\"Reporter\",\"observed_at\":\"2024-01-01T19:00:01.100Z\",\"successes\":[{\"id\":\"Probe1\"},{\"id\":\"Probe2\"}],\"alerts\":[{\"id\":\"Probe3\",\"in_alert_since\":\"2024-01-02T21:00:01.100Z\",\"message\":\"Probe3 failed\",\"tenant_message\":\"Internal Error\",\"classifications\":[\"C1\",\"C2\"]},{\"id\":\"Probe4\",\"in_alert_since\":null,\"message\":\"Probe4 failed\",\"tenant_message\":null,\"classifications\":[]}]}"
+            "{\"source\":\"Reporter\",\"observed_at\":\"2024-01-01T19:00:01.100Z\",\"successes\":[{\"id\":\"Probe1\"},{\"id\":\"Probe2\",\"target\":\"c1\"}],\"alerts\":[{\"id\":\"Probe3\",\"in_alert_since\":\"2024-01-02T21:00:01.100Z\",\"message\":\"Probe3 failed\",\"tenant_message\":\"Internal Error\",\"classifications\":[\"C1\",\"C2\"]},{\"id\":\"Probe4\",\"target\":\"c4\",\"message\":\"Probe4 failed\",\"classifications\":[]}]}"
         );
 
         assert_eq!(
@@ -278,13 +322,31 @@ mod tests {
             alerts: vec![
                 HealthProbeAlert {
                     id: HealthProbeId("Probe3".to_string()),
+                    target: None,
                     in_alert_since: Some("2023-01-02T21:00:01.100Z".parse().unwrap()),
                     message: "Probe3 failed".to_string(),
                     tenant_message: Some("Internal Error".to_string()),
                     classifications: vec![],
                 },
                 HealthProbeAlert {
+                    id: HealthProbeId("ProbeWithTarget".to_string()),
+                    target: Some("t1".to_string()),
+                    in_alert_since: Some("2023-01-02T22:00:01.100Z".parse().unwrap()),
+                    message: "ProbeWithTarget.t1 failed".to_string(),
+                    tenant_message: Some("Internal Error".to_string()),
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeWithTarget".to_string()),
+                    target: Some("t2".to_string()),
+                    in_alert_since: Some("2023-01-02T23:00:01.100Z".parse().unwrap()),
+                    message: "ProbeWithTarget.t2 failed".to_string(),
+                    tenant_message: Some("Internal Error".to_string()),
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
                     id: HealthProbeId("Probe4".to_string()),
+                    target: None,
                     in_alert_since: None,
                     message: "Probe4 failed".to_string(),
                     tenant_message: None,
@@ -300,13 +362,31 @@ mod tests {
             alerts: vec![
                 HealthProbeAlert {
                     id: HealthProbeId("Probe3".to_string()),
+                    target: None,
                     in_alert_since: None,
                     message: "Probe3 failed".to_string(),
                     tenant_message: Some("Internal Error".to_string()),
                     classifications: vec![],
                 },
                 HealthProbeAlert {
+                    id: HealthProbeId("ProbeWithTarget".to_string()),
+                    target: Some("t1".to_string()),
+                    in_alert_since: None,
+                    message: "ProbeWithTarget.t1 failed".to_string(),
+                    tenant_message: Some("Internal Error".to_string()),
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeWithTarget".to_string()),
+                    target: Some("t2".to_string()),
+                    in_alert_since: None,
+                    message: "ProbeWithTarget.t2 failed".to_string(),
+                    tenant_message: Some("Internal Error".to_string()),
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
                     id: HealthProbeId("Probe4".to_string()),
+                    target: None,
                     in_alert_since: None,
                     message: "Probe4 failed".to_string(),
                     tenant_message: None,
@@ -314,6 +394,7 @@ mod tests {
                 },
                 HealthProbeAlert {
                     id: HealthProbeId("Probe5".to_string()),
+                    target: None,
                     in_alert_since: None,
                     message: "Probe5 failed".to_string(),
                     tenant_message: None,
@@ -327,8 +408,16 @@ mod tests {
             new.alerts[0].in_alert_since,
             Some("2023-01-02T21:00:01.100Z".parse().unwrap())
         );
-        assert!(new.alerts[1].in_alert_since.is_some());
-        assert!(new.alerts[2].in_alert_since.is_some());
+        assert_eq!(
+            new.alerts[1].in_alert_since,
+            Some("2023-01-02T22:00:01.100Z".parse().unwrap())
+        );
+        assert_eq!(
+            new.alerts[2].in_alert_since,
+            Some("2023-01-02T23:00:01.100Z".parse().unwrap())
+        );
+        assert!(new.alerts[3].in_alert_since.is_some());
+        assert!(new.alerts[4].in_alert_since.is_some());
 
         // The source timestamp is ignored and replaced by current time
         let mut new2 = HealthReport {
@@ -337,6 +426,7 @@ mod tests {
             successes: vec![],
             alerts: vec![HealthProbeAlert {
                 id: HealthProbeId("Probe3".to_string()),
+                target: None,
                 in_alert_since: None,
                 message: "Probe3 failed".to_string(),
                 tenant_message: Some("Internal Error".to_string()),

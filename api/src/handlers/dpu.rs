@@ -439,6 +439,7 @@ pub(crate) async fn record_dpu_network_status(
         for passed in hs.passed.iter() {
             report.successes.push(health_report::HealthProbeSuccess {
                 id: passed.to_string().parse().unwrap(),
+                target: None,
             })
         }
         for failed in hs.failed.iter() {
@@ -448,6 +449,7 @@ pub(crate) async fn record_dpu_network_status(
                         "Can not convert health probe alert id: {e}"
                     ))
                 })?,
+                target: None,
                 in_alert_since: None,
                 // We don't really know the message. The legacy format doesn't associate it with a probe ID
                 message: failed.clone(),
@@ -466,6 +468,7 @@ pub(crate) async fn record_dpu_network_status(
                         "Can not convert health probe alert id: {e}"
                     ))
                 })?,
+                target: None,
                 in_alert_since: Some(chrono::Utc::now()),
                 message: "PostConfigCheckWait".to_string(),
                 tenant_message: None,

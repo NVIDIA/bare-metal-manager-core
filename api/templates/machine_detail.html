@@ -44,6 +44,7 @@
 {% for success in health.successes %}
 <table>
 	<tr><th>ID</th><td>{{ success.id }}</td></tr>
+	<tr><th>Target</th><td>{% match success.target %}{% when Some with (target) %} {{ target }} {% else %}{% endmatch %}</td></tr>
 </table>
 {% endfor %}
 
@@ -51,6 +52,7 @@
 {% for alert in health.alerts %}
 <table>
 	<tr><th>ID</th><td>{{ alert.id }}</td></tr>
+	<tr><th>Target</th><td>{% match alert.target %}{% when Some with (target) %} {{ target }} {% else %}{% endmatch %}</td></tr>
 	<tr><th>In Alert Since</th><td>{% match alert.in_alert_since %}{% when Some with (since) %} {{ since }} {% else %}{% endmatch %}</td></tr>
 	<tr><th>Message</th><td>{{ alert.message }}</td></tr>
 	<tr><th>Tenant Message</th><td>{% match alert.tenant_message %}{% when Some with (msg) %} {{ msg }} {% else %}{% endmatch %}</td></tr>

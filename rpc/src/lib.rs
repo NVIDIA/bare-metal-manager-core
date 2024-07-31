@@ -279,6 +279,7 @@ impl From<health_report::HealthProbeSuccess> for health::HealthProbeSuccess {
     fn from(success: health_report::HealthProbeSuccess) -> Self {
         Self {
             id: success.id.to_string(),
+            target: success.target.clone(),
         }
     }
 }
@@ -288,6 +289,7 @@ impl TryFrom<health::HealthProbeSuccess> for health_report::HealthProbeSuccess {
     fn try_from(success: health::HealthProbeSuccess) -> Result<Self, Self::Error> {
         Ok(Self {
             id: success.id.parse()?,
+            target: success.target.clone(),
         })
     }
 }
@@ -296,6 +298,7 @@ impl From<health_report::HealthProbeAlert> for health::HealthProbeAlert {
     fn from(alert: health_report::HealthProbeAlert) -> Self {
         Self {
             id: alert.id.to_string(),
+            target: alert.target.clone(),
             in_alert_since: alert.in_alert_since.map(Timestamp::from),
             message: alert.message,
             tenant_message: alert.tenant_message,
@@ -318,6 +321,10 @@ impl TryFrom<health::HealthProbeAlert> for health_report::HealthProbeAlert {
 
         Ok(Self {
             id: alert.id.parse()?,
+            target: match alert.target {
+                Some(target) if !target.is_empty() => Some(target),
+                _ => None,
+            },
             in_alert_since: alert
                 .in_alert_since
                 .map(TryInto::try_into)
