@@ -37,6 +37,8 @@ message ExploredEndpoint {
     string report_version = 3;
     /// Whether the endpoint will be explored in the next site-explorer run
     bool exploration_requested = 4;
+    // The current preingestion state
+    string preingestion_state = 5;
 }
 
 // Information about explored DPU that was discovered via Site Exploration
