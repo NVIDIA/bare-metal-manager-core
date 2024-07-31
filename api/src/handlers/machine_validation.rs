@@ -14,6 +14,7 @@ use crate::{
     db::{
         machine::Machine,
         machine_validation::{MachineValidation, MachineValidationResult},
+        machine_validation_config::MachineValidationExternalConfig,
         DatabaseError,
     },
     model::machine::{
@@ -22,7 +23,7 @@ use crate::{
     },
     CarbideError,
 };
-use ::rpc::forge::{self as rpc};
+use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -223,4 +224,66 @@ pub(crate) async fn get_machine_validation_results(
         .map(Response::new)
         .map_err(CarbideError::from)?;
     Ok(ret)
+}
+
+pub(crate) async fn get_machine_validation_external_config(
+    api: &Api,
+    request: tonic::Request<rpc::GetMachineValidationExternalConfigRequest>,
+) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigResponse>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin get_machine_validation_external_config ",
+            e,
+        ))
+    })?;
+    let req: rpc::GetMachineValidationExternalConfigRequest = request.into_inner();
+    let ret = MachineValidationExternalConfig::find_config_by_name(&mut txn, &req.name).await?;
+
+    Ok(tonic::Response::new(
+        GetMachineValidationExternalConfigResponse {
+            config: Some(rpc::MachineValidationExternalConfig::from(ret)),
+        },
+    ))
+}
+
+pub(crate) async fn add_update_machine_validation_external_config(
+    api: &Api,
+    request: tonic::Request<rpc::AddUpdateMachineValidationExternalConfigRequest>,
+) -> Result<tonic::Response<()>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "begin add_update_machine_validation_external_config ",
+            e,
+        ))
+    })?;
+    let req: rpc::AddUpdateMachineValidationExternalConfigRequest = request.into_inner();
+
+    let Some(config) = req.config else {
+        return Err(CarbideError::MissingArgument("Config").into());
+    };
+    let _ = MachineValidationExternalConfig::create_or_update(
+        &mut txn,
+        &config.name,
+        &config.description.unwrap_or_default(),
+        config.config,
+    )
+    .await;
+
+    txn.commit().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(
+            file!(),
+            line!(),
+            "commit add_update_machine_validation_external_config",
+            e,
+        ))
+    })?;
+    Ok(tonic::Response::new(()))
 }

@@ -10,8 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::time::SystemTime;
-
 use carbide::{
     db::machine::Machine,
     model::machine::{
@@ -19,6 +17,9 @@ use carbide::{
         ManagedHostState,
     },
 };
+use rpc::forge::forge_server::Forge;
+use serde_json::Value as JsonValue;
+use std::time::SystemTime;
 
 mod common;
 use common::api_fixtures::{
@@ -256,5 +257,89 @@ async fn test_machine_validation_get_results(
     assert_eq!(results.results.len(), 2);
     assert_eq!(results.results[0].name, machine_validation_result.name);
     assert_eq!(results.results[1].name, "instance".to_owned());
+    Ok(())
+}
+
+pub fn to_struct(json: serde_json::Map<String, serde_json::Value>) -> ::prost_types::Struct {
+    ::prost_types::Struct {
+        fields: json
+            .into_iter()
+            .map(|(k, v)| (k, serde_json_to_prost(v)))
+            .collect(),
+    }
+}
+fn serde_json_to_prost(json: serde_json::Value) -> ::prost_types::Value {
+    use ::prost_types::value::Kind::*;
+    use serde_json::Value::*;
+    ::prost_types::Value {
+        kind: Some(match json {
+            Null => NullValue(0 /* wat? */),
+            Bool(v) => BoolValue(v),
+            Number(n) => NumberValue(n.as_f64().expect("Non-f64-representable number")),
+            String(s) => StringValue(s),
+            Array(v) => ListValue(::prost_types::ListValue {
+                values: v.into_iter().map(serde_json_to_prost).collect(),
+            }),
+            Object(v) => StructValue(to_struct(v)),
+        }),
+    }
+}
+
+#[sqlx::test]
+async fn create_update_external_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let json_input = r#"
+    {
+        "ADDRESS": "shoreline.nvidia.com",
+        "SECRET": "somesecret"
+    }
+    "#;
+
+    let json_value: JsonValue = serde_json::from_str(json_input)?;
+
+    let prost_value = serde_json_to_prost(json_value);
+    let name = "shoreline";
+    let desc = "shoreline description";
+    env.api
+        .add_update_machine_validation_external_config(tonic::Request::new(
+            rpc::forge::AddUpdateMachineValidationExternalConfigRequest {
+                config: Some(rpc::forge::MachineValidationExternalConfig {
+                    name: name.to_string(),
+                    description: Some(desc.to_string()),
+                    config: Some(prost_value.clone()),
+                }),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    env.api
+        .add_update_machine_validation_external_config(tonic::Request::new(
+            rpc::forge::AddUpdateMachineValidationExternalConfigRequest {
+                config: Some(rpc::forge::MachineValidationExternalConfig {
+                    name: name.to_string(),
+                    description: Some(desc.to_string()),
+                    config: Some(prost_value.clone()),
+                }),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let res = env
+        .api
+        .get_machine_validation_external_config(tonic::Request::new(
+            rpc::forge::GetMachineValidationExternalConfigRequest {
+                name: name.to_string(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(res.config.clone().unwrap().name, name);
+    assert_eq!(res.config.clone().unwrap().description.unwrap(), desc);
+    assert_eq!(res.config.unwrap().config, Some(prost_value));
     Ok(())
 }

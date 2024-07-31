@@ -6,6 +6,7 @@ syntax = "proto3";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
 import "common.proto";
 import "health.proto";
 import "machine_discovery.proto";
@@ -346,6 +347,12 @@ service Forge {
 
   // Machine-Validation completed
   rpc MachineValidationCompleted(MachineValidationCompletedRequest) returns (MachineValidationCompletedResponse);
+
+  // Machine-Validation ExternalConfig Config
+  rpc GetMachineValidationExternalConfig(GetMachineValidationExternalConfigRequest) returns (GetMachineValidationExternalConfigResponse);
+
+  // post or put Machine-Validation ExternalConfig Config
+  rpc AddUpdateMachineValidationExternalConfig(AddUpdateMachineValidationExternalConfigRequest) returns (google.protobuf.Empty);
 
 }
 
@@ -2674,3 +2681,19 @@ message MachineValidationGetRequest {
   bool include_history = 2;
 }
 
+message GetMachineValidationExternalConfigRequest {
+    string name = 1;
+}
+message MachineValidationExternalConfig {
+    string name = 1;
+    optional string description = 2;
+    google.protobuf.Value config = 3;
+}
+
+message  GetMachineValidationExternalConfigResponse {
+    MachineValidationExternalConfig config = 1;
+}
+
+message AddUpdateMachineValidationExternalConfigRequest {
+    MachineValidationExternalConfig config = 1;
+}
