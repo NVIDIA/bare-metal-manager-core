@@ -26,8 +26,7 @@ use carbide::{
         controller::StateController,
         machine::{context::MachineStateHandlerContextObjects, io::MachineStateControllerIO},
         state_handler::{
-            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome,
+            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
         },
     },
 };
@@ -58,7 +57,7 @@ impl StateHandler for TestMachineStateHandler {
         &self,
         machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        _controller_state: &Self::ControllerState,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {

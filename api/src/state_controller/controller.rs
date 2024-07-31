@@ -26,8 +26,8 @@ use crate::{
         io::StateControllerIO,
         metrics::{IterationMetrics, MetricHolder, ObjectHandlerMetrics},
         state_handler::{
-            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome, StateHandlerServices,
+            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+            StateHandlerServices,
         },
     },
 };
@@ -299,7 +299,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                                     object_id: object_id.to_string(),
                                     missing: "object_state",
                                 })?;
-                            let mut controller_state = io
+                            let controller_state = io
                                 .load_controller_state(&mut txn, &object_id, &snapshot)
                                 .await?;
                             metrics.common.initial_state = Some(controller_state.value.clone());
@@ -316,14 +316,11 @@ impl<IO: StateControllerIO> StateController<IO> {
                                 metrics: &mut metrics.specific,
                             };
 
-                            let mut state_holder =
-                                ControllerStateReader::new(&mut controller_state.value);
-
                             let handler_outcome = handler
                                 .handle_object_state(
                                     &object_id,
                                     &mut snapshot,
-                                    &mut state_holder,
+                                    &controller_state.value,
                                     &mut txn,
                                     &mut ctx,
                                 )

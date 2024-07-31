@@ -67,29 +67,6 @@ pub struct StateHandlerContext<'a, T: StateHandlerContextObjects> {
     pub metrics: &'a mut T::ObjectMetrics,
 }
 
-/// An object which makes the current controller state available to a state handler
-///
-/// The state can be read accessed by default via dereferencing the holder to the
-/// state type.
-///
-pub struct ControllerStateReader<'a, S> {
-    state: &'a mut S,
-}
-
-impl<'a, S> std::ops::Deref for ControllerStateReader<'a, S> {
-    type Target = S;
-
-    fn deref(&self) -> &Self::Target {
-        self.state
-    }
-}
-
-impl<'a, S> ControllerStateReader<'a, S> {
-    pub fn new(state: &'a mut S) -> Self {
-        Self { state }
-    }
-}
-
 /// Defines a function that will be called to determine the next step in
 /// an objects lifecycle.
 ///
@@ -106,7 +83,7 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         &self,
         object_id: &Self::ObjectId,
         state: &mut Self::State,
-        controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
@@ -249,7 +226,7 @@ impl<
         &self,
         _object_id: &Self::ObjectId,
         _state: &mut Self::State,
-        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        _controller_state: &Self::ControllerState,
         _txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError> {

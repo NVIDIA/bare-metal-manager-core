@@ -25,8 +25,7 @@ use crate::{
     state_controller::{
         network_segment::context::NetworkSegmentStateHandlerContextObjects,
         state_handler::{
-            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome,
+            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
         },
     },
 };
@@ -67,12 +66,11 @@ impl StateHandler for NetworkSegmentStateHandler {
         &self,
         segment_id: &NetworkSegmentId,
         state: &mut NetworkSegment,
-        controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         _ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<NetworkSegmentControllerState>, StateHandlerError> {
-        let read_state: &NetworkSegmentControllerState = &*controller_state;
-        match read_state {
+        match controller_state {
             NetworkSegmentControllerState::Provisioning => {
                 let new_state = NetworkSegmentControllerState::Ready;
                 tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
