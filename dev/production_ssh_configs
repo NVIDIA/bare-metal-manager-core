@@ -18,6 +18,118 @@ Host renojump2 155.130.12.193
 Host *.nsv.sjc4.nvmetal.net 10.150.* 10.181.20.* 10.181.21.*
   ProxyJump sjc4jump
 
+# forge az01
+Host 10.45.1.* 10.45.2.* 10.45.4.* 10.45.5.*
+  ProxyJump wus-mc-staging  
+
+# forge az02
+Host 10.45.41.* 10.45.44.* 10.45.45.*
+  ProxyJump wus-mc-staging
+
+# forge az03
+Host 10.45.57.* 10.45.60.* 10.45.61.*
+  ProxyJump wus2-mc-staging
+
+# forge az04
+Host 10.45.65.* 10.45.68.* 10.45.69.*
+  ProxyJump wus2-mc-staging
+
+# forge az05
+Host 10.45.89.* 10.45.92.* 10.45.93.*
+  ProxyJump wus-mc-staging
+
+# forge az06
+Host 10.45.105.* 10.45.108.* 10.45.109.*
+  ProxyJump wus2-mc-staging
+
+# forge az20
+Host 10.45.9.* 10.45.12.* 10.45.13.*
+  ProxyJump sdc-mc-staging
+
+# forge az21
+Host 10.45.81.* 10.45.84.* 10.45.85.*
+  ProxyJump sdc-mc-staging
+
+# forge az22
+Host 10.45.113.* 10.45.116.* 10.45.117.*
+  ProxyJump sdc-mc-staging
+
+# forge az23
+Host 10.45.137.* 10.45.140.* 10.45.141.*
+  ProxyJump sdc-mc-staging
+
+# forge az24
+Host 10.45.145.* 10.45.148.* 10.45.149.*
+  ProxyJump sdc-mc-staging
+
+# forge az25
+Host 10.45.169.* 10.45.172.* 10.45.173.*
+  ProxyJump sdc-mc-staging
+
+# forge az26
+Host 10.45.177.* 10.45.180.* 10.45.181.*
+  ProxyJump sdc-mc-staging
+
+# forge az27
+Host 10.45.185.* 10.45.188.* 10.45.189.*
+  ProxyJump sdc-mc-staging
+
+# forge az28
+Host 10.45.193.* 10.45.196.* 10.45.197.*
+  ProxyJump sdc-mc-staging
+
+# forge az29
+Host 10.45.209.* 10.45.212.* 10.45.213.*
+  ProxyJump sdc-mc-staging
+
+# forge az30
+Host 10.45.17.* 10.45.20.* 10.45.21.*
+  ProxyJump sdc-mc-staging
+
+# forge az31
+Host 10.45.25.* 10.45.28.* 10.45.29.*
+  ProxyJump sdc-mc-staging
+
+# forge az32
+Host 10.45.218.* 10.45.220.* 10.45.221.*
+  ProxyJump sdc-mc-staging
+
+# forge az33
+Host 10.45.225.* 10.45.228.* 10.45.229.*
+  ProxyJump sdc-mc-staging
+
+# forge az40
+Host 10.91.1.* 10.91.2.* 10.91.3.* 10.91.4.* 10.91.5.* 10.91.6.* 10.91.7.* 10.91.128.* 
+  ProxyJump cnc-mc-staging
+
+# forge tpe01
+Host 10.225.2.* 10.225.48.* 10.225.49.* 10.225.50.* 10.225.51.* 10.225.4.*
+  ProxyJump tpe01-jb
+
+# forge pdx01
+Host 10.217.6.* 10.217.18.* 10.217.156.* 10.217.157.* 10.217.134.* 10.217.19.*
+  ProxyJump pdx01-jb
+
+# forge demo1
+Host 10.217.5.* 10.217.133.*
+  ProxyJump pdx01-jb
+
+# forge demo2
+Host 10.217.5.* 10.217.133.*
+  ProxyJump pdx01-jb
+
+# forge dev3
+Host 10.217.4.* 10.217.155.*  10.217.132.* 10.217.133.*
+  ProxyJump pdx01-jb
+
+# forge dev4
+Host 10.180.248.* 10.180.90.* 10.180.198.* 10.180.247.* 10.180.125.* 10.180.126.*
+  ProxyJump renojump
+
+# forge qa2
+Host 10.217.5.* 10.217.155.* 10.217.156.* 10.217.134.*
+  ProxyJump renojump
+
 Host renolp
   Hostname 10.180.248.29
   ProxyJump renojump
