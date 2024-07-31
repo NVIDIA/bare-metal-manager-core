@@ -842,6 +842,7 @@ dependencies = [
  "pkcs1",
  "prettytable-rs",
  "prometheus",
+ "prost-types",
  "rand 0.8.5",
  "regex",
  "reqwest",

@@ -48,6 +48,7 @@ use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::dynamic_settings;
 use crate::handlers::machine_validation::{
+    add_update_machine_validation_external_config, get_machine_validation_external_config,
     get_machine_validation_results, mark_machine_validation_complete, persist_validation_result,
 };
 use crate::ib::{IBFabricManager, DEFAULT_IB_FABRIC_NAME};
@@ -3804,6 +3805,20 @@ impl Forge for Api {
         request: tonic::Request<rpc::MachineValidationGetRequest>,
     ) -> Result<tonic::Response<rpc::MachineValidationResultList>, Status> {
         get_machine_validation_results(self, request).await
+    }
+
+    async fn get_machine_validation_external_config(
+        &self,
+        request: tonic::Request<rpc::GetMachineValidationExternalConfigRequest>,
+    ) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigResponse>, Status> {
+        get_machine_validation_external_config(self, request).await
+    }
+
+    async fn add_update_machine_validation_external_config(
+        &self,
+        request: tonic::Request<rpc::AddUpdateMachineValidationExternalConfigRequest>,
+    ) -> Result<tonic::Response<()>, Status> {
+        add_update_machine_validation_external_config(self, request).await
     }
 }
 

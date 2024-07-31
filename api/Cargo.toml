@@ -113,6 +113,7 @@ logfmt = { path = "../common/logfmt" }
 rpc = { path = "../rpc" }
 utils = { path = "../common/utils" }
 duration-str = "0.7.1"
+prost-types = "0.12.6"
 
 [build-dependencies]
 forge-version = { path = "../common/version" }
