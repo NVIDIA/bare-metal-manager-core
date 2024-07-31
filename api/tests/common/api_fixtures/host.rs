@@ -109,7 +109,7 @@ pub async fn host_discover_dhcp(
 
     let prefix = NetworkPrefix::find_by_segment(
         &mut txn,
-        NetworkSegmentIdKeyedObjectFilter::One(predicted_host.interfaces()[0].segment_id()),
+        NetworkSegmentIdKeyedObjectFilter::One(predicted_host.interfaces()[0].segment_id),
     )
     .await
     .unwrap()

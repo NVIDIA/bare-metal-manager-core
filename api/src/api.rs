@@ -1229,8 +1229,7 @@ impl Forge for Api {
             }
         }
 
-        interface
-            .delete(&mut txn)
+        db::machine_interface::delete(&interface.id, &mut txn)
             .await
             .map_err(CarbideError::from)?;
 
@@ -1667,7 +1666,7 @@ impl Forge for Api {
         if let Some(host_machine) = &host_machine {
             response.managed_host_machine_id = host_machine.id().to_string();
             if let Some(iface) = host_machine.interfaces().first() {
-                response.managed_host_machine_interface_id = iface.id().to_string();
+                response.managed_host_machine_interface_id = iface.id.to_string();
             }
             if let Some(ip) = host_machine.bmc_info().ip.as_ref() {
                 response.managed_host_bmc_ip = ip.to_string();
@@ -1684,9 +1683,9 @@ impl Forge for Api {
                 .collect::<Vec<_>>();
             if let Some(iface) = dpu_interfaces.first() {
                 response.dpu_machine_interface_ids =
-                    dpu_interfaces.iter().map(|i| i.id().to_string()).collect();
+                    dpu_interfaces.iter().map(|i| i.id.to_string()).collect();
                 // deprecated field:
-                response.dpu_machine_interface_id = iface.id().to_string();
+                response.dpu_machine_interface_id = iface.id.to_string();
             }
             if let Some(ip) = dpu_machine.bmc_info().ip.as_ref() {
                 response.dpu_bmc_ip = ip.to_string();
@@ -1863,7 +1862,7 @@ impl Forge for Api {
                 if let Some(bmc_ip) = &machine.bmc_info().ip {
                     response.host_bmc_interface_associated = true;
                     if let Ok(ip_addr) = IpAddr::from_str(bmc_ip) {
-                        if MachineInterface::delete_by_ip(&mut txn, ip_addr)
+                        if db::machine_interface::delete_by_ip(&mut txn, ip_addr)
                             .await
                             .map_err(CarbideError::from)?
                             .is_some()
@@ -1879,8 +1878,7 @@ impl Forge for Api {
 
             if request.delete_interfaces {
                 for interface in machine.interfaces() {
-                    interface
-                        .delete(&mut txn)
+                    db::machine_interface::delete(&interface.id, &mut txn)
                         .await
                         .map_err(CarbideError::from)?;
                 }
@@ -1941,7 +1939,7 @@ impl Forge for Api {
                 if let Some(bmc_ip) = &dpu_machine.bmc_info().ip {
                     response.dpu_bmc_interface_associated = true;
                     if let Ok(ip_addr) = IpAddr::from_str(bmc_ip) {
-                        if MachineInterface::delete_by_ip(&mut txn, ip_addr)
+                        if db::machine_interface::delete_by_ip(&mut txn, ip_addr)
                             .await
                             .map_err(CarbideError::from)?
                             .is_some()
@@ -1958,8 +1956,7 @@ impl Forge for Api {
 
             if request.delete_interfaces {
                 for interface in dpu_machine.interfaces() {
-                    interface
-                        .delete(&mut txn)
+                    db::machine_interface::delete(&interface.id, &mut txn)
                         .await
                         .map_err(CarbideError::from)?;
                 }

@@ -111,8 +111,8 @@ pub struct Machine {
     /// A list of [MachineStateHistory] that this machine has experienced
     history: Vec<MachineStateHistory>,
 
-    /// A list of [MachineInterface][interface]s that this machine owns
-    interfaces: Vec<MachineInterface>,
+    /// A list of [MachineInterfaceSnapshot]s that this machine owns
+    interfaces: Vec<MachineInterfaceSnapshot>,
 
     /// The Hardware information that was discovered for this machine
     hardware_info: Option<HardwareInfo>,
@@ -270,7 +270,7 @@ impl From<Machine> for MachineSnapshot {
             hardware_info: machine.hardware_info().cloned(),
             inventory: machine.inventory().cloned().unwrap_or_default(),
             network_config: machine.network_config().clone(),
-            interfaces: interface_to_snapshot(machine.interfaces()),
+            interfaces: machine.interfaces().clone(),
             network_status_observation: machine.network_status_observation().cloned(),
             current: CurrentMachineState {
                 state: machine.current_state(),
@@ -301,7 +301,7 @@ fn interface_to_snapshot(interfaces: &[MachineInterface]) -> Vec<MachineInterfac
             id: iface.id,
             hostname: iface.hostname().to_string(),
             is_primary: iface.primary_interface(),
-            mac_address: iface.mac_address.to_string(),
+            mac_address: iface.mac_address,
             attached_dpu_machine_id: iface.attached_dpu_machine_id().clone(),
             domain_id: iface.domain_id,
             machine_id: iface.machine_id.clone(),
@@ -309,6 +309,7 @@ fn interface_to_snapshot(interfaces: &[MachineInterface]) -> Vec<MachineInterfac
             vendors: iface.vendors().clone(),
             created: iface.created(),
             last_dhcp: iface.last_dhcp(),
+            addresses: iface.addresses().iter().map(|a| a.address).collect(),
         });
     }
     out
@@ -678,7 +679,7 @@ SELECT m.id FROM
 
     /// Returns the list of Interfaces this machine owns
     /// Includes the admin interface.
-    pub fn interfaces(&self) -> &Vec<MachineInterface> {
+    pub fn interfaces(&self) -> &Vec<MachineInterfaceSnapshot> {
         &self.interfaces
     }
 
@@ -838,7 +839,7 @@ SELECT m.id FROM
             }
 
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
-                machine.interfaces = interfaces;
+                machine.interfaces = interface_to_snapshot(&interfaces);
             }
 
             if let Some(topo) = topologies_for_machine.get(&machine.id) {
@@ -892,7 +893,7 @@ SELECT m.id FROM
         let mut interfaces =
             MachineInterface::find_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
         if let Some(interfaces) = interfaces.remove(&self.id) {
-            self.interfaces = interfaces;
+            self.interfaces = interface_to_snapshot(&interfaces);
         }
 
         let mut topologies =

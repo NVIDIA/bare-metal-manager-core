@@ -867,34 +867,6 @@ impl MachineInterface {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
-    pub async fn delete(&self, txn: &mut Transaction<'_, Postgres>) -> Result<(), DatabaseError> {
-        let query = "DELETE FROM machine_interfaces WHERE id=$1";
-        MachineInterfaceAddress::delete(txn, self.id).await?;
-        DhcpEntry::delete(txn, self.id()).await?;
-        sqlx::query(query)
-            .bind(self.id)
-            .execute(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(())
-    }
-
-    pub async fn delete_by_ip(
-        txn: &mut Transaction<'_, Postgres>,
-        ip: IpAddr,
-    ) -> Result<Option<()>, DatabaseError> {
-        let interface = Self::find_by_ip(txn, ip).await?;
-
-        let Some(interface) = interface else {
-            return Ok(None);
-        };
-
-        interface.delete(txn).await?;
-
-        Ok(Some(()))
-    }
-
     /// Record that this interface just DHCPed, so it must still exist
     pub async fn update_last_dhcp(
         txn: &mut Transaction<'_, Postgres>,
@@ -908,6 +880,37 @@ impl MachineInterface {
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
     }
+}
+
+pub async fn delete(
+    interface_id: &MachineInterfaceId,
+    txn: &mut Transaction<'_, Postgres>,
+) -> Result<(), DatabaseError> {
+    let query = "DELETE FROM machine_interfaces WHERE id=$1";
+    MachineInterfaceAddress::delete(txn, interface_id).await?;
+    DhcpEntry::delete(txn, interface_id).await?;
+    sqlx::query(query)
+        .bind(*interface_id)
+        .execute(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    Ok(())
+}
+
+pub async fn delete_by_ip(
+    txn: &mut Transaction<'_, Postgres>,
+    ip: IpAddr,
+) -> Result<Option<()>, DatabaseError> {
+    let interface = MachineInterface::find_by_ip(txn, ip).await?;
+
+    let Some(interface) = interface else {
+        return Ok(None);
+    };
+
+    delete(&interface.id, txn).await?;
+
+    Ok(Some(()))
 }
 
 #[async_trait::async_trait]

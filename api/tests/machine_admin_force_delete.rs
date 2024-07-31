@@ -82,7 +82,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     validate_delete_response(&response, Some(host.id()), &dpu_machine_id);
     assert_eq!(
         response.dpu_machine_interface_id,
-        dpu_machine.interfaces()[0].id().to_string()
+        dpu_machine.interfaces()[0].id.to_string()
     );
 
     assert!(response.all_done, "DPU must be deleted");

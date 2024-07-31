@@ -14,6 +14,7 @@ use std::{collections::HashSet, str::FromStr};
 
 use carbide::{
     db::{
+        self,
         address_selection_strategy::AddressSelectionStrategy,
         dhcp_entry::DhcpEntry,
         domain::{Domain, DomainId, DomainIdKeyedObjectFilter},
@@ -442,7 +443,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     txn.commit().await.unwrap();
 
     let mut txn = pool.begin().await?;
-    interface.delete(&mut txn).await?;
+    db::machine_interface::delete(&interface.id, &mut txn).await?;
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
