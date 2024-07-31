@@ -173,7 +173,7 @@ pub async fn create_host_machine(
         MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
             .await
             .unwrap();
-    let host_bmc_ip = bmc_interface.addresses()[0].address;
+    let host_bmc_ip = bmc_interface.addresses[0];
     txn.rollback().await.unwrap();
 
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
@@ -374,7 +374,7 @@ pub async fn create_host_with_machine_validation(
         MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
             .await
             .unwrap();
-    let host_bmc_ip = bmc_interface.addresses()[0].address;
+    let host_bmc_ip = bmc_interface.addresses[0];
     txn.rollback().await.unwrap();
 
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;

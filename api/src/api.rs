@@ -610,10 +610,13 @@ impl Forge for Api {
                 })?
             };
 
-            interface
-                .associate_interface_with_dpu_machine(&mut txn, &stable_machine_id)
-                .await
-                .map_err(CarbideError::from)?;
+            db::machine_interface::associate_interface_with_dpu_machine(
+                &interface.id,
+                &stable_machine_id,
+                &mut txn,
+            )
+            .await
+            .map_err(CarbideError::from)?;
 
             let (network_config, _version) = db_machine.network_config().clone().take();
             if network_config.loopback_ip.is_none() {
@@ -1218,9 +1221,9 @@ impl Forge for Api {
         }
 
         // There should not be any BMC information associated with any machine.
-        for address in interface.addresses() {
+        for address in interface.addresses.iter() {
             let machine_id =
-                MachineTopology::find_machine_id_by_bmc_ip(&mut txn, &address.address.to_string())
+                MachineTopology::find_machine_id_by_bmc_ip(&mut txn, &address.to_string())
                     .await
                     .map_err(CarbideError::from)?;
 

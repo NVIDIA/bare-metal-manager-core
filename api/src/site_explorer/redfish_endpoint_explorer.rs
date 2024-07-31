@@ -17,8 +17,9 @@ use bmc_vendor::BMCVendor;
 use forge_secrets::credentials::{CredentialProvider, Credentials};
 use mac_address::MacAddress;
 
-use crate::db::{expected_machine::ExpectedMachine, machine_interface::MachineInterface};
+use crate::db::expected_machine::ExpectedMachine;
 
+use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{
     model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},
     redfish::RedfishClientPool,
@@ -232,7 +233,7 @@ impl EndpointExplorer for RedfishEndpointExplorer {
     async fn explore_endpoint(
         &self,
         bmc_ip_address: SocketAddr,
-        interface: &MachineInterface,
+        interface: &MachineInterfaceSnapshot,
         expected_machine: Option<ExpectedMachine>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {

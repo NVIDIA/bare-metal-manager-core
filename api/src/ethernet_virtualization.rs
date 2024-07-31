@@ -123,7 +123,7 @@ pub async fn admin_network(
             .map_err(CarbideError::from)?;
 
     let interface = interfaces.into_iter().find(|x| {
-        if let Some(id) = x.attached_dpu_machine_id() {
+        if let Some(id) = &x.attached_dpu_machine_id {
             id == dpu_machine_id
         } else {
             false
@@ -150,10 +150,10 @@ pub async fn admin_network(
         ip: address.address.to_string(),
         vpc_prefixes: vec![],
         prefix: prefix.prefix.to_string(),
-        fqdn: format!("{}.{}", interface.hostname(), domain),
+        fqdn: format!("{}.{}", interface.hostname, domain),
         booturl: None,
     };
-    Ok((cfg, *interface.id()))
+    Ok((cfg, interface.id))
 }
 
 pub async fn tenant_network(

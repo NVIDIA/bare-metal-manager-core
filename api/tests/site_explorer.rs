@@ -34,7 +34,10 @@ use carbide::{
         DatabaseError,
     },
     model::{
-        machine::{machine_id::MachineId, DpuDiscoveringState, DpuInitState, ManagedHostState},
+        machine::{
+            machine_id::MachineId, DpuDiscoveringState, DpuInitState, MachineInterfaceSnapshot,
+            ManagedHostState,
+        },
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
             EndpointExplorationReport, EndpointType, EthernetInterface, ExploredDpu,
@@ -1355,7 +1358,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
         assert!(!response.address.is_empty());
         let oob_interface = MachineInterface::find_by_mac_address(&mut txn, oob_mac).await?;
-        assert!(oob_interface[0].primary_interface());
+        assert!(oob_interface[0].is_primary);
         oob_interfaces.push(oob_interface[0].clone());
 
         let serial_number = format!("MT2328XZ18{i}R");
@@ -1589,9 +1592,9 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         .remove(host_machine_id.clone().as_ref().unwrap())
         .unwrap();
     assert_eq!(interfaces.len(), NUM_DPUS);
-    assert!(interfaces[0].primary_interface());
+    assert!(interfaces[0].is_primary);
     for interface in interfaces.iter().skip(1) {
-        assert!(!interface.primary_interface());
+        assert!(!interface.is_primary);
     }
 
     // Try to discover machine with multiple DPUs
@@ -1805,7 +1808,7 @@ impl EndpointExplorer for FakeEndpointExplorer {
     async fn explore_endpoint(
         &self,
         bmc_ip_address: SocketAddr,
-        _interface: &MachineInterface,
+        _interface: &MachineInterfaceSnapshot,
         _expected: Option<ExpectedMachine>,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
@@ -2002,7 +2005,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     let mut txn = env.pool.begin().await?;
     let macaddr = MacAddress::from_str(&oob_mac)?;
     let mi = MachineInterface::find_by_mac_address(&mut txn, macaddr).await?;
-    assert!(mi[0].attached_dpu_machine_id().is_none());
+    assert!(mi[0].attached_dpu_machine_id.is_none());
     assert!(mi[0].machine_id.is_none());
     txn.rollback().await?;
 
@@ -2017,7 +2020,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     let mut txn = env.pool.begin().await?;
     let macaddr = MacAddress::from_str(&oob_mac)?;
     let mi = MachineInterface::find_by_mac_address(&mut txn, macaddr).await?;
-    assert!(mi[0].attached_dpu_machine_id().is_some());
+    assert!(mi[0].attached_dpu_machine_id.is_some());
     assert!(mi[0].machine_id.is_some());
     txn.rollback().await?;
 
@@ -2245,7 +2248,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     assert!(!mi.is_empty());
     let value = mi.values().collect_vec()[0].clone()[0].clone();
     assert_eq!(
-        value.attached_dpu_machine_id().clone().unwrap(),
+        value.attached_dpu_machine_id.clone().unwrap(),
         dpu_machine_id
     );
     assert_eq!(value.machine_id.unwrap(), dpu_machine_id);

@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use super::bmc_metadata::BmcMetaDataInfo;
 use super::{DatabaseError, ObjectFilter};
+use crate::db;
 use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
@@ -294,27 +295,6 @@ impl From<Machine> for MachineSnapshot {
     }
 }
 
-fn interface_to_snapshot(interfaces: &[MachineInterface]) -> Vec<MachineInterfaceSnapshot> {
-    let mut out = Vec::new();
-    for iface in interfaces {
-        out.push(MachineInterfaceSnapshot {
-            id: iface.id,
-            hostname: iface.hostname().to_string(),
-            is_primary: iface.primary_interface(),
-            mac_address: iface.mac_address,
-            attached_dpu_machine_id: iface.attached_dpu_machine_id().clone(),
-            domain_id: iface.domain_id,
-            machine_id: iface.machine_id.clone(),
-            segment_id: iface.segment_id(),
-            vendors: iface.vendors().clone(),
-            created: iface.created(),
-            last_dhcp: iface.last_dhcp(),
-            addresses: iface.addresses().iter().map(|a| a.address).collect(),
-        });
-    }
-    out
-}
-
 /// A wrapper around `MachineId` that implements `sqlx::Decode` and `sqlx::FromRow`
 #[derive(Debug, Clone)]
 pub struct DbMachineId(MachineId);
@@ -561,7 +541,7 @@ impl Machine {
     pub async fn get_or_create(
         txn: &mut Transaction<'_, Postgres>,
         stable_machine_id: &MachineId,
-        interface: &MachineInterface,
+        interface: &MachineInterfaceSnapshot,
     ) -> CarbideResult<Self> {
         let existing_machine = Machine::find_one(
             &mut *txn,
@@ -577,14 +557,14 @@ impl Machine {
             if machine_id != stable_machine_id {
                 return Err(CarbideError::GenericError(format!(
                     "Database inconsistency: MachineId {} on interface {} does not match stable machine ID {} which now uses this interface",
-                    machine_id, interface.id(),
+                    machine_id, interface.id,
                     stable_machine_id)));
             }
 
             if existing_machine.is_none() {
                 tracing::warn!(
                     %machine_id,
-                    interface_id = %interface.id(),
+                    interface_id = %interface.id,
                     "Interface ID refers to missing machine",
                 );
                 return Err(CarbideError::NotFoundError {
@@ -595,13 +575,14 @@ impl Machine {
         }
 
         // Get or create
-        if existing_machine.is_some() {
+        if let Some(machine) = existing_machine {
             // New site-explorer redfish discovery path.
-            let machine = existing_machine.unwrap();
-            interface
-                .associate_interface_with_machine(txn, &machine.id)
-                .await?;
-
+            db::machine_interface::associate_interface_with_machine(
+                &interface.id,
+                &machine.id,
+                txn,
+            )
+            .await?;
             Ok(machine)
         } else {
             // Old manual discovery path.
@@ -609,9 +590,12 @@ impl Machine {
             // state in both machines.
             let state = ManagedHostState::Created;
             let machine = Self::create(txn, stable_machine_id, state).await?;
-            interface
-                .associate_interface_with_machine(txn, &machine.id)
-                .await?;
+            db::machine_interface::associate_interface_with_machine(
+                &interface.id,
+                &machine.id,
+                txn,
+            )
+            .await?;
             Ok(machine)
         }
     }
@@ -830,7 +814,7 @@ SELECT m.id FROM
                         .map(|interfaces| {
                             interfaces
                                 .iter()
-                                .map(|i| i.attached_dpu_machine_id().clone())
+                                .map(|i| i.attached_dpu_machine_id.clone())
                                 .collect::<Option<Vec<MachineId>>>()
                                 .unwrap_or_default()
                         })
@@ -839,7 +823,7 @@ SELECT m.id FROM
             }
 
             if let Some(interfaces) = interfaces_for_machine.remove(&machine.id) {
-                machine.interfaces = interface_to_snapshot(&interfaces);
+                machine.interfaces = interfaces;
             }
 
             if let Some(topo) = topologies_for_machine.get(&machine.id) {
@@ -893,7 +877,7 @@ SELECT m.id FROM
         let mut interfaces =
             MachineInterface::find_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
         if let Some(interfaces) = interfaces.remove(&self.id) {
-            self.interfaces = interface_to_snapshot(&interfaces);
+            self.interfaces = interfaces;
         }
 
         let mut topologies =

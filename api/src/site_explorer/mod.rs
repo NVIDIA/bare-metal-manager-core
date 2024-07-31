@@ -30,6 +30,7 @@ use tracing::Instrument;
 use crate::{
     cfg::SiteExplorerConfig,
     db::{
+        self,
         bmc_metadata::BmcMetaDataUpdateRequest,
         expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
@@ -44,7 +45,8 @@ use crate::{
         bmc_info::BmcInfo,
         hardware_info::HardwareInfo,
         machine::{
-            machine_id::MachineId, DpuDiscoveringState, DpuDiscoveringStates, ManagedHostState,
+            machine_id::MachineId, DpuDiscoveringState, DpuDiscoveringStates,
+            MachineInterfaceSnapshot, ManagedHostState,
         },
         site_explorer::{
             EndpointExplorationReport, EndpointType, ExploredDpu, ExploredEndpoint,
@@ -71,7 +73,7 @@ use self::metrics::exploration_error_to_metric_label;
 
 struct Endpoint {
     address: IpAddr,
-    iface: MachineInterface,
+    iface: MachineInterfaceSnapshot,
     old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
     pub(crate) expected: Option<ExpectedMachine>,
 }
@@ -85,7 +87,7 @@ impl Display for Endpoint {
 impl Endpoint {
     fn new(
         address: IpAddr,
-        iface: MachineInterface,
+        iface: MachineInterfaceSnapshot,
         old_report: Option<(ConfigVersion, EndpointExplorationReport)>,
     ) -> Self {
         Self {
@@ -585,15 +587,16 @@ impl SiteExplorer {
         // We don't have to scan anything that is on the Tenant or Admin Segments,
         // since we know what those Segments are used for (Forge allocated the IPs on the segments
         // for a specific machine)
-        let underlay_interfaces: Vec<MachineInterface> = interfaces
+        let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
-            .filter(|iface| underlay_segments.contains(&iface.segment_id()))
+            .filter(|iface| underlay_segments.contains(&iface.segment_id))
             .collect();
 
-        let mut underlay_interfaces_by_address = HashMap::<IpAddr, &MachineInterface>::new();
+        let mut underlay_interfaces_by_address =
+            HashMap::<IpAddr, &MachineInterfaceSnapshot>::new();
         for iface in underlay_interfaces.iter() {
-            for addr in iface.addresses() {
-                underlay_interfaces_by_address.insert(addr.address, iface);
+            for addr in iface.addresses.iter() {
+                underlay_interfaces_by_address.insert(*addr, iface);
             }
         }
 
@@ -951,12 +954,18 @@ impl SiteExplorer {
                         "Updating machine interface {} with machine id {dpu_machine_id}.",
                         interface.id
                     );
-                    interface
-                        .associate_interface_with_machine(txn, dpu_machine_id)
-                        .await?;
-                    interface
-                        .associate_interface_with_dpu_machine(txn, dpu_machine_id)
-                        .await?;
+                    db::machine_interface::associate_interface_with_machine(
+                        &interface.id,
+                        dpu_machine_id,
+                        txn,
+                    )
+                    .await?;
+                    db::machine_interface::associate_interface_with_dpu_machine(
+                        &interface.id,
+                        dpu_machine_id,
+                        txn,
+                    )
+                    .await?;
                     return Ok(true);
                 }
             }
@@ -1051,9 +1060,12 @@ impl SiteExplorer {
                     explored_host
                 )))?;
 
-        host_machine_interface
-            .associate_interface_with_machine(txn, &host_machine_id)
-            .await?;
+        db::machine_interface::associate_interface_with_machine(
+            &host_machine_interface.id,
+            &host_machine_id,
+            txn,
+        )
+        .await?;
 
         Ok(())
     }
@@ -1075,16 +1087,19 @@ impl SiteExplorer {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         explored_host: &mut ManagedHost,
-        host_machine_interface: &MachineInterface,
+        host_machine_interface: &MachineInterfaceSnapshot,
         explored_dpu: &ExploredDpu,
     ) -> CarbideResult<MachineId> {
         match &explored_host.machine_id {
             Some(host_machine_id) => {
                 // This is not the primary interface for this host
                 // The primary interface *must* have already been created for this host (otherwise something very bad has happened)
-                host_machine_interface
-                    .set_primary_interface(txn, false)
-                    .await?;
+                db::machine_interface::set_primary_interface(
+                    &host_machine_interface.id,
+                    false,
+                    txn,
+                )
+                .await?;
                 Ok(host_machine_id.clone())
             }
             None => {
@@ -1102,8 +1117,7 @@ impl SiteExplorer {
                 );
 
                 explored_host.machine_id = Some(host_machine_id.clone());
-                host_machine_interface
-                    .set_primary_interface(txn, true)
+                db::machine_interface::set_primary_interface(&host_machine_interface.id, true, txn)
                     .await?;
                 Ok(host_machine_id)
             }

@@ -333,7 +333,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         let iface = MachineInterface::find_one(&mut txn, *interface_id)
             .await
             .unwrap();
-        assert_eq!(iface.vendors(), expected);
+        assert_eq!(iface.vendors, expected);
 
         txn.rollback().await.unwrap();
     }

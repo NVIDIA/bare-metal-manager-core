@@ -18,12 +18,10 @@ use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::db::explored_managed_host::DbExploredManagedHost;
+use crate::model::machine::MachineInterfaceSnapshot;
 use crate::{
     api::{log_request_data, Api},
-    db::{
-        self, explored_endpoints::DbExploredEndpoint, machine_interface::MachineInterface,
-        DatabaseError,
-    },
+    db::{self, explored_endpoints::DbExploredEndpoint, DatabaseError},
     site_explorer::EndpointExplorer,
     CarbideError,
 };
@@ -247,7 +245,7 @@ pub(crate) async fn explore(
         api.credential_provider.clone(),
     );
     let expected_machine = crate::handlers::expected_machine::query(api, bmc_mac_address).await?;
-    let machine_interface = MachineInterface::mock_with_mac(bmc_mac_address);
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     let report = explorer
         .explore_endpoint(bmc_addr, &machine_interface, expected_machine, None)

@@ -273,7 +273,7 @@ pub(crate) async fn get_managed_host_network_config(
         enable_dhcp: api.runtime_config.dpu_dhcp_server_enabled,
         host_interface_id: Some(host_interface_id.to_string()),
         is_primary_dpu: primary_dpu
-            .attached_dpu_machine_id()
+            .attached_dpu_machine_id
             .clone()
             .map(|x| x == dpu_snapshot.machine_id)
             .unwrap_or(false),

@@ -289,7 +289,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
     let cloud_init_cfg = env
         .api
         .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest {
-            ip: interfaces[0].addresses()[0].address.to_string(),
+            ip: interfaces[0].addresses[0].to_string(),
         }))
         .await
         .expect("get_cloud_init_instructions returned an error")

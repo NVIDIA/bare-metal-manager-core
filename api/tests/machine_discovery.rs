@@ -60,9 +60,9 @@ async fn test_machine_discovery_no_domain(
         .collect::<Vec<IpAddr>>();
 
     let actual_ips = machine_interface
-        .addresses()
+        .addresses
         .iter()
-        .map(|address| address.address)
+        .cloned()
         .sorted()
         .collect::<Vec<IpAddr>>();
 
@@ -92,18 +92,18 @@ async fn test_machine_discovery_with_domain(
 
     assert_eq!(
         machine_interface
-            .addresses()
+            .addresses
             .iter()
-            .map(|address| address.address)
+            .cloned()
             .sorted()
             .collect::<Vec<IpAddr>>(),
         wanted_ips.into_iter().sorted().collect::<Vec<IpAddr>>()
     );
 
     assert!(machine_interface
-        .addresses()
+        .addresses
         .iter()
-        .any(|item| item.address == "192.0.2.3".parse::<IpAddr>().unwrap()));
+        .any(|item| *item == "192.0.2.3".parse::<IpAddr>().unwrap()));
 
     Ok(())
 }
