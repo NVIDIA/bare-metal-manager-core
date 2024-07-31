@@ -326,6 +326,11 @@ pub async fn host_uefi_setup(
     host_rpc_machine_id: ::rpc::common::MachineId,
 ) {
     for state in UefiSetupState::iter() {
+        if state == UefiSetupState::UnlockHost {
+            // This state is reserved for legacy hosts--newly ingested hosts will never get here
+            continue;
+        }
+
         let mut txn = env.pool.begin().await.unwrap();
         env.run_machine_state_controller_iteration_until_state_matches(
             host_machine_id,

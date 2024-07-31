@@ -29,6 +29,7 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialProvider, Credentials,
 };
 use itertools::Itertools;
+use libredfish::SystemPowerControl;
 use mac_address::MacAddress;
 use sqlx::{Postgres, Transaction};
 use tonic::{Request, Response, Status};
@@ -1834,6 +1835,26 @@ impl Forge for Api {
                                     tracing::warn!(%machine_id, error = %e, "Failed to fetch lockdown status");
                                     response.initial_lockdown_state = "".to_string();
                                     response.machine_unlocked = false;
+                                }
+                            }
+
+                            if machine.bios_password_set_time().is_some() {
+                                if let Err(e) = crate::redfish::clear_host_uefi_password(
+                                    client.as_ref(),
+                                    self.redfish_pool.clone(),
+                                )
+                                .await
+                                {
+                                    tracing::warn!(%machine_id, error = %e, "Failed to clear host UEFI password while force deleting machine");
+                                }
+
+                                // TODO (spyda): have libredfish return whether the client needs to reboot the host after clearing the host uefi password
+                                if machine.bmc_vendor().is_lenovo() {
+                                    if let Err(e) =
+                                        client.power(SystemPowerControl::ForceRestart).await
+                                    {
+                                        tracing::warn!(%machine_id, error = %e, "Failed to reboot host (to clear the UEFI password on a Lenovo) while force deleting machine");
+                                    }
                                 }
                             }
                         }
