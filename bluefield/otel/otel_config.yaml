@@ -127,6 +127,16 @@ receivers:
         mute_process_exe_error: true
         mute_process_name_error: true
         mute_process_io_error: true
+        exclude:
+          match_type: regexp
+          names:
+            - "^cut$"
+            - "^grep$"
+            - "^kworker/.*$"
+            - "^mlxlink.*$"
+            - "^set_emu_param.s$"
+            - "^sleep$"
+            - "^tr$"
       network:
       processes:
 
