@@ -28,6 +28,7 @@ use crate::cfg::CarbideConfig;
 
 mod domain;
 mod dpu_versions;
+mod expected_machine;
 mod explored_endpoint;
 mod filters;
 mod ib_partition;
@@ -96,6 +97,11 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
             .route(
                 "/managed-host/:machine_id/maintenance",
                 post(managed_host::maintenance),
+            )
+            .route("/expected-machine", get(expected_machine::show_all_html))
+            .route(
+                "/expected-machine.json",
+                get(expected_machine::show_all_json),
             )
             .route("/network-device", get(network_device::show_html))
             .route("/network-device.json", get(network_device::show_json))

@@ -9,7 +9,11 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::{db::expected_machine::ExpectedMachine, CarbideError};
+use carbide::{
+    db::{expected_machine::ExpectedMachine, explored_endpoints::DbExploredEndpoint},
+    model::site_explorer::EndpointExplorationReport,
+    CarbideError,
+};
 use common::api_fixtures::create_test_env;
 use rpc::forge::{forge_server::Forge, ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::Postgres;
@@ -393,5 +397,92 @@ async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
             id: bmc_mac_address,
         }
         .to_string()
+    );
+}
+
+#[sqlx::test(fixtures("create_expected_machine"))]
+async fn test_get_linked_expected_machines_unseen(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let out = env
+        .api
+        .get_all_expected_machines_linked(tonic::Request::new(()))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(out.expected_machines.len(), 3);
+    // They are sorted by MAC server-side
+    let em = out.expected_machines.first().unwrap();
+    assert_eq!(em.chassis_serial_number, "VVG121GG");
+    assert!(
+        em.interface_id.is_none(),
+        "expected_machines fixture should have no linked interface"
+    );
+    assert!(
+        em.explored_endpoint_address.is_none(),
+        "expected_machines fixture should have no linked explored endpoint"
+    );
+    assert!(
+        em.machine_id.is_none(),
+        "expected_machines fixture should have no machine"
+    );
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
+    // Prep the data
+
+    let env = create_test_env(pool.clone()).await;
+    let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let host_machine = env
+        .find_machines(Some(host_machine_id.to_string().into()), None, true)
+        .await
+        .machines
+        .remove(0);
+    let bmc_ip = host_machine.bmc_info.as_ref().unwrap().ip();
+    let bmc_mac = host_machine.bmc_info.as_ref().unwrap().mac();
+
+    let mut txn = pool.begin().await.unwrap();
+    DbExploredEndpoint::insert(
+        bmc_ip.parse().unwrap(),
+        &EndpointExplorationReport::default(),
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: bmc_mac.to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "GKTEST".into(),
+    };
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("unable to add expected machine");
+
+    // The test
+
+    let mut out = env
+        .api
+        .get_all_expected_machines_linked(tonic::Request::new(()))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(out.expected_machines.len(), 1);
+
+    let mut em = out.expected_machines.remove(0);
+    assert_eq!(em.chassis_serial_number, "GKTEST");
+    assert!(em.interface_id.is_some(), "interface not found");
+    assert_eq!(
+        em.explored_endpoint_address.take().unwrap(),
+        bmc_ip,
+        "BMC MAC should match"
+    );
+    assert_eq!(
+        em.machine_id.take().unwrap().to_string(),
+        host_machine_id.to_string(),
+        "machine id should match via bmc_mac"
     );
 }

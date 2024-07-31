@@ -79,6 +79,13 @@ services:
     #   cargo build -p admin --target-dir /opt/forge-admin-cli/
     #   /opt/forge-admin-cli/debug/forge-admin-cli -c https://127.0.0.1:1079 --client-cert-path /opt/forge/server_identity.pem --client-key-path /opt/forge/server_identity.key credential add-bmc --kind=site-wide-root --password=password
     #
+    # Update database extract:
+    #  ssh to dev3/4
+    #  kubectl exec -i -t -n postgres forge-pg-cluster-2 -- /usr/bin/pg_dump --no-owner --rows-per-insert=100 --on-conflict-do-nothing --clean --if-exists -U postgres forge_system_carbide | tee ~grahamk/dev.sql
+    #  scp that dev.sql file back to your local
+    #  compress with `xz -9`
+    #  name it correctly, commit it, and edit the xzcat line below
+    #
     command:
       - sh
       - -c

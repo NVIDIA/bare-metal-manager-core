@@ -268,6 +268,22 @@ pub(crate) async fn get_all(
     }))
 }
 
+pub(crate) async fn get_linked(
+    api: &Api,
+    request: tonic::Request<()>,
+) -> Result<tonic::Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
+    log_request_data(&request);
+    let mut txn = api.database_connection.begin().await.map_err(|e| {
+        CarbideError::from(DatabaseError::new(file!(), line!(), "begin get_linked", e))
+    })?;
+
+    let out = ExpectedMachine::find_all_linked(&mut txn).await?;
+    let list = rpc::LinkedExpectedMachineList {
+        expected_machines: out.into_iter().map(|m| m.into()).collect(),
+    };
+    Ok(tonic::Response::new(list))
+}
+
 pub(crate) async fn delete_all(
     api: &Api,
     request: tonic::Request<()>,

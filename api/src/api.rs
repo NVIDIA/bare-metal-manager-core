@@ -2880,6 +2880,13 @@ impl Forge for Api {
         crate::handlers::expected_machine::get_all(self, request).await
     }
 
+    async fn get_all_expected_machines_linked(
+        &self,
+        request: tonic::Request<()>,
+    ) -> Result<Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
+        crate::handlers::expected_machine::get_linked(self, request).await
+    }
+
     async fn delete_all_expected_machines(
         &self,
         request: tonic::Request<()>,

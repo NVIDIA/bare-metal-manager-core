@@ -15,6 +15,7 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
+use super::machine_interface::MachineInterfaceId;
 use super::DatabaseError;
 use crate::CarbideError;
 use crate::CarbideResult;
@@ -37,6 +38,40 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
             bmc_password: row.try_get("bmc_password")?,
             serial_number: row.try_get("serial_number")?,
         })
+    }
+}
+
+pub struct LinkedExpectedMachine {
+    pub serial_number: String,
+    pub bmc_mac_address: MacAddress, // from expected_machines table
+    pub interface_id: Option<MachineInterfaceId>, // from machine_interfaces table
+    pub address: Option<String>,     // The explored endpoint
+    pub machine_id: Option<String>,  // The machine
+}
+
+impl<'r> FromRow<'r, PgRow> for LinkedExpectedMachine {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        Ok(LinkedExpectedMachine {
+            serial_number: row.try_get("serial_number")?,
+            bmc_mac_address: row.try_get("bmc_mac_address")?,
+            interface_id: row.try_get("interface_id")?,
+            address: row.try_get("address")?,
+            machine_id: row.try_get("machine_id")?,
+        })
+    }
+}
+
+impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
+    fn from(m: LinkedExpectedMachine) -> rpc::forge::LinkedExpectedMachine {
+        rpc::forge::LinkedExpectedMachine {
+            chassis_serial_number: m.serial_number,
+            bmc_mac_address: m.bmc_mac_address.to_string(),
+            interface_id: m.interface_id.map(|u| u.to_string()),
+            explored_endpoint_address: m.address,
+            machine_id: m
+                .machine_id
+                .map(|id| rpc::common::MachineId { id: id.to_string() }),
+        }
     }
 }
 
@@ -77,6 +112,29 @@ impl ExpectedMachine {
         txn: &mut Transaction<'_, Postgres>,
     ) -> CarbideResult<Vec<ExpectedMachine>> {
         let sql = "SELECT * FROM expected_machines";
+        sqlx::query_as(sql)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
+    }
+
+    pub async fn find_all_linked(
+        txn: &mut Transaction<'_, Postgres>,
+    ) -> CarbideResult<Vec<LinkedExpectedMachine>> {
+        let sql = r#"
+ SELECT
+ em.serial_number,
+ em.bmc_mac_address,
+ mi.id AS interface_id,
+ host(ee.address) AS address,
+ mt.machine_id
+FROM expected_machines em
+ LEFT JOIN machine_interfaces mi ON em.bmc_mac_address = mi.mac_address
+ LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
+ LEFT JOIN explored_endpoints ee ON mia.address = ee.address
+ LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
+ ORDER BY em.bmc_mac_address
+ "#;
         sqlx::query_as(sql)
             .fetch_all(&mut **txn)
             .await
