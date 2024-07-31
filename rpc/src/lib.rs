@@ -191,17 +191,6 @@ impl prost::Message for Timestamp {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct DiscriminantError(i32);
-
-impl std::error::Error for DiscriminantError {}
-
-impl std::fmt::Display for DiscriminantError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Invalid enum value: {}", self.0)
-    }
-}
-
 impl From<uuid::Uuid> for common::Uuid {
     fn from(uuid: uuid::Uuid) -> common::Uuid {
         common::Uuid {
@@ -387,7 +376,6 @@ mod tests {
     use std::time::Duration;
 
     use self::forge::{operating_system::Variant, IpxeOperatingSystem, OperatingSystem};
-
     use super::*;
 
     #[test]

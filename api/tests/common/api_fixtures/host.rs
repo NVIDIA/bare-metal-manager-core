@@ -28,13 +28,14 @@ use carbide::{
     },
     state_controller::machine::handler::{MachineStateHandler, MachineStateHandlerBuilder},
 };
-use rpc::forge::MachineValidationResult;
 use rpc::{
     forge::{forge_agent_control_response::Action, forge_server::Forge, DhcpDiscovery},
     DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo,
 };
+use strum::IntoEnumIterator;
 use tonic::Request;
 
+use super::FIXTURE_DHCP_RELAY_ADDRESS;
 use crate::common::api_fixtures::{
     discovery_completed, forge_agent_control, managed_host::ManagedHostConfig, update_bmc_metadata,
     TestEnv,
@@ -42,10 +43,6 @@ use crate::common::api_fixtures::{
 use crate::common::api_fixtures::{
     inject_machine_measurements, machine_validation_completed, persist_machine_validation_result,
 };
-
-use strum::IntoEnumIterator;
-
-use super::FIXTURE_DHCP_RELAY_ADDRESS;
 
 const TEST_DATA_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -361,10 +358,7 @@ pub async fn create_host_with_machine_validation(
     machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
     error: Option<String>,
 ) -> rpc::MachineId {
-    let mut machine_validation_result = match machine_validation_result_data {
-        Some(data) => data,
-        None => MachineValidationResult::default(),
-    };
+    let mut machine_validation_result = machine_validation_result_data.unwrap_or_default();
     use carbide::model::machine::{LockdownInfo, LockdownMode, LockdownState, MachineState};
     let bmc_machine_interface_id =
         host_bmc_discover_dhcp(env, &host_config.host_bmc_mac_address.to_string()).await;

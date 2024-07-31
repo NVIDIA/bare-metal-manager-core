@@ -90,27 +90,6 @@ impl<'a, S> ControllerStateReader<'a, S> {
     }
 }
 
-/// A guard object that allows to mutate the actual ControllerState
-///
-/// If the state was modified, the new state will automatically be persisted
-pub struct ControllerStateModifier<'a, S> {
-    state: &'a mut S,
-}
-
-impl<'a, S> std::ops::Deref for ControllerStateModifier<'a, S> {
-    type Target = S;
-
-    fn deref(&self) -> &Self::Target {
-        self.state
-    }
-}
-
-impl<'a, S> std::ops::DerefMut for ControllerStateModifier<'a, S> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.state
-    }
-}
-
 /// Defines a function that will be called to determine the next step in
 /// an objects lifecycle.
 ///

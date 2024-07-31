@@ -22,6 +22,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
 use sqlx::{FromRow, Postgres, Row, Transaction, Type};
+use tonic::Status;
 
 use crate::ib::IBFabricManagerConfig;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
@@ -41,7 +42,6 @@ use crate::{
     model::tenant::TenantOrganizationId,
     CarbideError, CarbideResult,
 };
-use tonic::Status;
 
 /// IBPartitionId is a strongly typed UUID specific to an Infiniband
 /// segment ID, with trait implementations allowing it to be passed
@@ -400,7 +400,7 @@ impl NewIBPartition {
             .bind(self.id)
             .bind(&conf.name)
             .bind(conf.pkey.map(|k| k as i32))
-            .bind(&conf.tenant_organization_id.to_string())
+            .bind(conf.tenant_organization_id.to_string())
             .bind(conf.mtu)
             .bind(conf.rate_limit)
             .bind(conf.service_level)
@@ -622,7 +622,7 @@ impl IBPartition {
 
         let segment: IBPartition = sqlx::query_as(query)
             .bind(&self.config.name)
-            .bind(&self.config.tenant_organization_id.to_string())
+            .bind(self.config.tenant_organization_id.to_string())
             .bind(sqlx::types::Json(&self.status))
             .bind(self.id)
             .fetch_one(&mut **txn)

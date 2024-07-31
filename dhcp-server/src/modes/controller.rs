@@ -9,7 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::DhcpMode;
 use std::{net::IpAddr, str::FromStr};
 
 use ::rpc::forge::DhcpDiscovery;
@@ -17,12 +16,13 @@ use lru::LruCache;
 use rpc::forge::DhcpRecord;
 use tonic::async_trait;
 
+use super::DhcpMode;
 use crate::{
     cache::{self, CacheEntry},
     errors::DhcpError,
     rpc::client::discover_dhcp,
     vendor_class::VendorClass,
-    Config, HostConfig,
+    Config,
 };
 
 #[derive(Debug)]
@@ -89,12 +89,5 @@ impl DhcpMode for Controller {
         );
 
         Ok(record)
-    }
-
-    async fn get_remote_id(
-        &self,
-        _host_config: &Option<HostConfig>,
-    ) -> Result<Option<String>, DhcpError> {
-        Ok(None)
     }
 }

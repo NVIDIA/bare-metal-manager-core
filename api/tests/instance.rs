@@ -1127,7 +1127,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let (_,): (uuid::Uuid,) = sqlx::query_as(
         "UPDATE instances SET network_config_version=$1 WHERE id = $2::uuid returning id",
     )
-    .bind(&next_config_version.version_string())
+    .bind(next_config_version.version_string())
     .bind(instance_id)
     .fetch_one(&mut *txn)
     .await

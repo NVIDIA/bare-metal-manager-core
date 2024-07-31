@@ -15,6 +15,14 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
+use std::collections::HashMap;
+use std::str::FromStr;
+
+use rpc::protos::measured_boot::MeasurementReportPb;
+use serde::Serialize;
+use sqlx::types::chrono::Utc;
+use sqlx::{Pool, Postgres, Transaction};
+
 use crate::measured_boot::dto::keys::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
     UuidEmptyStringError,
@@ -43,12 +51,6 @@ use crate::measured_boot::model::{
     profile::MeasurementSystemProfile,
 };
 use crate::model::machine::machine_id::MachineId;
-use rpc::protos::measured_boot::MeasurementReportPb;
-use serde::Serialize;
-use sqlx::types::chrono::Utc;
-use sqlx::{Pool, Postgres, Transaction};
-use std::collections::HashMap;
-use std::str::FromStr;
 
 /// MeasurementReport is a composition of a MeasurementReportRecord,
 /// whose attributes are essentially copied directly it, as well as
@@ -385,10 +387,9 @@ pub async fn get_all_measurement_reports(
 
     let mut res = Vec::<MeasurementReport>::new();
     for report_record in report_records.iter() {
-        let values = match values_by_report_id.remove(&report_record.report_id) {
-            Some(vals) => vals,
-            None => Vec::<MeasurementReportValueRecord>::new(),
-        };
+        let values = values_by_report_id
+            .remove(&report_record.report_id)
+            .unwrap_or_default();
         res.push(MeasurementReport {
             report_id: report_record.report_id,
             machine_id: report_record.machine_id.clone(),

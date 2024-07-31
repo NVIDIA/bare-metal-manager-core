@@ -42,9 +42,6 @@ pub enum CarbideClientError {
     #[error("Hardware enumeration error: {0}")]
     RegistrationError(#[from] forge_host_support::registration::RegistrationError),
 
-    #[error("Invalid gRPC enum value: {0}")]
-    DiscriminantError(#[from] rpc::DiscriminantError),
-
     #[error("Error decoding gRPC enum value: {0}")]
     RpcDecodeError(String), // This should be '#[from] prost::DecodeError)' but don't work
 

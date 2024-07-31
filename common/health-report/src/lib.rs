@@ -111,7 +111,7 @@ pub struct HealthProbeAlert {
     /// If this field is empty while the HealthReport is sent to carbide-api
     /// the behavior is as follows:
     /// - If an alert of the same `id` was reported before, the timestamp of the
-    /// previous alert will be retained.
+    ///   previous alert will be retained.
     /// - If this is a new alert, the timestamp will be set to "now".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_alert_since: Option<chrono::DateTime<chrono::Utc>>,

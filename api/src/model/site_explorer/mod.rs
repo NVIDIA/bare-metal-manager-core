@@ -11,11 +11,11 @@
  */
 use std::{collections::HashMap, fmt::Display, net::IpAddr, str::FromStr};
 
+use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
-use config_version::ConfigVersion;
-
+use super::{bmc_info::BmcInfo, hardware_info::DpuData};
 use crate::{
     cfg::{DpuModel, FirmwareComponentType},
     model::{
@@ -24,8 +24,6 @@ use crate::{
     },
     CarbideError, CarbideResult,
 };
-
-use super::{bmc_info::BmcInfo, hardware_info::DpuData};
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -117,15 +115,9 @@ impl ExploredEndpoint {
 
 impl EndpointExplorationReport {
     pub fn fetch_host_primary_interface_mac(&self) -> Option<String> {
-        let Some(vendor) = self.vendor else {
-            return None;
-        };
-
-        if vendor.is_dell() {
+        if self.vendor?.is_dell() {
             // For Dell hosts, HttpDev1Interface field in Bios provides bootable interface details.
-            let Some(system) = self.systems.first() else {
-                return None;
-            };
+            let system = self.systems.first()?;
 
             let Some(interface_name) = system.attributes.http_dev1_interface.clone() else {
                 // This should not be None for Dell. Error is handled during fetching it from Bios
