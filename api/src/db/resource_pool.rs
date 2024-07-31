@@ -142,7 +142,7 @@ WHERE name = $2 AND value = $3
         sqlx::query(query)
             .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
             .bind(&self.name)
-            .bind(&value.to_string())
+            .bind(value.to_string())
             .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
@@ -174,7 +174,7 @@ WHERE name = $2 AND value = $3
         sqlx::query(query)
             .bind(sqlx::types::Json(state))
             .bind(&self.name)
-            .bind(&value.to_string())
+            .bind(value.to_string())
             .execute(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;

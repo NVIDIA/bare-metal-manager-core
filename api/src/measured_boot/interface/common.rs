@@ -15,17 +15,18 @@
  *  for making boilerplate copy-pasta code handled in a common way.
 */
 
-use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::convert::{From, Into};
+use std::fmt;
+use std::vec::Vec;
+
 use rpc::protos::measured_boot::PcrRegisterValuePb;
 use sqlx::postgres::PgRow;
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{Encode, Pool, Postgres, Transaction};
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::convert::{From, Into};
-use std::error::Error;
-use std::fmt;
-use std::vec::Vec;
+
+use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
 
 // DISCOVERY_PROFILE_ATTRS are the attributes we pull
 // from DiscoveryInfo for a given machine when
@@ -214,19 +215,6 @@ pub fn generate_name() -> eyre::Result<String> {
     let mut generate = names::Generator::default();
     Ok(generate.next().unwrap())
 }
-
-#[derive(Debug)]
-pub struct PcrValueParseError {
-    msg: String,
-}
-
-impl fmt::Display for PcrValueParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "failed to parse PCR value input: {}", self.msg,)
-    }
-}
-
-impl Error for PcrValueParseError {}
 
 #[derive(Debug, Clone)]
 pub struct PcrRegisterValue {

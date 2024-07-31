@@ -190,16 +190,7 @@ impl ForgeResolverOpts {
 /// Get the default resolver options as configured per crate features.
 /// This allows us to enable DNSSEC conditionally.
 fn default_opts() -> ForgeResolverOpts {
-    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
-    let mut opts = ForgeResolverOpts::default();
-    #[cfg(not(any(feature = "dnssec-openssl", feature = "dnssec-ring")))]
-    let opts = ForgeResolverOpts::default();
-    #[cfg(any(feature = "dnssec-openssl", feature = "dnssec-ring"))]
-    {
-        opts.inner.validate = true;
-    }
-
-    opts
+    ForgeResolverOpts::default()
 }
 
 impl ForgeResolver {

@@ -9,8 +9,6 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::DhcpMode;
-
 use lru::LruCache;
 use rpc::{
     forge::{DhcpDiscovery, DhcpRecord},
@@ -19,6 +17,7 @@ use rpc::{
 use tonic::async_trait;
 use utils::models::dhcp::InterfaceInfo;
 
+use super::DhcpMode;
 use crate::{
     cache::CacheEntry, errors::DhcpError, packet_handler::DecodedPacket, Config, HostConfig,
 };
@@ -76,13 +75,6 @@ impl DhcpMode for Dpu {
         };
 
         Ok(from_host_conf(ip_details, &host_config.host_interface_id))
-    }
-
-    async fn get_remote_id(
-        &self,
-        _host_config: &Option<HostConfig>,
-    ) -> Result<Option<String>, DhcpError> {
-        Ok(None)
     }
 
     /// Here circuit is interface name. This is what dhcp-relay used to fill.

@@ -362,8 +362,8 @@ impl Instance {
             FindInstanceTypeFilter::Label(label) => match (label.key.is_empty(), &label.value) {
                 (true, Some(value)) => sqlx::query_as::<_, InstanceSnapshot>(
                     "SELECT * FROM instances WHERE EXISTS (
-                        SELECT 1 
-                        FROM jsonb_each_text(labels) AS kv 
+                        SELECT 1
+                        FROM jsonb_each_text(labels) AS kv
                         WHERE kv.value = $1
                     );",
                 )
@@ -812,7 +812,7 @@ impl<'a> NewInstance<'a> {
             .bind(&self.metadata.name)
             .bind(&self.metadata.description)
             .bind(sqlx::types::Json(&self.metadata.labels))
-            .bind(&self.config_version.version_string())
+            .bind(self.config_version.version_string())
             .bind(&self.config.tenant.hostname)
             .fetch_one(&mut **txn)
             .await

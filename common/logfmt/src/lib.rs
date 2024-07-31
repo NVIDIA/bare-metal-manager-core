@@ -13,6 +13,7 @@
 use std::{
     any::TypeId, cell::RefCell, collections::BTreeMap, io::Write, marker::PhantomData, sync::Arc,
 };
+
 use tracing::{
     field::{self, Field, Visit},
     span::{self, Attributes},
@@ -473,7 +474,7 @@ impl Visit for FieldVisitor {
 }
 
 thread_local! {
-    static FORMAT_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+    static FORMAT_BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
 fn clear_format_buffer(buf: &mut Vec<u8>) {
@@ -488,9 +489,10 @@ fn clear_format_buffer(buf: &mut Vec<u8>) {
 mod tests {
     use std::sync::Mutex;
 
-    use super::*;
     use tracing::{level_filters::LevelFilter, Level};
     use tracing_subscriber::{prelude::*, EnvFilter};
+
+    use super::*;
 
     #[derive(Clone)]
     struct TestWriter {

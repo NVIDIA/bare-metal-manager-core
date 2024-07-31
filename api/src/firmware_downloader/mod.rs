@@ -68,7 +68,7 @@ impl FirmwareDownloader {
         let filename_string = filename.to_str().unwrap().to_string();
 
         let mut state = self.actual.lock().unwrap();
-        if state.downloading.get(&filename_string).is_some() {
+        if state.downloading.contains(&filename_string) {
             // We are already downloading this
             return false;
         }

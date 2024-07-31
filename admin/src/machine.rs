@@ -226,12 +226,6 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
     table
 }
 
-#[derive(Debug, Default, Copy, Clone)]
-pub struct MachineFilter {
-    pub only_dpus: bool,
-    pub only_hosts: bool,
-}
-
 async fn show_all_machines(
     json: bool,
     api_config: &ApiConfig<'_>,

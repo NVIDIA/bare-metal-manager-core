@@ -14,37 +14,20 @@
 //! `measurement mock-machine` subcommand dispatcher + backing functions.
 //!
 
-use crate::measurement::global;
-use crate::measurement::global::cmds::cli_output;
-use crate::measurement::machine::args::{Attest, CmdMachine, Show};
 use ::rpc::forge_tls_client::ForgeClientT;
 use ::rpc::protos::measured_boot::{show_candidate_machine_request, ListCandidateMachinesRequest};
 use ::rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, ShowCandidateMachineRequest, ShowCandidateMachinesRequest,
 };
-use carbide::measured_boot::interface::common::{PcrRegisterValue, ToTable};
+use carbide::measured_boot::interface::common::PcrRegisterValue;
 use carbide::measured_boot::{
     dto::records::CandidateMachineSummary,
     model::{machine::CandidateMachine, report::MeasurementReport},
 };
-use serde::Serialize;
 
-/// ExecResult exists just to print CLI results out
-/// leveraging the same mechanism as everything else.
-#[derive(Serialize)]
-pub struct ExecResult {
-    status: String,
-    rows_affected: u64,
-}
-
-impl ToTable for ExecResult {
-    fn to_table(&self) -> eyre::Result<String> {
-        let mut table = prettytable::Table::new();
-        table.add_row(prettytable::row!["status", self.status]);
-        table.add_row(prettytable::row!["rows_affected", self.rows_affected]);
-        Ok(table.to_string())
-    }
-}
+use crate::measurement::global;
+use crate::measurement::global::cmds::cli_output;
+use crate::measurement::machine::args::{Attest, CmdMachine, Show};
 
 /// dispatch matches + dispatches the correct command
 /// for the `mock-machine` subcommand.

@@ -69,8 +69,6 @@ const BMC_METADATA: &str = r#"{
 pub struct Info {
     pub hbn_root: path::PathBuf,
     pub machine_id: String,
-    pub interface_id: String,
-    pub interface_addr: Ipv4Addr,
 }
 
 pub async fn bootstrap(
@@ -79,7 +77,7 @@ pub async fn bootstrap(
     carbide_api_addr: SocketAddr,
     root_dir: &path::Path,
 ) -> eyre::Result<Info> {
-    let (interface_id, dpu_machine_id, ip_address) =
+    let (_interface_id, dpu_machine_id, _ip_address) =
         discover(carbide_api_addr, Some("1.1.1".to_owned()))?;
 
     let data = BMC_METADATA.replace("$HOST_MACHINE_ID", &dpu_machine_id);
@@ -156,8 +154,6 @@ pub async fn bootstrap(
     let dpu = Info {
         hbn_root,
         machine_id: dpu_machine_id,
-        interface_id,
-        interface_addr: ip_address,
     };
     Ok(dpu)
 }

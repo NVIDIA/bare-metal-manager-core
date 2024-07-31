@@ -10,17 +10,16 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::{sync::Arc, time::Instant};
+
 use arc_swap::ArcSwapOption;
 use opentelemetry::{
     metrics::{self, Meter, ObservableGauge},
     KeyValue,
 };
-use std::{sync::Arc, time::Instant};
 
 #[derive(Clone, Debug)]
 pub struct PreingestionMetrics {
-    /// When we started recording these metrics
-    pub recording_started_at: std::time::Instant,
     /// When we finished recording the metrics
     pub recording_finished_at: std::time::Instant,
 
@@ -32,7 +31,6 @@ pub struct PreingestionMetrics {
 impl PreingestionMetrics {
     pub fn new() -> Self {
         Self {
-            recording_started_at: Instant::now(),
             recording_finished_at: Instant::now(),
             machines_in_preingestion: 0,
             waiting_for_installation: 0,

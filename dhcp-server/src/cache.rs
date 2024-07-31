@@ -35,8 +35,6 @@ const MIN_KEY_LEN: usize = 10;
 pub struct CacheEntry {
     pub dhcp_record: DhcpRecord,
     pub timestamp: Instant,
-    pub link_address: IpAddr,
-    pub circuit_id: Option<String>,
 }
 
 /// Fetch an entry from the cache.
@@ -89,8 +87,6 @@ pub fn put(
     let new_entry = CacheEntry {
         timestamp: Instant::now(),
         dhcp_record,
-        link_address,
-        circuit_id,
     };
     machine_cache.put(key, new_entry);
 }

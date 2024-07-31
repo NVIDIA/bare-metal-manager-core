@@ -22,8 +22,6 @@ use serde::Serialize;
 /// Metrics that are gathered in one a single `IbFabricMonitor` run
 #[derive(Clone, Debug)]
 pub struct IbFabricMonitorMetrics {
-    /// When we started recording these metrics
-    pub recording_started_at: std::time::Instant,
     /// When we finished recording the metrics
     pub recording_finished_at: std::time::Instant,
     /// The amount of fabrics that are monitored
@@ -54,7 +52,6 @@ pub struct FabricMetrics {
 impl IbFabricMonitorMetrics {
     pub fn new() -> Self {
         Self {
-            recording_started_at: Instant::now(),
             recording_finished_at: Instant::now(),
             num_fabrics: 0,
             fabrics: HashMap::new(),

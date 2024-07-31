@@ -1,8 +1,8 @@
 pub mod common;
 
-use rpc::forge::forge_server::Forge;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use std::string::ToString;
 
 use carbide::{
     db::{
@@ -19,8 +19,8 @@ use common::api_fixtures::{
     create_test_env, dpu::create_dpu_machine, host::create_host_machine,
     managed_host::create_managed_host_multi_dpu,
 };
+use rpc::forge::forge_server::Forge;
 use sqlx::Row;
-use std::string::ToString;
 
 #[ctor::ctor]
 fn setup() {
@@ -59,8 +59,8 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .await?;
 
     assert_eq!(started_count.len(), 1);
-    assert!(started_count.get(&dpu_machine_id).is_none());
-    assert!(started_count.get(&host_machine_id).is_some());
+    assert!(!started_count.contains(&dpu_machine_id));
+    assert!(started_count.contains(&host_machine_id));
 
     let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
     let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like $1";
@@ -128,9 +128,9 @@ async fn test_start_updates_with_multidpu(
         .await?;
 
     assert_eq!(dpus_started.len(), 1);
-    assert!(dpus_started.get(&dpu_machine_id).is_none());
-    assert!(dpus_started.get(&dpu_machine_id2).is_none());
-    assert!(dpus_started.get(&host_machine_id).is_some());
+    assert!(!dpus_started.contains(&dpu_machine_id));
+    assert!(!dpus_started.contains(&dpu_machine_id2));
+    assert!(dpus_started.contains(&host_machine_id));
 
     let reference = AutomaticFirmwareUpdateReference::REF_NAME.to_string() + "%";
     let query = "SELECT count(maintenance_reference)::int FROM machines WHERE maintenance_reference like $1";
@@ -197,9 +197,9 @@ async fn test_start_updates_with_multidpu_disabled(
         .await?;
 
     assert_eq!(dpus_started.len(), 0);
-    assert!(dpus_started.get(&dpu_machine_id).is_none());
-    assert!(dpus_started.get(&dpu_machine_id2).is_none());
-    assert!(dpus_started.get(&host_machine_id).is_none());
+    assert!(!dpus_started.contains(&dpu_machine_id));
+    assert!(!dpus_started.contains(&dpu_machine_id2));
+    assert!(!dpus_started.contains(&host_machine_id));
 
     Ok(())
 }
@@ -247,9 +247,9 @@ async fn test_get_updates_in_progress(
         .get_updates_in_progress(&mut txn)
         .await?;
 
-    assert!(started_count.get(&host_machine_id).is_some());
+    assert!(started_count.contains(&host_machine_id));
     assert_eq!(updating_count.len(), 1);
-    assert!(updating_count.get(&host_machine_id).is_some());
+    assert!(updating_count.contains(&host_machine_id));
 
     Ok(())
 }
@@ -329,8 +329,8 @@ async fn test_clear_complated_updates(
         .start_updates(&mut txn, 10, &HashSet::default(), false)
         .await?;
 
-    assert!(started_count.get(&dpu_machine_id).is_none());
-    assert!(started_count.get(&host_machine_id).is_some());
+    assert!(!started_count.contains(&dpu_machine_id));
+    assert!(started_count.contains(&host_machine_id));
 
     let machines = Machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
         .await

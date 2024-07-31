@@ -50,8 +50,6 @@ lazy_static! {
 #[derive(Debug, Clone)]
 pub struct CacheEntry {
     pub timestamp: Instant,
-    pub link_address: IpAddr,
-    pub circuit_id: Option<String>,
     pub status: CacheEntryStatus,
 }
 
@@ -110,8 +108,6 @@ pub fn put(
     );
     let new_entry = CacheEntry {
         timestamp: Instant::now(),
-        link_address,
-        circuit_id,
         status,
     };
     MACHINE_CACHE.lock().unwrap().put(key, new_entry);

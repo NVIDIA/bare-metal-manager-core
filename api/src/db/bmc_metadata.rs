@@ -167,7 +167,7 @@ impl BmcMetaDataUpdateRequest {
         // Just update json by adding a ipmi_ip entry.
         let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}', $1, true) WHERE machine_id=$2 RETURNING machine_id";
         let _: Option<(DbMachineId,)> = sqlx::query_as(query)
-            .bind(&json!(bmc_info))
+            .bind(json!(bmc_info))
             .bind(self.machine_id.to_string())
             .fetch_optional(&mut **txn)
             .await

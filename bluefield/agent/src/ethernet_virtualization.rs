@@ -1039,8 +1039,8 @@ fn parse_fdb(fdb_json: &str) -> eyre::Result<HashMap<u32, Vec<Fdb>>> {
 /// To use a VF a tenant needs to do this on their host:
 ///  - echo 16 > /sys/class/net/eth0/device/sriov_numvfs
 ///  - ip link set <name> up
-/// DPU side this must say 16 but discovery should take care of that:
-///  mlxconfig -d /dev/mst/mt41686_pciconf0 query NUM_OF_VFS
+///    DPU side this must say 16 but discovery should take care of that:
+///    mlxconfig -d /dev/mst/mt41686_pciconf0 query NUM_OF_VFS
 async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
     // We're expecting only the host side and our side
     if vlan_fdb.len() != 2 {

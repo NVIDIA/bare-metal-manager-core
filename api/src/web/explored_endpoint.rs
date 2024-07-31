@@ -200,7 +200,7 @@ pub async fn show_html_all(
         .get("vendor-filter")
         .cloned()
         .unwrap_or("all".to_string());
-    let is_errors_only = params.get("errors-only").is_some();
+    let is_errors_only = params.contains_key("errors-only");
     let query_filter = query_filter_for(params);
     let tmpl = ExploredEndpointsShow {
         filter_name: "All",
@@ -288,7 +288,7 @@ pub async fn show_html_unpaired(
         .get("vendor-filter")
         .cloned()
         .unwrap_or("all".to_string());
-    let is_errors_only = params.get("errors-only").is_some();
+    let is_errors_only = params.contains_key("errors-only");
     let query_filter = query_filter_for(params);
     let tmpl = ExploredEndpointsShow {
         filter_name: "Unpaired",

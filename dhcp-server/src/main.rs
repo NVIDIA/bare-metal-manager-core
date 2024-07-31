@@ -264,15 +264,6 @@ impl DhcpMode for Test {
             booturl: None,
         })
     }
-
-    async fn get_remote_id(
-        &self,
-        _host_config: &Option<HostConfig>,
-    ) -> Result<Option<String>, DhcpError> {
-        Ok(Some(
-            "d33nk2ne8p59qr988hssbc84gb2b0s34vcq5j7pm5jnrbnhc6880".to_string(),
-        ))
-    }
 }
 
 const MINIMUM_DHCP_PKT_SIZE: usize = 236;

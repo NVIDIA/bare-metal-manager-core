@@ -19,7 +19,7 @@ use crate::{
     cache::CacheEntry,
     errors::DhcpError,
     packet_handler::{DecodedPacket, Packet},
-    Config, HostConfig,
+    Config,
 };
 
 pub mod controller;
@@ -35,11 +35,6 @@ pub trait DhcpMode: Send + Sync + std::fmt::Debug {
         config: &Config,
         machine_cache: &mut LruCache<String, CacheEntry>,
     ) -> Result<DhcpRecord, DhcpError>;
-    /// Method to fetch remote id. Dummy for Controller.
-    async fn get_remote_id(
-        &self,
-        host_config: &Option<HostConfig>,
-    ) -> Result<Option<String>, DhcpError>;
     /// And at what address?
     fn get_destination_address(&self, packet: &Packet) -> SocketAddrV4 {
         packet.dst_address()

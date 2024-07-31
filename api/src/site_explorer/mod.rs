@@ -101,7 +101,7 @@ impl Endpoint {
 /// On each iteration the SiteExplorer will:
 /// 1. collect the number of outstanding updates from all modules.
 /// 2. if there are less than the max allowed updates each module will be told to start updates until
-/// the number of updates reaches the maximum allowed.
+///    the number of updates reaches the maximum allowed.
 ///
 /// Config from [CarbideConfig]:
 /// * `max_concurrent_machine_updates` the maximum number of updates allowed across all modules

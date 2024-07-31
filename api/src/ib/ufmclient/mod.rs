@@ -11,6 +11,7 @@
  */
 
 use std::collections::HashMap;
+use std::fmt;
 
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -179,9 +180,9 @@ impl TryFrom<&str> for PartitionKey {
     }
 }
 
-impl ToString for PartitionKey {
-    fn to_string(&self) -> String {
-        format!("{}{:x}", HEX_PRE, self.0)
+impl fmt::Display for PartitionKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{HEX_PRE}{:x}", self.0)
     }
 }
 
@@ -344,7 +345,7 @@ impl Ufm {
     pub async fn get_partition(&self, pkey: &str) -> Result<Partition, UFMError> {
         let pkey = PartitionKey::try_from(pkey)?;
 
-        let path = format!("/resources/pkeys/{}?qos_conf=true", pkey.to_string());
+        let path = format!("/resources/pkeys/{pkey}?qos_conf=true");
 
         #[derive(Serialize, Deserialize, Debug)]
         struct Pkey {
@@ -403,7 +404,7 @@ impl Ufm {
             pub guids: Vec<PortConfig>,
         }
 
-        let path = format!("resources/pkeys/{}?guids_data=true", pkey.to_string());
+        let path = format!("resources/pkeys/{pkey}?guids_data=true");
         let pkeywithguids: PkeyWithGUIDs = self.client.get(&path).await?;
 
         let filter = Filter::from(pkeywithguids.guids);

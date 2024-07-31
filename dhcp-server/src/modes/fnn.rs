@@ -9,13 +9,12 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use super::DhcpMode;
-
 use lru::LruCache;
 use rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tonic::async_trait;
 
-use crate::{cache::CacheEntry, errors::DhcpError, Config, FnnConfig, HostConfig, SubnetInfo};
+use super::DhcpMode;
+use crate::{cache::CacheEntry, errors::DhcpError, Config, FnnConfig, SubnetInfo};
 
 #[derive(Debug)]
 pub struct Fnn {}
@@ -71,13 +70,6 @@ impl DhcpMode for Fnn {
             })?;
 
         from_fnn_conf(subnet_info, &discovery_request.relay_address)
-    }
-
-    async fn get_remote_id(
-        &self,
-        _host_config: &Option<HostConfig>,
-    ) -> Result<Option<String>, DhcpError> {
-        Ok(None)
     }
 }
 
