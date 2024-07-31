@@ -121,7 +121,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
 
     let instructions = get_pxe_instructions(
         &env,
-        *machine.interfaces().first().unwrap().id(),
+        machine.interfaces().first().unwrap().id,
         rpc::forge::MachineArchitecture::Arm,
     )
     .await;

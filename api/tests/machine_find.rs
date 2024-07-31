@@ -82,14 +82,14 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .unwrap();
-    let ip = dpu_machine.interfaces()[0].addresses()[0].address;
+    let ip = dpu_machine.interfaces()[0].addresses[0];
 
     let machine = Machine::find_by_query(&mut txn, &ip.to_string())
         .await
         .unwrap()
         .expect("expect DPU to be found");
     assert_eq!(*machine.id(), dpu_machine_id);
-    assert_eq!(machine.interfaces()[0].addresses()[0].address, ip);
+    assert_eq!(machine.interfaces()[0].addresses[0], ip);
 
     // We shouldn't find a machine that doesn't exist
     let ip2: IpAddr = "254.254.254.254".parse().unwrap();
@@ -157,14 +157,14 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
     .await
     .unwrap()
     .unwrap();
-    let hostname = dpu_machine.interfaces()[0].hostname();
+    let hostname = dpu_machine.interfaces()[0].hostname.clone();
 
-    let machine = Machine::find_by_query(&mut txn, hostname)
+    let machine = Machine::find_by_query(&mut txn, &hostname)
         .await
         .unwrap()
         .expect("expect DPU to be found");
     assert_eq!(*machine.id(), dpu_machine_id);
-    assert_eq!(machine.interfaces()[0].hostname(), hostname);
+    assert_eq!(machine.interfaces()[0].hostname, hostname);
 
     // We shouldn't find a machine that doesn't exist
     let hostname2 = format!("a{}", hostname);
@@ -186,7 +186,7 @@ async fn test_find_machine_by_fqdn(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    let fqdn = format!("{}.dwrt1.com", dpu_machine.interfaces()[0].hostname());
+    let fqdn = format!("{}.dwrt1.com", dpu_machine.interfaces()[0].hostname);
 
     let mut machines = Machine::find_by_fqdn(&mut txn, &fqdn, MachineSearchConfig::default())
         .await

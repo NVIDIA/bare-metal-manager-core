@@ -104,7 +104,7 @@ pub async fn load_by_instance_snapshots(
     'machine_loop: for host_machine in machines.hosts.into_iter() {
         let mut dpu_snapshots = Vec::with_capacity(host_machine.interfaces().len());
         for iface in host_machine.interfaces().iter() {
-            if let Some(dpu_id) = iface.attached_dpu_machine_id() {
+            if let Some(dpu_id) = &iface.attached_dpu_machine_id {
                 match machines.dpus_by_id.remove(dpu_id) {
                     Some(dpu) => dpu_snapshots.push(dpu.into()),
                     None => {
@@ -148,7 +148,7 @@ async fn load_host_and_dpu_machine_states(
     let mut dpu_machine_ids = Vec::with_capacity(hosts.len());
     for host_machine in hosts.iter() {
         for iface in host_machine.interfaces().iter() {
-            if let Some(dpu_id) = iface.attached_dpu_machine_id() {
+            if let Some(dpu_id) = &iface.attached_dpu_machine_id {
                 dpu_machine_ids.push(dpu_id.clone());
             }
         }

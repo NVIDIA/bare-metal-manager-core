@@ -111,7 +111,7 @@ impl MachineInterfaceAddress {
 
     pub async fn delete(
         txn: &mut Transaction<'_, Postgres>,
-        interface_id: MachineInterfaceId,
+        interface_id: &MachineInterfaceId,
     ) -> Result<(), DatabaseError> {
         let query = "DELETE FROM machine_interface_addresses WHERE interface_id = $1";
         sqlx::query(query)

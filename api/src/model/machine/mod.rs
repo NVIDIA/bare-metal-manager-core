@@ -10,13 +10,14 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::{collections::HashMap, fmt::Display, net::Ipv4Addr};
 
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::HealthReport;
 use libredfish::SystemPowerControl;
+use mac_address::MacAddress;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize};
 
@@ -908,7 +909,7 @@ pub struct MachineInterfaceSnapshot {
     pub id: MachineInterfaceId,
     pub hostname: String,
     pub is_primary: bool,
-    pub mac_address: String,
+    pub mac_address: MacAddress,
     pub attached_dpu_machine_id: Option<MachineId>,
     pub domain_id: Option<DomainId>,
     pub machine_id: Option<MachineId>,
@@ -916,6 +917,33 @@ pub struct MachineInterfaceSnapshot {
     pub vendors: Vec<String>,
     pub created: DateTime<Utc>,
     pub last_dhcp: Option<DateTime<Utc>>,
+    pub addresses: Vec<IpAddr>,
+}
+
+impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
+    fn from(machine_interface: MachineInterfaceSnapshot) -> rpc::MachineInterface {
+        rpc::MachineInterface {
+            id: Some(machine_interface.id.into()),
+            attached_dpu_machine_id: machine_interface
+                .attached_dpu_machine_id
+                .map(|id| id.to_string().into()),
+            machine_id: machine_interface.machine_id.map(|id| id.to_string().into()),
+            segment_id: Some(machine_interface.segment_id.into()),
+            hostname: machine_interface.hostname,
+            domain_id: machine_interface.domain_id.map(|d| d.into()),
+            mac_address: machine_interface.mac_address.to_string(),
+            primary_interface: machine_interface.is_primary,
+            address: machine_interface
+                .addresses
+                .iter()
+                .map(|addr| addr.to_string())
+                .collect(),
+            vendor: machine_interface.vendors.last().cloned(),
+            created: Some(machine_interface.created.into()),
+            last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
+            is_bmc: None,
+        }
+    }
 }
 
 pub struct InstanceNextStateResolver;
