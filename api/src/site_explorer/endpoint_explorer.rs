@@ -13,8 +13,11 @@
 use std::net::SocketAddr;
 
 use crate::{
-    db::{expected_machine::ExpectedMachine, machine_interface::MachineInterface},
-    model::site_explorer::{EndpointExplorationError, EndpointExplorationReport},
+    db::expected_machine::ExpectedMachine,
+    model::{
+        machine::MachineInterfaceSnapshot,
+        site_explorer::{EndpointExplorationError, EndpointExplorationReport},
+    },
 };
 
 use super::metrics::SiteExplorationMetrics;
@@ -30,7 +33,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
     async fn explore_endpoint(
         &self,
         address: SocketAddr,
-        interface: &MachineInterface,
+        interface: &MachineInterfaceSnapshot,
         expected: Option<ExpectedMachine>,
         last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;

@@ -169,7 +169,7 @@ pub async fn discover_dhcp(
     // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
     if let Some(vendor) = vendor_string {
         let res = DhcpEntry {
-            machine_interface_id: *machine_interface.id(),
+            machine_interface_id: machine_interface.id,
             vendor_string: vendor,
         }
         .persist(&mut txn)
@@ -194,7 +194,7 @@ pub async fn discover_dhcp(
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin discover_dhcp 2", e))?;
 
     let record: rpc::DhcpRecord =
-        DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id())
+        DhcpRecord::find_by_mac_address(&mut txn, &parsed_mac, &machine_interface.segment_id)
             .await
             .map_err(CarbideError::from)?
             .into();

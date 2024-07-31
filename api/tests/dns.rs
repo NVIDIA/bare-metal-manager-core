@@ -137,7 +137,7 @@ async fn test_dns(pool: sqlx::PgPool) {
             .unwrap()
             .into_inner();
         assert_eq!(
-            format!("{}", interface.addresses()[0].address).as_str(),
+            format!("{}", interface.addresses[0]).as_str(),
             &adm_record.rrs[0].rdata.clone().unwrap()
         );
         txn.rollback().await.unwrap();

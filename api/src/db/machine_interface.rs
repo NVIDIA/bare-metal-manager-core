@@ -15,7 +15,6 @@ use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -23,10 +22,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgHasArrayType, PgRow, PgTypeInfo};
 use sqlx::{Acquire, FromRow, Postgres, Row, Transaction, Type};
 use tonic::Status;
-use uuid::Uuid;
 
 use super::dhcp_entry::DhcpEntry;
-use super::machine::{DbMachineId, MachineSearchConfig};
+use super::machine::DbMachineId;
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::domain::DomainId;
@@ -36,6 +34,7 @@ use crate::db::network_segment::{NetworkSegment, NetworkSegmentId};
 use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use crate::model::hardware_info::HardwareInfo;
 use crate::model::machine::machine_id::MachineId;
+use crate::model::machine::MachineInterfaceSnapshot;
 use crate::model::RpcDataConversionError;
 use crate::{CarbideError, CarbideResult};
 
@@ -148,8 +147,10 @@ pub enum MachineInterfaceIdKeyedObjectFilter<'a> {
     One(MachineInterfaceId),
 }
 
+pub struct MachineInterface {}
+
 #[derive(Debug, Clone, Default)]
-pub struct MachineInterface {
+struct DbMachineInterface {
     pub id: MachineInterfaceId,
     attached_dpu_machine_id: Option<MachineId>,
     pub domain_id: Option<DomainId>,
@@ -164,21 +165,21 @@ pub struct MachineInterface {
     last_dhcp: Option<DateTime<Utc>>,
 }
 
-impl MachineInterface {
-    pub fn mock_with_mac(mac_address: MacAddress) -> MachineInterface {
-        MachineInterface {
-            id: MachineInterfaceId::from(Uuid::nil()),
-            attached_dpu_machine_id: None,
-            domain_id: None,
-            machine_id: None,
-            segment_id: Uuid::nil().into(),
-            mac_address,
-            hostname: String::new(),
-            primary_interface: true,
-            addresses: Vec::new(),
-            vendors: Vec::new(),
-            created: chrono::DateTime::default(),
-            last_dhcp: None,
+impl From<DbMachineInterface> for MachineInterfaceSnapshot {
+    fn from(iface: DbMachineInterface) -> Self {
+        MachineInterfaceSnapshot {
+            id: iface.id,
+            hostname: iface.hostname.to_string(),
+            is_primary: iface.primary_interface,
+            mac_address: iface.mac_address,
+            attached_dpu_machine_id: iface.attached_dpu_machine_id,
+            domain_id: iface.domain_id,
+            machine_id: iface.machine_id,
+            segment_id: iface.segment_id,
+            vendors: iface.vendors,
+            created: iface.created,
+            last_dhcp: iface.last_dhcp,
+            addresses: iface.addresses.into_iter().map(|a| a.address).collect(),
         }
     }
 }
@@ -214,13 +215,13 @@ impl ColumnInfo for MachineIdColumn {
     }
 }
 
-impl<'r> FromRow<'r, PgRow> for MachineInterface {
+impl<'r> FromRow<'r, PgRow> for DbMachineInterface {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
         let attached_dpu_machine_id: Option<DbMachineId> =
             row.try_get("attached_dpu_machine_id")?;
 
-        Ok(MachineInterface {
+        Ok(DbMachineInterface {
             id: row.try_get("id")?,
             attached_dpu_machine_id: attached_dpu_machine_id.map(|id| id.into_inner()),
             machine_id: machine_id.map(|id| id.into_inner()),
@@ -237,132 +238,87 @@ impl<'r> FromRow<'r, PgRow> for MachineInterface {
     }
 }
 
-impl From<MachineInterface> for rpc::MachineInterface {
-    fn from(machine_interface: MachineInterface) -> rpc::MachineInterface {
-        rpc::MachineInterface {
-            id: Some(machine_interface.id.into()),
-            attached_dpu_machine_id: machine_interface
-                .attached_dpu_machine_id
-                .map(|id| id.to_string().into()),
-            machine_id: machine_interface.machine_id.map(|id| id.to_string().into()),
-            segment_id: Some(machine_interface.segment_id.into()),
-            hostname: machine_interface.hostname,
-            domain_id: machine_interface.domain_id.map(|d| d.into()),
-            mac_address: machine_interface.mac_address.to_string(),
-            primary_interface: machine_interface.primary_interface,
-            address: machine_interface
-                .addresses
-                .iter()
-                .map(|addr| addr.address.to_string())
-                .collect(),
-            vendor: machine_interface.vendors.last().cloned(),
-            created: Some(machine_interface.created.into()),
-            last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
-            is_bmc: None,
-        }
-    }
+/// Sets current machine interface primary attribute to provided value.
+pub async fn set_primary_interface(
+    interface_id: &MachineInterfaceId,
+    primary: bool,
+    txn: &mut Transaction<'_, Postgres>,
+) -> Result<MachineInterfaceSnapshot, DatabaseError> {
+    let query = "UPDATE machine_interfaces SET primary_interface=$1 where id=$2::uuid RETURNING *";
+    sqlx::query_as::<_, DbMachineInterface>(query)
+        .bind(primary)
+        .bind(*interface_id)
+        .fetch_one(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map(Into::<MachineInterfaceSnapshot>::into)
+}
+
+pub async fn associate_interface_with_dpu_machine(
+    interface_id: &MachineInterfaceId,
+    dpu_machine_id: &MachineId,
+    txn: &mut Transaction<'_, Postgres>,
+) -> Result<MachineInterfaceSnapshot, DatabaseError> {
+    let query =
+        "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING *";
+    sqlx::query_as::<_, DbMachineInterface>(query)
+        .bind(dpu_machine_id.to_string())
+        .bind(*interface_id)
+        .fetch_one(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map(Into::<MachineInterfaceSnapshot>::into)
+}
+
+pub async fn associate_interface_with_machine(
+    interface_id: &MachineInterfaceId,
+    machine_id: &MachineId,
+    txn: &mut Transaction<'_, Postgres>,
+) -> CarbideResult<MachineInterfaceSnapshot> {
+    let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING *";
+    sqlx::query_as::<_, DbMachineInterface>(query)
+        .bind(machine_id.to_string())
+        .bind(*interface_id)
+        .fetch_one(&mut **txn)
+        .await
+        .map_err(|err: sqlx::Error| match err {
+            sqlx::Error::Database(e)
+                if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
+            {
+                CarbideError::OnePrimaryInterface
+            }
+            _ => CarbideError::from(DatabaseError::new(file!(), line!(), query, err)),
+        })
+        .map(Into::<MachineInterfaceSnapshot>::into)
 }
 
 impl MachineInterface {
-    /// Sets current machine interface primary attribute to provided value.
-    pub async fn set_primary_interface(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        primary: bool,
-    ) -> Result<Self, DatabaseError> {
-        let query =
-            "UPDATE machine_interfaces SET primary_interface=$1 where id=$2::uuid RETURNING *";
-        sqlx::query_as(query)
-            .bind(primary)
-            .bind(self.id)
-            .fetch_one(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    pub async fn associate_interface_with_dpu_machine(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        dpu_machine_id: &MachineId,
-    ) -> Result<Self, DatabaseError> {
-        let query =
-            "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING *";
-        sqlx::query_as(query)
-            .bind(dpu_machine_id.to_string())
-            .bind(self.id)
-            .fetch_one(&mut **txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
-
-    pub async fn associate_interface_with_machine(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-        machine_id: &MachineId,
-    ) -> CarbideResult<Self> {
-        let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING *";
-        sqlx::query_as(query)
-            .bind(machine_id.to_string())
-            .bind(self.id)
-            .fetch_one(&mut **txn)
-            .await
-            .map_err(|err: sqlx::Error| match err {
-                sqlx::Error::Database(e)
-                    if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
-                {
-                    CarbideError::OnePrimaryInterface
-                }
-                _ => CarbideError::from(DatabaseError::new(file!(), line!(), query, err)),
-            })
-    }
-
-    /// Returns the ID of the MachineInterface object
-    pub fn id(&self) -> &MachineInterfaceId {
-        &self.id
-    }
-
-    pub fn addresses(&self) -> &Vec<MachineInterfaceAddress> {
-        &self.addresses
-    }
-
-    pub fn attached_dpu_machine_id(&self) -> &Option<MachineId> {
-        &self.attached_dpu_machine_id
-    }
-
-    pub fn created(&self) -> chrono::DateTime<chrono::Utc> {
-        self.created
-    }
-
-    pub fn last_dhcp(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.last_dhcp
-    }
-
     pub async fn find_by_mac_address(
         txn: &mut Transaction<'_, Postgres>,
         macaddr: MacAddress,
-    ) -> Result<Vec<MachineInterface>, DatabaseError> {
+    ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
         MachineInterface::find_by(txn, ObjectColumnFilter::One(MacAddressColumn, macaddr)).await
     }
 
     pub async fn find_by_ip(
         txn: &mut Transaction<'_, Postgres>,
         ip: IpAddr,
-    ) -> Result<Option<Self>, DatabaseError> {
+    ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
         let query = r#"SELECT mi.* FROM machine_interfaces mi
             INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
             WHERE mia.address = $1::inet"#;
-        let interface: Option<Self> = sqlx::query_as(query)
+        let interface: Option<DbMachineInterface> = sqlx::query_as(query)
             .bind(ip)
             .fetch_optional(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(interface)
+        Ok(interface.map(|iface| iface.into()))
     }
 
     pub async fn find_all(
         txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<MachineInterface>> {
+    ) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
         let interfaces =
             MachineInterface::find_by(txn, ObjectColumnFilter::All::<IdColumn, MachineInterfaceId>)
                 .await
@@ -374,7 +330,7 @@ impl MachineInterface {
     pub async fn find_by_machine_ids(
         txn: &mut Transaction<'_, Postgres>,
         machine_ids: &[MachineId],
-    ) -> Result<HashMap<MachineId, Vec<MachineInterface>>, DatabaseError> {
+    ) -> Result<HashMap<MachineId, Vec<MachineInterfaceSnapshot>>, DatabaseError> {
         // The .unwrap() in the `group_map_by` call is ok - because we are only
         // searching for Machines which have associated MachineIds
         Ok(
@@ -388,10 +344,10 @@ impl MachineInterface {
     pub async fn find_host_primary_interface_by_dpu_id(
         txn: &mut Transaction<'_, Postgres>,
         dpu_machine_id: &MachineId,
-    ) -> Result<Option<MachineInterface>, DatabaseError> {
+    ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
         let query =
             "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1 AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
-        let Some(mut machine_interface) = sqlx::query_as::<_, MachineInterface>(query)
+        let Some(mut machine_interface) = sqlx::query_as::<_, DbMachineInterface>(query)
             .bind(dpu_machine_id.to_string())
             .fetch_optional(&mut **txn)
             .await
@@ -416,7 +372,7 @@ impl MachineInterface {
             );
         }
 
-        Ok(Some(machine_interface))
+        Ok(Some(MachineInterfaceSnapshot::from(machine_interface)))
     }
 
     pub async fn count_by_segment_id(
@@ -436,7 +392,7 @@ impl MachineInterface {
     pub async fn find_one(
         txn: &mut Transaction<'_, Postgres>,
         interface_id: MachineInterfaceId,
-    ) -> CarbideResult<MachineInterface> {
+    ) -> CarbideResult<MachineInterfaceSnapshot> {
         let mut interfaces =
             MachineInterface::find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
                 .await
@@ -458,7 +414,7 @@ impl MachineInterface {
         machines: Option<MachineId>,
         mac_address: MacAddress,
         relay: IpAddr,
-    ) -> CarbideResult<Self> {
+    ) -> CarbideResult<MachineInterfaceSnapshot> {
         match machines {
             None => {
                 tracing::info!(
@@ -497,7 +453,7 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         mac_address: MacAddress,
         relay: IpAddr,
-    ) -> CarbideResult<Self> {
+    ) -> CarbideResult<MachineInterfaceSnapshot> {
         let mut existing_mac = MachineInterface::find_by_mac_address(txn, mac_address).await?;
         match &existing_mac.len() {
             0 => {
@@ -558,7 +514,7 @@ impl MachineInterface {
         domain_id: Option<DomainId>,
         primary_interface: bool,
         addresses: AddressSelectionStrategy<'_>,
-    ) -> CarbideResult<Self> {
+    ) -> CarbideResult<MachineInterfaceSnapshot> {
         // We're potentially about to insert a couple rows, so create a savepoint.
         let mut inner_txn = txn
             .begin()
@@ -636,43 +592,13 @@ impl MachineInterface {
         )
     }
 
-    /// Get a reference to the machine interface's segment id.
-    pub fn segment_id(&self) -> NetworkSegmentId {
-        self.segment_id
-    }
-
-    pub fn hostname(&self) -> &str {
-        &self.hostname
-    }
-
-    pub fn primary_interface(&self) -> bool {
-        self.primary_interface
-    }
-
-    pub fn vendors(&self) -> &Vec<String> {
-        &self.vendors
-    }
-
-    // Convenience function to load the machine which owns this interface
-    pub async fn load_machine(
-        &self,
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> Result<Option<Machine>, DatabaseError> {
-        match &self.machine_id {
-            Some(machine_id) => {
-                Machine::find_one(txn, machine_id, MachineSearchConfig::default()).await
-            }
-            None => Ok(None),
-        }
-    }
-
     // Support dpu-agent/scout transition from machine_interface_id to source IP.
     // Allow either for now.
     pub async fn find_by_ip_or_id(
         txn: &mut Transaction<'_, Postgres>,
         remote_ip: Option<IpAddr>,
         interface_id: Option<MachineInterfaceId>,
-    ) -> Result<MachineInterface, CarbideError> {
+    ) -> Result<MachineInterfaceSnapshot, CarbideError> {
         if let Some(remote_ip) = remote_ip {
             if let Some(interface) = MachineInterface::find_by_ip(txn, remote_ip)
                 .await
@@ -699,7 +625,7 @@ impl MachineInterface {
     async fn find_by<'a, C, T>(
         txn: &mut Transaction<'_, Postgres>,
         filter: ObjectColumnFilter<'a, C, T>,
-    ) -> Result<Vec<MachineInterface>, DatabaseError>
+    ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError>
     where
         C: ColumnInfo<ColumnType = T>,
         T: sqlx::Type<sqlx::Postgres>
@@ -713,14 +639,14 @@ impl MachineInterface {
 
         let mut interfaces = match filter {
             ObjectColumnFilter::All => query
-                .build_query_as::<MachineInterface>()
+                .build_query_as::<DbMachineInterface>()
                 .fetch_all(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces All", e))?,
             ObjectColumnFilter::One(ref column, ref id) => query
                 .push(format!(" WHERE mi.{}=", column.column_name().clone()))
                 .push_bind(id.clone())
-                .build_query_as::<MachineInterface>()
+                .build_query_as::<DbMachineInterface>()
                 .fetch_all(&mut **txn)
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces One", e))?,
@@ -733,7 +659,7 @@ impl MachineInterface {
                     .push(format!(" WHERE mi.{} = ANY(", column.column_name().clone()))
                     .push_bind(list)
                     .push(")")
-                    .build_query_as::<MachineInterface>()
+                    .build_query_as::<DbMachineInterface>()
                     .fetch_all(&mut **txn)
                     .await
                     .map_err(|e| {
@@ -779,13 +705,16 @@ impl MachineInterface {
                 .unwrap_or_default();
         });
 
-        Ok(interfaces)
+        Ok(interfaces
+            .into_iter()
+            .map(MachineInterfaceSnapshot::from)
+            .collect())
     }
 
     pub async fn get_machine_interface_primary(
         machine_id: &MachineId,
         txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<MachineInterface> {
+    ) -> CarbideResult<MachineInterfaceSnapshot> {
         MachineInterface::find_by_machine_ids(txn, &[machine_id.clone()])
             .await?
             .remove(machine_id)
@@ -794,8 +723,8 @@ impl MachineInterface {
                 id: machine_id.to_string(),
             })?
             .into_iter()
-            .filter(|m_intf| m_intf.primary_interface())
-            .collect::<Vec<MachineInterface>>()
+            .filter(|m_intf| m_intf.is_primary)
+            .collect::<Vec<MachineInterfaceSnapshot>>()
             .pop()
             .ok_or_else(|| {
                 CarbideError::GenericError(format!(
@@ -814,7 +743,7 @@ impl MachineInterface {
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         hardware_info: Option<&HardwareInfo>,
         dpu_id: &MachineId,
-    ) -> Result<Self, CarbideError> {
+    ) -> Result<MachineInterfaceSnapshot, CarbideError> {
         let admin_network = NetworkSegment::admin(txn).await?;
 
         // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
@@ -845,9 +774,7 @@ impl MachineInterface {
         let machine_interface =
             Self::find_or_create_machine_interface(txn, existing_machine, host_mac, gateway)
                 .await?;
-        machine_interface
-            .associate_interface_with_dpu_machine(txn, dpu_id)
-            .await?;
+        associate_interface_with_dpu_machine(&machine_interface.id, dpu_id, txn).await?;
 
         Ok(machine_interface)
     }
@@ -856,15 +783,21 @@ impl MachineInterface {
         txn: &mut Transaction<'_, Postgres>,
         machine_id: &MachineId,
         segment_id: NetworkSegmentId,
-    ) -> Result<Vec<Self>, DatabaseError> {
+    ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
         let query =
             "SELECT * FROM machine_interfaces WHERE machine_id = $1 AND segment_id = $2::uuid";
-        sqlx::query_as(query)
+        sqlx::query_as::<_, DbMachineInterface>(query)
             .bind(machine_id.to_string())
             .bind(segment_id)
             .fetch_all(&mut **txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+            .map(|interfaces| {
+                interfaces
+                    .into_iter()
+                    .map(MachineInterfaceSnapshot::from)
+                    .collect()
+            })
     }
 
     /// Record that this interface just DHCPed, so it must still exist

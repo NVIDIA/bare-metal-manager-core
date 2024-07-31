@@ -135,7 +135,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
         MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
             .await
             .unwrap();
-    let dpu_bmc_ip = bmc_interface.addresses()[0].address;
+    let dpu_bmc_ip = bmc_interface.addresses[0];
     txn.rollback().await.unwrap();
 
     let machine_interface_id =
@@ -395,7 +395,7 @@ pub async fn create_dpu_machine_with_discovery_error(
         MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
             .await
             .unwrap();
-    let dpu_bmc_ip = bmc_interface.addresses()[0].address;
+    let dpu_bmc_ip = bmc_interface.addresses[0];
     txn.rollback().await.unwrap();
 
     let machine_interface_id =

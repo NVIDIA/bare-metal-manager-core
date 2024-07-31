@@ -22,7 +22,10 @@ use carbide::{
         machine_interface::MachineInterface,
         network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter},
     },
-    model::machine::machine_id::{try_parse_machine_id, MachineId},
+    model::machine::{
+        machine_id::{try_parse_machine_id, MachineId},
+        MachineInterfaceSnapshot,
+    },
     CarbideError,
 };
 use itertools::Itertools;
@@ -106,9 +109,12 @@ async fn only_one_primary_interface_per_machine(
     )
     .await?;
 
-    let output = should_failed_machine_interface
-        .associate_interface_with_machine(&mut txn, new_machine.id())
-        .await;
+    let output = db::machine_interface::associate_interface_with_machine(
+        &should_failed_machine_interface.id,
+        new_machine.id(),
+        &mut txn,
+    )
+    .await;
 
     txn.commit().await.unwrap();
 
@@ -181,7 +187,7 @@ async fn return_existing_machine_interface_on_rediscover(
     )
     .await?;
 
-    assert_eq!(new_machine.id(), existing_machine.id());
+    assert_eq!(new_machine.id, existing_machine.id);
 
     Ok(())
 }
@@ -197,7 +203,7 @@ async fn find_all_interfaces_test_cases(
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
     let domain_ids = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await?;
     let domain_id = domain_ids[0].id;
-    let mut interfaces: Vec<MachineInterface> = Vec::new();
+    let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
     for i in 0..2 {
         let interface = MachineInterface::create(
             &mut txn,
@@ -237,7 +243,7 @@ async fn find_all_interfaces_test_cases(
         .into_inner();
     // Assert members
     for (idx, interface) in interfaces.iter().enumerate().take(2) {
-        assert_eq!(response.interfaces[idx].hostname, interface.hostname());
+        assert_eq!(response.interfaces[idx].hostname, interface.hostname);
         assert_eq!(
             response.interfaces[idx].mac_address,
             interface.mac_address.to_string()
@@ -304,7 +310,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_inner();
     // Assert members
     // For new_interface
-    assert_eq!(response.interfaces[0].hostname, new_interface.hostname());
+    assert_eq!(response.interfaces[0].hostname, new_interface.hostname);
     assert_eq!(
         response.interfaces[0].mac_address,
         new_interface.mac_address.to_string()
@@ -384,7 +390,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(interfaces.len(), max_interfaces);
     let ips = interfaces
         .iter()
-        .map(|x| x.addresses()[0].address.to_string())
+        .map(|x| x.addresses[0].to_string())
         .collect::<HashSet<_>>()
         .into_iter()
         .collect_vec();
@@ -410,7 +416,7 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     .unwrap();
 
     // By remote IP
-    let remote_ip = Some(interface.addresses()[0].address);
+    let remote_ip = Some(interface.addresses[0]);
     let interface_id = None;
     let iface = MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
     assert_eq!(iface.id, interface.id);
@@ -479,7 +485,7 @@ async fn test_delete_interface_with_machine(
         .api
         .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
             id: Some(rpc::Uuid {
-                value: interface.id().to_string(),
+                value: interface.id.to_string(),
             }),
         }))
         .await;
@@ -518,8 +524,8 @@ async fn test_delete_bmc_interface_with_machine(
 
     let interfaces = interfaces
         .iter()
-        .filter(|x| x.attached_dpu_machine_id().is_none())
-        .collect::<Vec<&MachineInterface>>();
+        .filter(|x| x.attached_dpu_machine_id.is_none())
+        .collect::<Vec<&MachineInterfaceSnapshot>>();
 
     if interfaces.len() != 1 {
         // We have only three interfaces, 2 for managed host and one for bmc.
@@ -532,7 +538,7 @@ async fn test_delete_bmc_interface_with_machine(
         .api
         .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
             id: Some(rpc::Uuid {
-                value: bmc_interface.id().to_string(),
+                value: bmc_interface.id.to_string(),
             }),
         }))
         .await;
@@ -574,11 +580,10 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     .unwrap();
 
     assert_eq!(
-        interface.hostname(),
+        interface.hostname,
         interface
-            .addresses()
+            .addresses
             .iter()
-            .map(|x| x.address)
             .find(|x| x.is_ipv4())
             .unwrap()
             .to_string()

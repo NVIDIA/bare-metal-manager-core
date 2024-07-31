@@ -920,6 +920,25 @@ pub struct MachineInterfaceSnapshot {
     pub addresses: Vec<IpAddr>,
 }
 
+impl MachineInterfaceSnapshot {
+    pub fn mock_with_mac(mac_address: MacAddress) -> Self {
+        Self {
+            id: MachineInterfaceId::from(uuid::Uuid::nil()),
+            attached_dpu_machine_id: None,
+            domain_id: None,
+            machine_id: None,
+            segment_id: uuid::Uuid::nil().into(),
+            mac_address,
+            hostname: String::new(),
+            is_primary: true,
+            addresses: Vec::new(),
+            vendors: Vec::new(),
+            created: chrono::DateTime::default(),
+            last_dhcp: None,
+        }
+    }
+}
+
 impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
     fn from(machine_interface: MachineInterfaceSnapshot) -> rpc::MachineInterface {
         rpc::MachineInterface {

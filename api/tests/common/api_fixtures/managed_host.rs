@@ -11,7 +11,11 @@
  */
 
 use carbide::{
-    db::{machine::Machine, machine_interface::MachineInterface},
+    db::{
+        self,
+        machine::Machine,
+        machine_interface::{MachineInterface, MachineInterfaceId},
+    },
     model::{
         hardware_info::TpmEkCertificate,
         machine::machine_id::{try_parse_machine_id, MachineId},
@@ -76,7 +80,7 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
                 .unwrap()
                 .clone();
 
-        associate_interface_with_machine_as_non_primary(&interface, &mut txn, &host_machine_id)
+        associate_interface_with_machine_as_non_primary(&interface.id, &mut txn, &host_machine_id)
             .await;
 
         tracing::info!("Deleting extra host: {extra_host_machine_id}");
@@ -91,23 +95,14 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
 }
 
 pub async fn associate_interface_with_machine_as_non_primary(
-    interface: &MachineInterface,
+    interface_id: &MachineInterfaceId,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine_id: &MachineId,
-) -> MachineInterface {
-    let query = "UPDATE machine_interfaces SET primary_interface=false where id=$1::uuid";
-    sqlx::query(query)
-        .bind(interface.id)
-        .execute(&mut **txn)
+) {
+    db::machine_interface::set_primary_interface(interface_id, false, txn)
         .await
         .unwrap();
-
-    let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING *";
-
-    sqlx::query_as(query)
-        .bind(machine_id.to_string())
-        .bind(interface.id)
-        .fetch_one(&mut **txn)
+    db::machine_interface::associate_interface_with_machine(interface_id, machine_id, txn)
         .await
-        .unwrap()
+        .unwrap();
 }

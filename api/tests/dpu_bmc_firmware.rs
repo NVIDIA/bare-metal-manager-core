@@ -11,10 +11,12 @@ use carbide::{
     db::{
         expected_machine::ExpectedMachine,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterface,
     },
     model::{
-        machine::{BmcFirmwareUpdateSubstate, DpuDiscoveringState, ManagedHostState},
+        machine::{
+            BmcFirmwareUpdateSubstate, DpuDiscoveringState, MachineInterfaceSnapshot,
+            ManagedHostState,
+        },
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
             EndpointExplorationReport, EndpointType, EthernetInterface, ExploredDpu,
@@ -412,7 +414,7 @@ impl EndpointExplorer for FakeEndpointExplorer {
     async fn explore_endpoint(
         &self,
         address: SocketAddr,
-        _interface: &MachineInterface,
+        _interface: &MachineInterfaceSnapshot,
         _expected: Option<ExpectedMachine>,
         _last_report: Option<&EndpointExplorationReport>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
