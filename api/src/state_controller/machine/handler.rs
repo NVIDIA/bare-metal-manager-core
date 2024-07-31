@@ -18,6 +18,17 @@ use std::{
     task::Poll,
 };
 
+use chrono::{DateTime, Duration, Utc};
+use config_version::ConfigVersion;
+use eyre::eyre;
+use futures::TryFutureExt;
+use itertools::Itertools;
+use libredfish::{
+    model::task::{Task, TaskState},
+    Boot, PowerState, Redfish, SystemPowerControl,
+};
+use tokio::fs::File;
+
 use crate::{
     cfg::{DpuModel, FirmwareComponentType, FirmwareEntry, Vendor2Firmware},
     db::{
@@ -48,21 +59,11 @@ use crate::{
     state_controller::{
         machine::context::MachineStateHandlerContextObjects,
         state_handler::{
-            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome, StateHandlerServices,
+            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+            StateHandlerServices,
         },
     },
 };
-use chrono::{DateTime, Duration, Utc};
-use config_version::ConfigVersion;
-use eyre::eyre;
-use futures::TryFutureExt;
-use itertools::Itertools;
-use libredfish::{
-    model::task::{Task, TaskState},
-    Boot, PowerState, Redfish, SystemPowerControl,
-};
-use tokio::fs::File;
 
 mod ib;
 
@@ -254,7 +255,7 @@ impl MachineStateHandler {
         &self,
         host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        controller_state: &mut ControllerStateReader<'_, ManagedHostState>,
+        controller_state: &ManagedHostState,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -866,7 +867,7 @@ impl StateHandler for MachineStateHandler {
         &self,
         host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -1589,7 +1590,7 @@ impl DpuMachineStateHandler {
         &self,
         state: &mut ManagedHostStateSnapshot,
         dpu_snapshot: &MachineSnapshot,
-        _controller_state: &mut ControllerStateReader<'_, ManagedHostState>,
+        _controller_state: &ManagedHostState,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -2190,7 +2191,7 @@ impl StateHandler for DpuMachineStateHandler {
         &self,
         _host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        _controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -2641,7 +2642,7 @@ impl StateHandler for HostMachineStateHandler {
         &self,
         host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        _controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
@@ -2961,7 +2962,7 @@ impl StateHandler for InstanceStateHandler {
         &self,
         host_machine_id: &MachineId,
         state: &mut ManagedHostStateSnapshot,
-        _controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        _controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {

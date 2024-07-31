@@ -17,8 +17,7 @@ use crate::{
     state_controller::{
         ib_partition::context::IBPartitionStateHandlerContextObjects,
         state_handler::{
-            ControllerStateReader, StateHandler, StateHandlerContext, StateHandlerError,
-            StateHandlerOutcome,
+            StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
         },
     },
     CarbideError,
@@ -39,12 +38,10 @@ impl StateHandler for IBPartitionStateHandler {
         &self,
         partition_id: &IBPartitionId,
         state: &mut IBPartition,
-        controller_state: &mut ControllerStateReader<Self::ControllerState>,
+        controller_state: &Self::ControllerState,
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<IBPartitionControllerState>, StateHandlerError> {
-        let read_state: &IBPartitionControllerState = &*controller_state;
-
         let ib_fabric = ctx
             .services
             .ib_fabric_manager
@@ -52,7 +49,7 @@ impl StateHandler for IBPartitionStateHandler {
             .await
             .map_err(|e| StateHandlerError::IBFabricError(format!("can not get IB fabric: {e}")))?;
 
-        match read_state {
+        match controller_state {
             IBPartitionControllerState::Provisioning => {
                 // TODO(k82cn): get IB network from IB Fabric Manager to avoid duplication.
                 let new_state = IBPartitionControllerState::Ready;
