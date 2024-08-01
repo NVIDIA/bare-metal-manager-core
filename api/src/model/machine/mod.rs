@@ -209,6 +209,8 @@ pub struct MachineSnapshot {
     pub reprovisioning_requested: Option<ReprovisionRequest>,
     /// Latest health report received by forge-dpu-agent
     pub dpu_agent_health_report: Option<HealthReport>,
+    /// Latest health report received by hardware health
+    pub hardware_health_report: Option<HealthReport>,
 }
 
 impl MachineSnapshot {

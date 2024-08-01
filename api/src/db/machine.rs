@@ -150,6 +150,9 @@ pub struct Machine {
     /// Latest health report received by forge-dpu-agent
     dpu_agent_health_report: Option<HealthReport>,
 
+    /// Latest health report received by hardware-health
+    hardware_health_report: Option<HealthReport>,
+
     // Other machine ids associated with this machine
     associated_host_machine_id: Option<MachineId>,
     associated_dpu_machine_ids: Vec<MachineId>,
@@ -211,6 +214,10 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("dpu_agent_health_report")?
             .map(|j| j.0);
 
+        let hardware_health_report = row
+            .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("hardware_health_report")?
+            .map(|j| j.0);
+
         let dpu_agent_upgrade_requested: Option<sqlx::types::Json<UpgradeDecision>> =
             row.try_get("dpu_agent_upgrade_requested")?;
         let last_reboot_requested: Option<sqlx::types::Json<MachineLastRebootRequested>> =
@@ -249,6 +256,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             failure_details: failure_details.0,
             reprovisioning_requested: reprovision_req.map(|x| x.0),
             dpu_agent_health_report,
+            hardware_health_report,
             dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
             associated_host_machine_id: None,
             associated_dpu_machine_ids: Vec::default(),
@@ -291,6 +299,7 @@ impl From<Machine> for MachineSnapshot {
             cleanup_machine_validation_id: machine.cleanup_machine_validation_id(),
             reprovisioning_requested: machine.reprovisioning_requested().clone(),
             dpu_agent_health_report: machine.dpu_agent_health_report,
+            hardware_health_report: machine.hardware_health_report,
         }
     }
 }
@@ -483,6 +492,11 @@ impl Machine {
     /// Returns the HealthReport submitted by forge-dpu-agent
     pub fn dpu_agent_health_report(&self) -> Option<&HealthReport> {
         self.dpu_agent_health_report.as_ref()
+    }
+
+    /// Returns the HealthReport submitted by hardware health
+    pub fn hardware_health_report(&self) -> Option<&HealthReport> {
+        self.hardware_health_report.as_ref()
     }
 
     /// Actual network info from machine
@@ -1281,6 +1295,14 @@ SELECT m.id FROM
         health_report: &HealthReport,
     ) -> Result<(), DatabaseError> {
         Self::update_health_report(txn, machine_id, "dpu_agent_health_report", health_report).await
+    }
+
+    pub async fn update_hardware_health_report(
+        txn: &mut Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+        health_report: &HealthReport,
+    ) -> Result<(), DatabaseError> {
+        Self::update_health_report(txn, machine_id, "hardware_health_report", health_report).await
     }
 
     pub async fn update_agent_reported_inventory(

@@ -86,6 +86,7 @@ service Forge {
   // forge-dpu-agent -> carbide-api
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
+  rpc RecordHardwareHealthReport(HardwareHealthReport) returns (google.protobuf.Empty);
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
 
@@ -2131,6 +2132,11 @@ message DpuNetworkStatus {
   // It is different than instance_network_config_version, which only tracks networking details
   optional string instance_config_version = 12;
   repeated FabricInterfaceData fabric_interfaces = 13;
+}
+
+message HardwareHealthReport {
+  common.MachineId machine_id = 1;
+  health.HealthReport report = 2;
 }
 
 // Observed status of the networking subsystem of an instance

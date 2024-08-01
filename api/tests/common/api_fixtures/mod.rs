@@ -957,6 +957,24 @@ pub struct NetworkConfiguredResult {
     instance_config_version: Option<String>,
 }
 
+/// Fake hardware health service reporting health
+pub async fn simulate_hardware_health_report(
+    env: &TestEnv,
+    host_machine_id: &MachineId,
+    health_report: health_report::HealthReport,
+) {
+    use rpc::forge::{forge_server::Forge, HardwareHealthReport};
+    use tonic::Request;
+    let _ = env
+        .api
+        .record_hardware_health_report(Request::new(HardwareHealthReport {
+            machine_id: Some(host_machine_id.to_string().into()),
+            report: Some(health_report.into()),
+        }))
+        .await
+        .unwrap();
+}
+
 pub async fn forge_agent_control(
     env: &TestEnv,
     machine_id: rpc::common::MachineId,

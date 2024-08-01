@@ -18,6 +18,7 @@ pub mod domain;
 pub mod dpu;
 pub mod expected_machine;
 pub mod finder;
+pub mod health;
 pub mod ib_partition;
 pub mod instance;
 pub mod machine_validation;

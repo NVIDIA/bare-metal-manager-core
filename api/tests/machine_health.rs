@@ -13,7 +13,10 @@
 mod common;
 
 use carbide::db;
-use common::api_fixtures::{create_managed_host, create_test_env, network_configured_with_health};
+use common::api_fixtures::{
+    create_managed_host, create_test_env, network_configured_with_health,
+    simulate_hardware_health_report,
+};
 
 #[ctor::ctor]
 fn setup() {
@@ -139,6 +142,66 @@ async fn test_machine_health_reporting(
     assert!(health_reports_equal(
         &expected_host_health_report.into(),
         &aggregate_health.into()
+    ));
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_hardware_health_reporting(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let (host_machine_id, _) = create_managed_host(&env).await;
+
+    // Hardware health should start empty.
+    let mut txn = env.pool.begin().await?;
+    assert!(db::managed_host::load_snapshot(&mut txn, &host_machine_id)
+        .await?
+        .unwrap()
+        .host_snapshot
+        .hardware_health_report
+        .is_none());
+    txn.rollback().await?;
+
+    let report = health_report::HealthReport {
+        source: "hardware-health".to_string(),
+        observed_at: None,
+        successes: vec![health_report::HealthProbeSuccess {
+            id: "Fan".parse().unwrap(),
+            target: Some("TestFan".to_string()),
+        }],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: "Failure".parse().unwrap(),
+            target: Some("Sensor".to_string()),
+            in_alert_since: None,
+            message: "Failure".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                health_report::HealthAlertClassification::prevent_host_state_changes(),
+            ],
+        }],
+    };
+
+    simulate_hardware_health_report(&env, &host_machine_id, report.clone()).await;
+    let mut txn = env.pool.begin().await?;
+    let stored_report = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
+        .await?
+        .unwrap()
+        .host_snapshot
+        .hardware_health_report
+        .unwrap();
+    txn.rollback().await?;
+    let elapsed_since_report =
+        chrono::Utc::now().signed_duration_since(stored_report.observed_at.unwrap());
+    assert!(
+        elapsed_since_report > chrono::TimeDelta::zero()
+            && elapsed_since_report < chrono::TimeDelta::new(60, 0).unwrap()
+    );
+    assert!(health_reports_equal(
+        &report.clone().into(),
+        &stored_report.into()
     ));
 
     Ok(())

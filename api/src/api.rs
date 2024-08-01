@@ -376,6 +376,13 @@ impl Forge for Api {
         crate::handlers::dpu::record_dpu_network_status(self, request).await
     }
 
+    async fn record_hardware_health_report(
+        &self,
+        request: Request<rpc::HardwareHealthReport>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::health::record_hardware_health_report(self, request).await
+    }
+
     async fn lookup_record(
         &self,
         request: Request<rpc::dns_message::DnsQuestion>,
