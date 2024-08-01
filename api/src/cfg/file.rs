@@ -148,7 +148,7 @@ pub struct CarbideConfig {
 
     /// DPU agent to use NVUE instead of writing files directly.
     /// Once we are comfortable with this and all DPUs are HBN 2+ it will become the only option.
-    #[serde(default)]
+    #[serde(default = "default_nvue_enabled")]
     pub nvue_enabled: bool,
 
     /// Controls whether or not machine attestion is required before a machine
@@ -807,6 +807,10 @@ impl Vendor2Firmware {
 
 pub fn default_max_find_by_ids() -> u32 {
     100
+}
+
+pub fn default_nvue_enabled() -> bool {
+    true
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
