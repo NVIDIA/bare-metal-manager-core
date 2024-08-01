@@ -11,21 +11,22 @@
  */
 
 use crate::machine_a_tron::MachineATronInstance;
-use crate::redfish::MachineATronBackedRedfishClientPool;
 use crate::utils::IntegrationTestEnvironment;
-use ::machine_a_tron::{BmcMockAddressRegistry, MachineATronConfig, MachineConfig};
+use ::machine_a_tron::{BmcMockRegistry, MachineATronConfig, MachineConfig};
+use bmc_mock::ListenerOrAddress;
+use grpcurl::grpcurl;
+use host::machine_validation_completed;
+use sqlx::{Postgres, Row};
+use std::net::TcpListener;
+use std::sync::Arc;
 use std::{
     collections::{BTreeMap, HashMap},
     env, fs,
     net::{Ipv4Addr, SocketAddr},
     path::{self, PathBuf},
-    sync::Arc,
     time::{self, Duration},
 };
-
-use grpcurl::grpcurl;
-use host::machine_validation_completed;
-use sqlx::{Postgres, Row};
+use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 mod api_server;
@@ -36,7 +37,6 @@ mod instance;
 mod machine;
 mod machine_a_tron;
 mod metrics;
-mod redfish;
 mod subnet;
 mod upgrade;
 mod utils;
@@ -64,12 +64,12 @@ async fn test_integration() -> eyre::Result<()> {
     } = test_env.clone();
 
     // Run bmc-mock
-    let mut routers = HashMap::default();
-    routers.insert(
+    let routers = HashMap::from([(
         "".to_owned(),
         bmc_mock::default_host_tar_router(false, None),
-    );
-    tokio::spawn(bmc_mock::run_combined_mock::<String>(routers, None, None));
+    )]);
+    let mut bmc_mock_handle =
+        bmc_mock::run_combined_mock::<String>(Arc::new(RwLock::new(routers)), None, None).await?;
 
     let server_handle = utils::start_api_server(
         test_env, None,
@@ -219,6 +219,7 @@ async fn test_integration() -> eyre::Result<()> {
 
     sleep(time::Duration::from_millis(500)).await;
     fs::remove_dir_all(dpu_info.hbn_root)?;
+    bmc_mock_handle.stop().await?;
     server_handle.stop().await?;
     db_pool.close().await;
     Ok(())
@@ -274,21 +275,29 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         use_pxe_api: true,
         pxe_server_host: None,
         pxe_server_port: None,
-        bmc_mock_dynamic_ports: true,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         dhcp_server_address: None,
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
         sudo_command: None,
         use_dhcp_api: true,
+        use_single_bmc_mock: false, // unused, we're constructing machines ourselves
     };
 
-    let bmc_address_registry = BmcMockAddressRegistry::default();
-    let mock_redfish_pool = Arc::new(MachineATronBackedRedfishClientPool::new(
+    let bmc_address_registry = BmcMockRegistry::default();
+    let certs_dir = PathBuf::from(format!("{}/dev/bmc-mock", test_env.root_dir.display()));
+    let mut bmc_mock_handle = bmc_mock::run_combined_mock(
         bmc_address_registry.clone(),
-    ));
+        Some(certs_dir),
+        Some(ListenerOrAddress::Listener(
+            // let OS choose available port
+            TcpListener::bind("127.0.0.1:0")?,
+        )),
+    )
+    .await?;
+
     let server_handle =
-        utils::start_api_server(test_env.clone(), Some(mock_redfish_pool.clone()), true).await?;
+        utils::start_api_server(test_env.clone(), Some(bmc_mock_handle.address), true).await?;
 
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
     subnet::create(carbide_api_addr, &tenant1_vpc)?;
@@ -307,6 +316,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     }?;
     server_handle.stop().await?;
     test_env.db_pool.close().await;
+    bmc_mock_handle.stop().await?;
     Ok(())
 }
 

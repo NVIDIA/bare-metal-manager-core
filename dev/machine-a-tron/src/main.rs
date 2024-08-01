@@ -1,3 +1,4 @@
+use bmc_mock::{BmcMockHandle, ListenerOrAddress, TarGzOption};
 use clap::Parser;
 use figment::providers::{Format, Toml};
 use figment::Figment;
@@ -5,14 +6,13 @@ use forge_tls::client_config::{
     get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
     get_proxy_info,
 };
-use machine_a_tron::MachineATron;
-use rpc::forge_tls_client::ForgeClientConfig;
-use std::error::Error;
-
-use bmc_mock::TarGzOption;
 use machine_a_tron::{
     api_client, DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext,
 };
+use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
+use rpc::forge_tls_client::ForgeClientConfig;
+use std::error::Error;
+use std::path::{Path, PathBuf};
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
 fn init_log(filename: &Option<String>) -> Result<(), Box<dyn Error>> {
@@ -73,6 +73,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let host_bmc_mock_router =
         bmc_mock::tar_router(TarGzOption::Disk(&app_config.bmc_mock_host_tar), None)?;
 
+    let bmc_mock_port = app_config.bmc_mock_port;
+    let use_single_bmc_mock = app_config.use_single_bmc_mock;
+
     let mut app_context = MachineATronContext {
         app_config,
         forge_client_config,
@@ -107,10 +110,48 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::info!("version: {}", info.build_version);
 
     let mut mat = MachineATron::new(app_context);
-    let machines = mat.make_machines(&dhcp_client, None).await?;
+
+    let maybe_bmc_mock_handle: Option<BmcMockHandle>;
+
+    let machines = if use_single_bmc_mock {
+        // Launch a single combined instance of BMC mock, with a shared registry that keeps track
+        // of the individual "backing" mocks.
+        let instance_registry = BmcMockRegistry::default();
+        let certs_dir = PathBuf::from(forge_root_ca_path.clone())
+            .parent()
+            .map(Path::to_path_buf);
+
+        // Run the combined mock
+        maybe_bmc_mock_handle = Some(
+            bmc_mock::run_combined_mock(
+                instance_registry.clone(),
+                certs_dir,
+                Some(ListenerOrAddress::Address(
+                    format!("0.0.0.0:{bmc_mock_port}").parse().unwrap(),
+                )),
+            )
+            .await?,
+        );
+
+        // Construct machines, configuring them to register their BMC's with the shared registry
+        mat.make_machines(
+            &dhcp_client,
+            BmcRegistrationMode::BackingInstance(instance_registry),
+        )
+        .await?
+    } else {
+        // Configure individual BMC mocks for every machine
+        maybe_bmc_mock_handle = None;
+        mat.make_machines(&dhcp_client, BmcRegistrationMode::None(bmc_mock_port))
+            .await?
+    };
+
     mat.run(machines).await?;
 
     dhcp_client.stop_service().await;
     dhcp_handle.await?;
+    if let Some(mut bmc_mock_handle) = maybe_bmc_mock_handle {
+        bmc_mock_handle.stop().await?;
+    }
     Ok(())
 }

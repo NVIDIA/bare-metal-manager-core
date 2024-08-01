@@ -15,6 +15,8 @@ use axum::Router;
 use bmc_mock::{ListenerOrAddress, TarGzOption};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::info;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::fmt::Layer;
@@ -31,7 +33,7 @@ use tracing_subscriber::prelude::*;
 ///  where that UUID is a host machine in DB.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut routers_by_mac: HashMap<String, Router> = HashMap::default();
+    let mut routers_by_ip: HashMap<String, Router> = HashMap::default();
 
     let env_filter = EnvFilter::from_default_env()
         .add_directive(LevelFilter::DEBUG.into())
@@ -50,19 +52,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tar_router_entries = HashMap::default();
 
     let args = command_line::parse_args();
-    if let Some(mac_routers) = args.mac_router {
-        for mac_router in mac_routers {
+    if let Some(ip_routers) = args.ip_router {
+        for ip_router in ip_routers {
             info!(
                 "Using archive {} for {}",
-                mac_router.targz.to_string_lossy(),
-                mac_router.mac_address
+                ip_router.targz.to_string_lossy(),
+                ip_router.ip_address
             );
             let r = bmc_mock::tar_router(
-                TarGzOption::Disk(&mac_router.targz),
+                TarGzOption::Disk(&ip_router.targz),
                 Some(&mut tar_router_entries),
             )
             .unwrap();
-            routers_by_mac.insert(mac_router.mac_address, r);
+            routers_by_ip.insert(ip_router.ip_address, r);
         }
     }
 
@@ -77,13 +79,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         bmc_mock::default_host_tar_router(args.use_qemu, Some(&mut tar_router_entries))
     };
 
-    routers_by_mac.insert("".to_owned(), router);
+    routers_by_ip.insert("".to_owned(), router);
 
-    bmc_mock::run_combined_mock(
-        routers_by_mac,
+    let mut handle = bmc_mock::run_combined_mock(
+        Arc::new(RwLock::new(routers_by_ip)),
         args.cert_path,
         listen_addr.map(ListenerOrAddress::Address),
     )
     .await?;
+    handle.wait().await?;
     Ok(())
 }

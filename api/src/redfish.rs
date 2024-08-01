@@ -85,22 +85,6 @@ pub enum RedfishAuth {
 pub trait RedfishClientPool: Send + Sync + 'static {
     // MARK: - Required methods
 
-    /// Creates a new Redfish client to talk to a given host/port, with optional custom headers to
-    /// send with each request.
-    async fn create_client_with_custom_headers(
-        &self,
-        host: &str,
-        port: Option<u16>,
-        custom_headers: &[(String, String)],
-        auth: RedfishAuth,
-        initialize: bool, // fetch some initial values like system id and manager id
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
-
-    /// Returns a CredentialProvider for use in setting credentials in the UEFI/BMC.
-    fn credential_provider(&self) -> Arc<dyn CredentialProvider>;
-
-    // MARK: - Default (helper) methods
-
     /// Creates a new Redfish client for a Machines BMC
     /// `host` is the IP address or hostname of the BMC
     async fn create_client(
@@ -109,10 +93,12 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         port: Option<u16>,
         auth: RedfishAuth,
         initialize: bool, // fetch some initial values like system id and manager id
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_client_with_custom_headers(host, port, &[], auth, initialize)
-            .await
-    }
+    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
+
+    /// Returns a CredentialProvider for use in setting credentials in the UEFI/BMC.
+    fn credential_provider(&self) -> Arc<dyn CredentialProvider>;
+
+    // MARK: - Default (helper) methods
 
     async fn create_client_from_machine_snapshot(
         &self,
@@ -330,6 +316,7 @@ pub struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
     credential_provider: Arc<dyn CredentialProvider>,
     override_port: Option<u16>,
+    override_host: Option<String>,
 }
 
 impl RedfishClientPoolImpl {
@@ -337,11 +324,13 @@ impl RedfishClientPoolImpl {
         credential_provider: Arc<dyn CredentialProvider>,
         pool: libredfish::RedfishClientPool,
         override_port: Option<u16>,
+        override_host: Option<String>,
     ) -> Self {
         RedfishClientPoolImpl {
             credential_provider,
             pool,
             override_port,
+            override_host,
         }
     }
 
@@ -401,16 +390,17 @@ impl RedfishClientPoolImpl {
 
 #[async_trait]
 impl RedfishClientPool for RedfishClientPoolImpl {
-    async fn create_client_with_custom_headers(
+    async fn create_client(
         &self,
         host: &str,
         port: Option<u16>,
-        custom_headers: &[(String, String)],
         auth: RedfishAuth,
         initialize: bool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         // Allow globally overriding the bmc port via site-config.
         let port = self.override_port.or(port);
+        let original_host = host;
+        let host = self.override_host.as_deref().unwrap_or(host);
 
         let (username, password) = match auth {
             RedfishAuth::Anonymous => (None, None), // anonymous login, usually to get service root Vendor info
@@ -464,14 +454,18 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             password,
         };
 
-        let custom_headers = custom_headers
-            .iter()
-            .map(|(header_str, value_str)| {
-                let header: HeaderName = HeaderName::from_str(header_str)
-                    .map_err(RedfishClientCreationError::InvalidHeader)?;
-                Ok((header, value_str.clone()))
-            })
-            .collect::<Result<Vec<(HeaderName, String)>, RedfishClientCreationError>>()?;
+        let custom_headers = if self.override_host.is_some() {
+            // If we're overriding the host, inject a header indicating the IP address we were
+            // originally going to use, using the HTTP "Forwarded" header:
+            // https://datatracker.ietf.org/doc/html/rfc7239
+            vec![(
+                HeaderName::from_str("forwarded")
+                    .map_err(RedfishClientCreationError::InvalidHeader)?,
+                format!("host={original_host}"),
+            )]
+        } else {
+            Vec::default()
+        };
 
         if initialize {
             // Creating the client performs a HTTP request to determine the BMC vendor
@@ -483,7 +477,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             // This client does not make any HTTP requests
             let client: Box<dyn Redfish> = self
                 .pool
-                .create_standard_client(endpoint.clone())
+                .create_standard_client_with_custom_headers(endpoint.clone(), custom_headers)
                 .map_err(RedfishClientCreationError::RedfishError)?;
             Ok(client)
         }
@@ -1114,11 +1108,10 @@ impl Redfish for RedfishSimClient {
 
 #[async_trait]
 impl RedfishClientPool for RedfishSim {
-    async fn create_client_with_custom_headers(
+    async fn create_client(
         &self,
         host: &str,
         port: Option<u16>,
-        _custom_headers: &[(String, String)],
         _auth: RedfishAuth,
         _initialize: bool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {

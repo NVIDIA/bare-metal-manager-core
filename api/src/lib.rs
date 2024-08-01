@@ -384,6 +384,7 @@ pub async fn run(
                 vault_client.clone(),
                 rf_pool,
                 carbide_config.site_explorer.override_target_port,
+                carbide_config.site_explorer.override_target_ip.clone(),
             );
             Arc::new(redfish_pool)
         }

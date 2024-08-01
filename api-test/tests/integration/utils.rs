@@ -13,7 +13,6 @@ use crate::api_server::StartArgs;
 use crate::{api_server, find_prerequisites, vault, vault::Vault};
 use carbide::logging::setup::{setup_telemetry, TelemetrySetup};
 use carbide::logging::sqlx_query_tracing;
-use carbide::redfish::RedfishClientPool;
 use carbide::setup;
 use eyre::{Report, WrapErr};
 use forge_secrets::credentials::{CredentialKey, CredentialProvider, Credentials};
@@ -23,7 +22,6 @@ use std::{
     env,
     net::{SocketAddr, TcpListener},
     path::PathBuf,
-    sync::Arc,
     time::Duration,
 };
 use tokio::sync::oneshot::Sender;
@@ -148,7 +146,7 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
 
 pub async fn start_api_server(
     test_env: IntegrationTestEnvironment,
-    override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
+    override_bmc_addr: Option<SocketAddr>,
     site_explorer_create_machines: bool,
 ) -> eyre::Result<ApiServerHandle> {
     env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
@@ -204,7 +202,7 @@ pub async fn start_api_server(
             root_dir: root_dir_clone,
             db_url,
             vault_token,
-            override_redfish_pool,
+            override_bmc_addr,
             telemetry_setup: telemetry_setup_clone,
             site_explorer_create_machines,
             stop_channel: stop_rx,
@@ -280,6 +278,17 @@ pub async fn populate_initial_vault_secrets(
         .set_credentials(
             CredentialKey::BmcCredentials {
                 credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
+            },
+            Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "password".to_string(),
+            },
+        )
+        .await?;
+    vault_client
+        .set_credentials(
+            CredentialKey::DpuUefi {
+                credential_type: forge_secrets::credentials::CredentialType::SiteDefault,
             },
             Credentials::UsernamePassword {
                 username: "root".to_string(),
