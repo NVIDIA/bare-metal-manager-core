@@ -42,6 +42,7 @@ for version in ${SSH_CONSOLE_VERSIONS}; do
     jq --raw-output '.[] | .short_id? // empty' | grep "$git_hash" > /dev/null || continue
   export LATEST_SSH_CONSOLE_VERSION=$version
   echo "Found latest version of ssh-console: ${LATEST_SSH_CONSOLE_VERSION}"
+  break
 done
 if [[ -z "${LATEST_SSH_CONSOLE_VERSION}" ]]; then
   echo "Error: None of the latest 20 versions of ssh-console was built from the main branch."

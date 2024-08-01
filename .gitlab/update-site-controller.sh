@@ -76,7 +76,7 @@ cd envs/"${SITE_UNDER_TEST}"/site/site-controller
 kustomize edit set image "${APPLICATION_DOCKER_IMAGE_PRODUCTION}"="${APPLICATION_DOCKER_IMAGE}":"${LATEST_COMMON_VERSION}"
 kustomize edit set image "${ARTIFACTS_DOCKER_IMAGE_AARCH64_PRODUCTION}"="${ARTIFACTS_DOCKER_IMAGE_AARCH64}":"${LATEST_COMMON_VERSION}"
 kustomize edit set image "${ARTIFACTS_DOCKER_IMAGE_X86_64_PRODUCTION}"="${ARTIFACTS_DOCKER_IMAGE_X86_64}":"${LATEST_COMMON_VERSION}"
-#kustomize edit set image nvcr.io/nvidian/nvforge/ssh-console=nvcr.io/nvidian/nvforge-devel/ssh-console:"${LATEST_SSH_CONSOLE_VERSION}"
+kustomize edit set image nvcr.io/nvidian/nvforge/ssh-console=nvcr.io/nvidian/nvforge-devel/ssh-console:"${LATEST_SSH_CONSOLE_VERSION}"
 
 # If git status is dirty, create MR then sync Argo CD. Else just sync Argo CD if needed.
 git_status="$(git status --porcelain)"
