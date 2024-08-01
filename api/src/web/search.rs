@@ -154,8 +154,10 @@ async fn find_by_mac(state: Arc<Api>, mac: mac_address::MacAddress) -> impl Into
             Redirect::to(&format!("/admin/interface/{}", out.primary_key)).into_response()
         }
         ExploredEndpoint => {
-            Redirect::to(&format!("/admin/explored_endpoint/{}", out.primary_key)).into_response()
+            Redirect::to(&format!("/admin/explored-endpoint/{}", out.primary_key)).into_response()
         }
+        // If the search got this far it doesn't have an machine_interface, so it's Unseen
+        ExpectedMachine => Redirect::to("/admin/expected-machine?filter=unseen").into_response(),
     }
 }
 
@@ -235,30 +237,20 @@ async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
             }
         };
         use forgerpc::IpType::*;
+        let owner = m.owner_id.unwrap_or_default();
         let (name, url) = match ip_type {
             StaticDataDhcpServer => ("DHCP Server", "".to_string()),
             StaticDataRouteServer => ("Route Server", "".to_string()),
             ResourcePool => ("Resource Pool", "/admin/resource-pool".to_string()),
-            InstanceAddress => (
-                "Instance",
-                format!("/admin/instance/{}", m.owner_id.unwrap_or_default()),
+            InstanceAddress => ("Instance", format!("/admin/instance/{owner}")),
+            MachineAddress => ("Machine", format!("/admin/machine/{owner}")),
+            BmcIp => ("BMC IP", format!("/admin/machine/{owner}")),
+            ExploredEndpoint => (
+                "Explored Endpoint",
+                format!("/admin/explored-endpoint/{owner}"),
             ),
-            MachineAddress => (
-                "Machine",
-                format!("/admin/machine/{}", m.owner_id.unwrap_or_default()),
-            ),
-            BmcIp => (
-                "BMC IP",
-                format!("/admin/machine/{}", m.owner_id.unwrap_or_default()),
-            ),
-            LoopbackIp => (
-                "Loopback IP",
-                format!("/admin/machine/{}", m.owner_id.unwrap_or_default()),
-            ),
-            NetworkSegment => (
-                "Network Segment",
-                format!("/admin/network-segment/{}", m.owner_id.unwrap_or_default()),
-            ),
+            LoopbackIp => ("Loopback IP", format!("/admin/machine/{owner}")),
+            NetworkSegment => ("Network Segment", format!("/admin/network-segment/{owner}")),
         };
         found.push(IpMatch {
             name,

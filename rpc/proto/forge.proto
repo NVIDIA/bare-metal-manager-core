@@ -2454,6 +2454,7 @@ message IdentifyMacResponse {
 enum MacOwner {
   MacOwnerMachineInterface = 0;
   MacOwnerExploredEndpoint = 1;
+  MacOwnerExpectedMachine = 2;
 }
 
 message IdentifySerialRequest {
@@ -2541,6 +2542,7 @@ enum IpType {
   IpTypeBmcIp = 5;
   IpTypeLoopbackIp = 6;
   IpTypeNetworkSegment = 7;
+  IpTypeExploredEndpoint = 8;
 }
 
 message MachineBootOverride {

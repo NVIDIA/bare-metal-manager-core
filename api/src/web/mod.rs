@@ -59,22 +59,22 @@ pub fn routes(api: Arc<Api>) -> NormalizePath<Router> {
             .route("/dpu", get(machine::show_dpus_html))
             .route("/dpu.json", get(machine::show_dpus_json))
             .route("/dpu/versions", get(dpu_versions::list_html))
-            .route("/explored_endpoint", get(explored_endpoint::show_html_all))
-            .route("/explored_endpoint.json", get(explored_endpoint::show_json))
+            .route("/explored-endpoint", get(explored_endpoint::show_html_all))
+            .route("/explored-endpoint.json", get(explored_endpoint::show_json))
             .route(
-                "/explored_endpoint/paired",
+                "/explored-endpoint/paired",
                 get(explored_endpoint::show_html_paired),
             )
             .route(
-                "/explored_endpoint/unpaired",
+                "/explored-endpoint/unpaired",
                 get(explored_endpoint::show_html_unpaired),
             )
             .route(
-                "/explored_endpoint/:endpoint_ip",
+                "/explored-endpoint/:endpoint_ip",
                 get(explored_endpoint::detail),
             )
             .route(
-                "/explored_endpoint/:endpoint_ip/reexplore",
+                "/explored-endpoint/:endpoint_ip/reexplore",
                 post(explored_endpoint::re_explore),
             )
             .route("/host", get(machine::show_hosts_html))
