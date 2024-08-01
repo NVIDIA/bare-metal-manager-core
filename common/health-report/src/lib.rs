@@ -10,7 +10,10 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    str::FromStr,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -84,6 +87,66 @@ impl HealthReport {
             );
         }
     }
+
+    /// Merges the content of another health report into the current health report
+    /// The merge operations works as follows:
+    /// - If the current report does not mention a certain health probe report
+    ///   (based on the ID and target), then the result from `other` is copied over
+    /// - If both reports reference the same probe IDs and targets
+    ///   - the classifications of both alerts will be merged
+    ///   - messages of both alerts will be concatenated
+    ///   - the smaller `in_alert_since` timestamp of both alerts will be utilized
+    pub fn merge(&mut self, other: &HealthReport) {
+        self.observed_at = match (self.observed_at, other.observed_at) {
+            (Some(t1), Some(t2)) => Some(t1.min(t2)),
+            (Some(t1), None) => Some(t1),
+            (None, Some(t2)) => Some(t2),
+            (None, None) => None,
+        };
+
+        // BTreeMap here is used to retain ordering
+        let mut successes = BTreeSet::new();
+        for success in self.successes.iter() {
+            successes.insert((success.id.clone(), success.target.clone()));
+        }
+        for success in other.successes.iter() {
+            successes.insert((success.id.clone(), success.target.clone()));
+        }
+
+        let mut alerts = BTreeMap::new();
+        for alert in self.alerts.iter() {
+            // If an alarm and success are reported for the same probe, then
+            // the alarm takes precedence
+            successes.remove(&(alert.id.clone(), alert.target.clone()));
+            alerts.insert((alert.id.clone(), alert.target.clone()), alert.clone());
+        }
+        for alert in other.alerts.iter() {
+            successes.remove(&(alert.id.clone(), alert.target.clone()));
+            match alerts.entry((alert.id.clone(), alert.target.clone())) {
+                std::collections::btree_map::Entry::Vacant(v) => {
+                    v.insert(alert.clone());
+                }
+                std::collections::btree_map::Entry::Occupied(mut existing) => {
+                    existing.get_mut().merge(alert);
+                }
+            }
+        }
+
+        self.successes = successes
+            .into_iter()
+            .map(|(id, target)| HealthProbeSuccess { id, target })
+            .collect();
+        self.alerts = alerts.into_values().collect();
+    }
+}
+
+fn merge_classifications(
+    c1: &[HealthAlertClassification],
+    c2: &[HealthAlertClassification],
+) -> Vec<HealthAlertClassification> {
+    let mut set = BTreeSet::from_iter(c1.iter().cloned());
+    set.extend(c2.iter().cloned());
+    set.into_iter().collect()
 }
 
 /// An alert that has been raised by a health-probe
@@ -137,6 +200,32 @@ impl HealthProbeAlert {
             classifications: vec![HealthAlertClassification::prevent_host_state_changes()],
         }
     }
+
+    /// Merge a HealthProbeAlert with the report from another probe of the same type
+    ///
+    /// The function does not check whether the Probe ID and target are equivalent.
+    /// It's expected from the caller to only call this function for probes with the same target.
+    fn merge(&mut self, other: &HealthProbeAlert) {
+        self.classifications = merge_classifications(&self.classifications, &other.classifications);
+        if self.message.is_empty() {
+            self.message = other.message.clone();
+        } else if !other.message.is_empty() {
+            self.message.push('\n');
+            self.message += other.message.as_str();
+        }
+        self.tenant_message = match (&self.tenant_message, &other.tenant_message) {
+            (Some(m1), Some(m2)) => Some(format!("{}\n{}", m1, m2)),
+            (Some(m1), None) => Some(m1.clone()),
+            (None, Some(m2)) => Some(m2.clone()),
+            (None, None) => None,
+        };
+        self.in_alert_since = match (other.in_alert_since, self.in_alert_since) {
+            (Some(d1), Some(d2)) => Some(d1.min(d2)),
+            (Some(d1), None) => Some(d1),
+            (None, Some(d2)) => Some(d2),
+            (None, None) => None,
+        };
+    }
 }
 
 /// A successful health probe (reported no alerts)
@@ -163,7 +252,7 @@ pub struct HealthProbeSuccess {
 }
 
 /// A well-known name of a probe that generated an alert
-#[derive(PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 pub struct HealthProbeId(String);
 
 impl HealthProbeId {
@@ -201,7 +290,7 @@ impl HealthProbeId {
 }
 
 /// Classifies the impact of a health alert on the system
-#[derive(PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 pub struct HealthAlertClassification(String);
 
 impl std::fmt::Debug for HealthAlertClassification {
@@ -439,5 +528,422 @@ mod tests {
             new.alerts[0].in_alert_since,
             Some("2024-01-01T19:00:01.100Z".parse().unwrap())
         );
+    }
+
+    #[test]
+    fn test_merge_health_reports() {
+        let r1 = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: Some("2024-01-01T19:00:01.100Z".parse().unwrap()),
+            successes: vec![
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS1".to_string()),
+                    target: None,
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t1".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t2".to_string()),
+                },
+            ],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA1".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA2".to_string()),
+                    target: Some("t1".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA2".to_string()),
+                    target: Some("t2".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec!["a".parse().unwrap(), "b".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA4".to_string()),
+                    target: None,
+                    in_alert_since: Some("2023-01-02T21:00:01.100Z".parse().unwrap()),
+                    message: "m1".to_string(),
+                    tenant_message: Some("t1".to_string()),
+                    classifications: vec!["a".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA5".to_string()),
+                    target: None,
+                    in_alert_since: Some("2023-01-02T21:00:01.100Z".parse().unwrap()),
+                    message: "m1".to_string(),
+                    tenant_message: Some("t1".to_string()),
+                    classifications: vec!["a".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA6".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA7".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        let r2 = HealthReport {
+            source: "Reporter2".to_string(),
+            observed_at: Some("2025-01-01T19:00:01.100Z".parse().unwrap()),
+            successes: vec![
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t2".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t3".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS3".to_string()),
+                    target: None,
+                },
+            ],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA2".to_string()),
+                    target: Some("t2".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec!["b".parse().unwrap(), "c".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA2".to_string()),
+                    target: Some("t3".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA3".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA4".to_string()),
+                    target: None,
+                    in_alert_since: Some("2023-01-02T20:00:01.100Z".parse().unwrap()),
+                    message: "m2".to_string(),
+                    tenant_message: Some("t2".to_string()),
+                    classifications: vec!["b".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA5".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA6".to_string()),
+                    target: None,
+                    in_alert_since: Some("2023-01-02T21:00:01.100Z".parse().unwrap()),
+                    message: "m1".to_string(),
+                    tenant_message: Some("t1".to_string()),
+                    classifications: vec!["b".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA7".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        let expected = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: Some("2024-01-01T19:00:01.100Z".parse().unwrap()),
+            successes: vec![
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS1".to_string()),
+                    target: None,
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t1".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t2".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t3".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS3".to_string()),
+                    target: None,
+                },
+            ],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA1".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA2".to_string()),
+                    target: Some("t1".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA2".to_string()),
+                    target: Some("t2".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![
+                        "a".parse().unwrap(),
+                        "b".parse().unwrap(),
+                        "c".parse().unwrap(),
+                    ],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA2".to_string()),
+                    target: Some("t3".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA3".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA4".to_string()),
+                    target: None,
+                    in_alert_since: Some("2023-01-02T20:00:01.100Z".parse().unwrap()),
+                    message: "m1\nm2".to_string(),
+                    tenant_message: Some("t1\nt2".to_string()),
+                    classifications: vec!["a".parse().unwrap(), "b".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA5".to_string()),
+                    target: None,
+                    in_alert_since: Some("2023-01-02T21:00:01.100Z".parse().unwrap()),
+                    message: "m1".to_string(),
+                    tenant_message: Some("t1".to_string()),
+                    classifications: vec!["a".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA6".to_string()),
+                    target: None,
+                    in_alert_since: Some("2023-01-02T21:00:01.100Z".parse().unwrap()),
+                    message: "m1".to_string(),
+                    tenant_message: Some("t1".to_string()),
+                    classifications: vec!["b".parse().unwrap()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA7".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        let mut merged = r1.clone();
+        merged.merge(&r2);
+
+        assert_eq!(merged, expected);
+
+        // Reverse merging should yield the same observed_at timestamp
+        // We can't fully compare since the message ordering will be different
+        let mut merged2 = r2.clone();
+        merged2.merge(&r1);
+        assert_eq!(merged2.observed_at, expected.observed_at);
+    }
+
+    #[test]
+    fn test_alerts_remove_succeses_during_merge() {
+        let r1 = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: None,
+            successes: vec![
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS1".to_string()),
+                    target: None,
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t1".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t2".to_string()),
+                },
+            ],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t2".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t3".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS3".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        let r2 = HealthReport {
+            source: "Reporter2".to_string(),
+            observed_at: None,
+            successes: vec![
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t2".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t3".to_string()),
+                },
+                HealthProbeSuccess {
+                    id: HealthProbeId("ProbeS3".to_string()),
+                    target: None,
+                },
+            ],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS1".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t1".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        let expected = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS1".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t1".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t2".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS2".to_string()),
+                    target: Some("t3".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeS3".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![],
+                },
+            ],
+        };
+
+        let mut merged = r1.clone();
+        merged.merge(&r2);
+
+        assert_eq!(merged, expected);
+
+        // Reverse merging should yield the same observed_at timestamp
+        // We can't fully compare since the message ordering will be different
+        let mut merged2 = r2.clone();
+        merged2.merge(&r1);
+        assert_eq!(merged2.observed_at, expected.observed_at);
     }
 }
