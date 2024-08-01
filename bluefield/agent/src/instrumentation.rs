@@ -60,15 +60,15 @@ pub fn create_metrics(meter: Meter) -> Arc<MetricsState> {
         .init();
 
     let network_reachable = meter
-        .u64_histogram("network_reachable")
+        .u64_histogram("forge_dpu_agent_network_reachable")
         .with_description("Network reachability status (1 for reachable, 0 for unreachable)")
         .init();
     let network_latency = meter
-        .f64_histogram("network_latency")
+        .f64_histogram("forge_dpu_agent_network_latency")
         .with_description("Network latency in seconds")
         .init();
     let network_loss_percent = meter
-        .f64_histogram("network_loss_percentage")
+        .f64_histogram("forge_dpu_agent_network_loss_percentage")
         .with_description("Percentage of failed pings out of total 5 pings")
         .init();
 

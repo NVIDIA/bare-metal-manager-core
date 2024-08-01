@@ -167,36 +167,36 @@ fn verify_metrics(test_meter: &TestMeter) {
     let expected_network_loss_percentage_sum = format!("{} 0.8", attribute);
 
     // Verify network_latency_count
-    match test_meter.formatted_metric("network_latency_count") {
+    match test_meter.formatted_metric("forge_dpu_agent_network_latency_count") {
         Some(network_latency_count) => {
             assert_eq!(
                 network_latency_count, expected_network_latency_count,
-                "network_latency_count does not match"
+                "forge_dpu_agent_network_latency_count does not match"
             );
         }
-        None => panic!("network_latency_count metric not found"),
+        None => panic!("forge_dpu_agent_network_latency_count metric not found"),
     }
 
     // Verify network_reachable_count
-    match test_meter.formatted_metric("network_reachable_count") {
+    match test_meter.formatted_metric("forge_dpu_agent_network_reachable_count") {
         Some(network_reachable_count) => {
             assert_eq!(
                 network_reachable_count, expected_network_reachable_count,
-                "network_reachable_count does not match"
+                "forge_dpu_agent_network_reachable_count does not match"
             );
         }
-        None => panic!("network_reachable_count metric not found"),
+        None => panic!("forge_dpu_agent_network_reachable_count metric not found"),
     }
 
     // Verify network_loss_percentage_sum
-    match test_meter.formatted_metric("network_loss_percentage_sum") {
+    match test_meter.formatted_metric("forge_dpu_agent_network_loss_percentage_sum") {
         Some(network_loss_percentage_sum) => {
             assert_eq!(
                 network_loss_percentage_sum, expected_network_loss_percentage_sum,
-                "network_loss_percentage_sum does not match"
+                "forge_dpu_agent_network_loss_percentage_sum does not match"
             );
         }
-        None => panic!("network_loss_percentage_sum metric not found"),
+        None => panic!("forge_dpu_agent_network_loss_percentage_sum metric not found"),
     }
 }
 
