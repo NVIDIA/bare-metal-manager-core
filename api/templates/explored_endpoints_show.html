@@ -4,7 +4,7 @@
 
 {% block content %}
 {% if active_vendor_filter == "all" && !is_errors_only %}
-<div id="json"><a href="/admin/explored_endpoint.json">JSON</a></div>
+<div id="json"><a href="/admin/explored-endpoint.json">JSON</a></div>
 {% endif %}
 
 <h1>{{ filter_name }} Explored Endpoints{% if is_errors_only %} - Errors{% endif %}</h1>
@@ -44,7 +44,7 @@
 	<tbody>
 		{% for ep in endpoints %}
 		<tr>
-			<td><a href="/admin/explored_endpoint/{{ ep.address }}">{{ ep.address }}</a></td>
+			<td><a href="/admin/explored-endpoint/{{ ep.address }}">{{ ep.address }}</a></td>
 			<td>{{ ep.endpoint_type }}</td>
 			<td>{{ ep.bmc_mac_addrs|join("\n")|escape|linebreaksbr|safe }}</td>
 			<td>{{ ep.vendor }}</td>

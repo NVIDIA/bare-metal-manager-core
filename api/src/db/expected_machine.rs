@@ -80,13 +80,13 @@ impl ExpectedMachine {
     pub async fn find_by_bmc_mac_address(
         txn: &mut Transaction<'_, Postgres>,
         bmc_mac_address: MacAddress,
-    ) -> CarbideResult<Option<ExpectedMachine>> {
+    ) -> Result<Option<ExpectedMachine>, DatabaseError> {
         let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=$1";
         sqlx::query_as(sql)
             .bind(bmc_mac_address)
             .fetch_optional(txn.deref_mut())
             .await
-            .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
+            .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err))
     }
 
     pub async fn find_many_by_bmc_mac_address(

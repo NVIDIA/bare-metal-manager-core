@@ -42,7 +42,10 @@ pub(crate) async fn get(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    match ExpectedMachine::find_by_bmc_mac_address(&mut txn, parsed_mac).await? {
+    match ExpectedMachine::find_by_bmc_mac_address(&mut txn, parsed_mac)
+        .await
+        .map_err(CarbideError::from)?
+    {
         Some(expected_machine) => {
             if expected_machine.bmc_mac_address != parsed_mac {
                 return Err(Status::invalid_argument(format!(

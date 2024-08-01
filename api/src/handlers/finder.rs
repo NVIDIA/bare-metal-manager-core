@@ -19,6 +19,7 @@ use crate::db;
 use crate::db::domain::Domain;
 use crate::db::domain::DomainId;
 use crate::db::domain::DomainIdKeyedObjectFilter;
+use crate::db::expected_machine::ExpectedMachine;
 use crate::db::instance::FindInstanceTypeFilter;
 use crate::db::instance::Instance;
 use crate::db::instance::InstanceId;
@@ -170,6 +171,7 @@ enum Finder {
     InstanceAddresses,
     MachineAddresses,
     BmcIp,
+    ExploredEndpoint,
     LoopbackIp,
     NetworkSegment,
     // TorLldp,
@@ -192,6 +194,7 @@ async fn by_ip(api: &Api, ip: &str) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideErr
         search(InstanceAddresses, api, ip),
         search(MachineAddresses, api, ip),
         search(BmcIp, api, ip),
+        search(ExploredEndpoint, api, ip),
         search(LoopbackIp, api, ip),
         search(NetworkSegment, api, ip),
     ];
@@ -342,6 +345,14 @@ async fn search(
                 message: format!("{ip} is the BMC IP of {machine_id}"),
             })
         }
+        ExploredEndpoint => {
+            let out = DbExploredEndpoint::find_by_ips(&mut txn, vec![addr]).await?;
+            out.first().map(|ee| rpc::IpAddressMatch {
+                ip_type: rpc::IpType::ExploredEndpoint as i32,
+                owner_id: Some(ee.address.to_string()),
+                message: format!("{ip}'s Redfish was explored by site explorer"),
+            })
+        }
 
         // Loopback IP of a DPU
         LoopbackIp => {
@@ -480,6 +491,11 @@ async fn by_mac(
             endpoints[0].address.to_string(),
             rpc::MacOwner::ExploredEndpoint,
         )));
+    }
+
+    let expected = ExpectedMachine::find_by_bmc_mac_address(&mut txn, mac).await?;
+    if let Some(em) = expected {
+        return Ok(Some((em.serial_number, rpc::MacOwner::ExpectedMachine)));
     }
 
     // Any other MAC addresses to search?
