@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 
 use carbide::{
-    db::{
-        machine::Machine,
-        machine_interface::{MachineInterface, MachineInterfaceId},
-    },
+    db::{self, machine::Machine, machine_interface::MachineInterfaceId},
     model::machine::{machine_id::MachineId, DpuInitState, MachineState, ManagedHostState},
 };
 use common::api_fixtures::create_test_env;
@@ -74,7 +71,7 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let dpu_interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_id.clone()])
+    let dpu_interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_id.clone()])
         .await
         .unwrap()[&dpu_id][0]
         .id;
@@ -164,10 +161,11 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let host_interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[host_id.clone()])
-        .await
-        .unwrap()[&host_id][0]
-        .id;
+    let host_interface_id =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_id.clone()])
+            .await
+            .unwrap()[&host_id][0]
+            .id;
     txn.commit().await.unwrap();
     move_machine_to_needed_state(
         host_id.clone(),
@@ -232,7 +230,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
     let host_interface_id =
-        MachineInterface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
             .await
             .unwrap()[&host_machine_id][0]
             .id;
@@ -279,10 +277,12 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
 
     // Interface is created. Let's fetch interface id.
     let mut txn = env.pool.begin().await.unwrap();
-    let interfaces =
-        MachineInterface::find_by_mac_address(&mut txn, mac_address.parse::<MacAddress>().unwrap())
-            .await
-            .unwrap();
+    let interfaces = db::machine_interface::find_by_mac_address(
+        &mut txn,
+        mac_address.parse::<MacAddress>().unwrap(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(interfaces.len(), 1);
 

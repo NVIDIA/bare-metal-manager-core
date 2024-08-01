@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use crate::{
     db::{
+        self,
         instance_address::InstanceAddress,
-        machine_interface::MachineInterface,
         network_segment::{NetworkSegment, NetworkSegmentId},
     },
     model::network_segment::{NetworkSegmentControllerState, NetworkSegmentDeletionState},
@@ -99,7 +99,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                         // If ones are still allocated, we can not delete and have to
                         // update the `delete_at` timestamp.
                         let num_machine_interfaces =
-                            MachineInterface::count_by_segment_id(txn, &state.id).await?;
+                            db::machine_interface::count_by_segment_id(txn, &state.id).await?;
                         let num_instance_addresses =
                             InstanceAddress::count_by_segment_id(txn, state.id).await?;
                         if num_machine_interfaces + num_instance_addresses > 0 {

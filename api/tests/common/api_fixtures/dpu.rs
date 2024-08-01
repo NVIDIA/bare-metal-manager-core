@@ -16,8 +16,8 @@ use std::{collections::HashMap, net::IpAddr};
 
 use carbide::{
     db::{
+        self,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterface,
     },
     model::{
         hardware_info::HardwareInfo,
@@ -132,7 +132,7 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
     // Let's find the IP that we assign to the BMC
     let mut txn = env.pool.begin().await.unwrap();
     let bmc_interface =
-        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+        db::machine_interface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
             .await
             .unwrap();
     let dpu_bmc_ip = bmc_interface.addresses[0];
@@ -392,7 +392,7 @@ pub async fn create_dpu_machine_with_discovery_error(
     // Let's find the IP that we assign to the BMC
     let mut txn = env.pool.begin().await.unwrap();
     let bmc_interface =
-        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+        db::machine_interface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
             .await
             .unwrap();
     let dpu_bmc_ip = bmc_interface.addresses[0];

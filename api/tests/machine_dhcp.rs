@@ -13,10 +13,9 @@
 use std::str::FromStr;
 
 use carbide::db::{
+    self,
     dhcp_entry::DhcpEntry,
-    machine_interface::{
-        MachineInterface, MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter,
-    },
+    machine_interface::{MachineInterfaceId, MachineInterfaceIdKeyedObjectFilter},
 };
 use carbide::CarbideError;
 use mac_address::MacAddress;
@@ -42,7 +41,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
     let test_gateway_address = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
 
-    MachineInterface::validate_existing_mac_and_create(
+    db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
         test_gateway_address,
@@ -63,7 +62,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
     let test_gateway_address = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
 
-    MachineInterface::validate_existing_mac_and_create(
+    db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
         test_gateway_address,
@@ -71,7 +70,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     .await?;
 
     // Test a second time after initial creation on the same segment should not cause issues
-    MachineInterface::validate_existing_mac_and_create(
+    db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
         test_gateway_address,
@@ -79,7 +78,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     .await?;
 
     // expect this to error out
-    let output = MachineInterface::validate_existing_mac_and_create(
+    let output = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
         "192.0.3.1".parse().unwrap(),
@@ -103,7 +102,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        MachineInterface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+        db::machine_interface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         0
@@ -141,7 +140,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // After DHCP, 1 address is allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        MachineInterface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+        db::machine_interface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         1
@@ -161,7 +160,7 @@ async fn test_multiple_machines_dhcp_with_api(
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        MachineInterface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+        db::machine_interface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         0
@@ -203,7 +202,7 @@ async fn test_multiple_machines_dhcp_with_api(
 
     let mut txn = pool.begin().await?;
     assert_eq!(
-        MachineInterface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
+        db::machine_interface::count_by_segment_id(&mut txn, &FIXTURE_NETWORK_SEGMENT_ID)
             .await
             .unwrap(),
         NUM_MACHINES
@@ -330,7 +329,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         );
 
         // Also check via the MachineInterface API
-        let iface = MachineInterface::find_one(&mut txn, *interface_id)
+        let iface = db::machine_interface::find_one(&mut txn, *interface_id)
             .await
             .unwrap();
         assert_eq!(iface.vendors, expected);

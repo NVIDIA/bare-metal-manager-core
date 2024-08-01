@@ -19,7 +19,6 @@ use carbide::{
         dhcp_entry::DhcpEntry,
         domain::{Domain, DomainId, DomainIdKeyedObjectFilter},
         machine::Machine,
-        machine_interface::MachineInterface,
         network_segment::{NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter},
     },
     model::machine::{
@@ -79,7 +78,7 @@ async fn only_one_primary_interface_per_machine(
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
 
-    let new_interface = MachineInterface::create(
+    let new_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         &host_sim.config.dpu_oob_mac_address,
@@ -99,7 +98,7 @@ async fn only_one_primary_interface_per_machine(
 
     let mut txn = env.pool.begin().await?;
 
-    let should_failed_machine_interface = MachineInterface::create(
+    let should_failed_machine_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         &other_host_sim.config.dpu_oob_mac_address,
@@ -131,7 +130,7 @@ async fn many_non_primary_interfaces_per_machine(
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
 
-    MachineInterface::create(
+    db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -145,7 +144,7 @@ async fn many_non_primary_interfaces_per_machine(
     txn.commit().await.unwrap();
     let mut txn = pool.begin().await?;
 
-    let should_be_ok_interface = MachineInterface::create(
+    let should_be_ok_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ef").as_ref().unwrap(),
@@ -173,14 +172,14 @@ async fn return_existing_machine_interface_on_rediscover(
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
-    let new_machine = MachineInterface::validate_existing_mac_and_create(
+    let new_machine = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac,
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
     )
     .await?;
 
-    let existing_machine = MachineInterface::validate_existing_mac_and_create(
+    let existing_machine = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac,
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
@@ -205,7 +204,7 @@ async fn find_all_interfaces_test_cases(
     let domain_id = domain_ids[0].id;
     let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
     for i in 0..2 {
-        let interface = MachineInterface::create(
+        let interface = db::machine_interface::create(
             &mut txn,
             &network_segment,
             MacAddress::from_str(format!("ff:ff:ff:ff:ff:0{}", i).as_str())
@@ -275,7 +274,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
     let domain_ids = Domain::find(&mut txn, DomainIdKeyedObjectFilter::All).await?;
     let domain_id = domain_ids[0].id;
-    let new_interface = MachineInterface::create(
+    let new_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         &host_sim.config.dpu_oob_mac_address,
@@ -361,7 +360,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             // Let's start all threads together.
             _ = rx.recv().await.unwrap();
             let mut txn = db_pool.begin().await.unwrap();
-            MachineInterface::create(
+            db::machine_interface::create(
                 &mut txn,
                 &n,
                 &MacAddress::from_str(&mac).unwrap(),
@@ -373,7 +372,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             .unwrap();
 
             // This call must pass. inner_txn is an illusion. Lock is still alive.
-            _ = MachineInterface::find_all(&mut txn).await.unwrap();
+            _ = db::machine_interface::find_all(&mut txn).await.unwrap();
             txn.commit().await.unwrap();
         });
         handles.push(h);
@@ -385,7 +384,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         _ = h.await;
     }
     let mut txn = pool.begin().await?;
-    let interfaces = MachineInterface::find_all(&mut txn).await.unwrap();
+    let interfaces = db::machine_interface::find_all(&mut txn).await.unwrap();
 
     assert_eq!(interfaces.len(), max_interfaces);
     let ips = interfaces
@@ -404,7 +403,7 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let mut txn = pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
-    let interface = MachineInterface::create(
+    let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -418,13 +417,13 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // By remote IP
     let remote_ip = Some(interface.addresses[0]);
     let interface_id = None;
-    let iface = MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    let iface = db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
     assert_eq!(iface.id, interface.id);
 
     // By interface ID
     let remote_ip = None;
     let interface_id = Some(iface.id);
-    let iface = MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    let iface = db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
     assert_eq!(iface.id, interface.id);
 
     Ok(())
@@ -435,7 +434,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let mut txn = pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
-    let interface = MachineInterface::create(
+    let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -453,7 +452,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-    let _interface = MachineInterface::find_one(&mut txn, interface.id).await;
+    let _interface = db::machine_interface::find_one(&mut txn, interface.id).await;
     assert!(matches!(
         CarbideError::FindOneReturnedNoResultsError(interface.id.0),
         _interface
@@ -474,7 +473,7 @@ async fn test_delete_interface_with_machine(
     let dpu_machine_id = try_parse_machine_id(&rpc_machine_id).unwrap();
 
     let mut txn = pool.begin().await?;
-    let interface = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+    let interface = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
         .await
         .unwrap();
 
@@ -519,7 +518,7 @@ async fn test_delete_bmc_interface_with_machine(
     let _rpc_machine_id = create_dpu_machine(&env, &host_sim.config).await;
 
     let mut txn = pool.begin().await?;
-    let interfaces = MachineInterface::find_all(&mut txn).await.unwrap();
+    let interfaces = db::machine_interface::find_all(&mut txn).await.unwrap();
     txn.commit().await.unwrap();
 
     let interfaces = interfaces
@@ -568,7 +567,7 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let mut txn = pool.begin().await?;
 
     let network_segment = get_fixture_network_segment(&mut txn.begin().await?).await?;
-    let interface = MachineInterface::create(
+    let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),

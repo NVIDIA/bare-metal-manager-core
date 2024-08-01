@@ -1,9 +1,7 @@
 pub mod common;
 use std::collections::HashSet;
 
-use carbide::{
-    db::machine_interface::MachineInterface, model::machine::machine_id::try_parse_machine_id,
-};
+use carbide::{db, model::machine::machine_id::try_parse_machine_id};
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
 use itertools::Itertools;
 use rpc::forge::forge_server::Forge;
@@ -135,7 +133,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let mut txn = env.pool.begin().await.unwrap();
 
     let machine_interface_id =
-        MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
             .await
             .unwrap()
             .get(&dpu_machine_id)

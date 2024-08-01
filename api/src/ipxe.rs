@@ -5,9 +5,10 @@ use crate::db::machine_boot_override::MachineBootOverride;
 use crate::model::machine::{DpuInitState, FailureCause, FailureDetails, ReprovisionState};
 use crate::{
     db::{
+        self,
         instance::Instance,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::{MachineInterface, MachineInterfaceId},
+        machine_interface::MachineInterfaceId,
     },
     model::machine::{InstanceState, ManagedHostState},
     CarbideError,
@@ -105,7 +106,7 @@ exit ||
         };
 
         let mut console = "ttyS0";
-        let interface = MachineInterface::find_one(txn, interface_id).await?;
+        let interface = db::machine_interface::find_one(txn, interface_id).await?;
 
         // This custom pxe is different from a customer instance of pxe. It is more for testing one off
         // changes until a real dev env is established and we can just override our existing code to test

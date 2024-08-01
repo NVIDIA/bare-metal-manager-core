@@ -25,10 +25,10 @@ use tonic::Request;
 use carbide::{
     cfg::SiteExplorerConfig,
     db::{
+        self,
         expected_machine::ExpectedMachine,
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterface,
         machine_topology::MachineTopology,
         network_segment::NetworkSegmentId,
         DatabaseError,
@@ -141,13 +141,13 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        MachineInterface::count_by_segment_id(&mut txn, &underlay_segment)
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         3
     );
     assert_eq!(
-        MachineInterface::count_by_segment_id(&mut txn, &admin_segment)
+        db::machine_interface::count_by_segment_id(&mut txn, &admin_segment)
             .await
             .unwrap(),
         1
@@ -629,7 +629,7 @@ async fn test_site_explorer_reexplore(
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        MachineInterface::count_by_segment_id(&mut txn, &underlay_segment)
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         2
@@ -1224,7 +1224,7 @@ async fn test_site_explorer_creates_managed_host(
         },
     );
 
-    let machine_interfaces = MachineInterface::find_by_mac_address(&mut txn, oob_mac).await?;
+    let machine_interfaces = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
     assert!(!machine_interfaces.is_empty());
     let topologies =
         MachineTopology::find_by_machine_ids(&mut txn, &[dpu_machine.id().clone()]).await?;
@@ -1262,7 +1262,7 @@ async fn test_site_explorer_creates_managed_host(
 
     assert!(dpu_machine.loopback_ip().is_some());
 
-    let machine_interfaces = MachineInterface::find_by_mac_address(&mut txn, oob_mac).await?;
+    let machine_interfaces = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
     assert!(machine_interfaces[0]
         .machine_id
         .as_ref()
@@ -1357,7 +1357,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .into_inner();
 
         assert!(!response.address.is_empty());
-        let oob_interface = MachineInterface::find_by_mac_address(&mut txn, oob_mac).await?;
+        let oob_interface = db::machine_interface::find_by_mac_address(&mut txn, oob_mac).await?;
         assert!(oob_interface[0].is_primary);
         oob_interfaces.push(oob_interface[0].clone());
 
@@ -1583,7 +1583,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         assert_eq!(dpu.current_state(), expected_state);
     }
 
-    let mut interfaces_map = MachineInterface::find_by_machine_ids(
+    let mut interfaces_map = db::machine_interface::find_by_machine_ids(
         &mut txn,
         &[host_machine_id.as_ref().unwrap().clone()],
     )
@@ -2004,7 +2004,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     // Machine interface should not have any machine id associated with it right now.
     let mut txn = env.pool.begin().await?;
     let macaddr = MacAddress::from_str(&oob_mac)?;
-    let mi = MachineInterface::find_by_mac_address(&mut txn, macaddr).await?;
+    let mi = db::machine_interface::find_by_mac_address(&mut txn, macaddr).await?;
     assert!(mi[0].attached_dpu_machine_id.is_none());
     assert!(mi[0].machine_id.is_none());
     txn.rollback().await?;
@@ -2019,7 +2019,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     // machine_interfaces table.
     let mut txn = env.pool.begin().await?;
     let macaddr = MacAddress::from_str(&oob_mac)?;
-    let mi = MachineInterface::find_by_mac_address(&mut txn, macaddr).await?;
+    let mi = db::machine_interface::find_by_mac_address(&mut txn, macaddr).await?;
     assert!(mi[0].attached_dpu_machine_id.is_some());
     assert!(mi[0].machine_id.is_some());
     txn.rollback().await?;
@@ -2190,7 +2190,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // No way to find a machine_interface using machine id as machine id is not yet associated with
     // interface (right now no machine interface is created yet).
     let mut txn = env.pool.begin().await?;
-    let mi = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
+    let mi =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
     assert!(mi.is_empty());
     txn.rollback().await?;
 
@@ -2216,7 +2217,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
 
     // No way to find a machine_interface using machine id as machine id is not yet associated with
     // interface (right now no machine interface is created yet).
-    let mi = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
+    let mi =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
     assert!(mi.is_empty());
     txn.rollback().await?;
 
@@ -2244,7 +2246,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // At this point, create_managed_host must have updated the associated machine id in
     // machine_interfaces table.
     let mut txn = env.pool.begin().await?;
-    let mi = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
+    let mi =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()]).await?;
     assert!(!mi.is_empty());
     let value = mi.values().collect_vec()[0].clone()[0].clone();
     assert_eq!(

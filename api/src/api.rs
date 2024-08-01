@@ -74,7 +74,6 @@ use crate::{
         explored_managed_host::DbExploredManagedHost,
         instance::{DeleteInstance, Instance},
         machine::Machine,
-        machine_interface::MachineInterface,
         machine_topology::MachineTopology,
         DatabaseError, ObjectFilter,
     },
@@ -571,7 +570,7 @@ impl Forge for Api {
         );
 
         let interface =
-            MachineInterface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+            db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
         let machine = if hardware_info.is_dpu() {
             // if site explorer is creating machine records and there isn't one for this machine return an error
             if **self.runtime_config.site_explorer.create_machines.load() {
@@ -656,12 +655,13 @@ impl Forge for Api {
             // Create Host proactively.
             // In case host interface is created, this method will return existing one, instead
             // creating new everytime.
-            let machine_interface = MachineInterface::create_host_machine_interface_proactively(
-                &mut txn,
-                Some(&hardware_info),
-                machine.id(),
-            )
-            .await?;
+            let machine_interface =
+                db::machine_interface::create_host_machine_interface_proactively(
+                    &mut txn,
+                    Some(&hardware_info),
+                    machine.id(),
+                )
+                .await?;
 
             // Create host machine with temporary ID if no machine is attached.
             if machine_interface.machine_id.is_none() {
@@ -1097,7 +1097,9 @@ impl Forge for Api {
         let mut interfaces: Vec<rpc::MachineInterface> = match (id, ip) {
             (Some(id), _) if id.value.chars().count() > 0 => match MachineInterfaceId::try_from(id)
             {
-                Ok(uuid) => vec![MachineInterface::find_one(&mut txn, uuid).await?.into()],
+                Ok(uuid) => vec![db::machine_interface::find_one(&mut txn, uuid)
+                    .await?
+                    .into()],
                 Err(_) => {
                     return Err(CarbideError::GenericError(
                         "Could not marshall an ID from the request".to_string(),
@@ -1107,7 +1109,7 @@ impl Forge for Api {
             },
             (None, Some(ip)) => match Ipv4Addr::from_str(ip.as_ref()) {
                 Ok(ip) => {
-                    match MachineInterface::find_by_ip(&mut txn, IpAddr::V4(ip))
+                    match db::machine_interface::find_by_ip(&mut txn, IpAddr::V4(ip))
                         .await
                         .map_err(CarbideError::from)?
                     {
@@ -1128,7 +1130,7 @@ impl Forge for Api {
                 }
             },
             (None, None) => {
-                match MachineInterface::find_all(&mut txn)
+                match db::machine_interface::find_all(&mut txn)
                     .await
                     .map_err(CarbideError::from)
                 {
@@ -1204,7 +1206,7 @@ impl Forge for Api {
         };
 
         let interface = match MachineInterfaceId::try_from(id) {
-            Ok(uuid) => MachineInterface::find_one(&mut txn, uuid).await?,
+            Ok(uuid) => db::machine_interface::find_one(&mut txn, uuid).await?,
             Err(_) => {
                 return Err(CarbideError::GenericError(
                     "Could not marshall an ID from the request".to_string(),
@@ -2227,7 +2229,7 @@ impl Forge for Api {
                 if let Some(maybe_bmc_ip) = dpu.bmc_info().ip.as_ref() {
                     let ip = maybe_bmc_ip.parse().map_err(CarbideError::from)?;
 
-                    let machine_interface_target = MachineInterface::find_by_ip(&mut txn, ip)
+                    let machine_interface_target = db::machine_interface::find_by_ip(&mut txn, ip)
                         .await
                         .map_err(CarbideError::from)?
                         .ok_or_else(|| {

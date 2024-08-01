@@ -36,8 +36,8 @@ use crate::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentT
 use crate::model::RpcDataConversionError;
 use crate::{
     db::{
+        self,
         instance_address::InstanceAddress,
-        machine_interface::MachineInterface,
         network_prefix::{NetworkPrefix, NewNetworkPrefix},
         network_segment_state_history::NetworkSegmentStateHistory,
         DatabaseError,
@@ -821,7 +821,8 @@ impl NetworkSegment {
         // will also wait until all allocated addresses have been freed before actually
         // deleting the segment. However it gives the user some early feedback for
         // the commmon case, which allows them to free resources
-        let num_machine_interfaces = MachineInterface::count_by_segment_id(txn, self.id()).await?;
+        let num_machine_interfaces =
+            db::machine_interface::count_by_segment_id(txn, self.id()).await?;
         if num_machine_interfaces > 0 {
             return CarbideResult::Err(CarbideError::NetworkSegmentDelete(
                 "Network Segment can't be deleted with associated MachineInterface".to_string(),

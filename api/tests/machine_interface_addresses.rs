@@ -12,9 +12,9 @@
 
 use std::str::FromStr;
 
+use carbide::db;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
 use carbide::db::domain::DomainId;
-use carbide::db::machine_interface::MachineInterface;
 use carbide::db::machine_interface_address::MachineInterfaceAddress;
 use carbide::db::network_prefix::NewNetworkPrefix;
 use carbide::db::network_segment::{NetworkSegmentType, NewNetworkSegment};
@@ -56,7 +56,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         .persist(&mut txn, NetworkSegmentControllerState::Ready)
         .await?;
     // An interface that isn't attached to a Machine. This is what BMC interfaces are.
-    let interface = MachineInterface::create(
+    let interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),

@@ -13,8 +13,9 @@
 use ::rpc::forge as rpc;
 
 use crate::api::Api;
+use crate::db;
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::db::machine_interface::{MachineInterface, MachineInterfaceId};
+use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::DatabaseError;
 use crate::CarbideError;
 use tonic::Status;
@@ -38,7 +39,7 @@ pub(crate) async fn get(
         ))
     })?;
 
-    let machine_id = match MachineInterface::find_one(&mut txn, machine_interface_id).await {
+    let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,
         Err(_) => None,
     };
@@ -76,7 +77,8 @@ pub(crate) async fn set(
         ))
     })?;
 
-    let machine_id = match MachineInterface::find_one(&mut txn, mbo.machine_interface_id).await {
+    let machine_id = match db::machine_interface::find_one(&mut txn, mbo.machine_interface_id).await
+    {
         Ok(interface) => interface.machine_id,
         Err(_) => None,
     };
@@ -122,7 +124,7 @@ pub(crate) async fn clear(
         ))
     })?;
 
-    let machine_id = match MachineInterface::find_one(&mut txn, machine_interface_id).await {
+    let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
         Ok(interface) => interface.machine_id,
         Err(_) => None,
     };

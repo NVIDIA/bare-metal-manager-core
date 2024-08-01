@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     cfg::CarbideConfig,
-    db::{dpu_machine_update::DpuMachineUpdate, machine_interface::MachineInterface},
+    db::{self, dpu_machine_update::DpuMachineUpdate},
     machine_update_manager::MachineUpdateManager,
     model::machine::machine_id::MachineId,
     CarbideResult,
@@ -115,7 +115,7 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 
             // if multi-dpu is disabled, check if the host of this dpu has other DPUs.
             if !multi_dpu_enabled {
-                let interfaces = MachineInterface::find_by_machine_ids(
+                let interfaces = db::machine_interface::find_by_machine_ids(
                     txn,
                     &[machine_update.host_machine_id.clone()],
                 )

@@ -11,7 +11,7 @@
  */
 
 use carbide::{
-    db::instance::InstanceId, db::machine_interface::MachineInterface,
+    db::{self, instance::InstanceId},
     model::machine::machine_id::MachineId,
 };
 use common::api_fixtures::{create_test_env, TestEnv};
@@ -40,7 +40,7 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let host_interface_id =
-        MachineInterface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
             .await
             .unwrap()
             .get(&host_machine_id)
@@ -94,7 +94,7 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let host_interface_id =
-        MachineInterface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
             .await
             .unwrap()
             .get(&host_machine_id)

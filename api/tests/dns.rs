@@ -1,4 +1,4 @@
-use carbide::db::{machine_interface::MachineInterface, machine_topology::MachineTopology};
+use carbide::db::{self, machine_topology::MachineTopology};
 use common::api_fixtures::{create_managed_host, create_test_env};
 use const_format::concatcp;
 use rpc::forge::{forge_server::Forge, DhcpDiscovery};
@@ -124,7 +124,7 @@ async fn test_dns(pool: sqlx::PgPool) {
         // MachineInterface data for the given machineID.
         tracing::info!(machine_id = %machine_id, subdomain = %DNS_ADM_SUBDOMAIN, "Checking ADM record");
         let interface =
-            MachineInterface::get_machine_interface_primary(&machine_id.clone(), &mut txn)
+            db::machine_interface::get_machine_interface_primary(&machine_id.clone(), &mut txn)
                 .await
                 .unwrap();
         let adm_record = api

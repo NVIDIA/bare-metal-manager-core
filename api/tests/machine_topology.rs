@@ -13,9 +13,9 @@ use std::str::FromStr;
  */
 use carbide::{
     db::{
+        self,
         domain::DomainId,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterface,
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
     },
@@ -58,7 +58,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap()
     .remove(0);
 
-    let iface = MachineInterface::create(
+    let iface = db::machine_interface::create(
         &mut txn,
         &segment,
         &host_sim.config.host_mac_address,

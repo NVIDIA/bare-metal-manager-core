@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -16,7 +16,6 @@ use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -148,43 +147,6 @@ pub enum MachineInterfaceIdKeyedObjectFilter<'a> {
     One(MachineInterfaceId),
 }
 
-pub struct MachineInterface {}
-
-#[derive(Debug, Clone, Default)]
-struct DbMachineInterface {
-    pub id: MachineInterfaceId,
-    attached_dpu_machine_id: Option<MachineId>,
-    pub domain_id: Option<DomainId>,
-    pub machine_id: Option<MachineId>,
-    segment_id: NetworkSegmentId,
-    pub mac_address: MacAddress,
-    hostname: String,
-    primary_interface: bool,
-    addresses: Vec<MachineInterfaceAddress>,
-    vendors: Vec<String>,
-    created: DateTime<Utc>,
-    last_dhcp: Option<DateTime<Utc>>,
-}
-
-impl From<DbMachineInterface> for MachineInterfaceSnapshot {
-    fn from(iface: DbMachineInterface) -> Self {
-        MachineInterfaceSnapshot {
-            id: iface.id,
-            hostname: iface.hostname.to_string(),
-            is_primary: iface.primary_interface,
-            mac_address: iface.mac_address,
-            attached_dpu_machine_id: iface.attached_dpu_machine_id,
-            domain_id: iface.domain_id,
-            machine_id: iface.machine_id,
-            segment_id: iface.segment_id,
-            vendors: iface.vendors,
-            created: iface.created,
-            last_dhcp: iface.last_dhcp,
-            addresses: iface.addresses.into_iter().map(|a| a.address).collect(),
-        }
-    }
-}
-
 pub struct UsedAdminNetworkIpResolver {
     pub segment_id: NetworkSegmentId,
 }
@@ -216,13 +178,13 @@ impl ColumnInfo for MachineIdColumn {
     }
 }
 
-impl<'r> FromRow<'r, PgRow> for DbMachineInterface {
+impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let machine_id: Option<DbMachineId> = row.try_get("machine_id")?;
         let attached_dpu_machine_id: Option<DbMachineId> =
             row.try_get("attached_dpu_machine_id")?;
 
-        Ok(DbMachineInterface {
+        Ok(MachineInterfaceSnapshot {
             id: row.try_get("id")?,
             attached_dpu_machine_id: attached_dpu_machine_id.map(|id| id.into_inner()),
             machine_id: machine_id.map(|id| id.into_inner()),
@@ -230,7 +192,7 @@ impl<'r> FromRow<'r, PgRow> for DbMachineInterface {
             domain_id: row.try_get("domain_id")?,
             hostname: row.try_get("hostname")?,
             mac_address: row.try_get("mac_address")?,
-            primary_interface: row.try_get("primary_interface")?,
+            is_primary: row.try_get("primary_interface")?,
             addresses: Vec::new(),
             vendors: Vec::new(),
             created: row.try_get("created")?,
@@ -246,7 +208,7 @@ pub async fn set_primary_interface(
     txn: &mut Transaction<'_, Postgres>,
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     let query = "UPDATE machine_interfaces SET primary_interface=$1 where id=$2::uuid RETURNING *";
-    sqlx::query_as::<_, DbMachineInterface>(query)
+    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
         .bind(primary)
         .bind(*interface_id)
         .fetch_one(txn.deref_mut())
@@ -262,7 +224,7 @@ pub async fn associate_interface_with_dpu_machine(
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
     let query =
         "UPDATE machine_interfaces SET attached_dpu_machine_id=$1 where id=$2::uuid RETURNING *";
-    sqlx::query_as::<_, DbMachineInterface>(query)
+    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
         .bind(dpu_machine_id.to_string())
         .bind(*interface_id)
         .fetch_one(txn.deref_mut())
@@ -277,7 +239,7 @@ pub async fn associate_interface_with_machine(
     txn: &mut Transaction<'_, Postgres>,
 ) -> CarbideResult<MachineInterfaceSnapshot> {
     let query = "UPDATE machine_interfaces SET machine_id=$1 where id=$2::uuid RETURNING *";
-    sqlx::query_as::<_, DbMachineInterface>(query)
+    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
         .bind(machine_id.to_string())
         .bind(*interface_id)
         .fetch_one(txn.deref_mut())
@@ -293,527 +255,512 @@ pub async fn associate_interface_with_machine(
         .map(Into::<MachineInterfaceSnapshot>::into)
 }
 
-impl MachineInterface {
-    pub async fn find_by_mac_address(
-        txn: &mut Transaction<'_, Postgres>,
-        macaddr: MacAddress,
-    ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-        MachineInterface::find_by(txn, ObjectColumnFilter::One(MacAddressColumn, macaddr)).await
-    }
+pub async fn find_by_mac_address(
+    txn: &mut Transaction<'_, Postgres>,
+    macaddr: MacAddress,
+) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
+    find_by(txn, ObjectColumnFilter::One(MacAddressColumn, macaddr)).await
+}
 
-    pub async fn find_by_ip(
-        txn: &mut Transaction<'_, Postgres>,
-        ip: IpAddr,
-    ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
-        let query = r#"SELECT mi.* FROM machine_interfaces mi
-            INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
-            WHERE mia.address = $1::inet"#;
-        let interface: Option<DbMachineInterface> = sqlx::query_as(query)
-            .bind(ip)
-            .fetch_optional(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+pub async fn find_by_ip(
+    txn: &mut Transaction<'_, Postgres>,
+    ip: IpAddr,
+) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
+    let query = r#"SELECT mi.* FROM machine_interfaces mi
+        INNER JOIN machine_interface_addresses mia on mia.interface_id=mi.id
+        WHERE mia.address = $1::inet"#;
+    let interface: Option<MachineInterfaceSnapshot> = sqlx::query_as(query)
+        .bind(ip)
+        .fetch_optional(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        Ok(interface.map(|iface| iface.into()))
-    }
+    Ok(interface)
+}
 
-    pub async fn find_all(
-        txn: &mut Transaction<'_, Postgres>,
-    ) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
-        let interfaces =
-            MachineInterface::find_by(txn, ObjectColumnFilter::All::<IdColumn, MachineInterfaceId>)
-                .await
-                .map_err(CarbideError::from)?;
+pub async fn find_all(
+    txn: &mut Transaction<'_, Postgres>,
+) -> CarbideResult<Vec<MachineInterfaceSnapshot>> {
+    let interfaces = find_by(txn, ObjectColumnFilter::All::<IdColumn, MachineInterfaceId>)
+        .await
+        .map_err(CarbideError::from)?;
 
-        Ok(interfaces)
-    }
+    Ok(interfaces)
+}
 
-    pub async fn find_by_machine_ids(
-        txn: &mut Transaction<'_, Postgres>,
-        machine_ids: &[MachineId],
-    ) -> Result<HashMap<MachineId, Vec<MachineInterfaceSnapshot>>, DatabaseError> {
-        // The .unwrap() in the `group_map_by` call is ok - because we are only
-        // searching for Machines which have associated MachineIds
-        Ok(
-            MachineInterface::find_by(txn, ObjectColumnFilter::List(MachineIdColumn, machine_ids))
-                .await?
-                .into_iter()
-                .into_group_map_by(|interface| interface.machine_id.clone().unwrap()),
-        )
-    }
-
-    pub async fn find_host_primary_interface_by_dpu_id(
-        txn: &mut Transaction<'_, Postgres>,
-        dpu_machine_id: &MachineId,
-    ) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
-        let query =
-            "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1 AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
-        let Some(mut machine_interface) = sqlx::query_as::<_, DbMachineInterface>(query)
-            .bind(dpu_machine_id.to_string())
-            .fetch_optional(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-        else {
-            return Ok(None);
-        };
-
-        let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
-            &mut *txn,
-            MachineInterfaceIdKeyedObjectFilter::List(&[machine_interface.id]),
-        )
-        .await?;
-
-        if let Some(addresses) = addresses_for_interfaces.remove(&machine_interface.id) {
-            machine_interface.addresses = addresses;
-        } else {
-            tracing::warn!(
-                machine_id = %dpu_machine_id,
-                interface_id = %machine_interface.id,
-                "Interface has no addresses",
-            );
-        }
-
-        Ok(Some(MachineInterfaceSnapshot::from(machine_interface)))
-    }
-
-    pub async fn count_by_segment_id(
-        txn: &mut Transaction<'_, Postgres>,
-        segment_id: &NetworkSegmentId,
-    ) -> Result<usize, DatabaseError> {
-        let query = "SELECT count(*) FROM machine_interfaces WHERE segment_id = $1";
-        let (address_count,): (i64,) = sqlx::query_as(query)
-            .bind(segment_id)
-            .fetch_one(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        Ok(address_count.max(0) as usize)
-    }
-
-    pub async fn find_one(
-        txn: &mut Transaction<'_, Postgres>,
-        interface_id: MachineInterfaceId,
-    ) -> CarbideResult<MachineInterfaceSnapshot> {
-        let mut interfaces =
-            MachineInterface::find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
-                .await
-                .map_err(CarbideError::from)?;
-        match interfaces.len() {
-            0 => Err(CarbideError::FindOneReturnedNoResultsError(interface_id.0)),
-            1 => Ok(interfaces.remove(0)),
-            _ => Err(CarbideError::FindOneReturnedManyResultsError(
-                interface_id.0,
-            )),
-        }
-    }
-
-    // Returns (MachineInterface, newly_created_interface).
-    // newly_created_interface indicates that we couldn't find a MachineInterface so created new
-    // one.
-    pub async fn find_or_create_machine_interface(
-        txn: &mut Transaction<'_, Postgres>,
-        machines: Option<MachineId>,
-        mac_address: MacAddress,
-        relay: IpAddr,
-    ) -> CarbideResult<MachineInterfaceSnapshot> {
-        match machines {
-            None => {
-                tracing::info!(
-                    %mac_address,
-                    %relay,
-                    "Found no existing machine with mac address {mac_address} using network with relay {relay}",
-                );
-                Ok(MachineInterface::validate_existing_mac_and_create(
-                    &mut *txn,
-                    mac_address,
-                    relay,
-                )
-                .await?)
-            }
-            Some(_) => {
-                let mut ifcs =
-                    MachineInterface::find_by_mac_address(&mut *txn, mac_address).await?;
-                match ifcs.len() {
-                    1 => Ok(ifcs.remove(0)),
-                    n => {
-                        tracing::warn!(
-                            %mac_address,
-                            relay_ip = %relay,
-                            num_mac_address = n,
-                            "Duplicate mac address for network segment",
-                        );
-                        Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
-                    }
-                }
-            }
-        }
-    }
-
-    /// Do basic validating on existing macs and create the interface if it does not exist
-    pub async fn validate_existing_mac_and_create(
-        txn: &mut Transaction<'_, Postgres>,
-        mac_address: MacAddress,
-        relay: IpAddr,
-    ) -> CarbideResult<MachineInterfaceSnapshot> {
-        let mut existing_mac = MachineInterface::find_by_mac_address(txn, mac_address).await?;
-        match &existing_mac.len() {
-            0 => {
-                tracing::debug!(
-                    %mac_address,
-                    "No existing machine_interface with mac address exists yet, creating one",
-                );
-                match NetworkSegment::for_relay(txn, relay).await? {
-                    None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
-                    Some(segment) => {
-                        // actually create the interface
-                        let v = MachineInterface::create(
-                            txn,
-                            &segment,
-                            &mac_address,
-                            segment.subdomain_id,
-                            true,
-                            AddressSelectionStrategy::Automatic,
-                        )
-                        .await?;
-                        Ok(v)
-                    }
-                }
-            }
-            1 => {
-                tracing::debug!(
-                    %mac_address,
-                    "Mac address exists, validating the relay and returning it",
-                );
-                let mac = existing_mac.remove(0);
-                // Ensure the relay segment exists before blindly giving the mac address back out
-                match NetworkSegment::for_relay(txn, relay).await? {
-                    Some(ifc) if ifc.id == mac.segment_id => Ok(mac),
-                    Some(ifc) => Err(CarbideError::GenericError(format!(
-                        "Network segment mismatch for existing mac address: {0} expected: {1} actual from network switch: {2}",
-                        mac.mac_address,
-                        mac.segment_id,
-                        ifc.id,
-                    ))),
-                    None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
-                }
-            }
-            _ => {
-                tracing::warn!(
-                    %mac_address,
-                    %relay,
-                    "More than one existing mac address for network segment",
-                );
-                Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
-            }
-        }
-    }
-
-    pub async fn create(
-        txn: &mut Transaction<'_, Postgres>,
-        segment: &NetworkSegment,
-        macaddr: &MacAddress,
-        domain_id: Option<DomainId>,
-        primary_interface: bool,
-        addresses: AddressSelectionStrategy<'_>,
-    ) -> CarbideResult<MachineInterfaceSnapshot> {
-        // We're potentially about to insert a couple rows, so create a savepoint.
-        let mut inner_txn = txn
-            .begin()
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
-        let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
-        sqlx::query(query)
-            .execute(&mut *inner_txn)
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-
-        let dhcp_handler = UsedAdminNetworkIpResolver {
-            segment_id: segment.id,
-        };
-        let mut hostname: String = "".to_string();
-        // If either requested addresses are auto-generated, we lock the entire table.
-        let addresses_allocator =
-            IpAllocator::new(&mut inner_txn, segment, &dhcp_handler, addresses).await?;
-        let mut allocated_addresses = Vec::new();
-        for (_, maybe_address) in addresses_allocator {
-            let address = maybe_address?;
-            allocated_addresses.push(address);
-            if hostname.is_empty() && address.is_ipv4() {
-                hostname = address.to_string().replace('.', "-");
-            }
-        }
-        if hostname.is_empty() {
-            return Err(CarbideError::GenericError(
-                "Could not generate hostname".to_string(),
-            ));
-        }
-        let query = "INSERT INTO machine_interfaces
-            (segment_id, mac_address, hostname, domain_id, primary_interface)
-            VALUES
-            ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id";
-        let (interface_id,): (MachineInterfaceId,) = sqlx::query_as(query)
-            .bind(segment.id())
-            .bind(macaddr)
-            .bind(hostname)
-            .bind(domain_id)
-            .bind(primary_interface)
-            .fetch_one(&mut *inner_txn)
-            .await
-            .map_err(|err: sqlx::Error| match err {
-                sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
-                    CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr)
-                }
-                sqlx::Error::Database(e)
-                    if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
-                {
-                    CarbideError::OnePrimaryInterface
-                }
-                _ => DatabaseError::new(file!(), line!(), query, err).into(),
-            })?;
-
-        let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
-        for address in allocated_addresses {
-            sqlx::query(query)
-                .bind(interface_id)
-                .bind(address)
-                .fetch_all(&mut *inner_txn)
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        }
-
-        inner_txn
-            .commit()
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
-
-        Ok(
-            MachineInterface::find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
-                .await?
-                .remove(0),
-        )
-    }
-
-    // Support dpu-agent/scout transition from machine_interface_id to source IP.
-    // Allow either for now.
-    pub async fn find_by_ip_or_id(
-        txn: &mut Transaction<'_, Postgres>,
-        remote_ip: Option<IpAddr>,
-        interface_id: Option<MachineInterfaceId>,
-    ) -> Result<MachineInterfaceSnapshot, CarbideError> {
-        if let Some(remote_ip) = remote_ip {
-            if let Some(interface) = MachineInterface::find_by_ip(txn, remote_ip)
-                .await
-                .map_err(CarbideError::from)?
-            {
-                // remove debug message by Apr 2024
-                tracing::debug!(
-                    interface_id = %interface.id,
-                    %remote_ip,
-                    "Loaded interface by remote IP"
-                );
-                return Ok(interface);
-            }
-        }
-        match interface_id {
-            Some(interface_id) => MachineInterface::find_one(txn, interface_id).await,
-            None => Err(CarbideError::NotFoundError {
-                kind: "machine_interface",
-                id: format!("remote_ip={remote_ip:?},interface_id={interface_id:?}"),
-            }),
-        }
-    }
-
-    async fn find_by<'a, C, T>(
-        txn: &mut Transaction<'_, Postgres>,
-        filter: ObjectColumnFilter<'a, C, T>,
-    ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError>
-    where
-        C: ColumnInfo<ColumnType = T>,
-        T: sqlx::Type<sqlx::Postgres>
-            + Send
-            + Sync
-            + sqlx::Encode<'a, sqlx::Postgres>
-            + sqlx::postgres::PgHasArrayType
-            + Clone,
-    {
-        let mut query = sqlx::QueryBuilder::new("SELECT * FROM machine_interfaces mi");
-
-        let mut interfaces = match filter {
-            ObjectColumnFilter::All => query
-                .build_query_as::<DbMachineInterface>()
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces All", e))?,
-            ObjectColumnFilter::One(ref column, ref id) => query
-                .push(format!(" WHERE mi.{}=", column.column_name().clone()))
-                .push_bind(id.clone())
-                .build_query_as::<DbMachineInterface>()
-                .fetch_all(txn.deref_mut())
-                .await
-                .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces One", e))?,
-            ObjectColumnFilter::List(ref column, list) => {
-                if list.is_empty() {
-                    return Ok(Vec::new());
-                }
-
-                query
-                    .push(format!(" WHERE mi.{} = ANY(", column.column_name().clone()))
-                    .push_bind(list)
-                    .push(")")
-                    .build_query_as::<DbMachineInterface>()
-                    .fetch_all(txn.deref_mut())
-                    .await
-                    .map_err(|e| {
-                        DatabaseError::new(file!(), line!(), "machine_interfaces List", e)
-                    })?
-            }
-        };
-
-        let interface_ids;
-        let component_filter = match filter {
-            ObjectColumnFilter::All => MachineInterfaceIdKeyedObjectFilter::All,
-            _ => {
-                interface_ids = interfaces
-                    .iter()
-                    .map(|interface| interface.id)
-                    .collect::<Vec<MachineInterfaceId>>();
-                MachineInterfaceIdKeyedObjectFilter::List(interface_ids.as_slice())
-            }
-        };
-
-        let mut addresses_for_interfaces =
-            MachineInterfaceAddress::find_for_interface(&mut *txn, component_filter.clone())
-                .await?;
-
-        let dhcp_entries: Vec<DhcpEntry> =
-            DhcpEntry::find_for_interfaces(&mut *txn, component_filter).await?;
-        let mut vendors_by_interface_id = HashMap::<MachineInterfaceId, Vec<String>>::new();
-        for entry in dhcp_entries.into_iter() {
-            let vendors = vendors_by_interface_id
-                .entry(entry.machine_interface_id)
-                .or_default();
-            vendors.push(entry.vendor_string);
-        }
-
-        interfaces.iter_mut().for_each(|interface| {
-            if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {
-                interface.addresses = addresses;
-            } else {
-                tracing::warn!(interface_id = %interface.id, "Interface has no addresses");
-            }
-            interface.vendors = vendors_by_interface_id
-                .remove(&interface.id)
-                .unwrap_or_default();
-        });
-
-        Ok(interfaces
-            .into_iter()
-            .map(MachineInterfaceSnapshot::from)
-            .collect())
-    }
-
-    pub async fn get_machine_interface_primary(
-        machine_id: &MachineId,
-        txn: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> CarbideResult<MachineInterfaceSnapshot> {
-        MachineInterface::find_by_machine_ids(txn, &[machine_id.clone()])
+pub async fn find_by_machine_ids(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_ids: &[MachineId],
+) -> Result<HashMap<MachineId, Vec<MachineInterfaceSnapshot>>, DatabaseError> {
+    // The .unwrap() in the `group_map_by` call is ok - because we are only
+    // searching for Machines which have associated MachineIds
+    Ok(
+        find_by(txn, ObjectColumnFilter::List(MachineIdColumn, machine_ids))
             .await?
-            .remove(machine_id)
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "interface",
-                id: machine_id.to_string(),
-            })?
             .into_iter()
-            .filter(|m_intf| m_intf.is_primary)
-            .collect::<Vec<MachineInterfaceSnapshot>>()
-            .pop()
-            .ok_or_else(|| {
-                CarbideError::GenericError(format!(
-                    "Couldn't find primary interface for {}.",
-                    machine_id
-                ))
-            })
+            .into_group_map_by(|interface| interface.machine_id.clone().unwrap()),
+    )
+}
+
+pub async fn find_host_primary_interface_by_dpu_id(
+    txn: &mut Transaction<'_, Postgres>,
+    dpu_machine_id: &MachineId,
+) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
+    let query =
+        "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1 AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
+    let Some(mut machine_interface) = sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
+        .bind(dpu_machine_id.to_string())
+        .fetch_optional(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
+    else {
+        return Ok(None);
+    };
+
+    let mut addresses_for_interfaces = MachineInterfaceAddress::find_for_interface(
+        &mut *txn,
+        MachineInterfaceIdKeyedObjectFilter::List(&[machine_interface.id]),
+    )
+    .await?;
+
+    if let Some(addresses) = addresses_for_interfaces.remove(&machine_interface.id) {
+        machine_interface.addresses = addresses.into_iter().map(|a| a.address).collect();
+    } else {
+        tracing::warn!(
+            machine_id = %dpu_machine_id,
+            interface_id = %machine_interface.id,
+            "Interface has no addresses",
+        );
     }
 
-    /// This function creates Proactive Host Machine Interface with all available information.
-    /// Parsed Mac: Found in DPU's topology data
-    /// Relay IP: Taken from fixed Admin network segment. Relay IP is used only to identify related
-    /// segment.
-    /// Returns: Machine Interface, True if new interface is created.
-    pub async fn create_host_machine_interface_proactively(
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        hardware_info: Option<&HardwareInfo>,
-        dpu_id: &MachineId,
-    ) -> Result<MachineInterfaceSnapshot, CarbideError> {
-        let admin_network = NetworkSegment::admin(txn).await?;
+    Ok(Some(machine_interface))
+}
 
-        // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
-        // segment.
-        let prefix = admin_network
-            .prefixes
-            .iter()
-            .filter(|x| x.prefix.is_ipv4())
-            .last()
-            .ok_or(CarbideError::AdminNetworkNotConfigured)?;
+pub async fn count_by_segment_id(
+    txn: &mut Transaction<'_, Postgres>,
+    segment_id: &NetworkSegmentId,
+) -> Result<usize, DatabaseError> {
+    let query = "SELECT count(*) FROM machine_interfaces WHERE segment_id = $1";
+    let (address_count,): (i64,) = sqlx::query_as(query)
+        .bind(segment_id)
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-        let Some(gateway) = prefix.gateway else {
-            return Err(CarbideError::AdminNetworkNotConfigured);
-        };
+    Ok(address_count.max(0) as usize)
+}
 
-        // Host mac is stored at DPU topology data.
-        let host_mac = hardware_info
-            .map(|x| x.factory_mac_address())
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "Hardware Info",
-                id: dpu_id.to_string(),
-            })??;
-
-        let existing_machine = Machine::find_existing_machine(txn, host_mac, gateway)
-            .await
-            .map_err(CarbideError::from)?;
-
-        let machine_interface =
-            Self::find_or_create_machine_interface(txn, existing_machine, host_mac, gateway)
-                .await?;
-        associate_interface_with_dpu_machine(&machine_interface.id, dpu_id, txn).await?;
-
-        Ok(machine_interface)
+pub async fn find_one(
+    txn: &mut Transaction<'_, Postgres>,
+    interface_id: MachineInterfaceId,
+) -> CarbideResult<MachineInterfaceSnapshot> {
+    let mut interfaces = find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
+        .await
+        .map_err(CarbideError::from)?;
+    match interfaces.len() {
+        0 => Err(CarbideError::FindOneReturnedNoResultsError(interface_id.0)),
+        1 => Ok(interfaces.remove(0)),
+        _ => Err(CarbideError::FindOneReturnedManyResultsError(
+            interface_id.0,
+        )),
     }
+}
 
-    pub async fn find_by_machine_and_segment(
-        txn: &mut Transaction<'_, Postgres>,
-        machine_id: &MachineId,
-        segment_id: NetworkSegmentId,
-    ) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
-        let query =
-            "SELECT * FROM machine_interfaces WHERE machine_id = $1 AND segment_id = $2::uuid";
-        sqlx::query_as::<_, DbMachineInterface>(query)
-            .bind(machine_id.to_string())
-            .bind(segment_id)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-            .map(|interfaces| {
-                interfaces
-                    .into_iter()
-                    .map(MachineInterfaceSnapshot::from)
-                    .collect()
-            })
+// Returns (MachineInterface, newly_created_interface).
+// newly_created_interface indicates that we couldn't find a MachineInterface so created new
+// one.
+pub async fn find_or_create_machine_interface(
+    txn: &mut Transaction<'_, Postgres>,
+    machines: Option<MachineId>,
+    mac_address: MacAddress,
+    relay: IpAddr,
+) -> CarbideResult<MachineInterfaceSnapshot> {
+    match machines {
+        None => {
+            tracing::info!(
+                %mac_address,
+                %relay,
+                "Found no existing machine with mac address {mac_address} using network with relay {relay}",
+            );
+            Ok(validate_existing_mac_and_create(&mut *txn, mac_address, relay).await?)
+        }
+        Some(_) => {
+            let mut ifcs = find_by_mac_address(&mut *txn, mac_address).await?;
+            match ifcs.len() {
+                1 => Ok(ifcs.remove(0)),
+                n => {
+                    tracing::warn!(
+                        %mac_address,
+                        relay_ip = %relay,
+                        num_mac_address = n,
+                        "Duplicate mac address for network segment",
+                    );
+                    Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
+                }
+            }
+        }
     }
+}
 
-    /// Record that this interface just DHCPed, so it must still exist
-    pub async fn update_last_dhcp(
-        txn: &mut Transaction<'_, Postgres>,
-        interface_id: MachineInterfaceId,
-    ) -> Result<(), DatabaseError> {
-        let query = "UPDATE machine_interfaces SET last_dhcp = NOW() WHERE id=$1::uuid";
+/// Do basic validating on existing macs and create the interface if it does not exist
+pub async fn validate_existing_mac_and_create(
+    txn: &mut Transaction<'_, Postgres>,
+    mac_address: MacAddress,
+    relay: IpAddr,
+) -> CarbideResult<MachineInterfaceSnapshot> {
+    let mut existing_mac = find_by_mac_address(txn, mac_address).await?;
+    match &existing_mac.len() {
+        0 => {
+            tracing::debug!(
+                %mac_address,
+                "No existing machine_interface with mac address exists yet, creating one",
+            );
+            match NetworkSegment::for_relay(txn, relay).await? {
+                None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
+                Some(segment) => {
+                    // actually create the interface
+                    let v = create(
+                        txn,
+                        &segment,
+                        &mac_address,
+                        segment.subdomain_id,
+                        true,
+                        AddressSelectionStrategy::Automatic,
+                    )
+                    .await?;
+                    Ok(v)
+                }
+            }
+        }
+        1 => {
+            tracing::debug!(
+                %mac_address,
+                "Mac address exists, validating the relay and returning it",
+            );
+            let mac = existing_mac.remove(0);
+            // Ensure the relay segment exists before blindly giving the mac address back out
+            match NetworkSegment::for_relay(txn, relay).await? {
+                Some(ifc) if ifc.id == mac.segment_id => Ok(mac),
+                Some(ifc) => Err(CarbideError::GenericError(format!(
+                    "Network segment mismatch for existing mac address: {0} expected: {1} actual from network switch: {2}",
+                    mac.mac_address,
+                    mac.segment_id,
+                    ifc.id,
+                ))),
+                None => Err(CarbideError::NoNetworkSegmentsForRelay(relay)),
+            }
+        }
+        _ => {
+            tracing::warn!(
+                %mac_address,
+                %relay,
+                "More than one existing mac address for network segment",
+            );
+            Err(CarbideError::NetworkSegmentDuplicateMacAddress(mac_address))
+        }
+    }
+}
+
+pub async fn create(
+    txn: &mut Transaction<'_, Postgres>,
+    segment: &NetworkSegment,
+    macaddr: &MacAddress,
+    domain_id: Option<DomainId>,
+    primary_interface: bool,
+    addresses: AddressSelectionStrategy<'_>,
+) -> CarbideResult<MachineInterfaceSnapshot> {
+    // We're potentially about to insert a couple rows, so create a savepoint.
+    let mut inner_txn = txn
+        .begin()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "begin", e))?;
+    let query = "LOCK TABLE machine_interfaces_lock IN ACCESS EXCLUSIVE MODE";
+    sqlx::query(query)
+        .execute(&mut *inner_txn)
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+    let dhcp_handler = UsedAdminNetworkIpResolver {
+        segment_id: segment.id,
+    };
+    let mut hostname: String = "".to_string();
+    // If either requested addresses are auto-generated, we lock the entire table.
+    let addresses_allocator =
+        IpAllocator::new(&mut inner_txn, segment, &dhcp_handler, addresses).await?;
+    let mut allocated_addresses = Vec::new();
+    for (_, maybe_address) in addresses_allocator {
+        let address = maybe_address?;
+        allocated_addresses.push(address);
+        if hostname.is_empty() && address.is_ipv4() {
+            hostname = address.to_string().replace('.', "-");
+        }
+    }
+    if hostname.is_empty() {
+        return Err(CarbideError::GenericError(
+            "Could not generate hostname".to_string(),
+        ));
+    }
+    let query = "INSERT INTO machine_interfaces
+        (segment_id, mac_address, hostname, domain_id, primary_interface)
+        VALUES
+        ($1::uuid, $2::macaddr, $3::varchar, $4::uuid, $5::bool) RETURNING id";
+    let (interface_id,): (MachineInterfaceId,) = sqlx::query_as(query)
+        .bind(segment.id())
+        .bind(macaddr)
+        .bind(hostname)
+        .bind(domain_id)
+        .bind(primary_interface)
+        .fetch_one(&mut *inner_txn)
+        .await
+        .map_err(|err: sqlx::Error| match err {
+            sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
+                CarbideError::NetworkSegmentDuplicateMacAddress(*macaddr)
+            }
+            sqlx::Error::Database(e)
+                if e.constraint() == Some(SQL_VIOLATION_ONE_PRIMARY_INTERFACE) =>
+            {
+                CarbideError::OnePrimaryInterface
+            }
+            _ => DatabaseError::new(file!(), line!(), query, err).into(),
+        })?;
+
+    let query = "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1::uuid, $2::inet)";
+    for address in allocated_addresses {
         sqlx::query(query)
             .bind(interface_id)
-            .execute(txn.deref_mut())
+            .bind(address)
+            .fetch_all(&mut *inner_txn)
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
-        Ok(())
     }
+
+    inner_txn
+        .commit()
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), "commit", e))?;
+
+    Ok(
+        find_by(txn, ObjectColumnFilter::One(IdColumn, interface_id))
+            .await?
+            .remove(0),
+    )
+}
+
+// Support dpu-agent/scout transition from machine_interface_id to source IP.
+// Allow either for now.
+pub async fn find_by_ip_or_id(
+    txn: &mut Transaction<'_, Postgres>,
+    remote_ip: Option<IpAddr>,
+    interface_id: Option<MachineInterfaceId>,
+) -> Result<MachineInterfaceSnapshot, CarbideError> {
+    if let Some(remote_ip) = remote_ip {
+        if let Some(interface) = find_by_ip(txn, remote_ip)
+            .await
+            .map_err(CarbideError::from)?
+        {
+            // remove debug message by Apr 2024
+            tracing::debug!(
+                interface_id = %interface.id,
+                %remote_ip,
+                "Loaded interface by remote IP"
+            );
+            return Ok(interface);
+        }
+    }
+    match interface_id {
+        Some(interface_id) => find_one(txn, interface_id).await,
+        None => Err(CarbideError::NotFoundError {
+            kind: "machine_interface",
+            id: format!("remote_ip={remote_ip:?},interface_id={interface_id:?}"),
+        }),
+    }
+}
+
+async fn find_by<'a, C, T>(
+    txn: &mut Transaction<'_, Postgres>,
+    filter: ObjectColumnFilter<'a, C, T>,
+) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError>
+where
+    C: ColumnInfo<ColumnType = T>,
+    T: sqlx::Type<sqlx::Postgres>
+        + Send
+        + Sync
+        + sqlx::Encode<'a, sqlx::Postgres>
+        + sqlx::postgres::PgHasArrayType
+        + Clone,
+{
+    let mut query = sqlx::QueryBuilder::new("SELECT * FROM machine_interfaces mi");
+
+    let mut interfaces = match filter {
+        ObjectColumnFilter::All => query
+            .build_query_as::<MachineInterfaceSnapshot>()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces All", e))?,
+        ObjectColumnFilter::One(ref column, ref id) => query
+            .push(format!(" WHERE mi.{}=", column.column_name().clone()))
+            .push_bind(id.clone())
+            .build_query_as::<MachineInterfaceSnapshot>()
+            .fetch_all(txn.deref_mut())
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces One", e))?,
+        ObjectColumnFilter::List(ref column, list) => {
+            if list.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            query
+                .push(format!(" WHERE mi.{} = ANY(", column.column_name().clone()))
+                .push_bind(list)
+                .push(")")
+                .build_query_as::<MachineInterfaceSnapshot>()
+                .fetch_all(txn.deref_mut())
+                .await
+                .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces List", e))?
+        }
+    };
+
+    let interface_ids;
+    let component_filter = match filter {
+        ObjectColumnFilter::All => MachineInterfaceIdKeyedObjectFilter::All,
+        _ => {
+            interface_ids = interfaces
+                .iter()
+                .map(|interface| interface.id)
+                .collect::<Vec<MachineInterfaceId>>();
+            MachineInterfaceIdKeyedObjectFilter::List(interface_ids.as_slice())
+        }
+    };
+
+    let mut addresses_for_interfaces =
+        MachineInterfaceAddress::find_for_interface(&mut *txn, component_filter.clone()).await?;
+
+    let dhcp_entries: Vec<DhcpEntry> =
+        DhcpEntry::find_for_interfaces(&mut *txn, component_filter).await?;
+    let mut vendors_by_interface_id = HashMap::<MachineInterfaceId, Vec<String>>::new();
+    for entry in dhcp_entries.into_iter() {
+        let vendors = vendors_by_interface_id
+            .entry(entry.machine_interface_id)
+            .or_default();
+        vendors.push(entry.vendor_string);
+    }
+
+    interfaces.iter_mut().for_each(|interface| {
+        if let Some(addresses) = addresses_for_interfaces.remove(&interface.id) {
+            interface.addresses = addresses.into_iter().map(|a| a.address).collect();
+        } else {
+            tracing::warn!(interface_id = %interface.id, "Interface has no addresses");
+        }
+        interface.vendors = vendors_by_interface_id
+            .remove(&interface.id)
+            .unwrap_or_default();
+    });
+
+    Ok(interfaces
+        .into_iter()
+        .map(MachineInterfaceSnapshot::from)
+        .collect())
+}
+
+pub async fn get_machine_interface_primary(
+    machine_id: &MachineId,
+    txn: &mut sqlx::Transaction<'_, Postgres>,
+) -> CarbideResult<MachineInterfaceSnapshot> {
+    find_by_machine_ids(txn, &[machine_id.clone()])
+        .await?
+        .remove(machine_id)
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "interface",
+            id: machine_id.to_string(),
+        })?
+        .into_iter()
+        .filter(|m_intf| m_intf.is_primary)
+        .collect::<Vec<MachineInterfaceSnapshot>>()
+        .pop()
+        .ok_or_else(|| {
+            CarbideError::GenericError(format!(
+                "Couldn't find primary interface for {}.",
+                machine_id
+            ))
+        })
+}
+
+/// This function creates Proactive Host Machine Interface with all available information.
+/// Parsed Mac: Found in DPU's topology data
+/// Relay IP: Taken from fixed Admin network segment. Relay IP is used only to identify related
+/// segment.
+/// Returns: Machine Interface, True if new interface is created.
+pub async fn create_host_machine_interface_proactively(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    hardware_info: Option<&HardwareInfo>,
+    dpu_id: &MachineId,
+) -> Result<MachineInterfaceSnapshot, CarbideError> {
+    let admin_network = NetworkSegment::admin(txn).await?;
+
+    // Using gateway IP as relay IP. This is just to enable next algorithm to find related network
+    // segment.
+    let prefix = admin_network
+        .prefixes
+        .iter()
+        .filter(|x| x.prefix.is_ipv4())
+        .last()
+        .ok_or(CarbideError::AdminNetworkNotConfigured)?;
+
+    let Some(gateway) = prefix.gateway else {
+        return Err(CarbideError::AdminNetworkNotConfigured);
+    };
+
+    // Host mac is stored at DPU topology data.
+    let host_mac = hardware_info
+        .map(|x| x.factory_mac_address())
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "Hardware Info",
+            id: dpu_id.to_string(),
+        })??;
+
+    let existing_machine = Machine::find_existing_machine(txn, host_mac, gateway)
+        .await
+        .map_err(CarbideError::from)?;
+
+    let machine_interface =
+        find_or_create_machine_interface(txn, existing_machine, host_mac, gateway).await?;
+    associate_interface_with_dpu_machine(&machine_interface.id, dpu_id, txn).await?;
+
+    Ok(machine_interface)
+}
+
+pub async fn find_by_machine_and_segment(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    segment_id: NetworkSegmentId,
+) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
+    let query = "SELECT * FROM machine_interfaces WHERE machine_id = $1 AND segment_id = $2::uuid";
+    sqlx::query_as::<_, MachineInterfaceSnapshot>(query)
+        .bind(machine_id.to_string())
+        .bind(segment_id)
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map(|interfaces| {
+            interfaces
+                .into_iter()
+                .map(MachineInterfaceSnapshot::from)
+                .collect()
+        })
+}
+
+/// Record that this interface just DHCPed, so it must still exist
+pub async fn update_last_dhcp(
+    txn: &mut Transaction<'_, Postgres>,
+    interface_id: MachineInterfaceId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machine_interfaces SET last_dhcp = NOW() WHERE id=$1::uuid";
+    sqlx::query(query)
+        .bind(interface_id)
+        .execute(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+    Ok(())
 }
 
 pub async fn delete(
@@ -836,7 +783,7 @@ pub async fn delete_by_ip(
     txn: &mut Transaction<'_, Postgres>,
     ip: IpAddr,
 ) -> Result<Option<()>, DatabaseError> {
-    let interface = MachineInterface::find_by_ip(txn, ip).await?;
+    let interface = find_by_ip(txn, ip).await?;
 
     let Some(interface) = interface else {
         return Ok(None);

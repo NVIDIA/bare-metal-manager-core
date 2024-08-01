@@ -39,7 +39,7 @@ use mac_address::MacAddress;
 use tokio::time;
 
 use crate::{
-    db::{machine::Machine, machine_interface::MachineInterface},
+    db::{self, machine::Machine},
     ipmitool::IPMITool,
     model::machine::MachineSnapshot,
     CarbideError, CarbideResult,
@@ -121,15 +121,14 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             )
         })?;
 
-        let machine_interface_target =
-            MachineInterface::find_by_ip(txn, ip)
-                .await?
-                .ok_or_else(|| {
-                    RedfishClientCreationError::MissingArgument(format!(
-                        "Machine Interface for IP address: {}",
-                        ip
-                    ))
-                })?;
+        let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
+            .await?
+            .ok_or_else(|| {
+                RedfishClientCreationError::MissingArgument(format!(
+                    "Machine Interface for IP address: {}",
+                    ip
+                ))
+            })?;
 
         self.create_client(
             ip.to_string().as_str(),
@@ -1211,13 +1210,12 @@ pub async fn host_power_control(
             CarbideError::GenericError(format!("Invalid IP address for {}", machine_id))
         })?;
 
-        let machine_interface_target =
-            MachineInterface::find_by_ip(txn, ip)
-                .await?
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "MachineInterface by IP",
-                    id: ip.to_string(),
-                })?;
+        let machine_interface_target = db::machine_interface::find_by_ip(txn, ip)
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "MachineInterface by IP",
+                id: ip.to_string(),
+            })?;
 
         let credential_key = CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::BmcRoot {
@@ -1310,7 +1308,7 @@ pub async fn build_redfish_client_from_bmc_ip(
     }
 
     let addr = bmc_addr.unwrap();
-    let machine_interface_target = MachineInterface::find_by_ip(txn, addr.ip())
+    let machine_interface_target = db::machine_interface::find_by_ip(txn, addr.ip())
         .await?
         .ok_or_else(|| {
             RedfishClientCreationError::MissingArgument(format!(
