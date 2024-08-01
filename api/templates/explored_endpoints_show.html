@@ -3,11 +3,11 @@
 {% block title %}{{ filter_name }} Explored Endpoints{% endblock %}
 
 {% block content %}
-{% if active_vendor_filter == "All" %}
-<div id="json"><a id="json-link" href="">JSON</a></div>
+{% if active_vendor_filter == "all" && !is_errors_only %}
+<div id="json"><a href="/admin/explored_endpoint.json">JSON</a></div>
 {% endif %}
 
-<h1>Explored Endpoints - {% if is_errors_only %}Errors{% else %}{{ active_vendor_filter|capitalize }}{% endif %}</h1>
+<h1>{{ filter_name }} Explored Endpoints{% if is_errors_only %} - Errors{% endif %}</h1>
 
 <form id="filter-container" action="" method="get">
   <div>

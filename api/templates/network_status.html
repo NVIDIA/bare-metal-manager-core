@@ -3,7 +3,9 @@
 {% block title %}DPU Network Status{% endblock %}
 
 {% block content %}
-<div id="json"><a id="json-link" href="">JSON</a></div>
+{% if active_filter == "all" %}
+<div id="json"><a href="/admin/network-status.json">JSON</a></div>
+{% endif %}
 <h1>DPU Network Status - {{ active_filter|capitalize }}</h1>
 
 <form id="filter-container" action="" method="get">
