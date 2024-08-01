@@ -483,6 +483,7 @@ pub async fn scrape_machines_health(
             }
 
             match scrape_machine_health(
+                &mut grpc_client,
                 provider.clone(),
                 box_logger.clone(),
                 machine_id.as_str(),

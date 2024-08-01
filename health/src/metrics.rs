@@ -12,21 +12,26 @@
 
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
+};
 use libredfish::model::power::{PowerSupply, Voltages};
 use libredfish::model::sel::LogEntry;
 use libredfish::model::thermal::{Fan, Temperature};
+use libredfish::model::ResourceHealth;
 use libredfish::model::{power::Power, software_inventory::SoftwareInventory, thermal::Thermal};
 use libredfish::{PowerState, Redfish, RedfishClientPool};
-use opentelemetry::metrics::{MeterProvider as _, Unit};
-use opentelemetry::KeyValue;
-use std::sync::Arc;
-//use opentelemetry::global::{GlobalLoggerProvider, ObjectSafeLoggerProvider};
 use opentelemetry::logs::{AnyValue, LogRecord, Logger};
 use opentelemetry::metrics::Meter;
+use opentelemetry::metrics::{MeterProvider as _, Unit};
 use opentelemetry::Key;
-//use opentelemetry_sdk::logs::Logger;
+use opentelemetry::KeyValue;
 use opentelemetry_sdk::metrics::MeterProvider;
+use report::HealthCheck;
+use rpc::forge_tls_client::ForgeClientT;
 use sha2::{Digest, Sha256};
+use std::str::FromStr;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use crate::HealthError;
@@ -79,14 +84,13 @@ pub async fn get_metrics(
 
     // get the system/hardware event log
     let mut logs: Vec<LogEntry> = Vec::new();
-    let firmware: Vec<SoftwareInventory> = Vec::new();
+    let mut firmware: Vec<SoftwareInventory> = Vec::new();
     let now: DateTime<Utc> = Utc::now();
     // poll every 30 minutes for firmware versions and sel logs
     if (now.timestamp() - last_polled_ts) > (30 * 60) {
         logs = redfish.get_system_event_log().await?;
         // get system firmware components versions, such as uefi, bmc, sbios, me, etc
         let components = redfish.get_software_inventories().await?;
-        let mut firmware = Vec::with_capacity(components.len());
         for component in components.iter() {
             let version = redfish.get_firmware(component.as_str()).await?;
             firmware.push(version);
@@ -439,6 +443,7 @@ pub async fn export_metrics(
 
 /// get a single machine's health metrics and export it
 pub async fn scrape_machine_health(
+    client: &mut ForgeClientT,
     provider: MeterProvider,
     logger: Arc<Box<dyn Logger + Send + Sync>>,
     machine_id: &str,
@@ -510,6 +515,8 @@ pub async fn scrape_machine_health(
         }
     };
 
+    export_health(client, &health, machine_id).await?;
+
     export_metrics(
         provider.clone(),
         logger,
@@ -522,4 +529,125 @@ pub async fn scrape_machine_health(
         machine_id,
     )
     .await
+}
+
+async fn export_health(
+    client: &mut ForgeClientT,
+    health: &HardwareHealth,
+    machine_id: &str,
+) -> Result<(), HealthError> {
+    let mut report = HealthReport {
+        source: "hardware-health".to_string(),
+        observed_at: None,
+        successes: vec![],
+        alerts: vec![],
+    };
+
+    report_resources(
+        &mut report,
+        health
+            .thermal
+            .fans
+            .iter()
+            .map(|r| (r.name.as_ref().or(r.fan_name.as_ref()), r.status.health)),
+        HealthCheck::FanSpeed,
+    );
+
+    report_resources(
+        &mut report,
+        health
+            .thermal
+            .temperatures
+            .iter()
+            .map(|r| (Some(&r.name), r.status.health)),
+        HealthCheck::Temperature,
+    );
+
+    if let Some(voltages) = &health.power.voltages {
+        report_resources(
+            &mut report,
+            voltages.iter().map(|r| (Some(&r.name), r.status.health)),
+            HealthCheck::Voltage,
+        );
+    }
+
+    let request = tonic::Request::new(rpc::forge::HardwareHealthReport {
+        machine_id: Some(rpc::MachineId {
+            id: machine_id.to_string(),
+        }),
+        report: Some(report.into()),
+    });
+
+    client
+        .record_hardware_health_report(request)
+        .await
+        .map_err(HealthError::ApiInvocationError)?;
+
+    Ok(())
+}
+
+fn report_resources<'a>(
+    report: &mut HealthReport,
+    resources: impl Iterator<Item = (Option<&'a String>, Option<ResourceHealth>)>,
+    health_check: HealthCheck,
+) {
+    for resource in resources {
+        let classification = match resource.1 {
+            Some(ResourceHealth::Warning) => Some("Warning"),
+            Some(ResourceHealth::Critical) => Some("Critical"),
+            _ => None,
+        };
+        if let Some(c) = classification {
+            report.alerts.push(HealthProbeAlert {
+                id: health_check.to_stable_id(),
+                in_alert_since: None,
+                message: health_check.get_message().to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    HealthAlertClassification::from_str("Hardware").unwrap(),
+                    HealthAlertClassification::from_str(c).unwrap(),
+                ],
+                target: resource.0.cloned(),
+            })
+        } else {
+            report.successes.push(HealthProbeSuccess {
+                id: health_check.to_stable_id(),
+                target: resource.0.cloned(),
+            });
+        }
+    }
+}
+
+mod report {
+    use std::str::FromStr;
+
+    use health_report::HealthProbeId;
+    use serde::Serialize;
+
+    // The things we check on to ensure a machine is in good health
+    #[derive(Debug, Serialize, PartialEq)]
+    pub enum HealthCheck {
+        Voltage,
+        Temperature,
+        FanSpeed,
+    }
+
+    impl HealthCheck {
+        pub fn to_stable_id(&self) -> HealthProbeId {
+            HealthProbeId::from_str(match self {
+                Self::Voltage => "Voltage",
+                Self::Temperature => "Temperature",
+                Self::FanSpeed => "FanSpeed",
+            })
+            .unwrap()
+        }
+
+        pub fn get_message(&self) -> &'static str {
+            match self {
+                Self::Voltage => "Voltage out of bounds",
+                Self::Temperature => "Temperature out of bounds",
+                Self::FanSpeed => "Fan speed out of bounds",
+            }
+        }
+    }
 }

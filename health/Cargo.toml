@@ -32,6 +32,7 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 
 # [local-dependencies]
+health-report = { path = "../common/health-report" }
 rpc = { path = "../rpc" }
 forge-tls = { path = "../common/tls" }
 forge-version = { path = "../common/version" }

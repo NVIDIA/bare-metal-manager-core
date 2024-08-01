@@ -2640,6 +2640,7 @@ dependencies = [
  "eyre",
  "forge-tls",
  "forge-version",
+ "health-report",
  "http 0.2.12",
  "hyper 0.14.28",
  "libredfish",
