@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
+use carbide::db;
 use carbide::db::address_selection_strategy::AddressSelectionStrategy;
-use carbide::db::machine_interface::MachineInterface;
 use carbide::db::network_prefix::{NetworkPrefix, NewNetworkPrefix};
 use carbide::db::network_segment::{
     NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentType,
@@ -126,7 +126,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
     .unwrap()
     .remove(0);
 
-    MachineInterface::create(
+    db::machine_interface::create(
         &mut txn,
         &db_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),

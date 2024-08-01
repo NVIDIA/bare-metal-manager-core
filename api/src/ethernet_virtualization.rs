@@ -16,9 +16,10 @@ use tonic::Status;
 
 use crate::{
     db::{
+        self,
         domain::Domain,
         instance::InstanceId,
-        machine_interface::{MachineInterface, MachineInterfaceId},
+        machine_interface::MachineInterfaceId,
         machine_interface_address::MachineInterfaceAddress,
         network_prefix::NetworkPrefix,
         network_segment::{
@@ -118,7 +119,7 @@ pub async fn admin_network(
     };
 
     let interfaces =
-        MachineInterface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
+        db::machine_interface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
             .await
             .map_err(CarbideError::from)?;
 

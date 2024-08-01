@@ -19,7 +19,7 @@ use serde_json::json;
 use sqlx::{Postgres, Transaction};
 
 use super::{machine::DbMachineId, DatabaseError};
-use crate::db::machine_interface::MachineInterface;
+use crate::db;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::machine::machine_id::{try_parse_machine_id, MachineId};
 use crate::{CarbideError, CarbideResult};
@@ -220,7 +220,7 @@ impl BmcMetaDataInfo {
         let bmc_ip_address = self.bmc_info.ip.clone().unwrap().parse()?;
         if self.bmc_info.mac.is_none() {
             if let Some(bmc_machine_interface) =
-                MachineInterface::find_by_ip(txn, bmc_ip_address).await?
+                db::machine_interface::find_by_ip(txn, bmc_ip_address).await?
             {
                 let bmc_mac_address = bmc_machine_interface.mac_address;
 

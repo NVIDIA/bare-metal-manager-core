@@ -15,6 +15,7 @@ use std::{fmt, net::IpAddr, str::FromStr};
 use ::rpc::protos::common as rpc_common;
 use ::rpc::protos::forge as rpc;
 
+use crate::db;
 use crate::db::domain::Domain;
 use crate::db::domain::DomainId;
 use crate::db::domain::DomainIdKeyedObjectFilter;
@@ -22,7 +23,6 @@ use crate::db::instance::FindInstanceTypeFilter;
 use crate::db::instance::Instance;
 use crate::db::instance::InstanceId;
 use crate::db::instance::InstanceIdKeyedObjectFilter;
-use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::network_segment::{
     NetworkSegment, NetworkSegmentId, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
@@ -418,7 +418,10 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     }
 
     if let Ok(mi_id) = MachineInterfaceId::try_from(u.clone()) {
-        if MachineInterface::find_one(&mut txn, mi_id).await.is_ok() {
+        if db::machine_interface::find_one(&mut txn, mi_id)
+            .await
+            .is_ok()
+        {
             return Ok(Some(rpc::UuidType::MachineInterface));
         }
     }
@@ -450,7 +453,7 @@ async fn by_mac(
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "begin MAC search", e))?;
 
-    match MachineInterface::find_by_mac_address(&mut txn, mac).await {
+    match db::machine_interface::find_by_mac_address(&mut txn, mac).await {
         Ok(interfaces) if interfaces.len() == 1 => {
             return Ok(Some((
                 interfaces[0].id.to_string(),
@@ -467,7 +470,7 @@ async fn by_mac(
             );
         }
         Err(err) => {
-            tracing::error!(%err, %mac, "DB error MachineInterface::find_by_mac_address");
+            tracing::error!(%err, %mac, "DB error db::machine_interface::find_by_mac_address");
         }
     }
 

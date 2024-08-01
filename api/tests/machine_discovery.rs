@@ -12,7 +12,7 @@
 use std::{net::IpAddr, str::FromStr};
 
 use carbide::{
-    db::{machine::Machine, machine_interface::MachineInterface},
+    db::{self, machine::Machine},
     model::machine::{
         machine_id::try_parse_machine_id, FailureCause, FailureDetails, FailureSource,
         ManagedHostState,
@@ -46,7 +46,7 @@ async fn test_machine_discovery_no_domain(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
 
-    let machine_interface = MachineInterface::validate_existing_mac_and_create(
+    let machine_interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
@@ -80,7 +80,7 @@ async fn test_machine_discovery_with_domain(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine_interface = MachineInterface::validate_existing_mac_and_create(
+    let machine_interface = db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),

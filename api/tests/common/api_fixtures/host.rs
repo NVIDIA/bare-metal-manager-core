@@ -17,8 +17,7 @@ use carbide::db::network_prefix::NetworkPrefix;
 use carbide::model::machine::{FailureCause, FailureDetails, FailureSource};
 use carbide::model::machine::{MachineState::UefiSetup, UefiSetupInfo, UefiSetupState};
 use carbide::{
-    db::machine_interface::MachineInterface,
-    db::network_segment::NetworkSegmentIdKeyedObjectFilter,
+    db::{self, network_segment::NetworkSegmentIdKeyedObjectFilter},
     model::{
         hardware_info::HardwareInfo,
         machine::{
@@ -167,7 +166,7 @@ pub async fn create_host_machine(
     // Let's find the IP that we assign to the BMC
     let mut txn = env.pool.begin().await.unwrap();
     let bmc_interface =
-        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+        db::machine_interface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
             .await
             .unwrap();
     let host_bmc_ip = bmc_interface.addresses[0];
@@ -365,7 +364,7 @@ pub async fn create_host_with_machine_validation(
     // Let's find the IP that we assign to the BMC
     let mut txn = env.pool.begin().await.unwrap();
     let bmc_interface =
-        MachineInterface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
+        db::machine_interface::find_one(&mut txn, bmc_machine_interface_id.try_into().unwrap())
             .await
             .unwrap();
     let host_bmc_ip = bmc_interface.addresses[0];

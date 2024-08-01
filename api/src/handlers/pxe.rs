@@ -16,12 +16,13 @@ use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::{log_request_data, Api};
+use crate::db;
 use crate::db::domain::{Domain, DomainIdKeyedObjectFilter};
 use crate::db::instance::Instance;
 use crate::db::instance_address::InstanceAddress;
 use crate::db::machine::{Machine, MachineSearchConfig};
 use crate::db::machine_boot_override::MachineBootOverride;
-use crate::db::machine_interface::{MachineInterface, MachineInterfaceId};
+use crate::db::machine_interface::MachineInterfaceId;
 use crate::db::DatabaseError;
 use crate::ipxe::PxeInstructions;
 use crate::model::machine::ReprovisionState;
@@ -101,7 +102,7 @@ pub(crate) async fn get_cloud_init_instructions(
     {
         None => {
             // assume there is no instance associated with this IP and check if there is an interface associated with it
-            let machine_interface = MachineInterface::find_by_ip(&mut txn, ip)
+            let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| {

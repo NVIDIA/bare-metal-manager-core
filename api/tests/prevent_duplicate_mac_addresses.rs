@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 use carbide::db::{
+    self,
     address_selection_strategy::AddressSelectionStrategy,
     machine::Machine,
-    machine_interface::MachineInterface,
     network_segment::{NetworkSegment, NetworkSegmentIdKeyedObjectFilter},
 };
 use carbide::model::machine::machine_id::MachineId;
@@ -48,7 +48,7 @@ async fn prevent_duplicate_mac_addresses(
     .pop()
     .unwrap();
 
-    let new_interface = MachineInterface::create(
+    let new_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         &host_sim.config.dpu_oob_mac_address,
@@ -62,7 +62,7 @@ async fn prevent_duplicate_mac_addresses(
         MachineId::from_hardware_info(&create_dpu_hardware_info(&host_sim.config)).unwrap();
     Machine::get_or_create(&mut txn, &machine_id, &new_interface).await?;
 
-    let duplicate_interface = MachineInterface::create(
+    let duplicate_interface = db::machine_interface::create(
         &mut txn,
         &network_segment,
         &host_sim.config.dpu_oob_mac_address,

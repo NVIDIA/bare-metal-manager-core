@@ -11,11 +11,7 @@
  */
 
 use carbide::{
-    db::{
-        self,
-        machine::Machine,
-        machine_interface::{MachineInterface, MachineInterfaceId},
-    },
+    db::{self, machine::Machine, machine_interface::MachineInterfaceId},
     model::{
         hardware_info::TpmEkCertificate,
         machine::machine_id::{try_parse_machine_id, MachineId},
@@ -71,7 +67,7 @@ pub async fn create_managed_host_multi_dpu(env: &TestEnv, dpu_count: usize) -> M
         );
 
         let interface =
-            MachineInterface::find_by_machine_ids(&mut txn, &[extra_host_machine_id.clone()])
+            db::machine_interface::find_by_machine_ids(&mut txn, &[extra_host_machine_id.clone()])
                 .await
                 .unwrap()
                 .get(&extra_host_machine_id)

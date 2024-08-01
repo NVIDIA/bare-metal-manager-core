@@ -11,8 +11,10 @@ use std::collections::HashMap;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::db::machine::{Machine, MachineSearchConfig};
-use carbide::db::machine_interface::MachineInterface;
+use carbide::db::{
+    self,
+    machine::{Machine, MachineSearchConfig},
+};
 use carbide::model::machine::{
     DpuInitState, InstanceState, MachineLastRebootRequestedMode, MachineState, ManagedHostState,
     ReprovisionState,
@@ -133,13 +135,14 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     assert!(dpu.reprovisioning_requested().is_none(),);
 
-    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let interface_id =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+            .await
+            .unwrap()
+            .get(&dpu_machine_id)
+            .unwrap()[0]
+            .id
+            .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -446,13 +449,14 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
 
     assert!(dpu.reprovisioning_requested().is_none(),);
 
-    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let interface_id =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+            .await
+            .unwrap()
+            .get(&dpu_machine_id)
+            .unwrap()[0]
+            .id
+            .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -628,13 +632,14 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let interface_id =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+            .await
+            .unwrap()
+            .get(&dpu_machine_id)
+            .unwrap()[0]
+            .id
+            .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -912,16 +917,17 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     .await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let interface_id =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+            .await
+            .unwrap()
+            .get(&dpu_machine_id)
+            .unwrap()[0]
+            .id
+            .to_string();
 
     let host_interface_id =
-        MachineInterface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
+        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id.clone()])
             .await
             .unwrap()
             .get(&host_machine_id)
@@ -1613,13 +1619,14 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let interface_id =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+            .await
+            .unwrap()
+            .get(&dpu_machine_id)
+            .unwrap()[0]
+            .id
+            .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
     let pxe = env

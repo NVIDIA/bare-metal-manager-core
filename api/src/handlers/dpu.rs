@@ -22,7 +22,6 @@ use crate::db::domain::Domain;
 use crate::db::dpu_agent_upgrade_policy::DpuAgentUpgradePolicy;
 use crate::db::instance::{Instance, InstanceId};
 use crate::db::machine::{Machine, MachineSearchConfig};
-use crate::db::machine_interface::MachineInterface;
 use crate::db::network_segment::{
     NetworkSegment, NetworkSegmentIdKeyedObjectFilter, NetworkSegmentSearchConfig,
 };
@@ -208,7 +207,7 @@ pub(crate) async fn get_managed_host_network_config(
         .find(|x| x.is_primary)
         .ok_or_else(|| CarbideError::GenericError("Primary Interface is missing.".to_string()))?;
 
-    let primary_dpu = MachineInterface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
+    let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
 
     txn.commit().await.map_err(|e| {
         CarbideError::from(DatabaseError::new(

@@ -31,7 +31,6 @@ use uuid::Uuid;
 use super::bmc_metadata::BmcMetaDataInfo;
 use super::{DatabaseError, ObjectFilter};
 use crate::db;
-use crate::db::machine_interface::MachineInterface;
 use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::model::bmc_info::BmcInfo;
@@ -793,7 +792,7 @@ SELECT m.id FROM
         };
 
         let mut interfaces_for_machine =
-            MachineInterface::find_by_machine_ids(&mut *txn, &all_ids).await?;
+            db::machine_interface::find_by_machine_ids(&mut *txn, &all_ids).await?;
 
         let topologies_for_machine =
             MachineTopology::find_latest_by_machine_ids(&mut *txn, &all_ids).await?;
@@ -876,7 +875,7 @@ SELECT m.id FROM
         }
 
         let mut interfaces =
-            MachineInterface::find_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
+            db::machine_interface::find_by_machine_ids(&mut *txn, &[self.id.clone()]).await?;
         if let Some(interfaces) = interfaces.remove(&self.id) {
             self.interfaces = interfaces;
         }

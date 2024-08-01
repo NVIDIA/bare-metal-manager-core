@@ -23,7 +23,6 @@ use crate::{
         dhcp_record::{DhcpRecord, InstanceDhcpRecord},
         instance::Instance,
         machine::Machine,
-        machine_interface::MachineInterface,
         DatabaseError,
     },
     dhcp::allocation::DhcpError,
@@ -158,7 +157,7 @@ pub async fn discover_dhcp(
         return Ok(response);
     }
 
-    let machine_interface = MachineInterface::find_or_create_machine_interface(
+    let machine_interface = db::machine_interface::find_or_create_machine_interface(
         &mut txn,
         existing_machine,
         parsed_mac,
@@ -182,7 +181,7 @@ pub async fn discover_dhcp(
         }
     }
 
-    MachineInterface::update_last_dhcp(&mut txn, machine_interface.id).await?;
+    db::machine_interface::update_last_dhcp(&mut txn, machine_interface.id).await?;
 
     txn.commit()
         .await

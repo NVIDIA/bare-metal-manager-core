@@ -36,7 +36,6 @@ use crate::{
         explored_endpoints::DbExploredEndpoint,
         explored_managed_host::DbExploredManagedHost,
         machine::{Machine, MachineSearchConfig},
-        machine_interface::MachineInterface,
         machine_topology::MachineTopology,
         network_segment::{NetworkSegment, NetworkSegmentType},
         DatabaseError,
@@ -573,7 +572,7 @@ impl SiteExplorer {
 
         let underlay_segments =
             NetworkSegment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay)).await?;
-        let interfaces = MachineInterface::find_all(&mut txn).await?;
+        let interfaces = db::machine_interface::find_all(&mut txn).await?;
         let explored_endpoints = DbExploredEndpoint::find_all(&mut txn).await?;
         txn.rollback().await.map_err(|e| {
             DatabaseError::new(
@@ -927,7 +926,7 @@ impl SiteExplorer {
         // If machine_interface exists for the DPU and machine_id is not updated, do it now.
         if let Some(oob_net0_mac) = oob_net0_mac {
             let mac_address = MacAddress::from_str(&oob_net0_mac)?;
-            let mi = MachineInterface::find_by_mac_address(txn, mac_address).await?;
+            let mi = db::machine_interface::find_by_mac_address(txn, mac_address).await?;
 
             if let Some(interface) = mi.first() {
                 if interface.machine_id.is_none() {
@@ -1013,12 +1012,13 @@ impl SiteExplorer {
         // Create Host proactively.
         // In case host interface is created, this method will return existing one, instead
         // creating new everytime.
-        let host_machine_interface = MachineInterface::create_host_machine_interface_proactively(
-            txn,
-            Some(&dpu_hw_info),
-            explored_dpu.report.machine_id.as_ref().unwrap(),
-        )
-        .await?;
+        let host_machine_interface =
+            db::machine_interface::create_host_machine_interface_proactively(
+                txn,
+                Some(&dpu_hw_info),
+                explored_dpu.report.machine_id.as_ref().unwrap(),
+            )
+            .await?;
 
         if host_machine_interface.machine_id.is_some() {
             return Err(CarbideError::GenericError(format!(
