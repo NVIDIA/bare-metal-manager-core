@@ -11,6 +11,8 @@ use std::net::IpAddr;
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
+
 use ::rpc::forge as rpc;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
@@ -100,7 +102,7 @@ impl DnsQuestion {
                 let query = "SELECT resource_record from dns_records WHERE q_name=$1 AND family(resource_record) = 4;";
                 let result = sqlx::query_as::<_, ResourceRecord>(query)
                     .bind(Some(question.query_name))
-                    .fetch_one(&mut **txn)
+                    .fetch_one(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
                 let rr = DnsResourceRecord {

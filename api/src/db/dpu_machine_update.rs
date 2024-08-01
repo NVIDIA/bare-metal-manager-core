@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use sqlx::{FromRow, Postgres, Transaction};
 
@@ -107,7 +108,7 @@ impl DpuMachineUpdate {
         }
 
         let result = q
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
 
@@ -152,7 +153,7 @@ impl DpuMachineUpdate {
         }
 
         let result = q
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
 
@@ -166,7 +167,7 @@ impl DpuMachineUpdate {
             WHERE (reprovisioning_requested->>'update_firmware')::boolean is true  
             AND reprovisioning_requested->>'started_at' IS NOT NULL;"#;
         let (count,): (i64,) = sqlx::query_as(query)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "find_available_outdated_dpus", e))?;
 
@@ -207,7 +208,7 @@ impl DpuMachineUpdate {
             .bind(sqlx::types::Json(req))
             .bind(initiator.to_string())
             .bind(machine_update.dpu_machine_id.to_string())
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -215,7 +216,7 @@ impl DpuMachineUpdate {
         sqlx::query(query)
             .bind(initiator.to_string())
             .bind(machine_update.host_machine_id.to_string())
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -235,7 +236,7 @@ impl DpuMachineUpdate {
 
         let result: Vec<DbDpuMachineUpdate> = sqlx::query_as::<_, DbDpuMachineUpdate>(query)
             .bind(&reference)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -261,7 +262,7 @@ impl DpuMachineUpdate {
         let updated_machines: Vec<DbDpuMachineUpdate> =
             sqlx::query_as::<_, DbDpuMachineUpdate>(query)
                 .bind(&reference)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

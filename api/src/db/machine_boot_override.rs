@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
+
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::str::FromStr;
 
@@ -86,7 +88,7 @@ impl MachineBootOverride {
             .bind(machine_interface_id)
             .bind(custom_pxe)
             .bind(custom_user_data)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -114,7 +116,7 @@ impl MachineBootOverride {
                     .bind(custom_pxe)
                     .bind(custom_user_data)
                     .bind(self.machine_interface_id)
-                    .execute(&mut **txn)
+                    .execute(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         CarbideError::from(DatabaseError::new(file!(), line!(), query, e))
@@ -141,7 +143,7 @@ impl MachineBootOverride {
 
         sqlx::query(query)
             .bind(machine_interface_id)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -185,7 +187,7 @@ impl MachineBootOverride {
         let custom_pxes = match filter {
             ObjectColumnFilter::All => base_query
                 .build_query_as::<MachineBootOverride>()
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| {
                     DatabaseError::new(file!(), line!(), "machine_boot_override All", e)
@@ -194,7 +196,7 @@ impl MachineBootOverride {
                 .push(format!(" WHERE pxe.{}=", column.column_name()))
                 .push_bind(id)
                 .build_query_as::<MachineBootOverride>()
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| {
                     DatabaseError::new(file!(), line!(), "machine_boot_override One", e)
@@ -209,7 +211,7 @@ impl MachineBootOverride {
                     .push_bind(list)
                     .push(")")
                     .build_query_as::<MachineBootOverride>()
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_boot_override List", e)

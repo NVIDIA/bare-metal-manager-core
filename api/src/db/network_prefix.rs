@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::net::IpAddr;
+use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
@@ -98,7 +99,7 @@ impl NetworkPrefix {
         let query = "select * from network_prefixes where prefix && $1::inet";
         let container = sqlx::query_as::<_, NetworkPrefix>(query)
             .bind(prefix)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(container)
@@ -120,7 +121,7 @@ impl NetworkPrefix {
         let query = "select * from network_prefixes where id=$1";
         sqlx::query_as::<_, NetworkPrefix>(query)
             .bind(uuid)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -136,7 +137,7 @@ impl NetworkPrefix {
         Ok(match filter {
             NetworkSegmentIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, NetworkPrefix>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes All", e))?
             }
@@ -144,14 +145,14 @@ impl NetworkPrefix {
                 &base_query.replace("{where}", "WHERE segment_id=$1"),
             )
             .bind(uuid)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes One", e))?,
             NetworkSegmentIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, NetworkPrefix>(
                 &base_query.replace("{where}", "WHERE segment_id=ANY($1)"),
             )
             .bind(list)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_prefixes List", e))?,
         })
@@ -168,7 +169,7 @@ impl NetworkPrefix {
 
         let prefixes = sqlx::query_as::<_, NetworkPrefix>(query)
             .bind(vpc_id)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(prefixes)
@@ -237,7 +238,7 @@ impl NetworkPrefix {
         let query = "DELETE FROM network_prefixes WHERE segment_id=$1::uuid RETURNING id";
         let _deleted_prefixes: Vec<NetworkPrefixId> = sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

@@ -31,6 +31,7 @@ use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb
 use serde::Serialize;
 use sqlx::types::chrono::Utc;
 use sqlx::{Pool, Postgres, Transaction};
+use std::ops::DerefMut;
 use std::str::FromStr;
 use utils::admin_cli::{just_print_summary, serde_just_print_summary};
 
@@ -371,7 +372,7 @@ pub async fn get_latest_journal_for_id(
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
     match sqlx::query_as::<_, MeasurementJournalRecord>(query)
         .bind(machine_id)
-        .fetch_optional(&mut **txn)
+        .fetch_optional(txn.deref_mut())
         .await?
     {
         Some(info) => Ok(Some(MeasurementJournal {

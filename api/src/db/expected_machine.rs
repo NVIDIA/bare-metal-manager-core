@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -83,7 +84,7 @@ impl ExpectedMachine {
         let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=$1";
         sqlx::query_as(sql)
             .bind(bmc_mac_address)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
     }
@@ -95,7 +96,7 @@ impl ExpectedMachine {
         let sql = "SELECT * FROM expected_machines WHERE bmc_mac_address=ANY($1)";
         let v: Vec<ExpectedMachine> = sqlx::query_as(sql)
             .bind(bmc_mac_addresses)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| {
                 CarbideError::from(DatabaseError::new(file!(), line!(), sql, err))
@@ -113,7 +114,7 @@ impl ExpectedMachine {
     ) -> CarbideResult<Vec<ExpectedMachine>> {
         let sql = "SELECT * FROM expected_machines";
         sqlx::query_as(sql)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
     }
@@ -136,7 +137,7 @@ FROM expected_machines em
  ORDER BY em.bmc_mac_address
  "#;
         sqlx::query_as(sql)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| DatabaseError::new(file!(), line!(), sql, err).into())
     }
@@ -153,7 +154,7 @@ FROM expected_machines em
             .bind(&bmc_username)
             .bind(&bmc_password)
             .bind(self.bmc_mac_address)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::RowNotFound => CarbideError::NotFoundError {
@@ -186,7 +187,7 @@ FROM expected_machines em
             .bind(bmc_username)
             .bind(bmc_password)
             .bind(serial_number)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::Database(e) if e.constraint() == Some(SQL_VIOLATION_DUPLICATE_MAC) => {
@@ -201,7 +202,7 @@ FROM expected_machines em
 
         sqlx::query(query)
             .bind(self.bmc_mac_address)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|err: sqlx::Error| match err {
                 sqlx::Error::RowNotFound => CarbideError::NotFoundError {
@@ -218,7 +219,7 @@ FROM expected_machines em
         let query = "DELETE FROM expected_machines";
 
         sqlx::query(query)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

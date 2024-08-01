@@ -12,6 +12,7 @@
 pub mod common;
 
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use carbide::{
     db::{
@@ -39,7 +40,7 @@ async fn update_host_state(
     let _id: (String,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(state))
         .bind(machine_id.to_string())
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await
         .unwrap();
 }
@@ -48,7 +49,7 @@ async fn get_model_version(txn: &mut Transaction<'_, Postgres>, machine_id: &Mac
     let query = "SELECT machine_state_model_version from machines where id=$1";
     let id: (i32,) = sqlx::query_as(query)
         .bind(machine_id.to_string())
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await
         .unwrap();
 

@@ -15,6 +15,8 @@
  *  tables in the database, leveraging the journal-specific record types.
 */
 
+use std::ops::DerefMut;
+
 use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
@@ -44,7 +46,7 @@ pub async fn insert_measurement_journal_record(
         .bind(profile_id)
         .bind(bundle_id)
         .bind(state)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?;
     Ok(journal)
 }

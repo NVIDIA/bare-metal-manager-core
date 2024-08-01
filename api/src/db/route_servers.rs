@@ -1,4 +1,5 @@
 use std::net::IpAddr;
+use std::ops::DerefMut;
 
 use sqlx::{FromRow, Postgres, Transaction};
 
@@ -42,7 +43,7 @@ impl RouteServer {
 
             let query = qb.build();
 
-            let result = query.execute(&mut **txn).await.map_err(|e| {
+            let result = query.execute(txn.deref_mut()).await.map_err(|e| {
                 DatabaseError::new(file!(), line!(), "RouteServer::get_or_create", e)
             })?;
 
@@ -65,7 +66,7 @@ impl RouteServer {
         let query = r#"SELECT * FROM route_servers;"#;
 
         Ok(sqlx::query_as::<_, RouteServer>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?)
     }
@@ -84,7 +85,7 @@ impl RouteServer {
             let query = qb.build();
 
             query
-                .execute(&mut **txn)
+                .execute(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "RouteServer::add", e))?;
         }
@@ -99,7 +100,7 @@ impl RouteServer {
             let query = r#"DELETE FROM route_servers where address=ANY($1);"#;
             sqlx::query(query)
                 .bind(addresses)
-                .execute(&mut **txn)
+                .execute(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "RouteServer::add", e))?;
         }
@@ -112,7 +113,7 @@ impl RouteServer {
     ) -> CarbideResult<()> {
         let query = r#"DELETE FROM route_servers;"#;
         let _result = sqlx::query(query)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

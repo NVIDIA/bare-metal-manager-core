@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::net::IpAddr;
+use std::ops::DerefMut;
 
 use config_version::ConfigVersion;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
@@ -86,7 +87,7 @@ impl DbExploredEndpoint {
         let mut builder = sqlx::QueryBuilder::new("SELECT address FROM explored_endpoints");
         let query = builder.build_query_as();
         let ids: Vec<ExploredEndpointIp> = query
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints::find_ips", e))?;
         // convert to IpAddr
@@ -102,7 +103,7 @@ impl DbExploredEndpoint {
 
         sqlx::query_as::<_, Self>(query)
             .bind(ips)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints::find_by_ips", e))
@@ -115,7 +116,7 @@ impl DbExploredEndpoint {
         let query = "SELECT * FROM explored_endpoints";
 
         sqlx::query_as::<_, Self>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_endpoints find_all", e))
@@ -134,7 +135,7 @@ impl DbExploredEndpoint {
             WHERE mia.address IS NULL OR m.id IS NULL"#;
 
         sqlx::query_as::<_, Self>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| {
@@ -152,7 +153,7 @@ impl DbExploredEndpoint {
                             AND (exploration_report->'LastExplorationError' IS NULL OR exploration_report->'LastExplorationError' = 'null');"; // If LastExplorationError is completely notexistant it is NULL, if it is there and indicates a null value it is 'null'.
 
         sqlx::query_as::<_, Self>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| {
@@ -172,7 +173,7 @@ impl DbExploredEndpoint {
         let query = "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"upgradefirmwarewait\"';";
 
         sqlx::query_as::<_, Self>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| {
@@ -193,7 +194,7 @@ impl DbExploredEndpoint {
             "SELECT * FROM explored_endpoints WHERE preingestion_state->'state' = '\"complete\"';";
 
         sqlx::query_as::<_, Self>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| {
@@ -215,7 +216,7 @@ impl DbExploredEndpoint {
 
         sqlx::query_as::<_, Self>(query)
             .bind(address)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| {
@@ -247,7 +248,7 @@ WHERE address = $3 AND version=$4";
             .bind(sqlx::types::Json(exploration_report))
             .bind(address)
             .bind(old_version.version_string())
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -282,7 +283,7 @@ WHERE address = $3 AND version=$4";
         let query_result: Result<(IpAddr,), _> = sqlx::query_as(query)
             .bind(address)
             .bind(version.version_string())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await;
 
         match query_result {
@@ -303,7 +304,7 @@ WHERE address = $3 AND version=$4";
             "UPDATE explored_endpoints SET waiting_for_explorer_refresh = true WHERE address = $1;";
         sqlx::query(query)
             .bind(address)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -318,7 +319,7 @@ WHERE address = $3 AND version=$4";
             "UPDATE explored_endpoints SET waiting_for_explorer_refresh = false WHERE address = $1;";
         sqlx::query(query)
             .bind(address)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -333,7 +334,7 @@ WHERE address = $3 AND version=$4";
         sqlx::query(query)
             .bind(sqlx::types::Json(&state))
             .bind(address)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -410,7 +411,7 @@ WHERE address = $3 AND version=$4";
             .bind(address)
             .bind(sqlx::types::Json(&exploration_report))
             .bind(version.version_string())
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -424,7 +425,7 @@ WHERE address = $3 AND version=$4";
         let query = r#"DELETE FROM explored_endpoints WHERE address=$1"#;
         let _query_result = sqlx::query(query)
             .bind(address)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e));
         Ok(())
@@ -439,7 +440,7 @@ WHERE address = $3 AND version=$4";
         let query = "SELECT * FROM explored_endpoints WHERE exploration_report::text ilike '%' || $1 || '%'";
         sqlx::query_as::<_, Self>(query)
             .bind(to_find)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
             .map_err(|e| {

@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
 
 use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
@@ -59,7 +60,7 @@ impl MachineValidation {
         let custom_results = match filter {
             ObjectFilter::All => {
                 sqlx::query_as::<_, MachineValidation>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation All", e))?
             }
@@ -68,7 +69,7 @@ impl MachineValidation {
                     .replace("{where}", &format!("WHERE result.{column}='{}'", id))
                     .replace("{column}", column);
                 sqlx::query_as::<_, MachineValidation>(&query)
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "MachineValidation One", e))?
             }
@@ -94,7 +95,7 @@ impl MachineValidation {
                     .replace("{column}", column);
 
                 sqlx::query_as::<_, MachineValidation>(&query)
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_validation List", e)
@@ -112,7 +113,7 @@ impl MachineValidation {
         let query = "UPDATE machine_validation SET end_time=NOW() WHERE id=$1 RETURNING *";
         let _id = sqlx::query_as::<_, Self>(query)
             .bind(uuid)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -136,7 +137,7 @@ impl MachineValidation {
             .bind(id)
             .bind(format!("Test_{}", machine_id))
             .bind(machine_id)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -308,7 +309,7 @@ impl MachineValidationResult {
         let custom_results = match filter {
             ObjectFilter::All => {
                 sqlx::query_as::<_, MachineValidationResult>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_validation_results All", e)
@@ -319,7 +320,7 @@ impl MachineValidationResult {
                     .replace("{where}", &format!("WHERE result.{column}='{}'", id))
                     .replace("{column}", column);
                 sqlx::query_as::<_, MachineValidationResult>(&query)
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_validation_results One", e)
@@ -347,7 +348,7 @@ impl MachineValidationResult {
                     .replace("{column}", column);
 
                 sqlx::query_as::<_, MachineValidationResult>(&query)
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_validation_results List", e)
@@ -387,7 +388,7 @@ impl MachineValidationResult {
             .bind(self.validation_id)
             .bind(self.start_time)
             .bind(self.end_time)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())

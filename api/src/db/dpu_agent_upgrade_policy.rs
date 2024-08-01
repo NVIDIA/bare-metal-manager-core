@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
 
 use sqlx::{Postgres, Row, Transaction};
 
@@ -22,7 +23,7 @@ impl DpuAgentUpgradePolicy {
     ) -> Result<Option<AgentUpgradePolicy>, DatabaseError> {
         let query = "SELECT policy FROM dpu_agent_upgrade_policy ORDER BY created DESC LIMIT 1";
         let Some(row) = sqlx::query(query)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         else {
@@ -41,7 +42,7 @@ impl DpuAgentUpgradePolicy {
         let query = "INSERT INTO dpu_agent_upgrade_policy VALUES ($1)";
         sqlx::query(query)
             .bind(policy.to_string())
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())

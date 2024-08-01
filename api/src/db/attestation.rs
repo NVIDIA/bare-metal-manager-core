@@ -9,6 +9,7 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
 
 use sqlx::{FromRow, Postgres, Transaction};
 
@@ -30,7 +31,7 @@ impl SecretAkPub {
         let res = sqlx::query_as(query)
             .bind(secret.as_slice())
             .bind(ak_pub.as_slice())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -45,7 +46,7 @@ impl SecretAkPub {
 
         let res = sqlx::query_as(query)
             .bind(secret.as_slice())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -60,7 +61,7 @@ impl SecretAkPub {
 
         let res = sqlx::query_as(query)
             .bind(secret.as_slice())
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 

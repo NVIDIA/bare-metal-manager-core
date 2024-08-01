@@ -11,6 +11,7 @@
  */
 
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
@@ -264,7 +265,7 @@ async fn migrate_machine_to_v2(
     let query = "SELECT controller_state FROM machines WHERE id=$1";
     let old_machine = sqlx::query_as::<_, OldMachine>(query)
         .bind(host_id.to_string())
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "migration fetch", e))?;
 

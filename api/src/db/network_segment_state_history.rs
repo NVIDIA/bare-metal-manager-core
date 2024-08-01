@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use chrono::prelude::*;
 use config_version::ConfigVersion;
@@ -85,7 +86,7 @@ impl NetworkSegmentStateHistory {
             "SELECT id, segment_id, state::TEXT, state_version, timestamp FROM network_segment_state_history WHERE segment_id=ANY($1) ORDER BY ID asc";
         Ok(sqlx::query_as::<_, Self>(query)
             .bind(segment_ids)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()
@@ -102,7 +103,7 @@ impl NetworkSegmentStateHistory {
             ORDER BY ID asc";
         sqlx::query_as::<_, Self>(query)
             .bind(segment_id)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -120,7 +121,7 @@ impl NetworkSegmentStateHistory {
             .bind(segment_id)
             .bind(sqlx::types::Json(state))
             .bind(state_version.version_string())
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())

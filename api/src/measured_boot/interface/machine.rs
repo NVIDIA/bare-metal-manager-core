@@ -15,6 +15,8 @@
  *  database, leveraging the machine-specific record types.
 */
 
+use std::ops::DerefMut;
+
 use crate::db::DatabaseError;
 use crate::measured_boot::dto::records::{
     CandidateMachineRecord, MeasurementJournalRecord, MeasurementMachineState,
@@ -59,7 +61,7 @@ pub async fn get_latest_journal_for_id(
     let query = "select distinct on (machine_id) * from measurement_journal where machine_id = $1 order by machine_id,ts desc";
     Ok(sqlx::query_as::<_, MeasurementJournalRecord>(query)
         .bind(machine_id)
-        .fetch_optional(&mut **txn)
+        .fetch_optional(txn.deref_mut())
         .await?)
 }
 

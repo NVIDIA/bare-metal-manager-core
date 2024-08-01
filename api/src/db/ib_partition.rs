@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
+use std::ops::DerefMut;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
@@ -408,7 +409,7 @@ impl NewIBPartition {
             .bind(&version_string)
             .bind(sqlx::types::Json(state))
             .bind(ib_fabric_config.max_partition_per_tenant)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -430,7 +431,8 @@ impl IBPartition {
     ) -> Result<Vec<IBPartitionId>, DatabaseError> {
         let query = "SELECT id FROM ib_partitions";
         let mut results = Vec::new();
-        let mut segment_id_stream = sqlx::query_as::<_, IBPartitionId>(query).fetch(&mut **txn);
+        let mut segment_id_stream =
+            sqlx::query_as::<_, IBPartitionId>(query).fetch(txn.deref_mut());
         while let Some(maybe_id) = segment_id_stream.next().await {
             let id = maybe_id.map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
             results.push(id);
@@ -447,7 +449,7 @@ impl IBPartition {
             let query = "SELECT * FROM ib_partitions WHERE organization_id=$1";
             sqlx::query_as(query)
                 .bind(tenant_organization_id)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         };
@@ -478,7 +480,7 @@ impl IBPartition {
 
         let query = builder.build_query_as();
         let ids: Vec<IBPartitionId> = query
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partition::find_ids", e))?;
 
@@ -495,7 +497,7 @@ impl IBPartition {
         let all_records: Vec<IBPartition> = match filter {
             IBPartitionIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, IBPartition>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions All", e))?
             }
@@ -504,7 +506,7 @@ impl IBPartition {
                 &base_query.replace("{where}", "WHERE ib_partitions.id=ANY($1)"),
             )
             .bind(uuids)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions List", e))?,
 
@@ -512,7 +514,7 @@ impl IBPartition {
                 &base_query.replace("{where}", "WHERE ib_partitions.id=$1"),
             )
             .bind(uuid)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "ib_partitions One", e))?,
         };
@@ -531,7 +533,7 @@ impl IBPartition {
 
         let pkey = sqlx::query_as::<_, Pkey>(query)
             .bind(id)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -556,7 +558,7 @@ impl IBPartition {
             .bind(sqlx::types::Json(new_state))
             .bind(partition_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await;
 
         match query_result {
@@ -575,7 +577,7 @@ impl IBPartition {
         sqlx::query(query)
             .bind(sqlx::types::Json(outcome))
             .bind(partition_id)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -588,7 +590,7 @@ impl IBPartition {
         let query = "UPDATE ib_partitions SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
         let segment: IBPartition = sqlx::query_as(query)
             .bind(self.id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -607,7 +609,7 @@ impl IBPartition {
         let query = "DELETE FROM ib_partitions WHERE id=$1::uuid RETURNING id";
         let partition: IBPartitionId = sqlx::query_as(query)
             .bind(partition_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -625,7 +627,7 @@ impl IBPartition {
             .bind(self.config.tenant_organization_id.to_string())
             .bind(sqlx::types::Json(&self.status))
             .bind(self.id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

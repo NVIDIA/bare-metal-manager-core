@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
+
 use ::rpc::forge as rpc;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
@@ -99,7 +101,7 @@ impl DhcpRecord {
         sqlx::query_as(query)
             .bind(mac_address)
             .bind(segment_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -203,7 +205,7 @@ WHERE machine_id=$1
         let mut record: InstanceDhcpRecord = sqlx::query_as(query)
             .bind(instance.machine_id.to_string())
             .bind(circuit_id.clone())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 

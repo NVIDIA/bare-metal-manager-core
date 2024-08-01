@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
+
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{db::DatabaseError, CarbideError, CarbideResult};
@@ -112,7 +114,7 @@ impl MachineValidationExternalConfig {
         let query = "SELECT * FROM machine_validation_external_config WHERE name=$1";
         sqlx::query_as::<_, Self>(query)
             .bind(name)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))
     }
@@ -130,7 +132,7 @@ impl MachineValidationExternalConfig {
             .bind(name)
             .bind(description)
             .bind(sqlx::types::Json(&config))
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         Ok(())
@@ -147,7 +149,7 @@ impl MachineValidationExternalConfig {
         sqlx::query_as(query)
             .bind(name)
             .bind(sqlx::types::Json(&config))
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         Ok(())

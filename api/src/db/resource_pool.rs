@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::ops::DerefMut;
 use std::{fmt, marker::PhantomData, str::FromStr};
 
 use chrono::{DateTime, Utc};
@@ -66,7 +67,7 @@ where
             });
             qb.push("ON CONFLICT (name, value) DO NOTHING");
             let q = qb.build();
-            q.execute(&mut **txn)
+            q.execute(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         }
@@ -80,7 +81,7 @@ where
         owner_type: OwnerType,
         owner_id: &str,
     ) -> Result<T, ResourcePoolError> {
-        if self.stats(&mut **txn).await?.free == 0 {
+        if self.stats(txn.deref_mut()).await?.free == 0 {
             return Err(ResourcePoolError::Empty);
         }
         let query = "
@@ -110,7 +111,7 @@ RETURNING allocate.value
             .bind(&self.name)
             .bind(sqlx::types::Json(&free_state))
             .bind(sqlx::types::Json(&allocated_state))
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         let out = allocated
@@ -143,7 +144,7 @@ WHERE name = $2 AND value = $3
             .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
             .bind(&self.name)
             .bind(value.to_string())
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -175,7 +176,7 @@ WHERE name = $2 AND value = $3
             .bind(sqlx::types::Json(state))
             .bind(&self.name)
             .bind(value.to_string())
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -219,7 +220,7 @@ pub async fn all(
 
     for query in &[query_int, query_ipv4] {
         let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         out.append(&mut rows);
@@ -238,7 +239,7 @@ pub async fn find_value(
         "SELECT name, value, value_type, state, allocated FROM resource_pool WHERE value = $1";
     let entry: Vec<ResourcePoolEntry> = sqlx::query_as(query)
         .bind(value)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
     Ok(entry)

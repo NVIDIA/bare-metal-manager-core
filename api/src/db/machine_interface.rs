@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::net::IpAddr;
+use std::ops::DerefMut;
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -248,7 +249,7 @@ pub async fn set_primary_interface(
     sqlx::query_as::<_, DbMachineInterface>(query)
         .bind(primary)
         .bind(*interface_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
         .map(Into::<MachineInterfaceSnapshot>::into)
@@ -264,7 +265,7 @@ pub async fn associate_interface_with_dpu_machine(
     sqlx::query_as::<_, DbMachineInterface>(query)
         .bind(dpu_machine_id.to_string())
         .bind(*interface_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
         .map(Into::<MachineInterfaceSnapshot>::into)
@@ -279,7 +280,7 @@ pub async fn associate_interface_with_machine(
     sqlx::query_as::<_, DbMachineInterface>(query)
         .bind(machine_id.to_string())
         .bind(*interface_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await
         .map_err(|err: sqlx::Error| match err {
             sqlx::Error::Database(e)
@@ -309,7 +310,7 @@ impl MachineInterface {
             WHERE mia.address = $1::inet"#;
         let interface: Option<DbMachineInterface> = sqlx::query_as(query)
             .bind(ip)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -349,7 +350,7 @@ impl MachineInterface {
             "SELECT * FROM machine_interfaces WHERE attached_dpu_machine_id = $1 AND primary_interface=TRUE AND (machine_id!=attached_dpu_machine_id OR machine_id IS NULL)";
         let Some(mut machine_interface) = sqlx::query_as::<_, DbMachineInterface>(query)
             .bind(dpu_machine_id.to_string())
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
         else {
@@ -382,7 +383,7 @@ impl MachineInterface {
         let query = "SELECT count(*) FROM machine_interfaces WHERE segment_id = $1";
         let (address_count,): (i64,) = sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -640,14 +641,14 @@ impl MachineInterface {
         let mut interfaces = match filter {
             ObjectColumnFilter::All => query
                 .build_query_as::<DbMachineInterface>()
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces All", e))?,
             ObjectColumnFilter::One(ref column, ref id) => query
                 .push(format!(" WHERE mi.{}=", column.column_name().clone()))
                 .push_bind(id.clone())
                 .build_query_as::<DbMachineInterface>()
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "machine_interfaces One", e))?,
             ObjectColumnFilter::List(ref column, list) => {
@@ -660,7 +661,7 @@ impl MachineInterface {
                     .push_bind(list)
                     .push(")")
                     .build_query_as::<DbMachineInterface>()
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_interfaces List", e)
@@ -789,7 +790,7 @@ impl MachineInterface {
         sqlx::query_as::<_, DbMachineInterface>(query)
             .bind(machine_id.to_string())
             .bind(segment_id)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
             .map(|interfaces| {
@@ -808,7 +809,7 @@ impl MachineInterface {
         let query = "UPDATE machine_interfaces SET last_dhcp = NOW() WHERE id=$1::uuid";
         sqlx::query(query)
             .bind(interface_id)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -824,7 +825,7 @@ pub async fn delete(
     DhcpEntry::delete(txn, interface_id).await?;
     sqlx::query(query)
         .bind(*interface_id)
-        .execute(&mut **txn)
+        .execute(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -860,7 +861,7 @@ WHERE network_segments.id = $1::uuid";
 
         sqlx::query_as(query)
             .bind(self.segment_id)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::{From, Into};
 use std::fmt;
+use std::ops::DerefMut;
 use std::vec::Vec;
 
 use rpc::protos::measured_boot::PcrRegisterValuePb;
@@ -334,7 +335,7 @@ where
     );
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
-        .fetch_optional(&mut **txn)
+        .fetch_optional(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_object_for_unique_column", e))?;
     Ok(result)
@@ -362,7 +363,7 @@ where
     );
     let result = sqlx::query_as::<_, R>(&query)
         .bind(id)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_objects_where_id", e))?;
     Ok(result)
@@ -382,7 +383,7 @@ where
 {
     let query = format!("select * from {}", R::db_table_name());
     let result = sqlx::query_as::<_, R>(&query)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_all_objects", e))?;
     Ok(result)
@@ -427,7 +428,7 @@ where
 
     let query = query.build_query_as::<R>();
     let ids = query
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| DatabaseError::new(file!(), line!(), "get_ids_for_bundle_values", e))?;
 
@@ -471,7 +472,7 @@ where
     );
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await
         .map_err(|e| {
             DatabaseError::new(file!(), line!(), "delete_objects_where_unique_column", e)
@@ -510,7 +511,7 @@ where
     );
     let result = sqlx::query_as::<_, R>(&query)
         .bind(value)
-        .fetch_optional(&mut **txn)
+        .fetch_optional(txn.deref_mut())
         .await
         .map_err(|e| {
             DatabaseError::new(file!(), line!(), "delete_object_where_unique_column", e)
