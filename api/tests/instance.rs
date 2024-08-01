@@ -1416,8 +1416,8 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
-    assert_eq!("192.0.2.3", used_ips[0].0.to_string());
-    assert_eq!("192.0.2.3/32", used_prefixes[0].0.to_string());
+    assert_eq!("192.0.2.3", used_ips[0].to_string());
+    assert_eq!("192.0.2.3/32", used_prefixes[0].to_string());
 
     // Check the allocated VF.
     let allocated_ip_resolver = UsedOverlayNetworkIpResolver {
@@ -1427,13 +1427,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     let used_prefixes = allocated_ip_resolver.used_prefixes(&mut txn).await.unwrap();
     assert_eq!(1, used_ips.len());
     assert_eq!(1, used_prefixes.len());
-    assert_eq!("192.0.3.3", used_ips[0].0.to_string());
-    assert_eq!("192.0.3.3/32", used_prefixes[0].0.to_string());
+    assert_eq!("192.0.3.3", used_ips[0].to_string());
+    assert_eq!("192.0.3.3/32", used_prefixes[0].to_string());
 
     // And make sure find_by_prefix works -- just leverage
     // the last used_prefixes prefix and make sure it matches
     // the allocated instance ID.
-    let address_by_prefix = InstanceAddress::find_by_prefix(&mut txn, used_prefixes[0].0)
+    let address_by_prefix = InstanceAddress::find_by_prefix(&mut txn, used_prefixes[0])
         .await
         .unwrap()
         .unwrap();

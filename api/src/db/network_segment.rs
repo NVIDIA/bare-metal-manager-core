@@ -17,9 +17,10 @@ use std::str::FromStr;
 
 use crate::db::address_selection_strategy::AddressSelectionStrategy;
 use crate::db::domain::DomainId;
+use crate::db::instance_address::UsedOverlayNetworkIpResolver;
 use crate::db::machine_interface::UsedAdminNetworkIpResolver;
 use crate::db::vpc::VpcId;
-use crate::dhcp::allocation::IpAllocator;
+use crate::dhcp::allocation::{IpAllocator, UsedIpResolver};
 use ::rpc::forge as rpc;
 use ::rpc::protos::forge::TenantState;
 use chrono::prelude::*;
@@ -673,63 +674,70 @@ impl NetworkSegment {
                 record.prefixes = prefixes;
 
                 if search_config.include_num_free_ips && !record.prefixes.is_empty() {
-                    if record.segment_type == crate::db::network_segment::NetworkSegmentType::Tenant
-                    {
-                        let dhcp_handler =
-                            crate::db::instance_address::UsedOverlayNetworkIpResolver {
+                    let dhcp_handler: Box<dyn UsedIpResolver + Send> =
+                        if record.segment_type == NetworkSegmentType::Tenant {
+                            // Note on UsedOverlayNetworkIpResolver:
+                            // In this case, the IpAllocator isn't being used to iterate to get
+                            // the next available prefix_length allocation -- it's actually just
+                            // being used to get the number of free IPs left in a given tenant
+                            // network segment, so just hard-code a /32 prefix_length. NOW.. on
+                            // one hand, you could say the prefix_length doesn't matter here,
+                            // because this is really just here to get the number of free IPs left
+                            // in a network segment. BUT, on the other hand, do we care about the
+                            // number of free IPs left, or the number of free instance allocations
+                            // left? For example, if we're allocating /30's, we might be more
+                            // interested in knowing we can allocate 4 more machines (and not 16
+                            // more IPs).
+                            Box::new(UsedOverlayNetworkIpResolver {
                                 segment_id: record.id,
-                            };
-
-                        let mut allocated_addresses = IpAllocator::new(
-                            txn,
-                            record,
-                            &dhcp_handler,
-                            AddressSelectionStrategy::Automatic,
-                        )
-                        .await
-                        .map_err(|e| {
-                            DatabaseError::new(
-                                file!(),
-                                line!(),
-                                "IpAllocator.new error",
-                                sqlx::Error::Io(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    e.to_string(),
-                                )),
-                            )
-                        })?;
-
-                        let nfree = allocated_addresses.num_free();
-
-                        record.prefixes[0].num_free_ips = nfree;
-                    } else {
-                        let dhcp_handler = UsedAdminNetworkIpResolver {
-                            segment_id: record.id,
+                            })
+                        } else {
+                            // Note on UsedAdminNetworkIpResolver:
+                            // In this case, the IpAllocator isn't being used to iterate to get
+                            // the next available prefix_length allocation -- it's actually just
+                            // being used to get the number of free IPs left in a given admin
+                            // network segment, so just hard-code a /32 prefix_length. Unlike the
+                            // tenant segments, the admin segments are always (at least for the
+                            // foreseeable future) just going to allocate a /32 for the machine
+                            // interface.
+                            Box::new(UsedAdminNetworkIpResolver {
+                                segment_id: record.id,
+                            })
                         };
 
-                        let mut allocated_addresses = IpAllocator::new(
-                            txn,
-                            record,
-                            &dhcp_handler,
-                            AddressSelectionStrategy::Automatic,
+                    let mut allocated_addresses = IpAllocator::new(
+                        txn,
+                        record,
+                        dhcp_handler,
+                        AddressSelectionStrategy::Automatic,
+                        32,
+                    )
+                    .await
+                    .map_err(|e| {
+                        DatabaseError::new(
+                            file!(),
+                            line!(),
+                            "IpAllocator.new error",
+                            sqlx::Error::Io(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string(),
+                            )),
                         )
-                        .await
-                        .map_err(|e| {
-                            DatabaseError::new(
-                                file!(),
-                                line!(),
-                                "IpAllocator.new error",
-                                sqlx::Error::Io(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    e.to_string(),
-                                )),
-                            )
-                        })?;
+                    })?;
 
-                        let nfree = allocated_addresses.num_free();
+                    let nfree = allocated_addresses.num_free().map_err(|e| {
+                        DatabaseError::new(
+                            file!(),
+                            line!(),
+                            "IpAllocator.num_free error",
+                            sqlx::Error::Io(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string(),
+                            )),
+                        )
+                    })?;
 
-                        record.prefixes[0].num_free_ips = nfree;
-                    }
+                    record.prefixes[0].num_free_ips = nfree;
                 }
             } else {
                 tracing::warn!(

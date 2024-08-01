@@ -812,6 +812,7 @@ dependencies = [
  "ctor",
  "dashmap",
  "data-encoding",
+ "domain",
  "duration-str 0.7.1",
  "eyre",
  "figment",
@@ -838,6 +839,7 @@ dependencies = [
  "names",
  "num-bigint-dig",
  "num_cpus",
+ "octseq",
  "once_cell",
  "opentelemetry",
  "opentelemetry-prometheus",
@@ -1925,6 +1927,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "domain"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7eefe29e8dd614abbee51a1616654cab123c4c56850ab83f5b7f1e1f9977bf7c"
+dependencies = [
+ "bytes",
+ "octseq",
+ "rand 0.8.5",
+ "time",
+]
+
+[[package]]
 name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2949,7 +2963,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.7",
  "tokio",
  "tower-service",
  "tracing",
@@ -4045,6 +4059,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6a622008b6e321afc04970976f62ee297fdbaa6f95318ca343e3eebb9648441"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "octseq"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ed2eaec452d98ccc1c615dd843fd039d9445f2fb4da114ee7e6af5fcb68be98"
+dependencies = [
+ "bytes",
 ]
 
 [[package]]
