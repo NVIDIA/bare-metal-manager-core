@@ -1,12 +1,11 @@
 use chrono::{DateTime, Utc};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-use crate::bmc_mock_wrapper::BmcMockAddressRegistry;
 use crate::logging::LogSink;
-use crate::machine_state_machine::MachineStateMachine;
+use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
 use crate::tui::HostDetails;
 use crate::{
     config::{MachineATronContext, MachineConfig},
@@ -35,7 +34,7 @@ impl DpuMachine {
         config: MachineConfig,
         dhcp_client: DhcpRelayClient,
         logger: LogSink,
-        bmc_address_registry: Option<BmcMockAddressRegistry>,
+        bmc_listen_mode: BmcRegistrationMode,
     ) -> Self {
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
         let dpu_info = DpuMachineInfo::new();
@@ -46,7 +45,7 @@ impl DpuMachine {
             dhcp_client,
             logger.clone(),
             bmc_control_tx.clone(),
-            bmc_address_registry,
+            bmc_listen_mode,
         );
         DpuMachine {
             mat_id: Uuid::new_v4(),
@@ -161,10 +160,6 @@ impl DpuMachine {
 
     pub fn get_bmc_ip(&self) -> Option<Ipv4Addr> {
         self.state_machine.bmc_ip()
-    }
-
-    pub fn active_bmc_mock_address(&self) -> Option<SocketAddr> {
-        self.state_machine.bmc_mock_address()
     }
 }
 

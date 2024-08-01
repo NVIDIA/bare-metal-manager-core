@@ -24,7 +24,7 @@ use mac_address::MacAddress;
 use managed_host::ManagedHost;
 use sqlx::PgPool;
 use sqlx::{Postgres, Transaction};
-use tokio::{net::lookup_host, sync::oneshot, task::JoinSet};
+use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
@@ -726,26 +726,7 @@ impl SiteExplorer {
             let concurrency_limiter = concurrency_limiter.clone();
 
             let bmc_target_port = self.config.override_target_port.unwrap_or(443);
-            let bmc_target_addr = match self.config.override_target_ip.as_ref() {
-                Some(override_ip) => {
-                    let addr = match lookup_host((override_ip.as_str(), bmc_target_port)).await {
-                        Ok(mut sockaddr) => sockaddr.next(),
-                        Err(e) => {
-                            tracing::warn!("Could not find override addr: {e}");
-                            return Err(CarbideError::GenericError(e.to_string()));
-                        }
-                    };
-                    let Some(addr) = addr else {
-                        tracing::warn!("Could not find override addr");
-                        return Err(CarbideError::GenericError(
-                            "Could not find override addr".to_string(),
-                        ));
-                    };
-
-                    addr
-                }
-                None => SocketAddr::new(endpoint.address, bmc_target_port),
-            };
+            let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
 
             let _abort_handle = task_set.spawn(
                 async move {

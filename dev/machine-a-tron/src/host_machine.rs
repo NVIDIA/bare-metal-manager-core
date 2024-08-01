@@ -1,13 +1,12 @@
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use crate::bmc_mock_wrapper::BmcMockAddressRegistry;
 use crate::dpu_machine::DpuMachineHandle;
 use crate::logging::{LogCollector, LogSink};
-use crate::machine_state_machine::MachineStateMachine;
+use crate::machine_state_machine::{BmcRegistrationMode, MachineStateMachine};
 use crate::{
     config::{MachineATronContext, MachineConfig},
     dhcp_relay::DhcpRelayClient,
@@ -48,7 +47,7 @@ impl HostMachine {
         app_context: MachineATronContext,
         config: MachineConfig,
         dhcp_client: DhcpRelayClient,
-        bmc_address_registry: Option<BmcMockAddressRegistry>,
+        bmc_listen_mode: BmcRegistrationMode,
     ) -> Self {
         let log_collector = LogCollector::new();
 
@@ -59,7 +58,7 @@ impl HostMachine {
                     config.clone(),
                     dhcp_client.clone(),
                     log_collector.log_sink(Some(format!("D{index}:"))),
-                    bmc_address_registry.clone(),
+                    bmc_listen_mode.clone(),
                 )
             })
             .collect::<Vec<_>>();
@@ -75,7 +74,7 @@ impl HostMachine {
             dhcp_client.clone(),
             log_collector.log_sink(Some("H:".to_string())),
             bmc_control_tx.clone(),
-            bmc_address_registry,
+            bmc_listen_mode,
         );
 
         HostMachine {
@@ -240,10 +239,6 @@ impl HostMachine {
             .ok()
             .or(self.host_info.system_mac_address().map(|m| m.to_string()))
             .unwrap_or("<unknown>".to_string())
-    }
-
-    pub fn active_bmc_mock_address(&self) -> Option<SocketAddr> {
-        self.state_machine.bmc_mock_address()
     }
 
     pub fn host_machine_info(&self) -> &HostMachineInfo {

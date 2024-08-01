@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::api_client;
 use crate::api_client::{record_dpu_network_status, ClientApiError, MockDiscoveryData};
-use crate::bmc_mock_wrapper::{BmcMockAddressRegistry, BmcMockWrapper, ListenMode};
+use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_relay::{DhcpRelayClient, DhcpResponseInfo};
 use crate::logging::LogSink;
@@ -19,7 +19,7 @@ use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     forge_agent_control, get_fac_action, get_validation_id, send_pxe_boot_request, PXEresponse,
 };
-use bmc_mock::{BmcCommand, MachineInfo};
+use bmc_mock::{BmcCommand, BmcMockError, BmcMockHandle, MachineInfo};
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, MachineType};
 
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
@@ -39,7 +39,24 @@ pub struct MachineStateMachine {
     app_context: MachineATronContext,
     dhcp_client: DhcpRelayClient,
     logger: LogSink,
-    bmc_address_registry: Option<BmcMockAddressRegistry>,
+    bmc_registration_mode: BmcRegistrationMode,
+}
+
+/// BmcRegistrationMode configures how each mock machine registers its BMC mock so that carbide can find it.
+#[derive(Debug, Clone)]
+pub enum BmcRegistrationMode {
+    /// BackingInstance: Register the axum Router of the mock into a shared registry. This is used
+    /// when running machine-a-tron as a kubernetes service, where we can only listen on a single
+    /// IP/port but need to mock multiple BMC's. A shared BMC mock is expected to be running, and
+    /// will delegate to these Routers for each BMC mock based on the `Forwarded` header in the
+    /// request from carbide-api.
+    BackingInstance(BmcMockRegistry),
+    /// None: Don't register anything, but instead listen on the actual IP address given via DHCP.
+    /// This is the most true-to-production mode, where we configure a real IP alias on a configured
+    /// interface for every BMC mock, and carbide talks to the BMC's real IP address. It requires
+    /// carbide to be able to reach these aliases, so it is only /// suitable for local use where
+    /// carbide and machine-a-tron are on the same host.
+    None(u16),
 }
 
 #[derive(Debug)]
@@ -66,7 +83,7 @@ impl MachineStateMachine {
         dhcp_client: DhcpRelayClient,
         logger: LogSink,
         bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
-        bmc_address_registry: Option<BmcMockAddressRegistry>,
+        bmc_listen_mode: BmcRegistrationMode,
     ) -> MachineStateMachine {
         MachineStateMachine {
             state: MachineState::BmcInit,
@@ -78,7 +95,7 @@ impl MachineStateMachine {
             app_context,
             dhcp_client,
             logger,
-            bmc_address_registry,
+            bmc_registration_mode: bmc_listen_mode,
         }
     }
 
@@ -142,40 +159,9 @@ impl MachineStateMachine {
                     start.elapsed().as_millis()
                 ));
 
-                let mut bmc_mock = if self.app_context.app_config.bmc_mock_dynamic_ports {
-                    BmcMockWrapper::new(
-                        self.machine_info.clone(),
-                        self.bmc_command_channel.clone(),
-                        self.app_context.clone(),
-                        ListenMode::LocalhostWithDynamicPort,
-                    )
-                } else {
-                    let address = SocketAddr::new(
-                        dhcp_info.ip_address.into(),
-                        self.app_context.app_config.bmc_mock_port,
-                    );
-                    BmcMockWrapper::new(
-                        self.machine_info.clone(),
-                        self.bmc_command_channel.clone(),
-                        self.app_context.clone(),
-                        ListenMode::SpecifiedAddress {
-                            address,
-                            add_ip_alias: true,
-                        },
-                    )
-                };
-                let listen_addr = bmc_mock.start().await?;
-
-                // Inform the registry of this bmc-mock's address
-                if let Some(registry) = self.bmc_address_registry.as_ref() {
-                    registry
-                        .write()
-                        .await
-                        .insert(dhcp_info.ip_address, listen_addr);
-                }
-
+                let maybe_bmc_mock_handle = self.run_bmc_mock(dhcp_info.ip_address).await?;
                 Ok(NextState::Some(MachineState::Init(BmcInitializedState {
-                    bmc_mock: Arc::new(bmc_mock),
+                    _bmc_mock_handle: maybe_bmc_mock_handle,
                     bmc_dhcp_info: dhcp_info,
                 })))
             }
@@ -312,7 +298,6 @@ impl MachineStateMachine {
             }
             MachineState::HardwareDiscoveryComplete(inner_state) => {
                 let machine_id = self.machine_id()?;
-
                 let start = Instant::now();
                 api_client::update_bmc_metadata(
                     &self.app_context,
@@ -496,20 +481,38 @@ impl MachineStateMachine {
         }
     }
 
-    /// Return the actual address that BmcMock is listening on, if it's up (this may be different than the assigned DHCP ID, like in integration tests.)
-    pub fn bmc_mock_address(&self) -> Option<SocketAddr> {
-        match &self.state {
-            MachineState::BmcInit => None,
-            MachineState::MachineDown(s) => s.bmc_state.bmc_mock.active_address(),
-            MachineState::Init(s) => s.bmc_mock.active_address(),
-            MachineState::DhcpComplete(s) => s.bmc_state.bmc_mock.active_address(),
-            MachineState::HardwareDiscoveryComplete(s) => s.bmc_state.bmc_mock.active_address(),
-            MachineState::MachineUp(s) => s.bmc_state.bmc_mock.active_address(),
-        }
-    }
-
     pub fn is_up(&self) -> bool {
         matches!(self.state, MachineState::MachineUp(_))
+    }
+
+    async fn run_bmc_mock(
+        &self,
+        ip_address: Ipv4Addr,
+    ) -> Result<Option<Arc<BmcMockHandle>>, MachineStateError> {
+        let mut bmc_mock = BmcMockWrapper::new(
+            self.machine_info.clone(),
+            self.bmc_command_channel.clone(),
+            self.app_context.clone(),
+        );
+
+        let maybe_bmc_mock_handle = match &self.bmc_registration_mode {
+            BmcRegistrationMode::None(port) => {
+                let address = SocketAddr::new(ip_address.into(), *port);
+                let handle = bmc_mock.start(address, true).await?;
+                Some(Arc::new(handle))
+            }
+            BmcRegistrationMode::BackingInstance(registry) => {
+                // Assume something has already launched a BMC-mock, our job is to just
+                // insert this bmc-mock's router into the registry so it can delegate to it
+                // by looking it up from the `Forwarded` header.
+                registry
+                    .write()
+                    .await
+                    .insert(ip_address.to_string(), bmc_mock.router().clone());
+                None
+            }
+        };
+        Ok(maybe_bmc_mock_handle)
     }
 }
 
@@ -517,7 +520,7 @@ impl MachineStateMachine {
 #[derive(Debug, Clone)]
 pub struct BmcInitializedState {
     bmc_dhcp_info: DhcpResponseInfo,
-    bmc_mock: Arc<BmcMockWrapper>,
+    _bmc_mock_handle: Option<Arc<BmcMockHandle>>,
 }
 
 #[derive(Debug, Clone)]
@@ -589,6 +592,8 @@ pub enum MachineStateError {
     DhcpError,
     #[error("Failed to get PXE response")]
     PxeError,
+    #[error("Failed to run BMC mock: {0}")]
+    BmcMock(#[from] BmcMockError),
 }
 
 #[derive(thiserror::Error, Debug)]

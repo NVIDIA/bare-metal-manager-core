@@ -38,14 +38,6 @@ interface = "cni0"
 pxe_server_host = "192.168.252.76"
 pxe_server_port = "8080"
 
-
-# bmc_mock_dynamic_ports should only be set to true in integration tests (which
-# use a custom RedfishClientPool impl that can rewrite requests to use dynamic
-# ports. This will not work when running machine-a-tron against a preexisting
-# instance of carbide-api.)
-#
-# bmc_mock_dynamic_ports = false
-
 # bmc_mock_host_tar configures default mocked data for BMC-mock to use for host
 # machines in machine-a-tron. Path is relative to REPO_ROOT.  Defaults to data
 # captured from a dell server (check `default_bmc_mock_host_tar` in config.rs).

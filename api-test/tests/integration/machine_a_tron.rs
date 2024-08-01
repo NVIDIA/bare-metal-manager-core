@@ -11,10 +11,10 @@
  */
 use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
-use machine_a_tron::BmcMockAddressRegistry;
-use machine_a_tron::DhcpRelayService;
-use machine_a_tron::MachineATron;
-use machine_a_tron::{MachineATronConfig, MachineATronContext};
+use machine_a_tron::{
+    BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, MachineATron, MachineATronConfig,
+    MachineATronContext,
+};
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::path::PathBuf;
 use tokio::sync::oneshot;
@@ -29,7 +29,7 @@ use tokio::task::JoinHandle;
 pub async fn run_local(
     app_config: MachineATronConfig,
     repo_root: PathBuf,
-    bmc_address_registry: BmcMockAddressRegistry,
+    bmc_address_registry: BmcMockRegistry,
 ) -> eyre::Result<MachineATronInstance> {
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
@@ -60,7 +60,10 @@ pub async fn run_local(
 
     let mat = MachineATron::new(app_context);
     let machines = mat
-        .make_machines(&dhcp_client, Some(bmc_address_registry.clone()))
+        .make_machines(
+            &dhcp_client,
+            BmcRegistrationMode::BackingInstance(bmc_address_registry.clone()),
+        )
         .await?;
 
     let machine_jobs = machines

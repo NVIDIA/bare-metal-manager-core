@@ -28,7 +28,10 @@ pub struct MachineATronArgs {
     )]
     pub client_key_path: Option<String>,
 
-    #[clap(help = "Machine-A-Tron config file")]
+    #[clap(
+        help = "Machine-A-Tron config file",
+        env = "MACHINE_A_TRON_CONFIG_PATH"
+    )]
     pub config_file: String,
 }
 
@@ -79,11 +82,15 @@ pub struct MachineATronConfig {
     #[serde(default = "default_true")]
     pub use_dhcp_api: bool,
     pub dhcp_server_address: Option<String>,
-
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
+
+    /// Set this to true if all BMC-mocks should be behind a single address (using HTTP headers to
+    /// proxy to the real mock). This is the case for machine-a-tron running inside kubernetes
+    /// clusters where there is a single k8s Service and we can't dynamically assign IP's.
     #[serde(default = "default_false")]
-    pub bmc_mock_dynamic_ports: bool,
+    pub use_single_bmc_mock: bool,
+
     #[serde(default = "default_bmc_mock_host_tar")]
     pub bmc_mock_host_tar: PathBuf,
     #[serde(default = "default_bmc_mock_dpu_tar")]

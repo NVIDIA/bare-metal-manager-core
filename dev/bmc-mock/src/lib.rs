@@ -26,7 +26,9 @@ use hyper::body::Incoming;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
+use tokio::task::JoinHandle;
 use tower::{Layer, Service};
 use tower_http::normalize_path::NormalizePathLayer;
 use tracing::{debug, error, info};
@@ -49,10 +51,48 @@ macro_rules! rf {
 
 #[derive(thiserror::Error, Debug)]
 pub enum BmcMockError {
-    #[error("{0}")]
+    #[error("BMC Mock I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("BMC Mock Configuration error: {0}")]
     Config(String),
+}
+
+#[derive(Debug)]
+pub struct BmcMockHandle {
+    join_handle: Option<JoinHandle<std::io::Result<()>>>,
+    axum_handle: axum_server::Handle,
+    pub address: SocketAddr,
+}
+
+impl Drop for BmcMockHandle {
+    fn drop(&mut self) {
+        if let Some(join_handle) = self.join_handle.take() {
+            if !join_handle.is_finished() {
+                tracing::info!("Stopping BMC Mock at {}", self.address);
+                self.axum_handle.shutdown();
+                join_handle.abort()
+            }
+        }
+    }
+}
+
+impl BmcMockHandle {
+    pub async fn stop(&mut self) -> std::io::Result<()> {
+        if let Some(join_handle) = self.join_handle.take() {
+            self.axum_handle.shutdown();
+            join_handle.await.expect("join error")
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn wait(&mut self) -> std::io::Result<()> {
+        if let Some(join_handle) = self.join_handle.take() {
+            join_handle.await.expect("join error")
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// Mock multiple BMCs while listening on a single IP/port.
@@ -61,10 +101,10 @@ pub enum BmcMockError {
 /// which will be used to route the request to the appropriate entry in the `bmc_routers_by_mac_address`
 /// table.
 pub async fn run_combined_mock<T: AsRef<OsStr>>(
-    bmc_routers_by_mac_address: HashMap<String, Router>,
+    bmc_routers_by_ip_address: Arc<RwLock<HashMap<String, Router>>>,
     cert_path: Option<T>,
     listener_or_address: Option<ListenerOrAddress>,
-) -> Result<(), BmcMockError> {
+) -> Result<BmcMockHandle, BmcMockError> {
     let cert_path = match cert_path.as_ref() {
         Some(cert_path) => Path::new(cert_path),
         None => {
@@ -97,18 +137,26 @@ pub async fn run_combined_mock<T: AsRef<OsStr>>(
         .unwrap();
 
     let bmc_service = BmcService {
-        routers: bmc_routers_by_mac_address,
+        routers: bmc_routers_by_ip_address,
     };
 
+    let axum_handle = axum_server::Handle::new();
+
     let (addr, server) = match listener_or_address {
-        Some(ListenerOrAddress::Address(addr)) => (addr, axum_server::bind_rustls(addr, config)),
+        Some(ListenerOrAddress::Address(addr)) => (
+            addr,
+            axum_server::bind_rustls(addr, config).handle(axum_handle.clone()),
+        ),
         Some(ListenerOrAddress::Listener(listener)) => (
             listener.local_addr().unwrap(),
-            axum_server::from_tcp_rustls(listener, config),
+            axum_server::from_tcp_rustls(listener, config).handle(axum_handle.clone()),
         ),
         None => {
             let addr = SocketAddr::from(([0, 0, 0, 0], 1266));
-            (addr, axum_server::bind_rustls(addr, config))
+            (
+                addr,
+                axum_server::bind_rustls(addr, config).handle(axum_handle.clone()),
+            )
         }
     };
     debug!("Listening on {}", addr);
@@ -116,11 +164,23 @@ pub async fn run_combined_mock<T: AsRef<OsStr>>(
     // Inject middleware to normalize request URIs by dropping the trailing slash
     let bmc_service = NormalizePathLayer::trim_trailing_slash().layer(bmc_service);
 
-    server
-        .serve(bmc_service.into_make_service())
-        .await
-        .inspect_err(|e| tracing::error!("BMC mock could not listen on address {}: {}", addr, e))?;
-    Ok(())
+    let join_handle = tokio::task::Builder::new()
+        .name("bmc mock")
+        .spawn(async move {
+            server
+                .serve(bmc_service.into_make_service())
+                .await
+                .inspect_err(|e| {
+                    tracing::error!("BMC mock could not listen on address {}: {}", addr, e)
+                })?;
+            Ok(())
+        })
+        .expect("tokio spawn error");
+    Ok(BmcMockHandle {
+        axum_handle,
+        join_handle: Some(join_handle),
+        address: addr,
+    })
 }
 
 pub enum ListenerOrAddress {
@@ -139,7 +199,7 @@ impl ListenerOrAddress {
 
 #[derive(Clone)]
 struct BmcService {
-    routers: HashMap<String, Router>,
+    routers: Arc<RwLock<HashMap<String, Router>>>,
 }
 
 impl Service<axum::http::Request<Incoming>> for BmcService {
@@ -155,24 +215,35 @@ impl Service<axum::http::Request<Incoming>> for BmcService {
     }
 
     fn call(&mut self, request: Request<Incoming>) -> Self::Future {
-        let mac_address = request
+        let forwarded_header = request
             .headers()
-            .get("x-really-to-mac")
+            .get("forwarded")
             .map(|v| v.to_str().unwrap())
             .unwrap_or("");
 
-        let Some(router) = self.routers.get_mut(mac_address) else {
-            let err = format!("no BMC mock configured for mac: {mac_address}");
-            tracing::info!("{err}");
-            return Box::pin(async move {
-                Ok(Response::builder()
+        // https://datatracker.ietf.org/doc/html/rfc7239#section-5.3
+        let forwarded_host = forwarded_header
+            .split(';')
+            .find(|substr| substr.starts_with("host="))
+            .map(|substr| substr.replace("host=", ""))
+            .unwrap_or_default();
+
+        let routers = self.routers.clone();
+        Box::pin(async move {
+            // Hold the lock on the router until we finish calling the request
+            let mut lock = routers.write().await;
+
+            let Some(router) = lock.get_mut(&forwarded_host) else {
+                let err = format!("no BMC mock configured for host: {forwarded_host}");
+                tracing::info!("{err}");
+                return Ok(Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .body(err.into())
-                    .unwrap())
-            });
-        };
+                    .unwrap());
+            };
 
-        Box::pin(router.call(request))
+            router.call(request).await
+        })
     }
 }
 

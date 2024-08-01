@@ -44,6 +44,12 @@ build:
       sync:
         infer:
           - "bmc-mock"
+    - image: machine-a-tron
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.machine-a-tron.localdev
+      sync:
+        infer:
+          - "machine-a-tron"
     - image: nvmetal-scout-burn-in
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.machine-validation-config.localdev
@@ -59,4 +65,6 @@ deploy:
   kubeContext: k3s-dev
   kubectl:
     defaultNamespace: forge-system
+  statusCheckDeadlineSeconds: 60
+  tolerateFailuresUntilDeadline: true
 

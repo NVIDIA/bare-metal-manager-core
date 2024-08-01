@@ -1,15 +1,14 @@
 use axum::Router;
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tokio::task::JoinHandle;
 
 use crate::config::MachineATronContext;
-use crate::machine_state_machine::{AddressConfigError, MachineStateError};
+use crate::machine_state_machine::MachineStateError;
 use crate::machine_utils::add_address_to_interface;
-use bmc_mock::{BmcCommand, BmcMockError, ListenerOrAddress, MachineInfo};
+use bmc_mock::{BmcCommand, BmcMockHandle, ListenerOrAddress, MachineInfo};
 
 /// BmcMockWrapper launches a single instance of bmc-mock, configured to mock a single BMC for
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines
@@ -18,18 +17,6 @@ use bmc_mock::{BmcCommand, BmcMockError, ListenerOrAddress, MachineInfo};
 pub struct BmcMockWrapper {
     app_context: MachineATronContext,
     bmc_mock_router: Router,
-    join_handle: Option<JoinHandle<Result<(), BmcMockError>>>,
-    listen_mode: ListenMode,
-    active_address: Option<SocketAddr>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ListenMode {
-    SpecifiedAddress {
-        address: SocketAddr,
-        add_ip_alias: bool,
-    },
-    LocalhostWithDynamicPort,
 }
 
 impl BmcMockWrapper {
@@ -37,7 +24,6 @@ impl BmcMockWrapper {
         machine_info: MachineInfo,
         command_channel: mpsc::UnboundedSender<BmcCommand>,
         app_context: MachineATronContext,
-        listen_mode: ListenMode,
     ) -> Self {
         let tar_router = match machine_info {
             MachineInfo::Dpu(_) => app_context.dpu_tar_router.clone(),
@@ -53,13 +39,14 @@ impl BmcMockWrapper {
         BmcMockWrapper {
             app_context,
             bmc_mock_router,
-            join_handle: None,
-            listen_mode,
-            active_address: None,
         }
     }
 
-    pub async fn start(&mut self) -> Result<SocketAddr, MachineStateError> {
+    pub async fn start(
+        &mut self,
+        address: SocketAddr,
+        add_ip_alias: bool,
+    ) -> Result<BmcMockHandle, MachineStateError> {
         let root_ca_path = self.app_context.forge_client_config.root_ca_path.as_str();
         let certs_dir = self
             .app_context
@@ -75,56 +62,36 @@ impl BmcMockWrapper {
 
         // Support dynamically assigning address: If configured for a dynamic address, pass the
         // listener itself to bmc-mock to prevent race conditions. Otherwise, pass the address.
-        let listener_or_address = match self.listen_mode {
-            ListenMode::LocalhostWithDynamicPort => {
-                ListenerOrAddress::Listener(
-                    TcpListener::bind("127.0.0.1:0").map_err(AddressConfigError::from)?,
-                ) // let OS choose available port
-            }
-            ListenMode::SpecifiedAddress {
-                address,
-                add_ip_alias,
-            } => {
-                if add_ip_alias {
-                    add_address_to_interface(
-                        &address.ip().to_string(),
-                        &self.app_context.app_config.interface,
-                        &self.app_context.app_config.sudo_command,
-                    )
-                    .await
-                    .inspect_err(|e| tracing::warn!("{}", e))
-                    .map_err(MachineStateError::ListenAddressConfigError)?;
-                }
-                ListenerOrAddress::Address(address)
-            }
-        };
+        if add_ip_alias {
+            add_address_to_interface(
+                &address.ip().to_string(),
+                &self.app_context.app_config.interface,
+                &self.app_context.app_config.sudo_command,
+            )
+            .await
+            .inspect_err(|e| tracing::warn!("{}", e))
+            .map_err(MachineStateError::ListenAddressConfigError)?;
+        }
 
-        let address = listener_or_address
-            .address()
-            .map_err(AddressConfigError::from)?;
         tracing::info!("Starting bmc mock on {:?}", address);
 
         let bmc_mock_router = self.bmc_mock_router.clone();
-        self.join_handle = Some(tokio::spawn(async move {
-            bmc_mock::run_combined_mock(
-                HashMap::from([("".to_string(), bmc_mock_router)]),
-                Some(certs_dir),
-                Some(listener_or_address),
-            )
-            .await
-            .inspect_err(|e| tracing::error!("{}", e))
-        }));
-        self.active_address = Some(address);
-
-        Ok(address)
+        Ok(bmc_mock::run_combined_mock(
+            Arc::new(RwLock::new(HashMap::from([(
+                "".to_string(),
+                bmc_mock_router,
+            )]))),
+            Some(certs_dir),
+            Some(ListenerOrAddress::Address(address)),
+        )
+        .await?)
     }
 
-    pub fn active_address(&self) -> Option<SocketAddr> {
-        self.active_address
+    pub fn router(&self) -> &Router {
+        &self.bmc_mock_router
     }
 }
 
-/// BmcMockAddressRegistry is shared state that MachineATron's mock hosts can use to write the
-/// actual address of the BMC-mocks they run, and that MachineATronBackedRedfishClientPool reads
-/// from to know the "real" address of a mocked BMC.
-pub type BmcMockAddressRegistry = Arc<RwLock<HashMap<Ipv4Addr, SocketAddr>>>;
+/// BmcMockRegistry is shared state that MachineATron's mock hosts can use to register their BMC
+/// mock routers, so that a single shared instance of BMC mock can delegate to them.
+pub type BmcMockRegistry = Arc<RwLock<HashMap<String, Router>>>;

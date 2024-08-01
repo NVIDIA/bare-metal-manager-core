@@ -12,7 +12,6 @@
 use chrono::Duration;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use carbide::cfg::{
     default_max_find_by_ids, AgentUpgradePolicyChoice, AuthConfig, CarbideConfig, FirmwareGlobal,
@@ -22,7 +21,6 @@ use carbide::cfg::{
 };
 use carbide::logging::setup::TelemetrySetup;
 use carbide::model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
-use carbide::redfish::RedfishClientPool;
 use carbide::resource_pool::{Range, ResourcePoolDef, ResourcePoolType};
 use tokio::sync::oneshot::{Receiver, Sender};
 
@@ -34,7 +32,7 @@ pub struct StartArgs {
     pub root_dir: String,
     pub db_url: String,
     pub vault_token: String,
-    pub override_redfish_pool: Option<Arc<dyn RedfishClientPool>>,
+    pub override_bmc_addr: Option<SocketAddr>,
     pub telemetry_setup: TelemetrySetup,
     pub site_explorer_create_machines: bool,
     pub stop_channel: Receiver<()>,
@@ -47,7 +45,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         root_dir,
         db_url,
         vault_token,
-        override_redfish_pool,
+        override_bmc_addr,
         telemetry_setup,
         site_explorer_create_machines,
         stop_channel,
@@ -189,8 +187,8 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
             create_machines: carbide::dynamic_settings::create_machines(
                 site_explorer_create_machines,
             ),
-            override_target_ip: None,
-            override_target_port: None,
+            override_target_ip: override_bmc_addr.map(|a| a.ip().to_string()),
+            override_target_port: override_bmc_addr.map(|a| a.port()),
         },
         dpu_dhcp_server_enabled: true,
         nvue_enabled: true,
@@ -250,7 +248,7 @@ pub async fn start(start_args: StartArgs) -> eyre::Result<()> {
         0,
         carbide_config_str,
         None,
-        override_redfish_pool,
+        None,
         Some(telemetry_setup),
         stop_channel,
         ready_channel,
