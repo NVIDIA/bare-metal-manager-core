@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
 use chrono::prelude::*;
@@ -100,7 +101,7 @@ impl MachineStateHistory {
         let str_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
         Ok(sqlx::query_as::<_, Self>(query)
             .bind(str_ids)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()
@@ -117,7 +118,7 @@ impl MachineStateHistory {
             ORDER BY id ASC";
         sqlx::query_as::<_, Self>(query)
             .bind(id.to_string())
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -136,7 +137,7 @@ impl MachineStateHistory {
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(state))
             .bind(state_version.version_string())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

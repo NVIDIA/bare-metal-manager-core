@@ -15,6 +15,8 @@
  *  tables in the database, leveraging the site-specific record types.
 */
 
+use std::ops::DerefMut;
+
 use crate::db::{DatabaseError, DbTable};
 use crate::measured_boot::dto::keys::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
@@ -40,7 +42,7 @@ pub async fn insert_into_approved_machines(
         .bind(approval_type)
         .bind(pcr_registers)
         .bind(comments)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?;
     Ok(record)
 }
@@ -52,7 +54,7 @@ pub async fn remove_from_approved_machines_by_approval_id(
     let query = "delete from measurement_approved_machines where approval_id = $1 returning *";
     Ok(sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
         .bind(approval_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -63,7 +65,7 @@ pub async fn remove_from_approved_machines_by_machine_id(
     let query = "delete from measurement_approved_machines where machine_id = $1 returning *";
     Ok(sqlx::query_as::<_, MeasurementApprovedMachineRecord>(query)
         .bind(machine_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -97,7 +99,7 @@ pub async fn insert_into_approved_profiles(
         .bind(approval_type)
         .bind(pcr_registers)
         .bind(comments)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?;
     Ok(record)
 }
@@ -109,7 +111,7 @@ pub async fn remove_from_approved_profiles_by_approval_id(
     let query = "delete from measurement_approved_profiles where approval_id = $1 returning *";
     Ok(sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
         .bind(approval_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -120,7 +122,7 @@ pub async fn remove_from_approved_profiles_by_profile_id(
     let query = "delete from measurement_approved_profiles where profile_id = $1 returning *";
     Ok(sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
         .bind(profile_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -140,7 +142,7 @@ pub async fn get_approval_for_profile_id(
     let query = "select * from measurement_approved_profiles where profile_id = $1";
     Ok(sqlx::query_as::<_, MeasurementApprovedProfileRecord>(query)
         .bind(profile_id)
-        .fetch_optional(&mut **txn)
+        .fetch_optional(txn.deref_mut())
         .await?)
 }
 
@@ -182,7 +184,7 @@ pub async fn import_measurement_approved_machine(
             .bind(record.approval_type)
             .bind(record.ts)
             .bind(record.comments.clone())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await?,
     )
 }
@@ -225,7 +227,7 @@ pub async fn import_measurement_approved_profile(
             .bind(record.approval_type)
             .bind(record.ts)
             .bind(record.comments.clone())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await?,
     )
 }

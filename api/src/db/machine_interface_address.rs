@@ -11,6 +11,7 @@
  */
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::ops::DerefMut;
 
 use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
@@ -45,7 +46,7 @@ impl MachineInterfaceAddress {
         let query = "SELECT * FROM machine_interface_addresses WHERE interface_id = $1 AND family(address) = 4";
         sqlx::query_as(query)
             .bind(interface_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -59,7 +60,7 @@ impl MachineInterfaceAddress {
         Ok(match filter {
             MachineInterfaceIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, MachineInterfaceAddress>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "machine_interface_addresses All", e)
@@ -70,7 +71,7 @@ impl MachineInterfaceAddress {
                     &base_query.replace("{where}", "WHERE mia.interface_id=$1"),
                 )
                 .bind(uuid)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| {
                     DatabaseError::new(file!(), line!(), "machine_interface_addresses One", e)
@@ -81,7 +82,7 @@ impl MachineInterfaceAddress {
                     &base_query.replace("{where}", "WHERE mia.interface_id=ANY($1)"),
                 )
                 .bind(list)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| {
                     DatabaseError::new(file!(), line!(), "machine_interface_addresses List", e)
@@ -104,7 +105,7 @@ impl MachineInterfaceAddress {
         ";
         sqlx::query_as(query)
             .bind(address)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -116,7 +117,7 @@ impl MachineInterfaceAddress {
         let query = "DELETE FROM machine_interface_addresses WHERE interface_id = $1";
         sqlx::query(query)
             .bind(interface_id)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())

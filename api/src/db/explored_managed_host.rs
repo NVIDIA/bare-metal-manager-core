@@ -12,6 +12,7 @@
 
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 use std::net::IpAddr;
+use std::ops::DerefMut;
 
 use crate::{
     db::DatabaseError,
@@ -56,9 +57,10 @@ impl DbExploredManagedHost {
         // grab list of IPs
         let mut builder = sqlx::QueryBuilder::new("SELECT host_bmc_ip FROM explored_managed_hosts");
         let query = builder.build_query_as();
-        let ids: Vec<ExploredManagedHostIp> = query.fetch_all(&mut **txn).await.map_err(|e| {
-            DatabaseError::new(file!(), line!(), "explored_managed_hosts::find_ips", e)
-        })?;
+        let ids: Vec<ExploredManagedHostIp> =
+            query.fetch_all(txn.deref_mut()).await.map_err(|e| {
+                DatabaseError::new(file!(), line!(), "explored_managed_hosts::find_ips", e)
+            })?;
         // convert to IpAddr
         let ips: Vec<IpAddr> = ids.iter().map(|id| id.0).collect();
         Ok(ips)
@@ -72,7 +74,7 @@ impl DbExploredManagedHost {
 
         sqlx::query_as::<_, Self>(query)
             .bind(ips)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|hosts| hosts.into_iter().map(Into::into).collect())
             .map_err(|e| {
@@ -86,7 +88,7 @@ impl DbExploredManagedHost {
         let query = "SELECT * FROM explored_managed_hosts ORDER by host_bmc_ip ASC";
 
         sqlx::query_as::<_, Self>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|hosts| hosts.into_iter().map(Into::into).collect())
             .map_err(|e| DatabaseError::new(file!(), line!(), "explored_managed_hosts find_all", e))
@@ -98,7 +100,7 @@ impl DbExploredManagedHost {
     ) -> Result<(), DatabaseError> {
         let query = r#"DELETE FROM explored_managed_hosts;"#;
         let _query_result = sqlx::query(query)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e));
 
@@ -110,7 +112,7 @@ impl DbExploredManagedHost {
             let _result = sqlx::query(query)
                 .bind(host.host_bmc_ip)
                 .bind(sqlx::types::Json(&host.dpus))
-                .execute(&mut **txn)
+                .execute(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         }
@@ -125,7 +127,7 @@ impl DbExploredManagedHost {
         let query = "DELETE FROM explored_managed_hosts WHERE host_bmc_ip = $1;";
         let _result = sqlx::query(query)
             .bind(addr)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

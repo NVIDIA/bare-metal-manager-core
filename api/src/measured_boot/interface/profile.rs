@@ -26,6 +26,7 @@ use crate::model::machine::machine_id::MachineId;
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{Postgres, Transaction};
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 /// insert_measurement_profile_record is a very basic insert of a
 /// new row into the measurement_system_profiles table, where only a name
@@ -40,7 +41,7 @@ pub async fn insert_measurement_profile_record(
     let query = "insert into measurement_system_profiles(name) values($1) returning *";
     let profile = sqlx::query_as::<_, MeasurementSystemProfileRecord>(query)
         .bind(name.clone())
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await
         .map_err(|sqlx_err| {
             let is_db_err = sqlx_err.as_database_error();
@@ -108,7 +109,7 @@ async fn insert_measurement_profile_attr_record(
             .bind(profile_id)
             .bind(key)
             .bind(value)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await?,
     )
 }
@@ -128,7 +129,7 @@ pub async fn rename_profile_for_profile_id(
     Ok(sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
         .bind(new_profile_name)
         .bind(profile_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -147,7 +148,7 @@ pub async fn rename_profile_for_profile_name(
     Ok(sqlx::query_as::<_, MeasurementSystemProfileRecord>(&query)
         .bind(new_profile_name)
         .bind(old_profile_name)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -327,7 +328,7 @@ pub async fn get_measurement_profile_id_by_attrs(
     query.push_bind(attrs_len);
 
     let query = query.build_query_as::<MeasurementSystemProfileId>();
-    let ids = query.fetch_optional(&mut **txn).await.map_err(|e| {
+    let ids = query.fetch_optional(txn.deref_mut()).await.map_err(|e| {
         DatabaseError::new(file!(), line!(), "get_measurement_profile_id_by_attrs", e)
     })?;
 
@@ -379,7 +380,7 @@ pub async fn get_bundles_for_profile_id(
         "select distinct bundle_id from measurement_bundles where profile_id = $1 order by bundle_id";
     Ok(sqlx::query_as::<_, MeasurementBundleId>(query)
         .bind(profile_id)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await?)
 }
 
@@ -395,7 +396,7 @@ pub async fn get_bundles_for_profile_name(
         "select distinct bundle_id from measurement_bundles where name = $1 order by bundle_id";
     Ok(sqlx::query_as::<_, MeasurementBundleId>(query)
         .bind(profile_name)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await?)
 }
 
@@ -410,7 +411,7 @@ pub async fn get_machines_for_profile_id(
     let query = "select distinct machine_id from measurement_journal where profile_id = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(profile_id)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await?
         .into_iter()
         .map(|d| d.into_inner())
@@ -429,7 +430,7 @@ pub async fn get_machines_for_profile_name(
         "select distinct machine_id from measurement_journal,measurement_system_profiles where measurement_journal.profile_id=measurement_system_profiles.profile_id and measurement_system_profiles.name = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(profile_name)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await?
         .into_iter()
         .map(|d| d.into_inner())
@@ -473,7 +474,7 @@ pub async fn import_measurement_profile(
         .bind(profile.profile_id)
         .bind(profile.name.clone())
         .bind(profile.ts)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -515,7 +516,7 @@ pub async fn import_measurement_system_profiles_attr(
             .bind(bundle.key.clone())
             .bind(bundle.value.clone())
             .bind(bundle.ts)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await?,
     )
 }

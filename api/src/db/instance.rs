@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::net::IpAddr;
+use std::ops::DerefMut;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
@@ -322,7 +323,7 @@ impl Instance {
 
         let query = builder.build_query_as();
         let ids: Vec<InstanceId> = query
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "instance::find_ids", e))?;
 
@@ -339,7 +340,7 @@ impl Instance {
             FindInstanceTypeFilter::Id(id) => match id {
                 InstanceIdKeyedObjectFilter::All => {
                     sqlx::query_as::<_, InstanceSnapshot>(&base_query_for_id.replace("{where}", ""))
-                        .fetch_all(&mut **txn)
+                        .fetch_all(txn.deref_mut())
                         .await
                         .map_err(|e| DatabaseError::new(file!(), line!(), "instances All", e))?
                 }
@@ -347,14 +348,14 @@ impl Instance {
                     &base_query_for_id.replace("{where}", "WHERE m.id=$1"),
                 )
                 .bind(uuid)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "instances One", e))?,
                 InstanceIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, InstanceSnapshot>(
                     &base_query_for_id.replace("{where}", "WHERE m.id=ANY($1)"),
                 )
                 .bind(list)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
             },
@@ -368,7 +369,7 @@ impl Instance {
                     );",
                 )
                 .bind(value)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
                 (true, None) => {
@@ -389,7 +390,7 @@ impl Instance {
                     "SELECT * FROM instances WHERE labels ->> $1 IS NOT NULL",
                 )
                 .bind(label.key.clone())
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
 
@@ -398,7 +399,7 @@ impl Instance {
                 )
                 .bind(label.key.clone())
                 .bind(value)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), "instances List", e))?,
             },
@@ -414,7 +415,7 @@ impl Instance {
         let query = "SELECT * from instances WHERE id = $1";
         let instance = sqlx::query_as::<_, InstanceSnapshot>(query)
             .bind(id)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -428,7 +429,7 @@ impl Instance {
         let query = "SELECT id from instances WHERE machine_id = $1";
         let instance_id = sqlx::query_as::<_, InstanceId>(query)
             .bind(machine_id.to_string())
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -442,7 +443,7 @@ impl Instance {
         let query = "SELECT * from instances WHERE machine_id = $1";
         let instance = sqlx::query_as::<_, InstanceSnapshot>(query)
             .bind(machine_id.to_string())
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -462,7 +463,7 @@ INNER JOIN machines s ON s.id = m.attached_dpu_machine_id
 WHERE s.network_config->>'loopback_ip'=$1";
         sqlx::query_as::<_, InstanceSnapshot>(query)
             .bind(relay.to_string())
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -478,7 +479,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         let _: (DbMachineId,) = sqlx::query_as(query)
             .bind(boot_with_custom_ipxe)
             .bind(machine_id.to_string())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -509,7 +510,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await;
 
         match query_result {
@@ -526,7 +527,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
 
         let query_result: (DateTime<Utc>,) = sqlx::query_as::<_, (DateTime<Utc>,)>(query) // Specify return type
             .bind(instance_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -586,7 +587,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(sqlx::types::Json(&metadata.labels))
             .bind(instance_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await;
 
         match query_result {
@@ -635,7 +636,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(os.phone_home_enabled)
             .bind(instance_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await;
 
         match query_result {
@@ -673,7 +674,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
             .bind(sqlx::types::Json(new_state))
             .bind(instance_id)
             .bind(&expected_version_str)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await;
 
         match query_result {
@@ -707,7 +708,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         let (_,): (InstanceId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(status))
             .bind(instance_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -739,7 +740,7 @@ WHERE s.network_config->>'loopback_ip'=$1";
         let (_,): (InstanceId,) = sqlx::query_as(query)
             .bind(sqlx::types::Json(status))
             .bind(instance_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -814,7 +815,7 @@ impl<'a> NewInstance<'a> {
             .bind(sqlx::types::Json(&self.metadata.labels))
             .bind(self.config_version.version_string())
             .bind(&self.config.tenant.hostname)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -827,7 +828,7 @@ impl DeleteInstance {
         let query = "DELETE FROM instances where id=$1::uuid RETURNING id";
         let _id = sqlx::query_as::<_, InstanceId>(query)
             .bind(self.instance_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         Ok(())
@@ -841,7 +842,7 @@ impl DeleteInstance {
 
         let _id = sqlx::query_as::<_, InstanceId>(query)
             .bind(self.instance_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
         Ok(())

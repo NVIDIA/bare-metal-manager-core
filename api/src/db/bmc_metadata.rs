@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::fmt::{Display, Formatter};
+use std::ops::DerefMut;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
@@ -111,7 +112,7 @@ impl BmcMetaDataGetRequest {
         let query = r#"SELECT machine_topologies.topology->>'bmc_info' as bmc_info FROM machine_topologies WHERE machine_id=$1"#;
         let bmc_info = sqlx::query_as::<_, BmcInfo>(query)
             .bind(self.machine_id.to_string())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -169,7 +170,7 @@ impl BmcMetaDataUpdateRequest {
         let _: Option<(DbMachineId,)> = sqlx::query_as(query)
             .bind(json!(bmc_info))
             .bind(self.machine_id.to_string())
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

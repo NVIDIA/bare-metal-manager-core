@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::ops::DerefMut;
+
 use itertools::Itertools;
 use sqlx::{Postgres, Transaction};
 
@@ -59,7 +61,7 @@ impl NetworkDevice {
         let mut devices = match filter {
             ObjectFilter::All => {
                 sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices All", e))
             }
@@ -67,7 +69,7 @@ impl NetworkDevice {
                 let where_clause = "WHERE l.id=$1".to_string();
                 sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
                     .bind(id.to_string())
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices One", e))
             }
@@ -76,7 +78,7 @@ impl NetworkDevice {
                 let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
                 sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
                     .bind(str_list)
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "network_devices List", e))
             }
@@ -103,7 +105,7 @@ impl NetworkDevice {
             .bind(&data.name)
             .bind(&data.description)
             .bind(&data.ip_address)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -134,7 +136,7 @@ impl NetworkDevice {
     ) -> Result<(), DatabaseError> {
         let query = "LOCK TABLE network_device_lock IN EXCLUSIVE MODE";
         sqlx::query(query)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -151,7 +153,7 @@ impl NetworkDevice {
         let query = "DELETE FROM network_devices WHERE id NOT IN (SELECT network_device_id FROM port_to_network_device_map) RETURNING *";
 
         let result = sqlx::query_as::<_, NetworkDevice>(query)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -187,7 +189,7 @@ impl DpuToNetworkDeviceMap {
             .bind(local_port)
             .bind(remote_port)
             .bind(network_device_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -201,7 +203,7 @@ impl DpuToNetworkDeviceMap {
 
         let _ids = sqlx::query_as::<_, DbMachineId>(query)
             .bind(dpu_id.to_string())
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -249,7 +251,7 @@ impl DpuToNetworkDeviceMap {
 
         sqlx::query_as::<_, Self>(base_query)
             .bind(device_id)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "network_device_id", e))
     }
@@ -263,7 +265,7 @@ impl DpuToNetworkDeviceMap {
         let str_list: Vec<String> = dpu_ids.iter().map(|id| id.to_string()).collect();
         sqlx::query_as::<_, DpuToNetworkDeviceMap>(base_query)
             .bind(str_list)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "port_to_network_device_map", e))
     }

@@ -11,6 +11,7 @@
  */
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+use std::ops::DerefMut;
 
 use itertools::Itertools;
 use sqlx::{query_as, Acquire, FromRow, Postgres, Transaction};
@@ -54,7 +55,7 @@ impl InstanceAddress {
         let query = "SELECT * FROM instance_addresses WHERE address = $1::inet";
         sqlx::query_as(query)
             .bind(address)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -68,7 +69,7 @@ impl InstanceAddress {
         Ok(match filter {
             UuidKeyedObjectFilter::All => {
                 sqlx::query_as::<_, InstanceAddress>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| {
                         DatabaseError::new(file!(), line!(), "instance_addresses All", e)
@@ -78,14 +79,14 @@ impl InstanceAddress {
                 &base_query.replace("{where}", "WHERE isa.instance_id=$1"),
             )
             .bind(uuid)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "instance_addresses One", e))?,
             UuidKeyedObjectFilter::List(list) => sqlx::query_as::<_, InstanceAddress>(
                 &base_query.replace("{where}", "WHERE isa.instance_id=ANY($1)"),
             )
             .bind(list)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "instance_addresses List", e))?,
         }
@@ -101,7 +102,7 @@ impl InstanceAddress {
         let query = "DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id";
         let _: Vec<(InstanceId,)> = sqlx::query_as(query)
             .bind(instance_id)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -164,7 +165,7 @@ INNER JOIN network_prefixes ON network_prefixes.circuit_id = instance_addresses.
 WHERE network_prefixes.segment_id = $1::uuid";
         let (address_count,): (i64,) = query_as(query)
             .bind(segment_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -304,7 +305,7 @@ INNER JOIN network_segments ON network_prefixes.segment_id = network_segments.id
 WHERE network_segments.id = $1::uuid";
         sqlx::query_as(query)
             .bind(self.segment_id)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }

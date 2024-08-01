@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::fmt;
+use std::ops::DerefMut;
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
@@ -243,7 +244,7 @@ impl NewVpc {
             .bind(&self.tenant_organization_id)
             .bind(&version_string)
             .bind(self.network_virtualization_type)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -277,7 +278,7 @@ impl Vpc {
 
         let query = builder.build_query_as();
         let ids: Vec<VpcId> = query
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "vpc::find_ids", e))?;
 
@@ -293,7 +294,7 @@ impl Vpc {
         let _ = sqlx::query(query)
             .bind(vni)
             .bind(id)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
         Ok(())
@@ -307,7 +308,7 @@ impl Vpc {
             VpcIdKeyedObjectFilter::All => {
                 let query = "SELECT * FROM vpcs WHERE deleted is NULL";
                 sqlx::query_as(query)
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -315,7 +316,7 @@ impl Vpc {
                 let query = "SELECT * FROM vpcs WHERE id = $1 and deleted is NULL";
                 sqlx::query_as(query)
                     .bind(uuid)
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -323,7 +324,7 @@ impl Vpc {
                 let query = "select * from vpcs WHERE id = ANY($1) and deleted is NULL";
                 sqlx::query_as(query)
                     .bind(list)
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             }
@@ -339,7 +340,7 @@ impl Vpc {
         let query = "SELECT * FROM vpcs WHERE name = $1 and deleted is NULL";
         sqlx::query_as(query)
             .bind(name)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -354,7 +355,7 @@ impl Vpc {
             LIMIT 1";
         sqlx::query_as(query)
             .bind(segment_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -369,7 +370,11 @@ impl Vpc {
     ) -> Result<Option<Self>, DatabaseError> {
         // TODO: Should this update the version?
         let query = "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 AND deleted is null RETURNING *";
-        match sqlx::query_as(query).bind(id).fetch_one(&mut **txn).await {
+        match sqlx::query_as(query)
+            .bind(id)
+            .fetch_one(txn.deref_mut())
+            .await
+        {
             Ok(vpc) => Ok(Some(vpc)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(DatabaseError::new(file!(), line!(), query, e)),
@@ -473,7 +478,7 @@ impl UpdateVpc {
             .bind(&next_version_str)
             .bind(self.id)
             .bind(&current_version_str)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await;
 
         match query_result {

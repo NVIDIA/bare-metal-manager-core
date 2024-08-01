@@ -15,6 +15,8 @@
  *  tables in the database, leveraging the report-specific record types.
 */
 
+use std::ops::DerefMut;
+
 use crate::db::DatabaseError;
 use crate::measured_boot::dto::keys::MeasurementReportId;
 use crate::measured_boot::dto::records::{MeasurementReportRecord, MeasurementReportValueRecord};
@@ -78,7 +80,7 @@ pub async fn match_latest_reports(
     query.push_bind(pcr_register_len as i16);
 
     let prepared = query.build_query_as::<MeasurementReportRecord>();
-    Ok(prepared.fetch_all(&mut **txn).await?)
+    Ok(prepared.fetch_all(txn.deref_mut()).await?)
 }
 
 /// insert_measurement_report_record is a very basic insert of a
@@ -92,7 +94,7 @@ pub async fn insert_measurement_report_record(
     let query = "insert into measurement_reports(machine_id) values($1) returning *";
     Ok(sqlx::query_as::<_, MeasurementReportRecord>(query)
         .bind(machine_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -126,7 +128,7 @@ async fn insert_measurement_report_value_record(
         .bind(report_id)
         .bind(value.pcr_register)
         .bind(&value.sha256)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -249,7 +251,7 @@ pub async fn get_latest_measurement_report_records_by_machine_id(
     let query =
         "select distinct on (machine_id) * from measurement_reports order by machine_id,ts desc";
     Ok(sqlx::query_as::<_, MeasurementReportRecord>(query)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await?)
 }
 

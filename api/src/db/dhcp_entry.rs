@@ -9,6 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
+use std::ops::DerefMut;
+
 use sqlx::{FromRow, Postgres, Transaction};
 
 use super::DatabaseError;
@@ -35,7 +37,7 @@ impl DhcpEntry {
         Ok(match filter {
             MachineInterfaceIdKeyedObjectFilter::All => {
                 sqlx::query_as::<_, DhcpEntry>(&base_query.replace("{where}", ""))
-                    .fetch_all(&mut **txn)
+                    .fetch_all(txn.deref_mut())
                     .await
                     .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries All", e))?
             }
@@ -43,14 +45,14 @@ impl DhcpEntry {
                 &base_query.replace("{where}", "WHERE machine_interface_id=$1"),
             )
             .bind(uuid)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries One", e))?,
             MachineInterfaceIdKeyedObjectFilter::List(list) => sqlx::query_as::<_, DhcpEntry>(
                 &base_query.replace("{where}", "WHERE machine_interface_id=ANY($1)"),
             )
             .bind(list)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "dhcp_entries List", e))?,
         })
@@ -67,7 +69,7 @@ ON CONFLICT DO NOTHING";
         let _result = sqlx::query(query)
             .bind(self.machine_interface_id)
             .bind(&self.vendor_string)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -82,7 +84,7 @@ ON CONFLICT DO NOTHING";
 DELETE FROM dhcp_entries WHERE machine_interface_id=$1::uuid";
         let _result = sqlx::query(query)
             .bind(machine_interface_id)
-            .execute(&mut **txn)
+            .execute(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

@@ -15,6 +15,8 @@
  *  tables in the database, leveraging the bundle-specific record types.
 */
 
+use std::ops::DerefMut;
+
 use crate::db::machine::DbMachineId;
 use crate::db::{DatabaseError, DbPrimaryUuid, DbTable};
 use crate::measured_boot::dto::keys::{MeasurementBundleId, MeasurementSystemProfileId};
@@ -43,7 +45,7 @@ pub async fn insert_measurement_bundle_record(
                 .bind(profile_id)
                 .bind(name.clone())
                 .bind(set_state)
-                .fetch_one(&mut **txn)
+                .fetch_one(txn.deref_mut())
                 .await
         }
         None => {
@@ -52,7 +54,7 @@ pub async fn insert_measurement_bundle_record(
             sqlx::query_as::<_, MeasurementBundleRecord>(query)
                 .bind(profile_id)
                 .bind(name.clone())
-                .fetch_one(&mut **txn)
+                .fetch_one(txn.deref_mut())
                 .await
         }
     }.map_err(|sqlx_err| {
@@ -125,7 +127,7 @@ pub async fn insert_measurement_bundle_value_record(
         .bind(bundle_id)
         .bind(pcr_register)
         .bind(value)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -144,7 +146,7 @@ pub async fn rename_bundle_for_bundle_id(
     Ok(sqlx::query_as::<_, MeasurementBundleRecord>(&query)
         .bind(new_bundle_name)
         .bind(bundle_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -162,7 +164,7 @@ pub async fn rename_bundle_for_bundle_name(
     Ok(sqlx::query_as::<_, MeasurementBundleRecord>(&query)
         .bind(new_bundle_name)
         .bind(old_bundle_name)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -193,7 +195,7 @@ pub async fn set_state_for_bundle_id(
         .bind(state)
         .bind(bundle_id)
         .bind(MeasurementBundleState::Revoked)
-        .fetch_optional(&mut **txn)
+        .fetch_optional(txn.deref_mut())
         .await?;
 
     match updated_bundle_record {
@@ -234,7 +236,7 @@ pub async fn get_state_for_bundle_id(
     );
     let record = sqlx::query_as::<_, MeasurementBundleStateRecord>(&query)
         .bind(bundle_id)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?;
     Ok(record.state)
 }
@@ -392,7 +394,7 @@ pub async fn get_machines_for_bundle_id(
     let query = "select distinct machine_id from measurement_journal where bundle_id = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(bundle_id)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await?
         .into_iter()
         .map(|d| d.into_inner())
@@ -411,7 +413,7 @@ pub async fn get_machines_for_bundle_name(
         "select distinct machine_id from measurement_journal,measurement_bundles where measurement_journal.bundle_id=measurement_bundles.bundle_id and measurement_bundles.name = $1 order by machine_id";
     Ok(sqlx::query_as::<_, DbMachineId>(query)
         .bind(bundle_name)
-        .fetch_all(&mut **txn)
+        .fetch_all(txn.deref_mut())
         .await?
         .into_iter()
         .map(|d| d.into_inner())
@@ -475,7 +477,7 @@ pub async fn import_measurement_bundle(
         .bind(bundle.name.clone())
         .bind(bundle.ts)
         .bind(bundle.state)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }
 
@@ -513,6 +515,6 @@ pub async fn import_measurement_bundles_value(
         .bind(bundle.pcr_register)
         .bind(bundle.sha256.clone())
         .bind(bundle.ts)
-        .fetch_one(&mut **txn)
+        .fetch_one(txn.deref_mut())
         .await?)
 }

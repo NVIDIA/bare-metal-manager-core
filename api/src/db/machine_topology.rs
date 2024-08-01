@@ -11,6 +11,7 @@
  */
 
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use chrono::prelude::*;
 use itertools::Itertools;
@@ -97,7 +98,7 @@ impl MachineTopology {
         let res = sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(&discovery_data))
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -141,7 +142,7 @@ impl MachineTopology {
         let res = sqlx::query_as(query)
             .bind(machine_id.to_string())
             .bind(sqlx::types::Json(&topology_data))
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| CarbideError::from(DatabaseError::new(file!(), line!(), query, e)))?;
 
@@ -159,7 +160,7 @@ impl MachineTopology {
         let query = "SELECT * FROM machine_topologies WHERE machine_id=ANY($1);";
         let topologies = sqlx::query_as(query)
             .bind(str_ids)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .into_iter()
@@ -199,7 +200,7 @@ impl MachineTopology {
             "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";
         Ok(sqlx::query_as::<_, DbMachineId>(query)
             .bind(address)
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
             .map(|db_id| db_id.into_inner()))
@@ -214,7 +215,7 @@ impl MachineTopology {
             WHERE topology->'bmc_info'->>'ip' = ANY($1)"#;
         sqlx::query_as::<_, (DbMachineId, String)>(query)
             .bind(bmc_ips)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| {
                 DatabaseError::new(
@@ -236,7 +237,7 @@ impl MachineTopology {
             "SELECT machine_id FROM machine_topologies WHERE topology::text ilike '%' || $1 || '%'";
         sqlx::query_as::<_, DbMachineId>(query)
             .bind(to_find)
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map(|ids| ids.into_iter().map(Into::into).collect())
             .map_err(|e| {
@@ -254,7 +255,7 @@ impl MachineTopology {
         let _id = sqlx::query_as::<_, DbMachineId>(query)
             .bind(machine_id.to_string())
             .bind(value)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 

@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use std::ops::DerefMut;
+
 use config_version::ConfigVersion;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Postgres, Row, Transaction};
@@ -36,7 +38,7 @@ impl Tenant {
         sqlx::query_as(query)
             .bind(organization_id)
             .bind(&version_string)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -48,7 +50,7 @@ impl Tenant {
         let query = "SELECT * FROM tenants WHERE organization_id = $1";
         let results = sqlx::query_as(query)
             .bind(organization_id.as_ref())
-            .fetch_optional(&mut **txn)
+            .fetch_optional(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -86,7 +88,7 @@ impl Tenant {
             .bind(&next_version_str)
             .bind(organization_id)
             .bind(&current_version_str)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|err| match err {
                 sqlx::Error::RowNotFound => {
@@ -165,7 +167,7 @@ impl TenantKeyset {
             .bind(&self.keyset_identifier.keyset_id)
             .bind(sqlx::types::Json(&self.keyset_content))
             .bind(self.version.to_string())
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
@@ -184,7 +186,7 @@ impl TenantKeyset {
         // execute
         let query = builder.build_query_as();
         let ids: Vec<TenantKeysetId> = query
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "tenant_keyset::find_ids", e))?;
 
@@ -207,7 +209,7 @@ impl TenantKeyset {
         // execute
         let query = builder.build_query_as();
         let mut keysets: Vec<TenantKeyset> = query
-            .fetch_all(&mut **txn)
+            .fetch_all(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), "tenant_keyset::find_by_ids", e))?;
 
@@ -233,7 +235,7 @@ impl TenantKeyset {
                 ObjectFilter::All => {
                     sqlx::query_as::<_, TenantKeyset>(&base_query.replace("{where}", ""))
                         .bind(organization_id.to_string())
-                        .fetch_all(&mut **txn)
+                        .fetch_all(txn.deref_mut())
                         .await
                         .map_err(|e| DatabaseError::new(file!(), line!(), "keyset All", e))
                 }
@@ -243,7 +245,7 @@ impl TenantKeyset {
                 )
                 .bind(organization_id.to_string())
                 .bind(keyset_id)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e)),
 
@@ -252,14 +254,14 @@ impl TenantKeyset {
                 )
                 .bind(organization_id.to_string())
                 .bind(keyset_ids)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), base_query, e)),
             }
         } else {
             let query = "SELECT * FROM tenant_keysets";
             sqlx::query_as::<_, TenantKeyset>(query)
-                .fetch_all(&mut **txn)
+                .fetch_all(txn.deref_mut())
                 .await
                 .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
         }?;
@@ -283,7 +285,7 @@ impl TenantKeyset {
         let _ = sqlx::query_as::<_, TenantKeyset>(query)
             .bind(keyset_identifier.organization_id.to_string())
             .bind(&keyset_identifier.keyset_id)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
@@ -326,7 +328,7 @@ impl UpdateTenantKeyset {
             .bind(self.keyset_identifier.organization_id.to_string())
             .bind(&self.keyset_identifier.keyset_id)
             .bind(expected_version)
-            .fetch_one(&mut **txn)
+            .fetch_one(txn.deref_mut())
             .await
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
