@@ -280,7 +280,7 @@ form#filter-container input[type="radio"] {
 				let url = window.location.href;
 				let parts = url.split(".");
 				let name = "dev3";
-				if (parts.length == 4) { // expected
+				if (parts.length >= 4) { // expected
 					let inner = parts[0].split("-"); // "api-dev3"
 					if (inner.length == 2) {
 						name = inner[1]; // "dev3"
