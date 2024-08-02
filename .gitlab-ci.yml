@@ -398,6 +398,7 @@ build-release-container-x86_64:
       optional: true
   variables:
     DOCKER_FILE: $CI_PROJECT_DIR/dev/docker/Dockerfile.release-container-x86_64
+    FF_TIMESTAMPS: true
   script:
     - docker build -t intermediate-container-$CI_COMMIT_SHORT_SHA -f $DOCKER_FILE --build-arg VERSION=$VERSION --build-arg CI_COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA --build-arg CONTAINER_RUNTIME_X86_64=$CONTAINER_RUNTIME_X86_64 --build-arg CONTAINER_BUILD_X86_64=$CONTAINER_BUILD_X86_64 .
     - |
@@ -453,7 +454,7 @@ build-container-forge-cli-x86_64:
     set -euo pipefail
     mkdir -p /kaniko/.docker
     cp .docker/config.json /kaniko/.docker/config.json
-    export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE  
+    export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
     export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
     export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
   script:
@@ -493,7 +494,7 @@ build-container-forge-cli-aarch64:
     set -euo pipefail
     mkdir -p /kaniko/.docker
     cp .docker/config.json /kaniko/.docker/config.json
-    export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE  
+    export VAULT_JWT_ROLE=$VAULT_JWT_ROLE_FORGE
     export VAULT_JWT_PATH=$VAULT_JWT_PATH_FORGE
     export VAULT_TOKEN="$(vault write -field=token $VAULT_JWT_PATH role=$VAULT_JWT_ROLE jwt=$VAULT_JWT_TOKEN)"
   script:
