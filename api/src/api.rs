@@ -3841,6 +3841,19 @@ impl Forge for Api {
     ) -> Result<tonic::Response<()>, Status> {
         add_update_machine_validation_external_config(self, request).await
     }
+    async fn redfish_power_control(
+        &self,
+        request: tonic::Request<rpc::RedfishPowerControlRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::redfish::redfish_power_control(self, request).await
+    }
+
+    async fn get_redfish_job_state(
+        &self,
+        request: tonic::Request<rpc::GetRedfishJobStateRequest>,
+    ) -> Result<Response<rpc::GetRedfishJobStateResponse>, Status> {
+        crate::handlers::redfish::get_redfish_job_state(self, request).await
+    }
 }
 
 pub(crate) fn log_request_data<T: std::fmt::Debug>(request: &Request<T>) {

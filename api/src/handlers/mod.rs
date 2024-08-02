@@ -23,6 +23,7 @@ pub mod instance;
 pub mod machine_validation;
 pub mod network_segment;
 pub mod pxe;
+pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
 pub mod site_explorer;

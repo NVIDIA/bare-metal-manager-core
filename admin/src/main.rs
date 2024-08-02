@@ -77,6 +77,7 @@ mod redfish;
 mod resource_pool;
 mod rpc;
 mod tenant_keyset;
+mod uefi;
 mod version;
 mod vpc;
 
@@ -499,10 +500,10 @@ async fn main() -> color_eyre::Result<()> {
         },
         CarbideCommand::Host(host_action) => match host_action {
             HostAction::SetUefiPassword(query) => {
-                rpc::set_host_uefi_password(query, api_config).await?;
+                uefi::set_host_uefi_password(query, api_config).await?;
             }
             HostAction::ClearUefiPassword(query) => {
-                rpc::clear_host_uefi_password(query, api_config).await?;
+                uefi::clear_host_uefi_password(query, api_config).await?;
             }
             HostAction::GenerateHostUefiPassword => {
                 let password = Credentials::generate_password_no_special_char();

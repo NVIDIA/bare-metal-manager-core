@@ -729,7 +729,7 @@ pub struct BMCIdentify {
 
 pub type BMCConfigForReset = BMCConfigForReboot;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 pub struct MachineQuery {
     #[clap(
         short,

@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::str::FromStr;
 
+use ::rpc::forge::redfish_power_control_request::SystemPowerControl;
 use ::rpc::forge::{
     self as rpc, DpuResetResponse, MachineBootOverride, MachineSearchConfig, MachineType,
     NetworkDeviceIdList, NetworkSegmentSearchConfig,
@@ -610,6 +611,48 @@ pub async fn clear_host_uefi_password(
         });
         let response = client
             .clear_host_uefi_password(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(response)
+    })
+    .await
+}
+
+pub async fn force_reboot_machine(
+    query: MachineQuery,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<()> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::RedfishPowerControlRequest {
+            machine_id: Some(::rpc::MachineId { id: query.query }),
+            action: SystemPowerControl::ForceRestart.into(),
+        });
+
+        client
+            .redfish_power_control(request)
+            .await
+            .map(|response| response.into_inner())
+            .map_err(CarbideCliError::ApiInvocationError)?;
+
+        Ok(())
+    })
+    .await
+}
+
+pub async fn get_redfish_job_state(
+    query: MachineQuery,
+    job_id: String,
+    api_config: &ApiConfig<'_>,
+) -> CarbideCliResult<rpc::GetRedfishJobStateResponse> {
+    with_forge_client(api_config, |mut client| async move {
+        let request = tonic::Request::new(rpc::GetRedfishJobStateRequest {
+            machine_id: Some(::rpc::MachineId { id: query.query }),
+            job_id,
+        });
+        let response = client
+            .get_redfish_job_state(request)
             .await
             .map(|response| response.into_inner())
             .map_err(CarbideCliError::ApiInvocationError)?;
