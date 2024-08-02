@@ -339,7 +339,8 @@ fn check_bgp(
     host_routes: &[&str],
     min_healthy_links: Option<u32>,
 ) -> eyre::Result<()> {
-    let networks: BgpNetworks = serde_json::from_str(bgp_json)?;
+    let networks: BgpNetworks = serde_json::from_str(bgp_json)
+        .map_err(|e| eyre::eyre!("failed to deserialize bgp_json: {bgp_json} with error: {e}"))?;
     check_bgp_stats(
         "ipv4_unicast",
         &networks.ipv4_unicast,
