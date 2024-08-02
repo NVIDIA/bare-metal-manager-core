@@ -253,6 +253,8 @@ service Forge {
   // Set Host UEFI password
   rpc SetHostUefiPassword(SetHostUefiPasswordRequest) returns (SetHostUefiPasswordResponse);
   rpc ClearHostUefiPassword(ClearHostUefiPasswordRequest) returns (ClearHostUefiPasswordResponse);
+  rpc RedfishPowerControl(RedfishPowerControlRequest) returns (google.protobuf.Empty); 
+  rpc GetRedfishJobState(GetRedfishJobStateRequest) returns (GetRedfishJobStateResponse); 
 
   // Identify the vendor of a BMC without logging into it
   rpc IdentifyBMC(IdentifyBMCRequest) returns (IdentifyBMCResponse);
@@ -2719,3 +2721,36 @@ message  GetMachineValidationExternalConfigResponse {
 message AddUpdateMachineValidationExternalConfigRequest {
     MachineValidationExternalConfig config = 1;
 }
+message RedfishPowerControlRequest {
+  enum SystemPowerControl {
+    // Power on a machine
+    On = 0;
+    // Graceful host shutdown
+    GracefulShutdown = 1;
+    // Forcefully powers a machine off
+    ForceOff = 2; 
+    // Graceful restart. Asks the OS to restart via ACPI
+    GracefulRestart =3;
+    // Force restart. This is equivalent to pressing the reset button on the front panel.
+    ForceRestart = 4;
+  }
+  common.MachineId machine_id = 1;
+  SystemPowerControl action = 2;
+}
+
+message GetRedfishJobStateRequest {
+  common.MachineId machine_id = 1;
+  string job_id = 2;
+}
+
+message GetRedfishJobStateResponse {
+  enum RedfishJobState {
+    Scheduled = 0;
+    Running = 1;
+    Completed = 2;
+    CompletedWithErrors = 3;
+    Unknown = 4;
+  }
+  RedfishJobState job_state = 1;
+}
+
