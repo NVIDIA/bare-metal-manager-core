@@ -1,0 +1,600 @@
+use std::collections::HashMap;
+
+use crate::{cfg::carbide_options::GetReportMode, rpc, CarbideCliError};
+use ::rpc::{
+    forge_tls_client::ApiConfig,
+    site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport},
+};
+use prettytable::{format, row, Cell, Row, Table};
+
+use crate::{cfg::carbide_options::OutputFormat, CarbideCliResult};
+
+fn get_endpoints_for_managed_host<'a>(
+    managedhost: &'a ExploredManagedHost,
+    exploration_report: &'a SiteExplorationReport,
+) -> HashMap<String, &'a ExploredEndpoint> {
+    let mut wanted_ips = managedhost
+        .dpus
+        .iter()
+        .map(|x| x.bmc_ip.clone())
+        .collect::<Vec<String>>();
+    wanted_ips.push(managedhost.host_bmc_ip.clone());
+    let endpoints = exploration_report
+        .endpoints
+        .iter()
+        .filter_map(|x| {
+            if wanted_ips.contains(&x.address) {
+                Some((x.address.clone(), x))
+            } else {
+                None
+            }
+        })
+        .collect::<HashMap<String, &ExploredEndpoint>>();
+
+    endpoints
+}
+
+fn convert_managed_host_to_nice_table(
+    explored_endpoints: &SiteExplorationReport,
+    vendor: Option<String>,
+) -> Box<Table> {
+    let mut table = Table::new();
+
+    let headers = vec![
+        "Host BMC Ip",
+        "Vendor",
+        "DPUs (BMC IP   |                         Machine Id                           |Serial Number|   HostPFMacAddress   | oob_net0 MAC | )",
+    ];
+
+    table.set_titles(Row::new(
+        headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
+    ));
+
+    for managedhost in &explored_endpoints.managed_hosts {
+        let endpoints = get_endpoints_for_managed_host(managedhost, explored_endpoints);
+        if let Some(vendor) = &vendor {
+            if let Some(report) = endpoints.get(&managedhost.host_bmc_ip) {
+                if &report
+                    .report
+                    .as_ref()
+                    .and_then(|x| x.vendor.clone())
+                    .unwrap_or("".to_string())
+                    != vendor
+                {
+                    continue;
+                }
+            }
+        }
+        table.add_row(managed_host_to_row(managedhost, endpoints));
+    }
+
+    Box::new(table)
+}
+
+fn managed_host_to_row(
+    value: &ExploredManagedHost,
+    endpoints: HashMap<String, &ExploredEndpoint>,
+) -> Row {
+    let mut dpu_table = Table::new();
+    dpu_table.set_format(*format::consts::FORMAT_NO_LINESEP);
+    value.dpus.iter().for_each(|x| {
+        let dpu_report = endpoints.get(&x.bmc_ip).and_then(|x| x.report.clone());
+
+        let system = dpu_report.as_ref().and_then(|x| x.systems.first());
+        let oob_mac = system
+            .as_ref()
+            .map(|x| {
+                x.ethernet_interfaces
+                    .iter()
+                    .find_map(|x| {
+                        if x.id() == "oob_net0" {
+                            x.mac_address.clone()
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or("oob_net0 not found.".to_string())
+            })
+            .unwrap_or("Unknown".to_string());
+
+        dpu_table.add_row(
+            vec![
+                x.bmc_ip.clone(),
+                dpu_report
+                    .as_ref()
+                    .and_then(|x| x.machine_id.clone())
+                    .unwrap_or("Unknown".to_string()),
+                system
+                    .as_ref()
+                    .and_then(|x| x.serial_number.clone())
+                    .unwrap_or("Unknown".to_string()),
+                x.host_pf_mac_address
+                    .clone()
+                    .unwrap_or("Unknown MacAddress".to_string()),
+                oob_mac,
+            ]
+            .into(),
+        );
+    });
+
+    let host_report = endpoints
+        .get(&value.host_bmc_ip)
+        .and_then(|x| x.report.clone());
+
+    Row::new(vec![
+        Cell::new(value.host_bmc_ip.as_str()),
+        Cell::new(
+            host_report
+                .and_then(|x| x.vendor)
+                .unwrap_or("Unknown".to_string())
+                .as_str(),
+        ),
+        Cell::new(dpu_table.to_string().as_str()),
+    ])
+}
+
+async fn get_exploration_report_for_bmc_address(
+    ip: String,
+    api_config: &ApiConfig<'_>,
+    page_size: usize,
+) -> CarbideCliResult<SiteExplorationReport> {
+    // get managed host with host bmc
+    let mut managed_host = rpc::get_explored_managed_host_by_ids(api_config, &[ip.clone()])
+        .await?
+        .managed_hosts;
+
+    if managed_host.is_empty() {
+        // We didn't find anything here. Lets search all managed hosts.
+        // // This is costly. We have to add a api to fetch only needed info.
+        let managed_hosts = rpc::get_all_explored_managed_hosts(api_config, page_size).await?;
+        managed_host = managed_hosts
+            .into_iter()
+            .filter(|x| x.host_bmc_ip == ip || x.dpus.iter().any(|a| a.bmc_ip == ip))
+            .collect();
+    }
+
+    let ips = if let Some(managed_host) = managed_host.first() {
+        let mut ips = vec![managed_host.host_bmc_ip.clone()];
+        ips.extend(managed_host.dpus.iter().map(|x| x.bmc_ip.clone()));
+        ips
+    } else {
+        vec![ip]
+    };
+
+    let endpoints = rpc::get_explored_endpoints_by_ids(api_config, &ips).await?;
+
+    Ok(::rpc::site_explorer::SiteExplorationReport {
+        endpoints: endpoints.endpoints,
+        managed_hosts: managed_host,
+    })
+}
+
+pub async fn show_site_explorer_discovered_managed_host(
+    api_config: &ApiConfig<'_>,
+    output_format: OutputFormat,
+    internal_page_size: usize,
+    mode: GetReportMode,
+) -> CarbideCliResult<()> {
+    match mode {
+        GetReportMode::All => {
+            let exploration_report =
+                rpc::get_site_exploration_report(api_config, internal_page_size).await?;
+
+            println!("{}", serde_json::to_string_pretty(&exploration_report)?);
+            return Ok(());
+        }
+
+        GetReportMode::ManagedHost(managed_host_info) => {
+            if let Some(address) = managed_host_info.address {
+                let exploration_report = get_exploration_report_for_bmc_address(
+                    address.clone(),
+                    api_config,
+                    internal_page_size,
+                )
+                .await?;
+                let Some(managed_host) = exploration_report.managed_hosts.iter().find(|x| {
+                    x.host_bmc_ip == address || x.dpus.iter().any(|a| a.bmc_ip == address)
+                }) else {
+                    println!("Could not find IP in discovered managed host.");
+                    return Ok(());
+                };
+                if output_format == OutputFormat::Json {
+                    println!("{}", serde_json::to_string_pretty(&managed_host)?);
+                    return Ok(());
+                }
+                let endpoints = get_endpoints_for_managed_host(managed_host, &exploration_report);
+                print_managed_host_info(managed_host, endpoints);
+            } else {
+                let exploration_report =
+                    rpc::get_site_exploration_report(api_config, internal_page_size).await?;
+                if output_format == OutputFormat::Json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&exploration_report.managed_hosts)?
+                    );
+                    return Ok(());
+                }
+                convert_managed_host_to_nice_table(&exploration_report, managed_host_info.vendor)
+                    .printstd();
+            }
+        }
+        GetReportMode::Endpoint(endpoint_info) => {
+            if let Some(address) = endpoint_info.address {
+                let exploration_report = get_exploration_report_for_bmc_address(
+                    address.clone(),
+                    api_config,
+                    internal_page_size,
+                )
+                .await?;
+
+                if output_format == OutputFormat::Json {
+                    println!("{}", serde_json::to_string_pretty(&exploration_report)?);
+                    return Ok(());
+                }
+
+                display_endpoint(
+                    exploration_report
+                        .endpoints
+                        .iter()
+                        .find(|x| x.address == address)
+                        .ok_or_else(|| {
+                            CarbideCliError::GenericError("Endpoint not found.".to_string())
+                        })?
+                        .clone(),
+                );
+            } else {
+                let exploration_report =
+                    rpc::get_site_exploration_report(api_config, internal_page_size).await?;
+                let mut paired_ips = vec![];
+                if endpoint_info.unpairedonly {
+                    for managed_host in exploration_report.managed_hosts {
+                        paired_ips.push(managed_host.host_bmc_ip.clone());
+
+                        for dpu in managed_host.dpus {
+                            paired_ips.push(dpu.bmc_ip.clone());
+                        }
+                    }
+                }
+
+                let endpoints = filter_endpoints(
+                    exploration_report.endpoints,
+                    endpoint_info.erroronly,
+                    endpoint_info.successonly,
+                    paired_ips,
+                    endpoint_info.vendor,
+                );
+
+                if output_format == OutputFormat::Json {
+                    println!("{}", serde_json::to_string_pretty(&endpoints)?);
+                    return Ok(());
+                }
+                convert_endpoints_to_nice_table(&endpoints).printstd();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn filter_endpoints(
+    endpoints: Vec<ExploredEndpoint>,
+    erroronly: bool,
+    successonly: bool,
+    paired_ips: Vec<String>,
+    vendor: Option<String>,
+) -> Vec<ExploredEndpoint> {
+    endpoints
+        .clone()
+        .into_iter()
+        .filter(|x| {
+            let paired_filter = if !paired_ips.is_empty() {
+                !paired_ips.contains(&x.address)
+            } else {
+                true
+            };
+
+            let vendor_filter = if let Some(vendor) = vendor.clone() {
+                x.report
+                    .as_ref()
+                    .and_then(|x| x.vendor.clone())
+                    .unwrap_or_default()
+                    == vendor
+            } else {
+                true
+            };
+
+            vendor_filter
+                && paired_filter
+                && x.report
+                    .as_ref()
+                    .map(|x| {
+                        if let Some(error) = &x.last_exploration_error {
+                            if erroronly {
+                                !error.is_empty()
+                            } else if successonly {
+                                error.is_empty()
+                            } else {
+                                // Don't filter
+                                true
+                            }
+                        } else {
+                            !erroronly
+                        }
+                    })
+                    .unwrap_or_default()
+        })
+        .collect::<Vec<ExploredEndpoint>>()
+        .clone()
+}
+
+fn print_managed_host_info(
+    managed_host: &ExploredManagedHost,
+    endpoints: HashMap<String, &ExploredEndpoint>,
+) {
+    let host_report = endpoints
+        .get(&managed_host.host_bmc_ip)
+        .and_then(|x| x.report.clone());
+
+    println!("Host BMC IP : {}", managed_host.host_bmc_ip);
+    println!(
+        "Vendor      : {}",
+        host_report
+            .and_then(|x| x.vendor)
+            .unwrap_or("Unknown".to_string())
+    );
+    managed_host.dpus.iter().enumerate().for_each(|(i, x)| {
+        let dpu_report = endpoints.get(&x.bmc_ip).and_then(|x| x.report.clone());
+        let system = dpu_report.as_ref().and_then(|x| x.systems.first());
+        let oob_mac = system
+            .as_ref()
+            .map(|x| {
+                x.ethernet_interfaces
+                    .iter()
+                    .find_map(|x| {
+                        if x.id() == "oob_net0" {
+                            x.mac_address.clone()
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or("oob_net0 not found.".to_string())
+            })
+            .unwrap_or("Unknown".to_string());
+        println!();
+        println!("DPU{i}");
+        println!("------------------------------------------------");
+        println!("    BMC IP               : {}", x.bmc_ip);
+        println!(
+            "    Machine ID           : {}",
+            dpu_report
+                .as_ref()
+                .and_then(|x| x.machine_id.clone())
+                .unwrap_or("Unknwon".to_string())
+        );
+        println!(
+            "    Serial Number        : {}",
+            system
+                .as_ref()
+                .and_then(|x| x.serial_number.clone())
+                .unwrap_or("Unknwon".to_string())
+        );
+        println!(
+            "    Host PF Mac Address  : {}",
+            x.host_pf_mac_address
+                .clone()
+                .unwrap_or("Unknown".to_string())
+        );
+        println!("    oob net0 Mac Address : {oob_mac}");
+    });
+}
+
+fn convert_endpoints_to_nice_table(endpoints: &[ExploredEndpoint]) -> Box<Table> {
+    let mut table = Table::new();
+    let headers = vec![
+        "Address",
+        "Type",
+        "BMC Mac Address",
+        "Vendor",
+        "MachineId",
+        "Serial Number",
+        "Last Exploration Error",
+    ];
+
+    table.set_titles(Row::new(
+        headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
+    ));
+
+    for endpoint in endpoints {
+        table.add_row(endpoint_to_row(endpoint));
+    }
+    Box::new(table)
+}
+
+fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
+    let report = &endpoint.report;
+    let bmc_macs = report
+        .as_ref()
+        .and_then(|x| x.managers.first())
+        .map(|x| {
+            x.ethernet_interfaces
+                .iter()
+                .map(|a| {
+                    if a.interface_enabled() {
+                        a.mac_address.clone().unwrap_or_default()
+                    } else {
+                        format!("{} - Disabled", a.mac_address.clone().unwrap_or_default())
+                    }
+                })
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
+    let last_error = report
+        .as_ref()
+        .map(|x| x.last_exploration_error())
+        .unwrap_or_default()
+        .to_string();
+
+    let error_segmented = last_error
+        .chars()
+        .collect::<Vec<char>>()
+        .chunks(70)
+        .map(|c| c.iter().collect::<String>())
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    Row::new(vec![
+        Cell::new(endpoint.address.as_str()),
+        Cell::new(
+            report
+                .as_ref()
+                .map(|x| x.endpoint_type.as_str())
+                .unwrap_or_default(),
+        ),
+        Cell::new(bmc_macs.join("\n").as_str()),
+        Cell::new(report.as_ref().map(|x| x.vendor()).unwrap_or_default()),
+        Cell::new(report.as_ref().map(|x| x.machine_id()).unwrap_or_default()),
+        Cell::new(
+            report
+                .as_ref()
+                .and_then(|x| x.systems.first())
+                .map(|x| x.serial_number())
+                .unwrap_or_default(),
+        ),
+        Cell::new(error_segmented.as_str()),
+    ])
+}
+
+fn display_endpoint(endpoint: ExploredEndpoint) {
+    let report = &endpoint.report;
+
+    let mut table = Table::new();
+    table.add_row(row!["Address", endpoint.address]);
+    table.add_row(row![
+        "Endpoint Type",
+        report
+            .as_ref()
+            .map(|x| x.endpoint_type.clone())
+            .unwrap_or_default()
+    ]);
+    table.add_row(row![
+        "Vendor",
+        report.as_ref().map(|x| x.vendor()).unwrap_or_default()
+    ]);
+    table.add_row(row![
+        "Machine ID",
+        report.as_ref().map(|x| x.machine_id()).unwrap_or_default()
+    ]);
+    let last_error = report
+        .as_ref()
+        .map(|x| x.last_exploration_error())
+        .unwrap_or_default()
+        .to_string();
+
+    let error_segmented = last_error
+        .chars()
+        .collect::<Vec<char>>()
+        .chunks(175)
+        .map(|c| c.iter().collect::<String>())
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    table.add_row(row!["Last Exploration Error", error_segmented]);
+    table.add_row(row!["Report Version", endpoint.report_version]);
+    table.add_row(row![
+        "Exploration Requested",
+        endpoint.exploration_requested
+    ]);
+
+    table.printstd();
+
+    // Systems
+    if let Some(system) = report.as_ref().and_then(|x| x.systems.first()) {
+        let mut table = Table::new();
+        println!();
+        println!("Systems (First only)");
+        table.add_row(row!["Id", system.id]);
+        table.add_row(row!["Manufacturer", system.manufacturer()]);
+        table.add_row(row!["Model", system.model()]);
+        table.add_row(row!["Serial Number", system.serial_number()]);
+
+        let mut ethernet_interface_table = Table::new();
+        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled"]);
+
+        for eth in &system.ethernet_interfaces {
+            ethernet_interface_table.add_row(row![
+                eth.id(),
+                eth.mac_address(),
+                eth.interface_enabled.unwrap_or_default()
+            ]);
+        }
+        table.add_row(row![
+            "Ethernet Interfaces",
+            ethernet_interface_table.to_string()
+        ]);
+
+        table.printstd();
+    }
+
+    // Managers
+    if let Some(manager) = report.as_ref().and_then(|x| x.managers.first()) {
+        let mut table = Table::new();
+        println!();
+        println!("Managers (First only)");
+        table.add_row(row!["Id", manager.id]);
+
+        let mut ethernet_interface_table = Table::new();
+        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled"]);
+
+        for eth in &manager.ethernet_interfaces {
+            ethernet_interface_table.add_row(row![
+                eth.id(),
+                eth.mac_address(),
+                eth.interface_enabled.unwrap_or_default()
+            ]);
+        }
+        table.add_row(row![
+            "Ethernet Interfaces",
+            ethernet_interface_table.to_string()
+        ]);
+
+        table.printstd();
+    }
+
+    // Chassis
+    if let Some(chassis) = report.as_ref().and_then(|x| x.chassis.first()) {
+        let mut table = Table::new();
+        println!();
+        println!("Chassis (First only)");
+        table.add_row(row!["Id", chassis.id]);
+        table.add_row(row!["Manufacturer", chassis.manufacturer()]);
+        table.add_row(row!["Model", chassis.model()]);
+        table.add_row(row!["Serial Number", chassis.serial_number()]);
+        table.add_row(row!["Part Number", chassis.part_number()]);
+
+        let mut ethernet_interface_table = Table::new();
+        ethernet_interface_table.set_titles(row![
+            "Id",
+            "Manufacturer",
+            "Model",
+            "Part Number",
+            "Serial Number"
+        ]);
+
+        for eth in &chassis.network_adapters {
+            ethernet_interface_table.add_row(row![
+                eth.id.as_str(),
+                eth.manufacturer(),
+                eth.model(),
+                eth.part_number(),
+                eth.serial_number()
+            ]);
+        }
+        table.add_row(row![
+            "Ethernet Interfaces",
+            ethernet_interface_table.to_string()
+        ]);
+
+        table.printstd();
+    }
+}
