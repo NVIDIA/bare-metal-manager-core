@@ -1,5 +1,12 @@
-#!/bin/bash
-# For use by pipeline job 'scheduled-test:auto-deploy-site-controller'
+#!/usr/bin/env bash
+
+#
+# Used in pipeline job 'scheduled-test:auto-deploy-site-controller'
+#
+# This script deploys the latest versions of carbide and ssh-console to the site under test (if not already there) by
+# updating the `forged` repo and syncing Argo CD.
+#
+
 set -euo pipefail
 
 #

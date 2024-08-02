@@ -1,5 +1,12 @@
-#!/bin/bash
-# For use by pipeline job 'scheduled-test:auto-deploy-site-controller'
+#!/usr/bin/env bash
+
+#
+# Used in pipeline job 'scheduled-test:auto-deploy-site-controller'
+#
+# This script queries nvcr.io to determine the latest testable versions of carbide and ssh-console. It filters out any
+# versions that were built from commits not in 'trunk' (i.e. hotfixes and private builds).
+#
+
 set -euo pipefail
 
 TESTABLE_VERSION_PATTERN='^v\d{4}\.\d{2}\.\d{2}-rc\d+-\d+-\d+-g\w+$'  # Filter out any build version without a git hash
@@ -17,7 +24,7 @@ BOOT_AARCH64_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_AARCH64:-nvcr.io/nvi
 BOOT_X86_VERSIONS="$(crane ls "${ARTIFACTS_DOCKER_IMAGE_X86_64:-nvcr.io/nvidian/nvforge-devel/boot-artifacts-x86_64}" | grep "${GREP_FLAG:-'-P'}" ${TESTABLE_VERSION_PATTERN} | sort -V | tail -n 20 | tac)"
 SSH_CONSOLE_VERSIONS="$(crane ls "${DEV_NVCR_BASE:-nvcr.io/nvidian/nvforge-devel}"/ssh-console | grep "${GREP_FLAG:-'-P'}" ${TESTABLE_VERSION_PATTERN} | sort -V | tail -n 20 | tac)"
 
-# Find latest common version of carbide artifacts that exist in `trunk` (i.e. filter out private builds)
+# Find latest common version of carbide artifacts that exist in `trunk`
 LATEST_COMMON_VERSION=""
 for version in ${CARBIDE_VERSIONS}; do
   git_hash=$(awk -F'-g' '{print $2}' <<< "$version")
@@ -33,7 +40,7 @@ if [[ -z "${LATEST_COMMON_VERSION}" ]]; then
   exit 1
 fi
 
-# Find latest version of ssh-console that exists in `main` (i.e. filter out private builds)
+# Find latest version of ssh-console that exists in `main`
 GITLAB_API_TOKEN=$(vault kv get -field gitlab-group-api-read secrets/forge/tokens)
 LATEST_SSH_CONSOLE_VERSION=""
 for version in ${SSH_CONSOLE_VERSIONS}; do
