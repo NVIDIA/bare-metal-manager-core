@@ -792,6 +792,7 @@ get-crane:
 nspect-source-scan-x86_64:
   stage: .pre
   extends: .scan-with-report-no-fail
+  allow_failure: true
   variables:
     PULSE_NSPECT_ID: $NSPECT_ID
     PULSE_REPO_URL: "${CI_PROJECT_URL}.git"
@@ -799,7 +800,6 @@ nspect-source-scan-x86_64:
     PULSE_SCAN_PROJECT_VERSION: "${CI_COMMIT_BRANCH}"
     PULSE_SCAN_VULNERABILITY_REPORT: "nspect_${CI_COMMIT_BRANCH}_scan_report.json"
   rules:
-    - when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     - if: $CI_COMMIT_TAG || $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
