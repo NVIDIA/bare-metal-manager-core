@@ -58,6 +58,7 @@ use forge_tls::client_config::get_proxy_info;
 use prettytable::{row, Table};
 use serde::Deserialize;
 use serde::Serialize;
+use site_explorer::show_site_explorer_discovered_managed_host;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*};
 
 mod cfg;
@@ -76,6 +77,7 @@ mod ping;
 mod redfish;
 mod resource_pool;
 mod rpc;
+mod site_explorer;
 mod tenant_keyset;
 mod version;
 mod vpc;
@@ -676,10 +678,14 @@ async fn main() -> color_eyre::Result<()> {
             }
         },
         CarbideCommand::SiteExplorer(action) => match action {
-            SiteExplorer::GetReport => {
-                let exploration_report =
-                    rpc::get_site_exploration_report(api_config, config.internal_page_size).await?;
-                println!("{}", serde_json::to_string_pretty(&exploration_report)?);
+            SiteExplorer::GetReport(mode) => {
+                show_site_explorer_discovered_managed_host(
+                    api_config,
+                    config.format,
+                    config.internal_page_size,
+                    mode,
+                )
+                .await?;
             }
             SiteExplorer::Explore(opts) => {
                 let report = rpc::explore(api_config, &opts.address, opts.mac).await?;
