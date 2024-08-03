@@ -17,6 +17,7 @@ use common::api_fixtures::{
     create_managed_host, create_test_env, TestEnv, FIXTURE_DHCP_RELAY_ADDRESS, FIXTURE_DOMAIN_ID,
     FIXTURE_VPC_ID,
 };
+use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::IpType;
 
@@ -159,15 +160,16 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         vec!["keyset1".to_string(), "keyset2".to_string()],
     )
     .await;
-    let req = rpc::common::MachineId {
-        id: host_machine_id.to_string(),
-    };
     let res = env
         .api
-        .get_machine(tonic::Request::new(req))
+        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            machine_ids: vec![host_machine_id.to_string().into()],
+        }))
         .await
         .unwrap()
-        .into_inner();
+        .into_inner()
+        .machines
+        .remove(0);
     let interface_id = &res.interfaces[0].id;
 
     // Network segment
@@ -242,15 +244,16 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool.clone()).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await;
 
-    let req = rpc::common::MachineId {
-        id: host_machine_id.to_string(),
-    };
     let res = env
         .api
-        .get_machine(tonic::Request::new(req))
+        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            machine_ids: vec![host_machine_id.to_string().into()],
+        }))
         .await
         .unwrap()
-        .into_inner();
+        .into_inner()
+        .machines
+        .remove(0);
     let interface_id = res.interfaces[0].id.as_ref().unwrap().to_string();
     let mac_address = &res.interfaces[0].mac_address;
 
@@ -278,15 +281,16 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let env = create_test_env(db_pool.clone()).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
-    let req = rpc::common::MachineId {
-        id: dpu_machine_id.to_string(),
-    };
     let res = env
         .api
-        .get_machine(tonic::Request::new(req))
+        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            machine_ids: vec![dpu_machine_id.to_string().into()],
+        }))
         .await
         .unwrap()
-        .into_inner();
+        .into_inner()
+        .machines
+        .remove(0);
     let dpu_mac_address = &res.interfaces[0].mac_address;
     // Matches common/api_fixtures/dpu.rs create_dpu_hardware_info
     let dpu_serial = format!("DPU_{dpu_mac_address}");

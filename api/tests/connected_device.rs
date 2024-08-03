@@ -27,12 +27,14 @@ async fn test_find_connected_devices_by_machine_ids_single_id(pool: sqlx::PgPool
     let host_machine_id = create_managed_host_multi_dpu(&env, 1).await;
     let host_machine = env
         .api
-        .get_machine(tonic::Request::new(MachineId {
-            id: host_machine_id.to_string(),
+        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            machine_ids: vec![host_machine_id.to_string().into()],
         }))
         .await
         .unwrap()
-        .into_inner();
+        .into_inner()
+        .machines
+        .remove(0);
     let expected_machine_id = host_machine
         .associated_dpu_machine_ids
         .into_iter()
