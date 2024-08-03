@@ -61,7 +61,7 @@ receivers:
         - job_name: 'otel-collector'
           scrape_interval: 10s
           file_sd_configs:
-            - files: ["fd_configs/fd_discovery.yaml"]
+            - files: ["/etc/otelcol-contrib/fd_configs/fd_discovery.yaml"]
           relabel_configs:
             - source_labels: [__address__]
               regex: '[^:]+(:\d+)'
@@ -72,26 +72,7 @@ receivers:
               target_label: instance
             - regex: '^ipaddress$'
               action: labeldrop
-
-  prometheus/doca:
-    config:
-      scrape_configs:
-        - job_name: 'doca_telemetry'
-          static_configs:
-            - targets: ['0.0.0.0:9100']
           metric_relabel_configs:
-            # 'regex: >-' syntax converts newlines into single space, which the
-            # Prometheus regular expression parser can't handle. The multiline
-            # regex needs to be concatenated into a single-line string with no
-            # delimiting whitespace at all.
-            - source_labels: [__name__]
-              regex: "^(?:hw_port_state|\
-                ib_port_state|\
-                link_downed|\
-                link_error_recovery|\
-                .*_eth_(?:rx|tx)(?:_.*)?_errors|\
-                .*_eth_(?:rx|tx)_dropped)$"
-              action: keep
             # Apply the prefix to a new label called "prefix"
             - source_labels: [__name__]
               regex: '^(.*)_eth_(?:rx|tx)(?:_.*)?_errors$'
@@ -127,16 +108,21 @@ receivers:
         mute_process_exe_error: true
         mute_process_name_error: true
         mute_process_io_error: true
-        exclude:
-          match_type: regexp
+        include:
+          match_type: strict
           names:
-            - "^cut$"
-            - "^grep$"
-            - "^kworker/.*$"
-            - "^mlxlink.*$"
-            - "^set_emu_param.s$"
-            - "^sleep$"
-            - "^tr$"
+            - bgpd
+            - clx
+            - forge-dpu-agent
+            - neighmgrd
+            - nl2docad
+            - nvued
+            - otelcol-contrib
+            - ovs-vswitchd
+            - ovsdb-server
+            - rsyslogd
+            - supervisord
+            - zebra
       network:
       processes:
 
@@ -148,40 +134,15 @@ receivers:
       paging:
 
 processors:
-  batch: {}
+  batch/logs:
+    send_batch_size: 8192
+    timeout: 5s
   batch/metrics:
-    timeout: 0s
-  filter/metrics-site:
-    error_mode: ignore
-    metrics:
-      metric:
-        - 'IsMatch(name, "^process.*")'
-  filter/metrics-doca-eth-dropped:
-    metrics:
-      include:
-        match_type: regexp
-        metric_names:
-          - '^eth_(?:rx|tx)_dropped$'
-  filter/metrics-doca-eth-error:
-    metrics:
-      include:
-        match_type: regexp
-        metric_names:
-          - '^eth_(?:rx|tx)(?:_.*)?_errors$'
-  filter/metrics-doca-flapping:
-    metrics:
-      include:
-        match_type: strict
-        metric_names:
-          - link_downed
-          - link_error_recovery
-  filter/metrics-doca-ports:
-    metrics:
-      include:
-        match_type: strict
-        metric_names:
-          - hw_port_state
-          - ib_port_state
+    send_batch_size: 8192
+    timeout: 15s
+  batch/metrics-disk:
+    send_batch_size: 8192
+    timeout: 75s
   memory_limiter:
     check_interval: 1s
     limit_percentage: 50
@@ -195,26 +156,6 @@ processors:
     attributes:
       - key: group
         value: hbn
-        action: upsert
-  resource/metrics-doca-eth-dropped:
-    attributes:
-      - key: group
-        value: doca_eth_dropped
-        action: upsert
-  resource/metrics-doca-eth-error:
-    attributes:
-      - key: group
-        value: doca_eth_error
-        action: upsert
-  resource/metrics-doca-flapping:
-    attributes:
-      - key: group
-        value: doca_flapping
-        action: upsert
-  resource/metrics-doca-ports:
-    attributes:
-      - key: group
-        value: doca_ports
         action: upsert
   resourcedetection:
     # Add hostname at the resource level
@@ -274,7 +215,7 @@ service:
         - resourcedetection
         - resource/logs-journald
         - transform/journald
-        - batch
+        - batch/logs
       exporters: [otlp/site]
     logs/frr:
       receivers: [filelog]
@@ -283,59 +224,29 @@ service:
         - resourcedetection
         - resource/logs-hbn
         - transform/frr
-        - batch
+        - batch/logs
       exporters: [otlp/site]
     metrics:
-      receivers: [prometheus, hostmetrics, hostmetrics/disk]
+      receivers: [prometheus]
       processors:
         - memory_limiter
         - resourcedetection
         - batch/metrics
-      exporters: [prometheus]
-    metrics/doca-eth-dropped:
-      receivers: [prometheus/doca]
-      processors:
-        - memory_limiter
-        - filter/metrics-doca-eth-dropped
-        - resourcedetection
-        - resource/metrics-doca-eth-dropped
-        - batch
-      exporters: [otlp/site]
-    metrics/doca-eth-error:
-      receivers: [prometheus/doca]
-      processors:
-        - memory_limiter
-        - filter/metrics-doca-eth-error
-        - resourcedetection
-        - resource/metrics-doca-eth-error
-        - batch
-      exporters: [otlp/site]
-    metrics/doca-flapping:
-      receivers: [prometheus/doca]
-      processors:
-        - memory_limiter
-        - filter/metrics-doca-flapping
-        - resourcedetection
-        - resource/metrics-doca-flapping
-        - batch
-      exporters: [otlp/site]
-    metrics/doca-ports:
-      receivers: [prometheus/doca]
-      processors:
-        - memory_limiter
-        - filter/metrics-doca-ports
-        - resourcedetection
-        - resource/metrics-doca-ports
-        - batch
-      exporters: [otlp/site]
-    metrics/site:
-      receivers: [prometheus, hostmetrics, hostmetrics/disk]
+      exporters: [otlp/site, prometheus]
+    metrics/hostmetrics:
+      receivers: [hostmetrics]
       processors:
         - memory_limiter
         - resourcedetection
-        - filter/metrics-site
         - batch/metrics
-      exporters: [otlp/site]
+      exporters: [otlp/site, prometheus]
+    metrics/hostmetrics-disk:
+      receivers: [hostmetrics/disk]
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - batch/metrics-disk
+      exporters: [otlp/site, prometheus]
   extensions: [file_storage/cursors]
   # Internal otel collector metrics by default are exposed on port 8888,
   # already in use by Forge, causing otelcol-contrib to terminate with an
