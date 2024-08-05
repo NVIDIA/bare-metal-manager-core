@@ -1847,13 +1847,14 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
 
     assert!(dpus[0].reprovisioning_requested().is_none(),);
 
-    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id_1.clone()])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id_1)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let interface_id =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id_1.clone()])
+            .await
+            .unwrap()
+            .get(&dpu_machine_id_1)
+            .unwrap()[0]
+            .id
+            .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
@@ -2154,13 +2155,14 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
 
     assert!(dpus[0].reprovisioning_requested().is_none(),);
 
-    let interface_id = MachineInterface::find_by_machine_ids(&mut txn, &[dpu_machine_id_1.clone()])
-        .await
-        .unwrap()
-        .get(&dpu_machine_id_1)
-        .unwrap()[0]
-        .id
-        .to_string();
+    let interface_id =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id_1.clone()])
+            .await
+            .unwrap()
+            .get(&dpu_machine_id_1)
+            .unwrap()[0]
+            .id
+            .to_string();
 
     let arch = rpc::forge::MachineArchitecture::Arm;
 
