@@ -826,31 +826,27 @@ fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
     current_time < expected_time
 }
 
-/// if dpu_agent has responded health after dpu is rebooted, return true.
-fn dpus_up(state: &ManagedHostStateSnapshot) -> bool {
-    for dpu_snapshot in &state.dpu_snapshots {
-        let observation_time = dpu_snapshot
-            .network_status_observation
-            .as_ref()
-            .map(|o| o.observed_at)
-            .unwrap_or(DateTime::<Utc>::MIN_UTC);
-        let state_change_time = state.host_snapshot.current.version.timestamp();
+fn is_dpu_up(state: &ManagedHostStateSnapshot, dpu_snapshot: &MachineSnapshot) -> bool {
+    let observation_time = dpu_snapshot
+        .network_status_observation
+        .as_ref()
+        .map(|o| o.observed_at)
+        .unwrap_or(DateTime::<Utc>::MIN_UTC);
+    let state_change_time = state.host_snapshot.current.version.timestamp();
 
-        if observation_time < state_change_time {
-            return false;
-        }
+    if observation_time < state_change_time {
+        return false;
     }
 
     true
 }
 
-fn is_dpu_up_and_network_ready(state: &ManagedHostStateSnapshot) -> bool {
-    if !dpus_up(state) {
-        return false;
-    }
-
-    if !is_network_ready(&state.dpu_snapshots) {
-        return false;
+/// if dpu_agent has responded health after dpu is rebooted, return true.
+fn dpus_up(state: &ManagedHostStateSnapshot) -> bool {
+    for dpu_snapshot in &state.dpu_snapshots {
+        if !is_dpu_up(state, dpu_snapshot) {
+            return false;
+        }
     }
 
     true
@@ -1274,8 +1270,33 @@ async fn handle_dpu_reprovision(
             ))
         }
         ReprovisionState::WaitingForNetworkConfig => {
-            if !is_dpu_up_and_network_ready(state) {
-                return Ok(None);
+            for dpu_snapshot in &state.dpu_snapshots {
+                if !is_dpu_up(state, dpu_snapshot) {
+                    tracing::warn!("Waiting for DPU {} to come up", dpu_snapshot.machine_id);
+                    return Ok(None);
+                }
+
+                if !is_dpu_network_ready(dpu_snapshot) {
+                    tracing::warn!(
+                        "Waiting for network to be ready for DPU {}",
+                        dpu_snapshot.machine_id
+                    );
+
+                    // we requested a DPU reboot in ReprovisionState::WaitingForNetworkInstall
+                    // let the trigger_reboot_if_needed determine if we are stuck here
+                    // (based on how long it has been since the last requested reboot)
+                    trigger_dpu_reboot_if_needed(
+                        state.clone(),
+                        dpu_snapshot,
+                        reachability_params,
+                        services,
+                        txn,
+                    )
+                    .await?;
+
+                    // TODO: Make is_network_ready give us more details as a string
+                    return Ok(None);
+                }
             }
 
             // Clear reprovisioning state.
@@ -2153,12 +2174,26 @@ impl DpuMachineStateHandler {
             DpuInitState::WaitingForNetworkConfig => {
                 // is_network_ready is syncing over all DPUs.
                 // The code will move only when all DPUs returns network_ready signal.
-                if !is_network_ready(&state.dpu_snapshots) {
-                    // TODO: Make is_network_ready give us more details as a string
-                    return Ok(StateHandlerOutcome::Wait(
-                        "Waiting for DPU agent to apply network config and report healthy network"
-                            .to_string(),
-                    ));
+                for dpu_snapshot in &state.dpu_snapshots {
+                    if !is_dpu_network_ready(dpu_snapshot) {
+                        // we requested a DPU reboot in DpuInitState::Init
+                        // let the trigger_reboot_if_needed determine if we are stuck here
+                        // (based on how long it has been since the last requested reboot)
+                        trigger_dpu_reboot_if_needed(
+                            state.clone(),
+                            dpu_snapshot,
+                            &self.reachability_params,
+                            ctx.services,
+                            txn,
+                        )
+                        .await?;
+
+                        // TODO: Make is_network_ready give us more details as a string
+                        return Ok(StateHandlerOutcome::Wait(
+                            format!("Waiting for DPU agent to apply network config and report healthy network for DPU {}",
+                        dpu_snapshot.machine_id),
+                        ));
+                    }
                 }
 
                 let next_state = ManagedHostState::HostInit {
@@ -2168,7 +2203,7 @@ impl DpuMachineStateHandler {
             }
             DpuInitState::WaitingForNetworkInstall => {
                 tracing::warn!(
-                    "Invalid State WaitingForNetworkConfig for dpu Machine {}",
+                    "Invalid State WaitingForNetworkInstall for dpu Machine {}",
                     dpu_machine_id
                 );
                 Err(StateHandlerError::InvalidHostState(
@@ -2236,6 +2271,7 @@ fn get_reboot_cycle(
     Ok(cycle.num_minutes() / wait_period.num_minutes().max(1))
 }
 
+#[derive(Debug)]
 struct RebootStatus {
     increase_retry_count: bool, // the vague previous return value
     status: String,             // what we did or are waiting for
@@ -2430,30 +2466,73 @@ impl HostMachineStateHandler {
     }
 }
 
+fn is_dpu_network_ready(dpu_snapshot: &MachineSnapshot) -> bool {
+    let dpu_expected_version = dpu_snapshot.network_config.version;
+    let dpu_observation = dpu_snapshot.network_status_observation.as_ref();
+    let dpu_observed_version: ConfigVersion = match dpu_observation {
+        None => {
+            return false;
+        }
+        Some(network_status) => match network_status.network_config_version {
+            None => {
+                return false;
+            }
+            Some(version) => version,
+        },
+    };
+
+    if dpu_expected_version != dpu_observed_version || !dpu_snapshot.has_healthy_network() {
+        return false;
+    }
+
+    true
+}
+
 /// 1. Has the network config version that the host wants been applied by DPU?
 /// 2. Is HBN reporting the network is healthy?
 fn is_network_ready(dpu_snapshots: &[MachineSnapshot]) -> bool {
     for dpu_snapshot in dpu_snapshots {
-        let dpu_expected_version = dpu_snapshot.network_config.version;
-        let dpu_observation = dpu_snapshot.network_status_observation.as_ref();
-        let dpu_observed_version: ConfigVersion = match dpu_observation {
-            None => {
-                return false;
-            }
-            Some(network_status) => match network_status.network_config_version {
-                None => {
-                    return false;
-                }
-                Some(version) => version,
-            },
-        };
-
-        if dpu_expected_version != dpu_observed_version || !dpu_snapshot.has_healthy_network() {
+        if !is_dpu_network_ready(dpu_snapshot) {
             return false;
         }
     }
 
     true
+}
+
+async fn trigger_dpu_reboot_if_needed(
+    state: ManagedHostStateSnapshot,
+    dpu_snapshot: &MachineSnapshot,
+    reachability_params: &ReachabilityParams,
+    services: &StateHandlerServices,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), StateHandlerError> {
+    let reboot_status = trigger_reboot_if_needed(
+        dpu_snapshot,
+        &state.clone(),
+        None,
+        reachability_params,
+        services,
+        txn,
+    )
+    .await
+    .map_err(|e| {
+        StateHandlerError::GenericError(eyre!(
+            "failed to trigger reboot for DPU {}: {e}",
+            dpu_snapshot.machine_id
+        ))
+    })?;
+
+    if reboot_status.increase_retry_count {
+        tracing::info!(
+            "triggered reboot for DPU {} with managed-host state {}: {}",
+            dpu_snapshot.machine_id,
+            state.managed_state,
+            reboot_status.status
+        );
+    }
+
+    Ok(())
 }
 
 async fn handler_host_lockdown(
