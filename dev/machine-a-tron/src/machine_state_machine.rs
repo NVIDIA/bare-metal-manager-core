@@ -392,19 +392,6 @@ impl MachineStateMachine {
                     return Ok(NextState::SleepFor(Duration::MAX));
                 };
 
-                let network_config = api_client::get_managed_host_network_config(
-                    &self.app_context,
-                    machine_id.clone(),
-                )
-                .await?;
-
-                record_dpu_network_status(
-                    &self.app_context,
-                    machine_id.clone(),
-                    network_config.managed_host_config_version,
-                )
-                .await?;
-
                 let next_state = MachineState::MachineUp(MachineUpState {
                     last_network_status_update: Some(Instant::now()),
                     bmc_state: inner_state.bmc_state.clone(),
@@ -412,6 +399,7 @@ impl MachineStateMachine {
                     machine_discovery_result: inner_state.machine_discovery_result.clone(),
                 });
 
+                self.send_network_status_observation(machine_id).await?;
                 // Wake us up again to do more network status updates.
                 Ok(NextState::UpdateAndDelay(
                     next_state,
@@ -419,6 +407,57 @@ impl MachineStateMachine {
                 ))
             }
         }
+    }
+
+    async fn send_network_status_observation(
+        &self,
+        machine_id: rpc::MachineId,
+    ) -> Result<(), MachineStateError> {
+        let network_config =
+            api_client::get_managed_host_network_config(&self.app_context, machine_id.clone())
+                .await?;
+
+        let mut instance_network_config_version: Option<String> = None;
+        let mut instance_config_version: Option<String> = None;
+        let mut interfaces = vec![];
+
+        if network_config.use_admin_network {
+            let iface = network_config
+                .admin_interface
+                .as_ref()
+                .expect("use_admin_network true so admin_interface should be Some");
+            interfaces = vec![rpc::forge::InstanceInterfaceStatusObservation {
+                function_type: iface.function_type,
+                virtual_function_id: None,
+                mac_address: None,
+                addresses: vec![iface.ip.clone()],
+            }]
+        } else {
+            instance_network_config_version =
+                Some(network_config.instance_network_config_version.clone());
+            instance_config_version = instance_network_config_version.clone();
+
+            for iface in network_config.tenant_interfaces.iter() {
+                interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
+                    function_type: iface.function_type,
+                    virtual_function_id: iface.virtual_function_id,
+                    mac_address: None,
+                    addresses: vec![iface.ip.clone()],
+                });
+            }
+        };
+
+        record_dpu_network_status(
+            &self.app_context,
+            machine_id.clone(),
+            network_config.managed_host_config_version,
+            instance_network_config_version,
+            instance_config_version,
+            network_config.instance_id.clone(),
+            interfaces,
+        )
+        .await?;
+        Ok(())
     }
 
     pub fn power_down(&mut self) {

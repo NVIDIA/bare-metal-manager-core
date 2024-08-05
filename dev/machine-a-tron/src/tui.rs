@@ -190,6 +190,12 @@ impl Tui {
                                 .expect("Could not send quit signal to TUI, crashing.");
                             false
                         }
+                        KeyCode::Char('i') => {
+                            self.app_tx.send(AppEvent::AllocateInstance).await.expect(
+                                "Could not send allocate instance signal to TUI, crashing.",
+                            );
+                            false
+                        }
                         KeyCode::Up => {
                             let list_size = self.machine_cache.len();
                             if list_size > 0 {

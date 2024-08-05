@@ -1,8 +1,11 @@
+use std::collections::HashSet;
+
 use crate::{
     api_client,
     config::MachineATronContext,
     dhcp_relay::DhcpRelayClient,
     host_machine::HostMachine,
+    machine_utils::get_next_free_machine,
     tui::{Tui, UiEvent},
 };
 
@@ -16,6 +19,7 @@ use tokio::task::JoinHandle;
 #[derive(PartialEq, Eq)]
 pub enum AppEvent {
     Quit,
+    AllocateInstance,
 }
 
 pub struct MachineATron {
@@ -69,7 +73,8 @@ impl MachineATron {
 
     pub async fn run(&mut self, machines: Vec<HostMachine>) -> eyre::Result<()> {
         let (app_tx, mut app_rx) = channel(5000);
-        let mut machine_ids: Vec<String> = Vec::new();
+        let mut machine_ids_or_mac_add: Vec<String> = Vec::new();
+        let mut assigned_machine_ids: HashSet<String> = HashSet::new();
         let mut vpc_handles: Vec<Vpc> = Vec::new();
         let mut subnet_handles: Vec<Subnet> = Vec::new();
 
@@ -119,7 +124,7 @@ impl MachineATron {
 
         let mut machine_handles = Vec::default();
         for machine in machines {
-            machine_ids.push(machine.machine_id_with_fallback());
+            machine_ids_or_mac_add.push(machine.machine_id_with_fallback());
             let (stop_tx, stop_rx) = oneshot::channel();
 
             let join_handle = machine.start(stop_rx, ui_event_tx.clone(), false);
@@ -131,7 +136,7 @@ impl MachineATron {
         }
         tracing::info!("Machine construction complete");
 
-        if let Some(msg) = app_rx.recv().await {
+        while let Some(msg) = app_rx.recv().await {
             match msg {
                 AppEvent::Quit => {
                     tracing::info!("quit");
@@ -140,11 +145,53 @@ impl MachineATron {
                             _ = stop_tx.send(());
                         }
                     }
+                    break;
+                }
+
+                AppEvent::AllocateInstance => {
+                    let machine_ids: Vec<_> =
+                        api_client::find_machine_ids(&self.app_context.clone())
+                            .await
+                            .unwrap()
+                            .machine_ids
+                            .into_iter()
+                            .map(|id| id.to_string())
+                            .collect();
+
+                    tracing::info!("Allocating an instance.");
+
+                    let hid_for_instance = get_next_free_machine(
+                        &self.app_context,
+                        &machine_ids,
+                        &assigned_machine_ids,
+                    )
+                    .await;
+                    if hid_for_instance.is_empty() {
+                        tracing::error!("No available machines.");
+                        continue;
+                    }
+
+                    // TODO: Remove the hardcoded subnet_0 to be user specified through CLI.
+                    match api_client::allocate_instance(
+                        &self.app_context.clone(),
+                        &hid_for_instance,
+                        &"subnet_0".to_string(),
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            assigned_machine_ids.insert(hid_for_instance.clone());
+                            tracing::info!("allocate_instance was successful. ");
+                        }
+                        Err(e) => {
+                            tracing::info!("allocate_instance failed with {} ", e);
+                        }
+                    };
                 }
             }
         }
 
-        for machine_id in machine_ids {
+        for machine_id in machine_ids_or_mac_add {
             tracing::info!(
                 "Attempting to delete machine with id: {} from db.",
                 machine_id

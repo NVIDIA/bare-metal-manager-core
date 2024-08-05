@@ -330,6 +330,10 @@ pub async fn record_dpu_network_status(
     app_context: &MachineATronContext,
     dpu_machine_id: rpc::MachineId,
     network_config_version: String,
+    instance_network_config_version: Option<String>,
+    instance_config_version: Option<String>,
+    instance_id: Option<rpc::Uuid>,
+    interfaces: Vec<rpc::forge::InstanceInterfaceStatusObservation>,
 ) -> ClientApiResult<()> {
     let dpu_machine_id = Some(dpu_machine_id);
 
@@ -351,11 +355,11 @@ pub async fn record_dpu_network_status(
                     message: Some("Hello".to_owned()),
                 }),
                 network_config_version: Some(network_config_version),
-                instance_config_version: None,
-                instance_network_config_version: None,
-                interfaces: vec![],
+                instance_config_version,
+                instance_network_config_version,
+                interfaces,
                 network_config_error: None,
-                instance_id: None,
+                instance_id,
                 dpu_agent_version: None,
                 client_certificate_expiry_unix_epoch_secs: None,
                 fabric_interfaces: vec![],
@@ -381,6 +385,104 @@ pub async fn find_network_segments(
             .map_err(ClientApiError::InvocationError)
     })
     .await
+}
+
+pub async fn find_machine_ids(
+    app_context: &MachineATronContext,
+) -> ClientApiResult<rpc::common::MachineIdList> {
+    with_forge_client(app_context, |mut client| async move {
+        client
+            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+                include_dpus: false,
+                include_history: true,
+                include_predicted_host: true,
+                only_maintenance: false,
+                include_associated_machine_id: true,
+                exclude_hosts: false,
+            }))
+            .await
+            .map(|response| response.into_inner())
+            .map_err(ClientApiError::InvocationError)
+    })
+    .await
+}
+
+pub async fn allocate_instance(
+    app_context: &MachineATronContext,
+    host_machine_id: &str,
+    network_segment_name: &String,
+) -> ClientApiResult<rpc::forge::Instance> {
+    with_forge_client(app_context, |mut client| async move {
+        let segment_request = tonic::Request::new(rpc::forge::NetworkSegmentSearchFilter{
+                                    name: Some(network_segment_name.clone()),
+                                    tenant_org_id: None,
+                                });
+
+        let network_segment_ids = match client
+            .find_network_segment_ids(segment_request).await {
+                Ok(response) => {
+                    response.into_inner()
+                }
+
+                Err(e) => {
+                    return Err(ClientApiError::ConfigError(format!(
+                            "network segment: {} retrieval error {}",
+                            network_segment_name, e)));
+                }
+            };
+
+        if network_segment_ids.network_segments_ids.is_empty() {
+            return Err(ClientApiError::ConfigError(format!(
+                "network segment: {} not found.", network_segment_name)));
+        } else if  network_segment_ids.network_segments_ids.len() >= 2 {
+            tracing::warn!("Network segments from previous runs of machine-a-tron have not been cleaned up. Suggested to start again after cleaning db.");
+        }
+        let network_segment_id = network_segment_ids.network_segments_ids.first();
+
+        let interface_config = rpc::forge::InstanceInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            network_segment_id:
+            network_segment_id.cloned(),
+        };
+
+        let tenant_config = rpc::TenantConfig {
+            user_data: None,
+            custom_ipxe: "Non-existing-ipxe".to_string(),
+            phone_home_enabled: false,
+            always_boot_with_custom_ipxe: false,
+            tenant_organization_id: "Forge-simulation-tenant".to_string(),
+            tenant_keyset_ids: vec![],
+            hostname: None,
+        };
+
+        let instance_config = rpc::InstanceConfig {
+            tenant: Some(tenant_config),
+            os: None,
+            network: Some(rpc::InstanceNetworkConfig{
+                interfaces: vec![interface_config],
+            }),
+            infiniband: None,
+        };
+
+        let instance_request = tonic::Request::new(rpc::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(rpc::MachineId {
+                id: host_machine_id.to_owned(),
+            }),
+            config: Some(instance_config),
+            metadata: None,
+        });
+
+        client
+            .allocate_instance(instance_request)
+            .await
+            .map(
+                |response: tonic::Response<rpc::forge::Instance>| {
+                    response.into_inner()
+                },
+            )
+            .map_err(ClientApiError::InvocationError)
+    }).await
 }
 
 pub async fn force_delete_machine(
@@ -492,7 +594,7 @@ pub async fn create_vpc(app_context: &MachineATronContext) -> ClientApiResult<rp
             .create_vpc(tonic::Request::new(rpc::forge::VpcCreationRequest {
                 id: None,
                 name: format!("vpc_{}", vpc_count),
-                tenant_organization_id: String::new(),
+                tenant_organization_id: "Forge-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: None,
             }))

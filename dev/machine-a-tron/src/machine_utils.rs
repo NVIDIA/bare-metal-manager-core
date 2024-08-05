@@ -6,6 +6,7 @@ use crate::machine_state_machine::AddressConfigError;
 use lazy_static::lazy_static;
 use reqwest::ClientBuilder;
 use rpc::forge::MachineArchitecture;
+use std::collections::HashSet;
 use tempfile::TempDir;
 
 lazy_static! {
@@ -156,6 +157,27 @@ pub async fn get_api_state(
                 }
             },
         )
+}
+
+pub async fn get_next_free_machine(
+    app_context: &MachineATronContext,
+    machine_ids: &Vec<String>,
+    assigned_machine_ids: &HashSet<String>,
+) -> String {
+    for id in machine_ids {
+        // Note: We likely don't need the following hash set because once an instance is allocated, the machine's state turns to Assigned.
+        // However, I have not tested for any potential delay in the state change, and for now keeping the set as a precaution.
+        if assigned_machine_ids.contains(&id.to_string()) {
+            continue;
+        }
+
+        let machine_id_proto = rpc::common::MachineId { id: id.clone() };
+        let state = get_api_state(app_context, Some(&machine_id_proto)).await;
+        if state == "Ready" {
+            return id.to_string();
+        }
+    }
+    String::new()
 }
 
 pub async fn add_address_to_interface(
