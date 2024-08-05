@@ -335,22 +335,18 @@ impl PreingestionManagerStatic {
                     return None;
                 }
             },
+            None if endpoint.report.is_dpu() => endpoint
+                .report
+                .identify_dpu()
+                .map(|d| d.to_string())
+                .unwrap_or("unknown model".to_string()),
             None => {
                 // No system with model found for the endpoint, we can't match firmware
                 tracing::info!(
-                    "find_fw_info_for_host: {} No system with model. Trying to find chassis",
+                    "find_fw_info_for_host: {} No system with model.",
                     endpoint.address
                 );
-                match endpoint.report.chassis.iter().find(|&x| x.model.is_some()) {
-                    Some(chassis) => chassis.model.as_ref().unwrap().to_string(),
-                    None => {
-                        tracing::info!(
-                            "find_fw_info_for_host: {} No chassis with model. ",
-                            endpoint.address
-                        );
-                        return None;
-                    }
-                }
+                return None;
             }
         };
         self.host_info
