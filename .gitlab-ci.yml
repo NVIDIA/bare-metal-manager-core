@@ -25,6 +25,7 @@ variables:
   ARTIFACT_COMPRESSION_LEVEL: default # can also be set to fastest, fast, slow and slowest. If just enabling fastzip is not enough try setting this to fastest or fast.
   CACHE_COMPRESSION_LEVEL: fastest
   TRANSFER_METER_FREQUENCY: 5s
+  USE_GIT_HASH_VERSION: "true" # https://gitlab-master.nvidia.com/nvmetal/gitlab-templates/-/merge_requests/88
 
   KANIKO_CACHE_ARGS: "--cache=false --cache-copy-layers=true --cache-ttl=24h"
   APT_CACHE_DIR: $CI_PROJECT_DIR/apt
