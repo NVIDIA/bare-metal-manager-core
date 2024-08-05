@@ -13,7 +13,6 @@
 //! State Handler implementation for Machines
 
 use std::{
-    collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     task::Poll,
 };
@@ -40,17 +39,16 @@ use crate::{
         model::machine::{get_measurement_bundle_state, get_measurement_machine_state},
     },
     model::machine::{
-        get_display_ids,
+        all_equal, get_display_ids,
         machine_id::MachineId,
         network::HealthStatus,
-        BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, DpuInitState,
-        DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
-        InstanceNextStateResolver, InstanceState, LockdownInfo,
+        BmcFirmwareUpdateSubstate, CleanupState, DpuDiscoveringState, DpuInitState, FailureCause,
+        FailureDetails, FailureSource, InstanceNextStateResolver, InstanceState, LockdownInfo,
         LockdownMode::{self, Enable},
         LockdownState, MachineLastRebootRequestedMode, MachineNextStateResolver, MachineSnapshot,
         MachineState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-        NextReprovisionState, PerformPowerOperation, ReprovisionRequest, ReprovisionState,
-        RetryInfo, UefiSetupInfo, UefiSetupState,
+        NextReprovisionState, PerformPowerOperation, ReprovisionState, RetryInfo, UefiSetupInfo,
+        UefiSetupState,
     },
     redfish::{
         build_redfish_client_from_bmc_ip, host_power_control, poll_redfish_job,
@@ -309,15 +307,11 @@ impl MachineStateHandler {
             }
         }
 
-        // TODO: multidpu: Check for all DPUs
-        if let Some(reprov_request) = &state.dpu_snapshots[0].reprovision_requested {
+        if dpu_reprovisioning_needed(&state.dpu_snapshots) {
             // Reprovision is started and user requested for restart of reprovision.
-            if reprov_request.started_at.is_some()
-                && dpu_reprovision_restart_requested_after_state_transition(
-                    state.host_snapshot.current.version,
-                    reprov_request.restart_reprovision_requested_at,
-                )
-            {
+            let (restart_reprov, firmware_upgrade_needed) =
+                can_restart_reprovision(&state.dpu_snapshots, state.host_snapshot.current.version);
+            if restart_reprov {
                 if let Some(next_state) = self
                     .restart_dpu_reprovision(
                         managed_state,
@@ -325,7 +319,7 @@ impl MachineStateHandler {
                         ctx,
                         txn,
                         host_machine_id,
-                        reprov_request,
+                        firmware_upgrade_needed,
                     )
                     .await?
                 {
@@ -392,30 +386,46 @@ impl MachineStateHandler {
 
             ManagedHostState::Ready => {
                 // Check if DPU reprovisioning is requested
-                // TODO: multidpu: Check for all DPUs
-                if let Some(reprovisioning_requested) =
-                    dpu_reprovisioning_needed(&state.dpu_snapshots[0])
-                {
-                    handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
-                    Machine::update_dpu_reprovision_start_time(
-                        &state.dpu_snapshots[0].machine_id,
-                        txn,
-                    )
-                    .await?;
-                    let reprov_state = if reprovisioning_requested.update_firmware {
+                if dpu_reprovisioning_needed(&state.dpu_snapshots) {
+                    let mut dpus_for_reprov = vec![];
+                    for dpu_snapshot in &state.dpu_snapshots {
+                        if dpu_snapshot.reprovision_requested.is_some() {
+                            handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
+                            Machine::update_dpu_reprovision_start_time(
+                                &dpu_snapshot.machine_id,
+                                txn,
+                            )
+                            .await?;
+                            dpus_for_reprov.push(dpu_snapshot);
+                        }
+                    }
+                    // All DPUs must have same value for this parameter. All DPUs are updated
+                    // together grpc API or automatic updater. Still we are using `any` to avoid
+                    // blocking state machine.
+                    // TODO: multidpu: Keep it at some common place to avoid duplicates.
+                    let is_firmware_upgrade_needed = dpus_for_reprov.iter().any(|x| {
+                        x.reprovision_requested
+                            .as_ref()
+                            .map(|x| x.update_firmware)
+                            .unwrap_or_default()
+                    });
+
+                    let reprov_state = if is_firmware_upgrade_needed {
                         ReprovisionState::FirmwareUpgrade
                     } else {
-                        set_managed_host_topology_update_needed(txn, state).await?;
+                        set_managed_host_topology_update_needed(
+                            txn,
+                            &state.host_snapshot,
+                            &dpus_for_reprov,
+                        )
+                        .await?;
                         ReprovisionState::WaitingForNetworkInstall
                     };
-                    let next_state = ManagedHostState::DPUReprovision {
-                        dpu_states: DpuReprovisionStates {
-                            states: HashMap::from([(
-                                state.dpu_snapshots[0].machine_id.clone(),
-                                reprov_state,
-                            )]),
-                        },
-                    };
+                    let next_state = reprov_state.next_state_with_all_dpus_updated(
+                        &state.managed_state,
+                        &state.dpu_snapshots,
+                        dpus_for_reprov.iter().map(|x| &x.machine_id).collect_vec(),
+                    )?;
                     return Ok(StateHandlerOutcome::Transition(next_state));
                 }
 
@@ -708,19 +718,21 @@ impl MachineStateHandler {
                 }
             }
             ManagedHostState::DPUReprovision { .. } => {
-                if let Some(next_state) = handle_dpu_reprovision(
-                    state,
-                    &self.reachability_params,
-                    ctx.services,
-                    txn,
-                    &MachineNextStateResolver,
-                )
-                .await?
-                {
-                    Ok(StateHandlerOutcome::Transition(next_state))
-                } else {
-                    Ok(StateHandlerOutcome::DoNothing)
+                for dpu_snapshot in &state.dpu_snapshots {
+                    if let Some(next_state) = handle_dpu_reprovision(
+                        state,
+                        &self.reachability_params,
+                        ctx.services,
+                        txn,
+                        &MachineNextStateResolver,
+                        dpu_snapshot,
+                    )
+                    .await?
+                    {
+                        return Ok(StateHandlerOutcome::Transition(next_state));
+                    }
                 }
+                Ok(StateHandlerOutcome::DoNothing)
             }
             // ManagedHostState::Measuring is introduced into the flow when
             // attestation_enabled is set to true (defaults to false), and
@@ -755,10 +767,16 @@ impl MachineStateHandler {
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         host_machine_id: &MachineId,
-        reprov_request: &ReprovisionRequest,
+        upgrade_firmware: bool,
     ) -> Result<Option<ManagedHostState>, StateHandlerError> {
         let mut next_state = None;
-        let dpu_machine_id = &state.dpu_snapshots[0].machine_id.clone();
+
+        let dpus_for_reprov = state
+            .dpu_snapshots
+            .iter()
+            .filter(|x| x.reprovision_requested.is_some())
+            .collect_vec();
+
         match managed_state {
             ManagedHostState::Assigned {
                 instance_state: InstanceState::DPUReprovision { .. },
@@ -775,36 +793,54 @@ impl MachineStateHandler {
                 {
                     tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
                 }
-
-                let next_reprov_state = if reprov_request.update_firmware
+                let next_reprov_state = if upgrade_firmware
                     && self
                         .instance_handler
                         .dpu_nic_firmware_reprovision_update_enabled
                 {
                     ReprovisionState::FirmwareUpgrade
                 } else {
-                    set_managed_host_topology_update_needed(txn, state).await?;
+                    set_managed_host_topology_update_needed(
+                        txn,
+                        &state.host_snapshot,
+                        &dpus_for_reprov,
+                    )
+                    .await?;
                     ReprovisionState::WaitingForNetworkInstall
                 };
-                next_state =
-                    Some(next_reprov_state.next_state(&state.managed_state, dpu_machine_id)?);
+                next_state = Some(next_reprov_state.next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    dpus_for_reprov.iter().map(|x| &x.machine_id).collect_vec(),
+                )?);
             }
             ManagedHostState::DPUReprovision { .. } => {
-                let next_reprov_state = if reprov_request.update_firmware {
+                let next_reprov_state = if upgrade_firmware {
                     ReprovisionState::FirmwareUpgrade
                 } else {
-                    set_managed_host_topology_update_needed(txn, state).await?;
+                    set_managed_host_topology_update_needed(
+                        txn,
+                        &state.host_snapshot,
+                        &dpus_for_reprov,
+                    )
+                    .await?;
                     ReprovisionState::WaitingForNetworkInstall
                 };
-                next_state =
-                    Some(next_reprov_state.next_state(&state.managed_state, dpu_machine_id)?);
+
+                next_state = Some(next_reprov_state.next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    dpus_for_reprov.iter().map(|x| &x.machine_id).collect_vec(),
+                )?);
             }
             _ => {}
         };
 
-        // TODO: multidpu: Check for all DPUs
         if next_state.is_some() {
-            handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
+            // Restart all DPUs, sit back and relax.
+            for dpu in dpus_for_reprov {
+                handler_restart_dpu(dpu, ctx.services, txn).await?;
+            }
             return Ok(next_state);
         }
 
@@ -813,9 +849,10 @@ impl MachineStateHandler {
 }
 
 /// This function checks if reprovisioning is requested of a given DPU or not.
-/// It also returns if firmware upgrade is needed.
-fn dpu_reprovisioning_needed(dpu_snapshot: &MachineSnapshot) -> Option<ReprovisionRequest> {
-    dpu_snapshot.reprovision_requested.clone()
+fn dpu_reprovisioning_needed(dpu_snapshots: &[MachineSnapshot]) -> bool {
+    dpu_snapshots
+        .iter()
+        .any(|x| x.reprovision_requested.is_some())
 }
 
 // Function to wait for some time in state machine.
@@ -1178,9 +1215,9 @@ async fn handle_dpu_reprovision(
     services: &StateHandlerServices,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     next_state_resolver: &impl NextReprovisionState,
+    dpu_snapshot: &MachineSnapshot,
 ) -> Result<Option<ManagedHostState>, StateHandlerError> {
-    // TODO: multidpu: Check for all DPUs
-    let dpu_machine_id = &state.dpu_snapshots[0].machine_id.clone();
+    let dpu_machine_id = &dpu_snapshot.machine_id;
     let reprovision_state = state
         .managed_state
         .as_reprovision_state(dpu_machine_id)
@@ -1188,25 +1225,67 @@ async fn handle_dpu_reprovision(
 
     match reprovision_state {
         ReprovisionState::FirmwareUpgrade => {
-            // Firmware upgrade is going on.
-            if !rebooted(&state.dpu_snapshots[0]) {
-                trigger_reboot_if_needed(
-                    &state.dpu_snapshots[0],
-                    state,
-                    None,
-                    reachability_params,
-                    services,
-                    txn,
-                )
-                .await?;
+            // Firmware upgrade is going on. Lets wait for it to over.
+            let dpus_snapshots_for_reprov = &state
+                .dpu_snapshots
+                .iter()
+                .filter(|x| x.reprovision_requested.is_some())
+                .collect_vec();
+
+            for dpu_snapshot in dpus_snapshots_for_reprov {
+                if !rebooted(dpu_snapshot) {
+                    let status = trigger_reboot_if_needed(
+                        dpu_snapshot,
+                        state,
+                        None,
+                        reachability_params,
+                        services,
+                        txn,
+                    )
+                    .await?;
+
+                    if status.increase_retry_count {
+                        tracing::error!("DPU: {} has not come up yet.", dpu_snapshot.machine_id);
+                    }
+                    return Ok(None);
+                }
+            }
+
+            // All DPUs have responded now.
+            set_managed_host_topology_update_needed(
+                txn,
+                &state.host_snapshot,
+                dpus_snapshots_for_reprov,
+            )
+            .await?;
+
+            Ok(Some(next_state_resolver.next_state_with_all_dpus_updated(
+                state,
+                reprovision_state,
+            )?))
+        }
+        ReprovisionState::PoweringOffHost => {
+            let dpus_states_for_reprov = &state
+                .dpu_snapshots
+                .iter()
+                .filter_map(|x| {
+                    if x.reprovision_requested.is_some() {
+                        state.managed_state.as_reprovision_state(dpu_machine_id)
+                    } else {
+                        None
+                    }
+                })
+                .collect_vec();
+
+            if !all_equal(dpus_states_for_reprov)? {
                 return Ok(None);
             }
 
             handler_host_power_control(state, services, SystemPowerControl::ForceOff, txn).await?;
-            set_managed_host_topology_update_needed(txn, state).await?;
-            Ok(Some(
-                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
-            ))
+            Ok(Some(next_state_resolver.next_state_with_all_dpus_updated(
+                state,
+                reprovision_state,
+            )?))
         }
         ReprovisionState::PowerDown => {
             let basetime = state
@@ -1240,12 +1319,13 @@ async fn handle_dpu_reprovision(
                 return Ok(None);
             }
             handler_host_power_control(state, services, SystemPowerControl::On, txn).await?;
-            Ok(Some(
-                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
-            ))
+            Ok(Some(next_state_resolver.next_state_with_all_dpus_updated(
+                state,
+                reprovision_state,
+            )?))
         }
         ReprovisionState::WaitingForNetworkInstall => {
-            if (try_wait_for_dpu_discovery(state, reachability_params, services, txn).await?)
+            if (try_wait_for_dpu_discovery(state, reachability_params, services, true, txn).await?)
                 .is_pending()
             {
                 return Ok(None);
@@ -1254,9 +1334,10 @@ async fn handle_dpu_reprovision(
             for dpu_snapshot in &state.dpu_snapshots {
                 handler_restart_dpu(dpu_snapshot, services, txn).await?;
             }
-            Ok(Some(
-                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
-            ))
+            Ok(Some(next_state_resolver.next_state_with_all_dpus_updated(
+                state,
+                reprovision_state,
+            )?))
         }
         ReprovisionState::BufferTime => {
             // This state just waits for some time to avoid race condition where
@@ -1269,9 +1350,10 @@ async fn handle_dpu_reprovision(
             ) {
                 return Ok(None);
             }
-            Ok(Some(
-                next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
-            ))
+            Ok(Some(next_state_resolver.next_state_with_all_dpus_updated(
+                state,
+                reprovision_state,
+            )?))
         }
         ReprovisionState::WaitingForNetworkConfig => {
             if !is_dpu_up_and_network_ready(state) {
@@ -1294,7 +1376,7 @@ async fn handle_dpu_reprovision(
                 next_state_resolver.next_state(&state.managed_state, dpu_machine_id)?,
             ))
         }
-        ReprovisionState::WaitingForAllFirmwareUpgrade => todo!(),
+        ReprovisionState::NotUnderReprovision => Ok(None),
     }
 }
 
@@ -1303,12 +1385,17 @@ async fn try_wait_for_dpu_discovery(
     state: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     services: &StateHandlerServices,
+    is_reprovision_case: bool,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Poll<()>, StateHandlerError> {
     // We are waiting for the `DiscoveryCompleted` RPC call to update the
     // `last_discovery_time` timestamp.
     // This indicates that all forge-scout actions have succeeded.
     for dpu_snapshot in &state.dpu_snapshots {
+        if is_reprovision_case && dpu_snapshot.reprovision_requested.is_none() {
+            // This is reprovision handling and this DPU is not under reprovisioning.
+            continue;
+        }
         if !discovered_after_state_transition(
             dpu_snapshot.current.version,
             dpu_snapshot.last_discovery_time,
@@ -1332,13 +1419,14 @@ async fn try_wait_for_dpu_discovery(
 
 async fn set_managed_host_topology_update_needed(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    state: &ManagedHostStateSnapshot,
+    host_snapshot: &MachineSnapshot,
+    dpus: &[&MachineSnapshot],
 ) -> Result<(), StateHandlerError> {
     //Update it for host and DPU both.
-    for dpu_snapshot in &state.dpu_snapshots {
+    for dpu_snapshot in dpus {
         MachineTopology::set_topology_update_needed(txn, &dpu_snapshot.machine_id, true).await?;
     }
-    MachineTopology::set_topology_update_needed(txn, &state.host_snapshot.machine_id, true).await?;
+    MachineTopology::set_topology_update_needed(txn, &host_snapshot.machine_id, true).await?;
     Ok(())
 }
 
@@ -1812,7 +1900,7 @@ impl DpuMachineStateHandler {
 
                 let model = self.identify_dpu(dpu_snapshot);
                 if let Some(dpu_desc) = self.hardware_models.find(
-                    state.dpu_snapshots[0]
+                    dpu_snapshot
                         .bmc_info
                         .ip
                         .as_ref()
@@ -1885,7 +1973,7 @@ impl DpuMachineStateHandler {
                 );
 
                 let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
-                    state.dpu_snapshots[0].bmc_addr(),
+                    dpu_snapshot.bmc_addr(),
                     &ctx.services.redfish_client_pool,
                     txn,
                 )
@@ -1915,12 +2003,11 @@ impl DpuMachineStateHandler {
                         if wait_for_dpu_reboot {
                             return Ok(StateHandlerOutcome::Wait(format!(
                                     "DisableSecureBootSubState::VerifySecureBootDisabled ({count}): waiting for for DPU {dpu_machine_id} to come up since {:?}",
-                                    state.dpu_snapshots[0].current.version.timestamp()
+                                    dpu_snapshot.current.version.timestamp()
                                 )));
                         }
 
-                        self.disable_secure_boot(&state.dpu_snapshots[0], ctx, txn)
-                            .await?;
+                        self.disable_secure_boot(dpu_snapshot, ctx, txn).await?;
 
                         next_state = DpuDiscoveringState::DisableSecureBoot { count: *count + 1 }
                             .next_state(&state.managed_state, dpu_machine_id)?;
@@ -1932,7 +2019,7 @@ impl DpuMachineStateHandler {
                         if wait_for_dpu_reboot {
                             return Ok(StateHandlerOutcome::Wait(format!(
                                     "DisableSecureBootSubState::VerifySecureBootDisabled ({count}): waiting for for DPU {dpu_machine_id} to come up since {:?}",
-                                    state.dpu_snapshots[0].current.version.timestamp()
+                                    dpu_snapshot.current.version.timestamp()
                                 )));
                         }
 
@@ -1941,8 +2028,7 @@ impl DpuMachineStateHandler {
                             next_state = DpuDiscoveringState::SetUefiHttpBoot
                                 .next_state(&state.managed_state, dpu_machine_id)?;
                         } else {
-                            self.disable_secure_boot(&state.dpu_snapshots[0], ctx, txn)
-                                .await?;
+                            self.disable_secure_boot(dpu_snapshot, ctx, txn).await?;
 
                             next_state =
                                 DpuDiscoveringState::DisableSecureBoot { count: *count + 1 }
@@ -1956,7 +2042,7 @@ impl DpuMachineStateHandler {
 
             DpuDiscoveringState::SetUefiHttpBoot => {
                 let dpu_redfish_client_result = build_redfish_client_from_bmc_ip(
-                    state.dpu_snapshots[0].bmc_addr(),
+                    dpu_snapshot.bmc_addr(),
                     &ctx.services.redfish_client_pool,
                     txn,
                 )
@@ -2035,9 +2121,14 @@ impl DpuMachineStateHandler {
         match &dpu_state {
             DpuInitState::Init => {
                 // initial restart, firmware update and scout is run, first reboot of dpu discovery
-                let dpu_discovery_poll =
-                    try_wait_for_dpu_discovery(state, &self.reachability_params, ctx.services, txn)
-                        .await?;
+                let dpu_discovery_poll = try_wait_for_dpu_discovery(
+                    state,
+                    &self.reachability_params,
+                    ctx.services,
+                    false,
+                    txn,
+                )
+                .await?;
 
                 if dpu_discovery_poll.is_pending() {
                     return Ok(StateHandlerOutcome::Wait(
@@ -3052,23 +3143,35 @@ impl StateHandler for InstanceStateHandler {
 
                     // Wait for user's approval. Once user approves for dpu
                     // reprovision/update firmware, trigger it.
-                    // TODO: multidpu: Check for all DPUs
-                    let reprov_needed = if let Some(reprovisioning_requested) =
-                        dpu_reprovisioning_needed(&state.dpu_snapshots[0])
-                    {
-                        reprovisioning_requested.user_approval_received
+                    let reprov_can_be_started = if dpu_reprovisioning_needed(&state.dpu_snapshots) {
+                        // Usually all DPUs are updated with user_approval_received field as true
+                        // if `invoke_instance_power` is called.
+                        // TODO: multidpu: Move this field to `instances` table and unset on
+                        // reprovision is completed.
+                        state
+                            .dpu_snapshots
+                            .iter()
+                            .filter(|x| x.reprovision_requested.is_some())
+                            .all(|x| {
+                                x.reprovision_requested
+                                    .as_ref()
+                                    .map(|x| x.user_approval_received)
+                                    .unwrap_or_default()
+                            })
                     } else {
                         false
                     };
 
-                    if instance.deleted.is_some() || reprov_needed {
-                        if reprov_needed {
-                            // User won't be allowed to clear reprovisioning flag after this.
-                            Machine::update_dpu_reprovision_start_time(
-                                &state.dpu_snapshots[0].machine_id,
-                                txn,
-                            )
-                            .await?;
+                    if instance.deleted.is_some() || reprov_can_be_started {
+                        for dpu_snapshot in &state.dpu_snapshots {
+                            if dpu_snapshot.reprovision_requested.is_some() {
+                                // User won't be allowed to clear reprovisioning flag after this.
+                                Machine::update_dpu_reprovision_start_time(
+                                    &dpu_snapshot.machine_id,
+                                    txn,
+                                )
+                                .await?;
+                            }
                         }
 
                         // Reboot host. Host will boot with carbide discovery image now. Changes
@@ -3150,35 +3253,48 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     // If we are here, DPU reprov MUST have been be requested.
-                    // TODO: multidpu: Check for all DPUs
-                    if let Some(reprovisioning_requested) =
-                        dpu_reprovisioning_needed(&state.dpu_snapshots[0])
-                    {
-                        // If we are here, it is definitely because user has already given
-                        // approval, but a repeat check doesn't harm anyway.
-                        if reprovisioning_requested.user_approval_received {
-                            handler_restart_dpu(&state.dpu_snapshots[0], ctx.services, txn).await?;
-                            let reprovision_state = if reprovisioning_requested.update_firmware
-                                && self.dpu_nic_firmware_reprovision_update_enabled
-                            {
-                                ReprovisionState::FirmwareUpgrade
-                            } else {
-                                set_managed_host_topology_update_needed(txn, state).await?;
-                                ReprovisionState::WaitingForNetworkInstall
-                            };
-                            let next_state = reprovision_state.next_state(
-                                &state.managed_state,
-                                &state.dpu_snapshots[0].machine_id,
-                            )?;
-                            Ok(StateHandlerOutcome::Transition(next_state))
-                        } else {
-                            Ok(StateHandlerOutcome::Wait(
-                                "Waiting for user approval for DPU reprovision".to_string(),
-                            ))
+                    if dpu_reprovisioning_needed(&state.dpu_snapshots) {
+                        // All DPUs must have same value for this parameter. All DPUs are updated
+                        // together grpc API or automatic updater.
+                        // TODO: multidpu: Keep it at some common place to avoid duplicates.
+                        let mut dpus_for_reprov = vec![];
+                        for dpu_snapshot in &state.dpu_snapshots {
+                            if dpu_snapshot.reprovision_requested.is_some() {
+                                handler_restart_dpu(dpu_snapshot, ctx.services, txn).await?;
+                                dpus_for_reprov.push(dpu_snapshot);
+                            }
                         }
+
+                        let is_firmware_upgrade_needed = dpus_for_reprov.iter().any(|x| {
+                            x.reprovision_requested
+                                .as_ref()
+                                .map(|x| x.update_firmware)
+                                .unwrap_or_default()
+                        });
+
+                        let reprovision_state = if is_firmware_upgrade_needed
+                            && self.dpu_nic_firmware_reprovision_update_enabled
+                        {
+                            ReprovisionState::FirmwareUpgrade
+                        } else {
+                            set_managed_host_topology_update_needed(
+                                txn,
+                                &state.host_snapshot,
+                                &dpus_for_reprov,
+                            )
+                            .await?;
+                            ReprovisionState::WaitingForNetworkInstall
+                        };
+                        let next_state = reprovision_state.next_state_with_all_dpus_updated(
+                            &state.managed_state,
+                            &state.dpu_snapshots,
+                            dpus_for_reprov.iter().map(|x| &x.machine_id).collect_vec(),
+                        )?;
+                        Ok(StateHandlerOutcome::Transition(next_state))
                     } else {
-                        // TODO what do we do here? Is this unreachable?
-                        Ok(StateHandlerOutcome::DoNothing)
+                        Ok(StateHandlerOutcome::Wait(
+                            "Don't know how did we reach here.".to_string(),
+                        ))
                     }
                 }
 
@@ -3242,24 +3358,21 @@ impl StateHandler for InstanceStateHandler {
                     Ok(StateHandlerOutcome::Transition(next_state))
                 }
                 InstanceState::DPUReprovision { .. } => {
-                    match handle_dpu_reprovision(
-                        state,
-                        &self.reachability_params,
-                        ctx.services,
-                        txn,
-                        &InstanceNextStateResolver,
-                    )
-                    .await?
-                    {
-                        Some(next_state) => Ok(StateHandlerOutcome::Transition(next_state)),
-                        None => {
-                            // TODO handle_dpu_reprovision should return StateHandlerOutcome
-                            // so that we can be specific here
-                            Ok(StateHandlerOutcome::Wait(
-                                "Waiting for DPU reprovision".to_string(),
-                            ))
+                    for dpu_snapshot in &state.dpu_snapshots {
+                        if let Some(next_state) = handle_dpu_reprovision(
+                            state,
+                            &self.reachability_params,
+                            ctx.services,
+                            txn,
+                            &InstanceNextStateResolver,
+                            dpu_snapshot,
+                        )
+                        .await?
+                        {
+                            return Ok(StateHandlerOutcome::Transition(next_state));
                         }
                     }
+                    Ok(StateHandlerOutcome::DoNothing)
                 }
             }
         } else {
@@ -3401,6 +3514,43 @@ async fn lockdown_host(
     handler_host_power_control(state, services, SystemPowerControl::ForceRestart, txn).await?;
 
     Ok(())
+}
+
+// If already reprovisioning is started, we can restart.
+// Also check that this is not some old request. The restart requested time must be greater than
+// last state change.
+fn can_restart_reprovision(
+    dpu_snapshots: &[MachineSnapshot],
+    version: ConfigVersion,
+) -> (bool, bool) {
+    let mut reprov_started = false;
+    let mut requested_at = vec![];
+    let mut firmware_upgrade_needed = false;
+    for dpu_snapshot in dpu_snapshots {
+        if let Some(reprov_req) = &dpu_snapshot.reprovision_requested {
+            if reprov_req.started_at.is_some() {
+                reprov_started = true;
+            }
+            firmware_upgrade_needed |= reprov_req.update_firmware;
+            requested_at.push(reprov_req.restart_reprovision_requested_at);
+        }
+    }
+
+    if !reprov_started {
+        return (false, false);
+    }
+
+    // Get the latest time of restart requested.
+    requested_at.sort();
+
+    let Some(latest_requested_at) = requested_at.last() else {
+        return (false, false);
+    };
+
+    (
+        dpu_reprovision_restart_requested_after_state_transition(version, *latest_requested_at),
+        firmware_upgrade_needed,
+    )
 }
 
 #[cfg(test)]
