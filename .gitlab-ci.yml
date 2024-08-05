@@ -1013,10 +1013,6 @@ scheduled-test:auto-deploy-site-controller:
     - job: scheduled-test:prepare
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $AUTO_DEPLOY == "true"
-  retry:
-    when:
-      - runner_system_failure
-    max: 1
   image:
     name: $CONTAINER_SITE_AUTO_DEPLOY
     entrypoint: [ "" ]
