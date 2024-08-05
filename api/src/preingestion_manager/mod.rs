@@ -19,6 +19,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::net::SocketAddr;
 use std::{default::Default, sync::Arc, time::Duration};
 use tokio::{
+    fs::File,
     sync::{oneshot, Semaphore},
     task::JoinSet,
 };
@@ -686,13 +687,13 @@ impl PreingestionManagerStatic {
             DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn).await?;
             return Ok(());
         }
-        // Lenovo BMC needs to be manually reset after the update
+        // Lenovo and Nvidia DPU BMC needs to be manually reset after the update
+        let bmc_vendor = endpoint
+            .report
+            .vendor
+            .unwrap_or(bmc_vendor::BMCVendor::Unknown);
         if *upgrade_type == FirmwareComponentType::Bmc
-            && endpoint
-                .report
-                .vendor
-                .unwrap_or(bmc_vendor::BMCVendor::Unknown)
-                .is_lenovo()
+            && (bmc_vendor.is_lenovo() || bmc_vendor.is_nvidia())
         {
             tracing::info!(
                 "Upgrade task has completed for {} but needs BMC reboot, initiating one",
@@ -868,6 +869,32 @@ async fn initiate_update(
         .await
     {
         Ok(task) => task,
+        Err(RedfishError::HTTPErrorCode {
+            url,
+            status_code,
+            response_body,
+        }) if status_code == StatusCode::NOT_FOUND => {
+            tracing::warn!(
+                "Multipart URI {url} not found: {response_body}. Trying to use HttpPushUri"
+            );
+            let file = match File::open(to_install.get_filename().as_path()).await {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::error!("Failed to open a file: {e}");
+                    return Ok(());
+                }
+            };
+            match redfish_client.update_firmware(file).await {
+                Ok(task) => task.id,
+                Err(e) => {
+                    tracing::error!(
+                        "initiate_update: Failed uploading firmware to {}: {e}",
+                        endpoint_clone.address
+                    );
+                    return Ok(());
+                }
+            }
+        }
         Err(e) => {
             tracing::warn!(
                 "initiate_update: Failed uploading firmware to {}: {e}",
