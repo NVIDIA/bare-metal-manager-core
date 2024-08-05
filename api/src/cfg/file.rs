@@ -757,7 +757,7 @@ impl From<String> for DpuModel {
 
 impl fmt::Display for DpuModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
     }
 }
 

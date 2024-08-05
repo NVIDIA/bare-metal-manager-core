@@ -18,7 +18,7 @@ use carbide::{
         machine::machine_id::MachineId,
         site_explorer::{
             Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport,
-            EndpointType, Inventory, PreingestionState, Service,
+            EndpointType, Inventory, NicMode, PreingestionState, Service,
         },
     },
     preingestion_manager::PreingestionManager,
@@ -334,7 +334,18 @@ fn build_dpu_exploration_report(
         vendor: Some(bmc_vendor::BMCVendor::Nvidia),
         last_exploration_error: None,
         managers: vec![],
-        systems: vec![],
+        systems: vec![ComputerSystem {
+            id: "Bluefield".to_string(),
+            ethernet_interfaces: vec![],
+            manufacturer: None,
+            model: None,
+            serial_number: Some("MT2328XZ185R".to_string()),
+            attributes: ComputerSystemAttributes {
+                nic_mode: Some(NicMode::Dpu),
+                http_dev1_interface: None,
+            },
+            pcie_devices: vec![],
+        }],
         chassis: vec![Chassis {
             model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
             id: "Card1".to_string(),
