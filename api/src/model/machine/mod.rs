@@ -336,14 +336,98 @@ impl ManagedHostState {
 #[serde(rename_all = "lowercase")]
 pub enum ReprovisionState {
     FirmwareUpgrade,
-    WaitingForAllFirmwareUpgrade,
+    PoweringOffHost,
     PowerDown,
     BufferTime,
     WaitingForNetworkInstall,
     WaitingForNetworkConfig,
+    NotUnderReprovision,
 }
 
 impl ReprovisionState {
+    // This is normal case when user wants to reprovision only one DPU. In this condition, this
+    // function will update state only for those DPU for which reprovision is triggered. Reset will
+    // be updated as NotUnderReprovision state.
+    pub fn next_state_with_all_dpus_updated(
+        self,
+        current_state: &ManagedHostState,
+        dpu_snapshots: &[MachineSnapshot],
+        dpu_ids_to_process: Vec<&MachineId>,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        match current_state {
+            ManagedHostState::Ready => {
+                let states = dpu_snapshots
+                    .iter()
+                    .map(|x| {
+                        (
+                            x.machine_id.clone(),
+                            if dpu_ids_to_process.contains(&&x.machine_id) {
+                                self.clone()
+                            } else {
+                                ReprovisionState::NotUnderReprovision
+                            },
+                        )
+                    })
+                    .collect::<HashMap<MachineId, ReprovisionState>>();
+
+                Ok(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates { states },
+                })
+            }
+            ManagedHostState::DPUReprovision { dpu_states: _ } => {
+                let states = dpu_snapshots
+                    .iter()
+                    .map(|x| {
+                        (
+                            x.machine_id.clone(),
+                            if dpu_ids_to_process.contains(&&x.machine_id) {
+                                self.clone()
+                            } else {
+                                ReprovisionState::NotUnderReprovision
+                            },
+                        )
+                    })
+                    .collect::<HashMap<MachineId, ReprovisionState>>();
+                Ok(ManagedHostState::DPUReprovision {
+                    dpu_states: DpuReprovisionStates { states },
+                })
+            }
+            ManagedHostState::Assigned { instance_state } => match instance_state {
+                InstanceState::DPUReprovision { .. }
+                | InstanceState::BootingWithDiscoveryImage { .. } => {
+                    let states = dpu_snapshots
+                        .iter()
+                        .map(|x| {
+                            (
+                                x.machine_id.clone(),
+                                if dpu_ids_to_process.contains(&&x.machine_id) {
+                                    self.clone()
+                                } else {
+                                    ReprovisionState::NotUnderReprovision
+                                },
+                            )
+                        })
+                        .collect::<HashMap<MachineId, ReprovisionState>>();
+
+                    Ok(ManagedHostState::Assigned {
+                        instance_state: InstanceState::DPUReprovision {
+                            dpu_states: DpuReprovisionStates { states },
+                        },
+                    })
+                }
+
+                _ => Err(StateHandlerError::InvalidState(format!(
+                    "Invalid State {:?} passed to Reprovision::Assigned::next_state_with_all_dpus.",
+                    current_state
+                ))),
+            },
+            _ => Err(StateHandlerError::InvalidState(format!(
+                "Invalid State {:?} passed to Reprovision::next_state_with_all_dpus.",
+                current_state
+            ))),
+        }
+    }
+
     pub fn next_state(
         self,
         current_state: &ManagedHostState,
@@ -976,6 +1060,66 @@ pub trait NextReprovisionState {
         current_state: &ManagedHostState,
         dpu_id: &MachineId,
     ) -> Result<ManagedHostState, StateHandlerError>;
+
+    fn next_state_with_all_dpus_updated(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        current_reprovision_state: &ReprovisionState,
+    ) -> Result<ManagedHostState, StateHandlerError> {
+        let dpu_ids_for_reprov =
+        // EnumIter conflicts with Itertool, don't know why?
+            itertools::Itertools::collect_vec(state.dpu_snapshots.iter().filter_map(|x| {
+                if x.reprovision_requested.is_some() {
+                    Some(&x.machine_id)
+                } else {
+                    None
+                }
+            }));
+
+        let all_machine_ids =
+            itertools::Itertools::collect_vec(state.dpu_snapshots.iter().map(|x| &x.machine_id));
+
+        match current_reprovision_state {
+            ReprovisionState::FirmwareUpgrade => ReprovisionState::PoweringOffHost
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    // Mark all DPUs in PowerDown state.
+                    all_machine_ids,
+                ),
+            ReprovisionState::PoweringOffHost => ReprovisionState::PowerDown
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    // Mark all DPUs in PowerDown state.
+                    all_machine_ids,
+                ),
+            ReprovisionState::PowerDown => ReprovisionState::WaitingForNetworkInstall
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    // Move only DPUs in WaitingForNetworkInstall for which reprovision is
+                    // triggered.
+                    dpu_ids_for_reprov,
+                ),
+            ReprovisionState::WaitingForNetworkInstall => ReprovisionState::BufferTime
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    all_machine_ids,
+                ),
+            ReprovisionState::BufferTime => ReprovisionState::WaitingForNetworkConfig
+                .next_state_with_all_dpus_updated(
+                    &state.managed_state,
+                    &state.dpu_snapshots,
+                    all_machine_ids,
+                ),
+            _ => Err(StateHandlerError::InvalidState(format!(
+                "Unhandled {} state for all dpu handling.",
+                current_reprovision_state
+            ))),
+        }
+    }
 }
 
 impl NextReprovisionState for MachineNextStateResolver {
@@ -989,22 +1133,13 @@ impl NextReprovisionState for MachineNextStateResolver {
             .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_id.clone()))?;
 
         match reprovision_state {
-            ReprovisionState::FirmwareUpgrade => {
-                ReprovisionState::PowerDown.next_state(current_state, dpu_id)
-            }
-            ReprovisionState::PowerDown => {
-                ReprovisionState::WaitingForNetworkInstall.next_state(current_state, dpu_id)
-            }
-            ReprovisionState::WaitingForNetworkInstall => {
-                ReprovisionState::BufferTime.next_state(current_state, dpu_id)
-            }
-            ReprovisionState::BufferTime => {
-                ReprovisionState::WaitingForNetworkConfig.next_state(current_state, dpu_id)
-            }
             ReprovisionState::WaitingForNetworkConfig => Ok(ManagedHostState::HostInit {
                 machine_state: MachineState::Discovered,
             }),
-            ReprovisionState::WaitingForAllFirmwareUpgrade => todo!(),
+            _ => Err(StateHandlerError::InvalidState(format!(
+                "Unhandled {} state for Non-Instance handling.",
+                reprovision_state
+            ))),
         }
     }
 }
@@ -1020,22 +1155,13 @@ impl NextReprovisionState for InstanceNextStateResolver {
             .ok_or_else(|| StateHandlerError::MissingDpuFromState(dpu_id.clone()))?;
 
         match reprovision_state {
-            ReprovisionState::FirmwareUpgrade => {
-                ReprovisionState::PowerDown.next_state(current_state, dpu_id)
-            }
-            ReprovisionState::PowerDown => {
-                ReprovisionState::WaitingForNetworkInstall.next_state(current_state, dpu_id)
-            }
-            ReprovisionState::WaitingForNetworkInstall => {
-                ReprovisionState::BufferTime.next_state(current_state, dpu_id)
-            }
-            ReprovisionState::BufferTime => {
-                ReprovisionState::WaitingForNetworkConfig.next_state(current_state, dpu_id)
-            }
             ReprovisionState::WaitingForNetworkConfig => Ok(ManagedHostState::Assigned {
                 instance_state: InstanceState::Ready,
             }),
-            ReprovisionState::WaitingForAllFirmwareUpgrade => todo!(),
+            _ => Err(StateHandlerError::InvalidState(format!(
+                "Unhandled {} state for Instance handling.",
+                reprovision_state
+            ))),
         }
     }
 }
@@ -1098,7 +1224,7 @@ pub fn get_action_for_dpu_state(
     })
 }
 
-fn all_equal<A>(states: &[A]) -> Result<bool, StateHandlerError>
+pub fn all_equal<A>(states: &[A]) -> Result<bool, StateHandlerError>
 where
     A: PartialEq,
 {
