@@ -17,7 +17,6 @@ use machine_a_tron::{
 };
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::path::PathBuf;
-use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 /// Run a machine-a-tron instance with the given config in the background, returning a JoinHandle
@@ -59,28 +58,24 @@ pub async fn run_local(
     });
 
     let mat = MachineATron::new(app_context);
-    let machines = mat
+    let machine_actors = mat
         .make_machines(
             &dhcp_client,
             BmcRegistrationMode::BackingInstance(bmc_address_registry.clone()),
+            false,
         )
         .await?;
 
-    let machine_jobs = machines
-        .into_iter()
-        .map(|machine| {
-            let (_stop_tx, stop_rx) = oneshot::channel();
-            let join_handle = machine.start(stop_rx, None, true);
-            MachineJob {
-                join_handle,
-                _stop_tx,
-            }
-        })
-        .collect::<Vec<_>>();
-
     let all_machines_job = tokio::spawn(async move {
-        for machine_job in machine_jobs {
-            machine_job.join_handle.await?
+        for machine_actor in machine_actors {
+            machine_actor.wait_until_ready().await?;
+            let machine_id = machine_actor
+                .observed_machine_id()
+                .await?
+                .map(|m| m.to_string())
+                .unwrap_or("<Unknown>".to_string());
+            tracing::info!("Machine {machine_id} has made it to Ready/MachineUp, all done");
+            machine_actor.stop(true).await?;
         }
         dhcp_client.stop_service().await;
         dhcp_handle.await?;
@@ -94,9 +89,4 @@ pub async fn run_local(
 
 pub struct MachineATronInstance {
     pub join_handle: JoinHandle<eyre::Result<()>>,
-}
-
-struct MachineJob {
-    join_handle: JoinHandle<()>,
-    _stop_tx: oneshot::Sender<()>,
 }
