@@ -2,12 +2,14 @@ use rpc::{forge::ForgeAgentControlResponse, forge_agent_control_response::Action
 
 use crate::{api_client, config::MachineATronContext};
 
+use crate::host_machine::HostMachineActor;
 use crate::machine_state_machine::AddressConfigError;
 use lazy_static::lazy_static;
 use reqwest::ClientBuilder;
 use rpc::forge::MachineArchitecture;
 use std::collections::HashSet;
 use tempfile::TempDir;
+use uuid::Uuid;
 
 lazy_static! {
     static ref BMC_MOCK_SOCKET_TEMP_DIR: TempDir = tempfile::Builder::new()
@@ -160,24 +162,19 @@ pub async fn get_api_state(
 }
 
 pub async fn get_next_free_machine(
-    app_context: &MachineATronContext,
-    machine_ids: &Vec<String>,
-    assigned_machine_ids: &HashSet<String>,
-) -> String {
-    for id in machine_ids {
-        // Note: We likely don't need the following hash set because once an instance is allocated, the machine's state turns to Assigned.
-        // However, I have not tested for any potential delay in the state change, and for now keeping the set as a precaution.
-        if assigned_machine_ids.contains(&id.to_string()) {
+    machine_actors: &Vec<HostMachineActor>,
+    assigned_mat_ids: &HashSet<Uuid>,
+) -> Option<HostMachineActor> {
+    for machine in machine_actors {
+        if assigned_mat_ids.contains(&machine.mat_id) {
             continue;
         }
-
-        let machine_id_proto = rpc::common::MachineId { id: id.clone() };
-        let state = get_api_state(app_context, Some(&machine_id_proto)).await;
+        let state = machine.api_state().await.ok()?;
         if state == "Ready" {
-            return id.to_string();
+            return Some(machine.clone());
         }
     }
-    String::new()
+    None
 }
 
 pub async fn add_address_to_interface(

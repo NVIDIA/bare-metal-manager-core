@@ -7,12 +7,14 @@ use forge_tls::client_config::{
     get_proxy_info,
 };
 use machine_a_tron::{
-    api_client, DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext,
+    api_client, DhcpRelayService, MachineATronArgs, MachineATronConfig, MachineATronContext, Tui,
+    UiEvent,
 };
 use machine_a_tron::{BmcMockRegistry, BmcRegistrationMode, MachineATron};
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use tokio::sync::mpsc;
 use tracing_subscriber::{filter::EnvFilter, filter::LevelFilter, fmt, prelude::*, registry};
 
 fn init_log(filename: &Option<String>) -> Result<(), Box<dyn Error>> {
@@ -75,9 +77,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let bmc_mock_port = app_config.bmc_mock_port;
     let use_single_bmc_mock = app_config.use_single_bmc_mock;
+    let tui_enabled = app_config.tui_enabled;
 
     let mut app_context = MachineATronContext {
-        app_config,
+        app_config: app_config.clone(),
         forge_client_config,
         circuit_id: None,
         bmc_mock_certs_dir: None,
@@ -112,8 +115,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut mat = MachineATron::new(app_context);
 
     let maybe_bmc_mock_handle: Option<BmcMockHandle>;
-
-    let machines = if use_single_bmc_mock {
+    let machine_actors = if use_single_bmc_mock {
         // Launch a single combined instance of BMC mock, with a shared registry that keeps track
         // of the individual "backing" mocks.
         let instance_registry = BmcMockRegistry::default();
@@ -137,16 +139,47 @@ async fn main() -> Result<(), Box<dyn Error>> {
         mat.make_machines(
             &dhcp_client,
             BmcRegistrationMode::BackingInstance(instance_registry),
+            true,
         )
         .await?
     } else {
         // Configure individual BMC mocks for every machine
         maybe_bmc_mock_handle = None;
-        mat.make_machines(&dhcp_client, BmcRegistrationMode::None(bmc_mock_port))
+        mat.make_machines(&dhcp_client, BmcRegistrationMode::None(bmc_mock_port), true)
             .await?
     };
 
-    mat.run(machines).await?;
+    // Run TUI
+    let (app_tx, app_rx) = mpsc::channel(5000);
+    let (tui_handle, tui_event_tx) = if tui_enabled {
+        let (ui_tx, ui_rx) = mpsc::channel(5000);
+
+        let tui_handle = Some(tokio::spawn(async {
+            let mut tui = Tui::new(ui_rx, app_tx);
+            _ = tui.run().await.inspect_err(|e| {
+                let estr = format!("Error running TUI: {e}");
+                tracing::error!(estr);
+                eprintln!("{}", estr); // dump it to stderr in case logs are getting redirected
+            })
+        }));
+        (tui_handle, Some(ui_tx))
+    } else {
+        (None, None)
+    };
+
+    mat.run(machine_actors, tui_event_tx.clone(), app_rx)
+        .await?;
+
+    if let Some(tui_handle) = tui_handle {
+        if let Some(ui_event_tx) = tui_event_tx.as_ref() {
+            _ = ui_event_tx
+                .try_send(UiEvent::Quit)
+                .inspect_err(|e| tracing::warn!("Could not send quit signal to TUI: {e}"));
+        }
+        _ = tui_handle
+            .await
+            .inspect_err(|e| tracing::warn!("Error running TUI: {e}"));
+    }
 
     dhcp_client.stop_service().await;
     dhcp_handle.await?;

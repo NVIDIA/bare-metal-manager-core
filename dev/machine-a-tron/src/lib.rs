@@ -18,6 +18,7 @@ pub use dhcp_relay::DhcpRelayService;
 pub use machine_a_tron::MachineATron;
 pub use machine_state_machine::BmcRegistrationMode;
 use std::time::{Duration, Instant};
+pub use tui::{Tui, UiEvent};
 
 /// Add a Duration to an Instant, defaulting to a time in the far future if there is an overflow.
 /// This allows using Duration::MAX and being able to add it to Instant::now(), which overflows by
