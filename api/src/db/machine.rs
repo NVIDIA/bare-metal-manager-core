@@ -31,7 +31,6 @@ use uuid::Uuid;
 use super::bmc_metadata::BmcMetaDataInfo;
 use super::{DatabaseError, ObjectFilter};
 use crate::db;
-use crate::db::machine_state_history::MachineStateHistory;
 use crate::db::machine_topology::MachineTopology;
 use crate::model::bmc_info::BmcInfo;
 use crate::model::controller_outcome::PersistentStateHandlerOutcome;
@@ -42,8 +41,8 @@ use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHos
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
     CurrentMachineState, FailureDetails, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineSnapshot, ManagedHostState, ReprovisionRequest,
-    UpgradeDecision,
+    MachineLastRebootRequestedMode, MachineSnapshot, MachineStateHistory, ManagedHostState,
+    ReprovisionRequest, UpgradeDecision,
 };
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
@@ -284,6 +283,7 @@ impl From<Machine> for MachineSnapshot {
             current: CurrentMachineState {
                 state: machine.current_state(),
                 version: machine.current_version(),
+                outcome: machine.controller_state_outcome.clone(),
             },
             last_discovery_time: machine.last_discovery_time(),
             last_reboot_time: machine.last_reboot_time(),
@@ -300,6 +300,9 @@ impl From<Machine> for MachineSnapshot {
             reprovisioning_requested: machine.reprovisioning_requested().clone(),
             dpu_agent_health_report: machine.dpu_agent_health_report,
             hardware_health_report: machine.hardware_health_report,
+            associated_dpu_machine_ids: machine.associated_dpu_machine_ids,
+            associated_host_machine_id: machine.associated_host_machine_id,
+            history: machine.history.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -720,7 +723,7 @@ SELECT m.id FROM
         let version = version.unwrap_or_else(|| self.state.version.increment());
 
         // Store history of machine state changes.
-        MachineStateHistory::persist(txn, self.id(), state.clone(), version).await?;
+        db::machine_state_history::persist(txn, self.id(), state.clone(), version).await?;
 
         let _id: (String,) = sqlx::query_as(
             "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
@@ -800,7 +803,7 @@ SELECT m.id FROM
             .collect::<Vec<MachineId>>();
 
         let mut history_for_machine = if search_config.include_history {
-            MachineStateHistory::find_by_machine_ids(&mut *txn, &all_ids).await?
+            db::machine_state_history::find_by_machine_ids(&mut *txn, &all_ids).await?
         } else {
             HashMap::new()
         };
@@ -883,7 +886,7 @@ SELECT m.id FROM
         &mut self,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(), DatabaseError> {
-        let history = MachineStateHistory::for_machine(&mut *txn, &self.id).await?;
+        let history = db::machine_state_history::for_machine(&mut *txn, &self.id).await?;
         if !history.is_empty() {
             self.history = history;
         }

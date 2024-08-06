@@ -13,9 +13,9 @@
 use ::rpc::forge::{forge_server::Forge, AdminForceDeleteMachineRequest, InstancesByIdsRequest};
 use carbide::{
     db::{
+        self,
         explored_endpoints::DbExploredEndpoint,
         machine::{Machine, MachineSearchConfig},
-        machine_state_history::MachineStateHistory,
         machine_topology::MachineTopology,
     },
     ib::DEFAULT_IB_FABRIC_NAME,
@@ -59,7 +59,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
     assert!(
-        !MachineStateHistory::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
+        !db::machine_state_history::find_by_machine_ids(&mut txn, &[dpu_machine_id.clone()])
             .await
             .unwrap()
             .is_empty()
@@ -328,7 +328,7 @@ async fn validate_machine_deletion(
 
     // The history should remain in table.
     assert!(
-        !MachineStateHistory::find_by_machine_ids(&mut txn, &[machine_id.clone()])
+        !db::machine_state_history::find_by_machine_ids(&mut txn, &[machine_id.clone()])
             .await
             .unwrap()
             .is_empty()

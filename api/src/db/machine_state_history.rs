@@ -12,133 +12,123 @@
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
-use ::rpc::forge as rpc;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use itertools::Itertools;
 use sqlx::{postgres::PgRow, FromRow, Postgres, Row, Transaction};
 
 use crate::{
     db::{machine::DbMachineId, DatabaseError},
-    model::machine::{machine_id::MachineId, ManagedHostState},
+    model::machine::{machine_id::MachineId, MachineStateHistory, ManagedHostState},
 };
 
-/// Representation of an event (state transition) on a machine.
-///
-/// The database stores a list of the events (and not state changes).  The state machine in the
-/// database schema converts the state machine edges into a `current state` representation.  For
-/// instance, creating an event called `adopt` on a Machine where the last event is `discover` will
-/// result in a MachineState of `adopted`
-///
+/// History of Machine states for a single Machine
 #[derive(Debug, Clone)]
-pub struct MachineStateHistory {
-    /// The numeric identifier of the state change. This is a global change number
-    /// for all states, and therefore not important for consumers
-    id: i64,
-
+struct DbMachineStateHistory {
     /// The ID of the machine that experienced the state change
     machine_id: MachineId,
 
     /// The state that was entered
-    pub state: String,
+    state: String,
 
-    // Current version.
-    pub state_version: ConfigVersion,
+    /// Current version.
+    state_version: ConfigVersion,
 
     /// The timestamp of the state change
-    timestamp: DateTime<Utc>,
+    _timestamp: DateTime<Utc>,
 }
 
-/// Conversion from a MachineStateHistory object into a Protocol buffer representation for transmission
-/// over the wire.
-impl From<MachineStateHistory> for rpc::MachineEvent {
-    fn from(event: MachineStateHistory) -> rpc::MachineEvent {
-        rpc::MachineEvent {
-            id: event.id,
-            machine_id: Some(event.machine_id.to_string().into()),
-            time: Some(event.timestamp.into()),
-            event: event.state,
-            version: event.state_version.version_string(),
+impl From<DbMachineStateHistory> for crate::model::machine::MachineStateHistory {
+    fn from(event: DbMachineStateHistory) -> Self {
+        Self {
+            state: event.state,
+            state_version: event.state_version,
         }
     }
 }
 
-impl<'r> FromRow<'r, PgRow> for MachineStateHistory {
+impl<'r> FromRow<'r, PgRow> for DbMachineStateHistory {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
         let machine_id: DbMachineId = row.try_get("machine_id")?;
         let state_version_str: &str = row.try_get("state_version")?;
         let state_version = state_version_str
             .parse()
             .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        Ok(MachineStateHistory {
-            id: row.try_get("id")?,
+        Ok(DbMachineStateHistory {
             machine_id: machine_id.into_inner(),
             state: row.try_get("state")?,
             state_version,
-            timestamp: row.try_get("timestamp")?,
+            _timestamp: row.try_get("timestamp")?,
         })
     }
 }
 
-impl MachineStateHistory {
-    /// Retrieve the machine state history for a list of Machines
-    ///
-    /// It returns a [HashMap][std::collections::HashMap] keyed by the machine Uuid and values of
-    /// all states that have been entered.
-    ///
-    /// Arguments:
-    ///
-    /// * `txn` - A reference to an open Transaction
-    ///
-    pub async fn find_by_machine_ids(
-        txn: &mut Transaction<'_, Postgres>,
-        ids: &[MachineId],
-    ) -> Result<HashMap<MachineId, Vec<Self>>, DatabaseError> {
-        let query = "SELECT id, machine_id, state::TEXT, state_version, timestamp
-            FROM machine_state_history
-            WHERE machine_id=ANY($1)
-            ORDER BY id ASC";
-        let str_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
-        Ok(sqlx::query_as::<_, Self>(query)
-            .bind(str_ids)
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?
-            .into_iter()
-            .into_group_map_by(|event| event.machine_id.clone()))
-    }
+/// Retrieve the machine state history for a list of Machines
+///
+/// It returns a [HashMap][std::collections::HashMap] keyed by the machine ID and values of
+/// all states that have been entered.
+///
+/// Arguments:
+///
+/// * `txn` - A reference to an open Transaction
+///
+pub async fn find_by_machine_ids(
+    txn: &mut Transaction<'_, Postgres>,
+    ids: &[MachineId],
+) -> Result<HashMap<MachineId, Vec<MachineStateHistory>>, DatabaseError> {
+    let query = "SELECT machine_id, state::TEXT, state_version, timestamp
+        FROM machine_state_history
+        WHERE machine_id=ANY($1)
+        ORDER BY id ASC";
+    let str_ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    let query_results = sqlx::query_as::<_, DbMachineStateHistory>(query)
+        .bind(str_ids)
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
-    pub async fn for_machine(
-        txn: &mut Transaction<'_, Postgres>,
-        id: &MachineId,
-    ) -> Result<Vec<Self>, DatabaseError> {
-        let query = "SELECT id, machine_id, state::TEXT, state_version, timestamp
-            FROM machine_state_history
-            WHERE machine_id=$1
-            ORDER BY id ASC";
-        sqlx::query_as::<_, Self>(query)
-            .bind(id.to_string())
-            .fetch_all(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+    let mut histories = HashMap::new();
+    for result in query_results.into_iter() {
+        let events: &mut Vec<MachineStateHistory> = histories.entry(result.machine_id).or_default();
+        events.push(MachineStateHistory {
+            state: result.state,
+            state_version: result.state_version,
+        });
     }
+    Ok(histories)
+}
 
-    /// Store each state for debugging purpose.
-    pub async fn persist(
-        txn: &mut Transaction<'_, Postgres>,
-        machine_id: &MachineId,
-        state: ManagedHostState,
-        state_version: ConfigVersion,
-    ) -> Result<Self, DatabaseError> {
-        let query = "INSERT INTO machine_state_history (machine_id, state, state_version)
-            VALUES ($1, $2, $3)
-            RETURNING id, machine_id, state::TEXT, state_version, timestamp";
-        sqlx::query_as::<_, Self>(query)
-            .bind(machine_id.to_string())
-            .bind(sqlx::types::Json(state))
-            .bind(state_version.version_string())
-            .fetch_one(txn.deref_mut())
-            .await
-            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
-    }
+pub async fn for_machine(
+    txn: &mut Transaction<'_, Postgres>,
+    id: &MachineId,
+) -> Result<Vec<MachineStateHistory>, DatabaseError> {
+    let query = "SELECT machine_id, state::TEXT, state_version, timestamp
+        FROM machine_state_history
+        WHERE machine_id=$1
+        ORDER BY id ASC";
+    sqlx::query_as::<_, DbMachineStateHistory>(query)
+        .bind(id.to_string())
+        .fetch_all(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map(|events| events.into_iter().map(Into::into).collect())
+}
+
+/// Store each state for debugging purpose.
+pub async fn persist(
+    txn: &mut Transaction<'_, Postgres>,
+    machine_id: &MachineId,
+    state: ManagedHostState,
+    state_version: ConfigVersion,
+) -> Result<MachineStateHistory, DatabaseError> {
+    let query = "INSERT INTO machine_state_history (machine_id, state, state_version)
+        VALUES ($1, $2, $3)
+        RETURNING machine_id, state::TEXT, state_version, timestamp";
+    sqlx::query_as::<_, DbMachineStateHistory>(query)
+        .bind(machine_id.to_string())
+        .bind(sqlx::types::Json(state))
+        .bind(state_version.version_string())
+        .fetch_one(txn.deref_mut())
+        .await
+        .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
+        .map(Into::into)
 }
