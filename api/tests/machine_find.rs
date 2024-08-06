@@ -29,7 +29,7 @@ use common::{
     api_fixtures::{create_managed_host, create_test_env, dpu::create_dpu_machine},
     mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL,
 };
-use rpc::forge::forge_server::Forge;
+use rpc::{common::MachineIdList, forge::forge_server::Forge};
 
 use crate::common::api_fixtures::{
     dpu::create_dpu_hardware_info, host::create_host_machine,
@@ -427,12 +427,14 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
     // Now host1 should have two DPUs.
     let host_machine = env
         .api
-        .get_machine(tonic::Request::new(rpc::MachineId {
-            id: machine_id.to_string(),
+        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            machine_ids: vec![machine_id.to_string().into()],
         }))
         .await
         .unwrap()
-        .into_inner();
+        .into_inner()
+        .machines
+        .remove(0);
     let dpu_ids = host_machine.associated_dpu_machine_ids;
     assert_eq!(
         dpu_ids.len(),

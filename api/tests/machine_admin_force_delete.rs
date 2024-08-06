@@ -478,12 +478,14 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
     let host_id = create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = env
         .api
-        .get_machine(tonic::Request::new(rpc::MachineId {
-            id: host_id.to_string(),
+        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            machine_ids: vec![host_id.to_string().into()],
         }))
         .await
-        .expect("Cannot look up the machine we just created")
-        .into_inner();
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0);
 
     let dpu_ids = host_machine.associated_dpu_machine_ids;
     assert_eq!(
@@ -523,13 +525,14 @@ async fn test_admin_force_delete_dpu_from_managed_host_multi_dpu(pool: sqlx::PgP
     let host_id = create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = env
         .api
-        .get_machine(tonic::Request::new(rpc::MachineId {
-            id: host_id.to_string(),
+        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+            machine_ids: vec![host_id.to_string().into()],
         }))
         .await
-        .expect("Cannot look up the machine we just created")
-        .into_inner();
-
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0);
     let dpu_ids = host_machine.associated_dpu_machine_ids;
     assert_eq!(
         dpu_ids.len(),
