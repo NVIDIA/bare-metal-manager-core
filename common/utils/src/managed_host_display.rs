@@ -24,7 +24,7 @@ use rpc::forge::{
     ConnectedDevice, GetSiteExplorationRequest, MachineType, NetworkDevice, NetworkDeviceIdList,
 };
 use rpc::machine_discovery::MemoryDevice;
-use rpc::site_explorer::ExploredManagedHost;
+use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost};
 use rpc::{DiscoveryInfo, Machine, MachineId, Timestamp};
 
 macro_rules! get_dmi_data_from_machine {
@@ -72,6 +72,8 @@ pub struct ManagedHostMetadata {
     /// Network devices (the switches themselves) corresponding to connected_devices, for showing
     /// the actual switch name/description.
     pub network_devices: Vec<NetworkDevice>,
+    /// Exploration reports for each endpoint, for showing Redfish data associated with a machine
+    pub exploration_reports: Vec<ExploredEndpoint>,
 }
 
 impl ManagedHostMetadata {
@@ -82,11 +84,17 @@ impl ManagedHostMetadata {
         api: Arc<dyn Forge>,
     ) -> ManagedHostMetadata {
         let request = tonic::Request::new(GetSiteExplorationRequest {});
-        let site_explorer_managed_hosts = api
+
+        let site_exploration_report = api
             .get_site_exploration_report(request)
             .await
-            .map(|response| response.into_inner().managed_hosts)
-            .unwrap_or(vec![]);
+            .map(|response| response.into_inner())
+            .map_err(|e| {
+                warn!("Failed to get site exploration report: {:?}", e);
+            })
+            .unwrap_or_default();
+
+        let site_explorer_managed_hosts = site_exploration_report.managed_hosts;
 
         // Find connected devices for this machines
         let dpu_id_request = tonic::Request::new(MachineIdList {
@@ -106,6 +114,8 @@ impl ManagedHostMetadata {
             .filter_map(|d| d.network_device_id.clone())
             .collect();
 
+        let exploration_reports = site_exploration_report.endpoints;
+
         let network_devices = api
             .find_network_devices_by_device_ids(tonic::Request::new(NetworkDeviceIdList {
                 network_device_ids: network_device_ids.iter().map(|id| id.to_owned()).collect(),
@@ -121,6 +131,7 @@ impl ManagedHostMetadata {
             site_explorer_managed_hosts,
             connected_devices,
             network_devices,
+            exploration_reports,
         }
     }
 }
@@ -151,6 +162,7 @@ pub struct ManagedHostOutput {
     pub host_last_reboot_requested_time_and_mode: Option<String>,
     pub is_network_healthy: bool,
     pub dpus: Vec<ManagedHostAttachedDpu>,
+    pub exploration_report: Option<EndpointExplorationReport>,
 }
 
 impl From<&Machine> for ManagedHostOutput {
@@ -248,6 +260,7 @@ pub struct ManagedHostAttachedDpu {
     pub is_primary: bool,
     pub is_network_healthy: bool,
     pub network_error_msg: Option<String>,
+    pub exploration_report: Option<EndpointExplorationReport>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -277,6 +290,7 @@ impl ManagedHostAttachedDpu {
         connected_devices: &[ConnectedDevice],
         network_device_map: &HashMap<String, NetworkDevice>,
         is_primary: bool,
+        endpoint_exploration_map: HashMap<String, EndpointExplorationReport>,
     ) -> Option<Self> {
         let (oob_ip, oob_mac) = match dpu_machine.interfaces.iter().find(|x| x.primary_interface) {
             Some(primary_interface) => (
@@ -307,6 +321,9 @@ impl ManagedHostAttachedDpu {
             None => (false, Some("Unknown Status".to_string())),
         };
 
+        let exploration_map = get_bmc_info_from_machine!(dpu_machine, ip)
+            .and_then(|bmc_ip| endpoint_exploration_map.get(&bmc_ip));
+
         let result = ManagedHostAttachedDpu {
             discovery_info: dpu_machine.discovery_info.clone().unwrap_or_default(),
             machine_id: Some(dpu_machine_id.to_string()),
@@ -318,6 +335,7 @@ impl ManagedHostAttachedDpu {
             bmc_version: get_bmc_info_from_machine!(dpu_machine, version),
             bmc_firmware_version: get_bmc_info_from_machine!(dpu_machine, firmware_version),
             last_reboot_time: to_time(dpu_machine.last_reboot_time.clone(), dpu_machine_id),
+            exploration_report: exploration_map.cloned(),
             last_reboot_requested_time_and_mode: Some(format!(
                 "{}/{}",
                 to_time(
@@ -357,10 +375,24 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
     let mut result = Vec::default();
 
     let mut managed_host_map: HashMap<String, String> = HashMap::new();
+    let mut exploration_report_map: HashMap<String, EndpointExplorationReport> = HashMap::new();
 
     for explored_host in source.site_explorer_managed_hosts {
         for dpu in &explored_host.dpus {
             managed_host_map.insert(dpu.bmc_ip.clone(), explored_host.host_bmc_ip.clone());
+        }
+
+        for endpoint in source.exploration_reports.iter() {
+            if let Some(er) = &endpoint.report {
+                if endpoint.address == explored_host.host_bmc_ip {
+                    exploration_report_map.insert(explored_host.host_bmc_ip.clone(), er.clone());
+                }
+                for dpu in &explored_host.dpus {
+                    if endpoint.address == dpu.bmc_ip {
+                        exploration_report_map.insert(dpu.bmc_ip.clone(), er.clone());
+                    }
+                }
+            }
         }
     }
 
@@ -442,6 +474,11 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                 None => false,
             };
 
+            if let Some(host_bmc_ip) = &managed_host_output.host_bmc_ip {
+                managed_host_output.exploration_report =
+                    exploration_report_map.get(host_bmc_ip).cloned();
+            }
+
             if let Some(attached_dpu) = ManagedHostAttachedDpu::new_from_dpu_machine(
                 dpu_machine,
                 connected_device_map
@@ -450,6 +487,7 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                 &network_device_map,
                 // This should always have value. If no, lets crash to find out why.
                 is_primary.expect("Interface type is missing for host."),
+                exploration_report_map.clone(),
             ) {
                 if let Some(dpu_bmc_ip) = &attached_dpu.bmc_ip {
                     if let Some(host_bmc_ip) = &managed_host_output.host_bmc_ip {
