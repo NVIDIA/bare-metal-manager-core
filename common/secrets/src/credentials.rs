@@ -149,45 +149,19 @@ pub enum BmcCredentialType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CredentialKey {
-    Bmc {
-        user_role: String,
-        machine_id: String,
-    },
-    DpuSsh {
-        machine_id: String,
-    },
-    DpuHbn {
-        machine_id: String,
-    },
-    DpuRedfish {
-        credential_type: CredentialType,
-    },
-    HostRedfish {
-        credential_type: CredentialType,
-    },
-    UfmAuth {
-        fabric: String,
-    },
-    DpuUefi {
-        credential_type: CredentialType,
-    },
-    HostUefi {
-        credential_type: CredentialType,
-    },
-    BmcCredentials {
-        credential_type: BmcCredentialType,
-    },
+    DpuSsh { machine_id: String },
+    DpuHbn { machine_id: String },
+    DpuRedfish { credential_type: CredentialType },
+    HostRedfish { credential_type: CredentialType },
+    UfmAuth { fabric: String },
+    DpuUefi { credential_type: CredentialType },
+    HostUefi { credential_type: CredentialType },
+    BmcCredentials { credential_type: BmcCredentialType },
 }
 
 impl CredentialKey {
     pub fn to_key_str(&self) -> String {
         match self {
-            CredentialKey::Bmc {
-                user_role,
-                machine_id,
-            } => {
-                format!("machines/{machine_id}/bmc-metadata-items/{user_role}")
-            }
             CredentialKey::DpuSsh { machine_id } => {
                 format!("machines/{machine_id}/dpu-ssh")
             }
