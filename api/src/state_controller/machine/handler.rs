@@ -1231,19 +1231,6 @@ async fn handle_dpu_reprovision(
 
             for dpu_snapshot in dpus_snapshots_for_reprov {
                 if !rebooted(dpu_snapshot) {
-                    let status = trigger_reboot_if_needed(
-                        dpu_snapshot,
-                        state,
-                        None,
-                        reachability_params,
-                        services,
-                        txn,
-                    )
-                    .await?;
-
-                    if status.increase_retry_count {
-                        tracing::error!("DPU: {} has not come up yet.", dpu_snapshot.machine_id);
-                    }
                     return Ok(None);
                 }
             }

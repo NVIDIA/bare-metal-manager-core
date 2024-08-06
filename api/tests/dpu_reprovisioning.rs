@@ -20,8 +20,8 @@ use carbide::model::machine::{
     ReprovisionState,
 };
 use carbide::state_controller::machine::handler::MachineStateHandlerBuilder;
-use common::api_fixtures::create_test_env;
 use common::api_fixtures::managed_host::create_managed_host_multi_dpu;
+use common::api_fixtures::{create_test_env, reboot_completed};
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{DpuResetRequest, MachineArchitecture};
@@ -1398,6 +1398,109 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
 
     txn.commit().await.unwrap();
 
+    // no reboots should be forced during firmware update
+    for _ in 1..5 {
+        update_time_params(&env.pool, &dpu, 1).await;
+        env.run_machine_state_controller_iteration(handler.clone())
+            .await;
+
+        let mut txn = env.pool.begin().await.unwrap();
+        let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            dpu.current_state(),
+            ManagedHostState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::FirmwareUpgrade
+                    )]),
+                },
+            }
+        );
+    }
+
+    reboot_completed(
+        &env,
+        rpc::MachineId {
+            id: dpu.id().to_string(),
+        },
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::PoweringOffHost
+                )]),
+            },
+        }
+    );
+
+    txn.rollback().await.unwrap();
+
+    update_time_params(&env.pool, &dpu, 1).await;
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(dpu_machine_id.clone(), ReprovisionState::PowerDown)]),
+            },
+        }
+    );
+
+    txn.rollback().await.unwrap();
+
+    update_time_params(&env.pool, &dpu, 1).await;
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::WaitingForNetworkInstall
+                )]),
+            },
+        }
+    );
+
+    txn.rollback().await.unwrap();
+
     // Retry 1
     update_time_params(&env.pool, &dpu, 1).await;
     env.run_machine_state_controller_iteration(handler.clone())
@@ -1509,6 +1612,158 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
         MachineLastRebootRequestedMode::Reboot
     ));
     txn.commit().await.unwrap();
+}
+
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let (host_machine_id, dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(dpu.reprovisioning_requested().is_none(),);
+
+    env.api
+        .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            host_id: Some(rpc::MachineId {
+                id: host_machine_id.to_string(),
+            }),
+            operation: 0,
+            reference: Some("no reference".to_string()),
+        }))
+        .await
+        .unwrap();
+
+    trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dpu.reprovisioning_requested().unwrap().initiator,
+        "AdminCli"
+    );
+
+    let last_reboot_requested_time = dpu.last_reboot_requested();
+
+    let handler = MachineStateHandlerBuilder::builder()
+        .dpu_up_threshold(chrono::Duration::minutes(5))
+        .dpu_nic_firmware_initial_update_enabled(true)
+        .dpu_nic_firmware_reprovision_update_enabled(true)
+        .reachability_params(env.reachability_params)
+        .attestation_enabled(env.attestation_enabled)
+        .build();
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_ne!(
+        dpu.last_reboot_requested().unwrap().time,
+        last_reboot_requested_time.unwrap().time
+    );
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::FirmwareUpgrade
+                )]),
+            },
+        }
+    );
+
+    let last_reboot_requested_time = dpu.last_reboot_requested();
+    txn.commit().await.unwrap();
+
+    for _ in 1..6 {
+        env.run_machine_state_controller_iteration(handler.clone())
+            .await;
+        let mut txn = env.pool.begin().await.unwrap();
+        let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(matches!(
+            dpu.last_reboot_requested().unwrap().mode,
+            MachineLastRebootRequestedMode::Reboot
+        ));
+
+        assert_eq!(
+            dpu.last_reboot_requested().as_ref().unwrap().time,
+            last_reboot_requested_time.as_ref().unwrap().time
+        );
+
+        assert_eq!(
+            dpu.current_state(),
+            ManagedHostState::DPUReprovision {
+                dpu_states: carbide::model::machine::DpuReprovisionStates {
+                    states: HashMap::from([(
+                        dpu_machine_id.clone(),
+                        ReprovisionState::FirmwareUpgrade
+                    )]),
+                },
+            }
+        );
+
+        txn.rollback().await.unwrap();
+    }
+
+    reboot_completed(
+        &env,
+        rpc::MachineId {
+            id: dpu.id().to_string(),
+        },
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration(handler.clone())
+        .await;
+
+    let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
+    let host = Machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let dpu = Machine::find_one(&mut txn, &dpu_machine_id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let last_reboot_requested = host.last_reboot_requested().unwrap();
+
+    tracing::info!("power request: {:?}", last_reboot_requested);
+    assert!(matches!(
+        host.last_reboot_requested().unwrap().mode,
+        MachineLastRebootRequestedMode::Reboot
+    ));
+
+    assert_eq!(
+        dpu.current_state(),
+        ManagedHostState::DPUReprovision {
+            dpu_states: carbide::model::machine::DpuReprovisionStates {
+                states: HashMap::from([(
+                    dpu_machine_id.clone(),
+                    ReprovisionState::PoweringOffHost
+                )]),
+            },
+        }
+    );
+
+    txn.rollback().await.unwrap();
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
