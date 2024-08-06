@@ -444,45 +444,35 @@ pub(crate) async fn invoke_power(
         return Err(CarbideError::GenericError("No DPU found.".to_string()).into());
     }
 
-    if let Some(rr) = &snapshot.dpu_snapshots[0].reprovision_requested {
-        if rr.started_at.is_some() {
-            return Err(CarbideError::DpuReprovisioningInProgress(format!(
-                "Can't reboot host: {}",
-                machine_id
-            ))
-            .into());
-        }
+    let mut reprovision_handled = false;
+    if request.apply_updates_on_reboot {
+        for dpu_snapshot in &snapshot.dpu_snapshots {
+            let Some(rr) = &dpu_snapshot.reprovision_requested else {
+                continue;
+            };
 
-        // TODO: multidpu: Fix it for multiple dpus.
-        if request.apply_updates_on_reboot {
-            // This will trigger DPU reprovisioning/update via state machine.
-            // TODO: multidpu: Move this flag to host.
-            Machine::approve_dpu_reprovision_request(
-                &snapshot.dpu_snapshots[0].machine_id,
-                &mut txn,
-            )
-            .await
-            .map_err(|err| {
-                // print actual error for debugging, but don't leak internal info to user.
-                tracing::error!(machine=%machine_id, "{:?}", err);
-
-                // TODO: What does this error actually mean
-                CarbideError::GenericError(
-                    "Internal Failure. Try again after sometime.".to_string(),
-                )
-            })?;
-
-            txn.commit().await.map_err(|e| {
-                CarbideError::from(DatabaseError::new(
-                    file!(),
-                    line!(),
-                    "commit invoke_instance_power",
-                    e,
+            if rr.started_at.is_some() {
+                return Err(CarbideError::DpuReprovisioningInProgress(format!(
+                    "Can't reboot host: {}",
+                    machine_id
                 ))
-            })?;
+                .into());
+            }
 
-            // Host will reboot once DPU reprovisioning is successfully finished.
-            return Ok(Response::new(rpc::InstancePowerResult {}));
+            reprovision_handled = true;
+
+            // This will trigger DPU reprovisioning/update via state machine.
+            Machine::approve_dpu_reprovision_request(&dpu_snapshot.machine_id, &mut txn)
+                .await
+                .map_err(|err| {
+                    // print actual error for debugging, but don't leak internal info to user.
+                    tracing::error!(machine=%machine_id, "{:?}", err);
+
+                    // TODO: What does this error actually mean
+                    CarbideError::GenericError(
+                        "Internal Failure. Try again after sometime.".to_string(),
+                    )
+                })?;
         }
     }
 
@@ -494,6 +484,11 @@ pub(crate) async fn invoke_power(
             e,
         ))
     })?;
+
+    if reprovision_handled {
+        // Host will reboot once DPU reprovisioning is successfully finished.
+        return Ok(Response::new(rpc::InstancePowerResult {}));
+    }
 
     // TODO: The API call should maybe not directly trigger the reboot
     // but instead queue it for the state handler. That will avoid racing

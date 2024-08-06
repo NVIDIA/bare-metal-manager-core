@@ -839,6 +839,7 @@ impl MachineStateHandler {
         if next_state.is_some() {
             // Restart all DPUs, sit back and relax.
             for dpu in dpus_for_reprov {
+                Machine::update_dpu_reprovision_start_time(&dpu.machine_id, txn).await?;
                 handler_restart_dpu(dpu, ctx.services, txn).await?;
             }
             return Ok(next_state);
