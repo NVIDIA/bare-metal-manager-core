@@ -1020,9 +1020,14 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{}", machine_state)
             }
             ManagedHostState::Ready => write!(f, "Ready"),
-            ManagedHostState::Assigned { instance_state, .. } => {
-                write!(f, "Assigned/{}", instance_state)
-            }
+            ManagedHostState::Assigned { instance_state, .. } => match instance_state {
+                InstanceState::DPUReprovision { .. } => {
+                    write!(f, "Assigned/Reprovision")
+                }
+                _ => {
+                    write!(f, "Assigned/{}", instance_state)
+                }
+            },
             ManagedHostState::WaitingForCleanup { cleanup_state } => {
                 write!(f, "WaitingForCleanup/{}", cleanup_state)
             }
@@ -1061,10 +1066,19 @@ impl ManagedHostState {
                 format!("HostInitializing/{}", machine_state)
             }
             ManagedHostState::Ready => "Ready".to_string(),
-            ManagedHostState::Assigned { instance_state } => {
-                // TODO: multidpu: add DPU state if state is reprov.
-                format!("Assigned/{}", instance_state)
-            }
+            ManagedHostState::Assigned { instance_state } => match instance_state {
+                InstanceState::DPUReprovision { dpu_states } => {
+                    format!(
+                        "Assigned/Reprovision/{}",
+                        dpu_states
+                            .states
+                            .get(dpu_id)
+                            .map(|x| x.to_string())
+                            .unwrap_or("Unknown DPU".to_string())
+                    )
+                }
+                _ => format!("Assigned/{}", instance_state),
+            },
             ManagedHostState::WaitingForCleanup { cleanup_state } => {
                 format!("WaitingForCleanup/{}", cleanup_state)
             }
