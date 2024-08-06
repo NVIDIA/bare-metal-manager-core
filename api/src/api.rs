@@ -41,7 +41,6 @@ use tss_esapi::{
 
 use self::rpc::forge_server::Forge;
 use crate::cfg::CarbideConfig;
-use crate::db::bmc_metadata::UserRoles;
 use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::{IBPartition, IBPartitionId};
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
@@ -1306,12 +1305,51 @@ impl Forge for Api {
                 })?;
                 log_machine_id(&machine_id);
 
+                let mut txn = self.database_connection.begin().await.map_err(|e| {
+                    CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "begin admin_reboot",
+                        e,
+                    ))
+                })?;
+
+                let mut topologies =
+                    MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
+                        .await
+                        .map_err(CarbideError::from)?;
+
+                txn.commit().await.map_err(|e| {
+                    CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "commit admin_reboot",
+                        e,
+                    ))
+                })?;
+
+                let topology =
+                    topologies
+                        .remove(&machine_id)
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "machine_topology",
+                            id: machine_id.to_string(),
+                        })?;
+
+                let bmc_mac = topology.topology().bmc_info.mac.as_ref().ok_or_else(|| {
+                    CarbideError::NotFoundError {
+                        kind: "bmc_mac",
+                        id: machine_id.to_string(),
+                    }
+                })?;
+
+                let bmc_mac_address = bmc_mac.parse::<MacAddress>().map_err(CarbideError::from)?;
+
                 // Load credentials from Vault
                 let credentials = self
                     .credential_provider
-                    .get_credentials(CredentialKey::Bmc {
-                        user_role: UserRoles::Administrator.to_string(),
-                        machine_id: machine_id.to_string(),
+                    .get_credentials(CredentialKey::BmcCredentials {
+                        credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                     })
                     .await
                     .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
@@ -2546,12 +2584,51 @@ impl Forge for Api {
                 })?;
                 log_machine_id(&machine_id);
 
+                let mut txn = self.database_connection.begin().await.map_err(|e| {
+                    CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "begin admin_reboot",
+                        e,
+                    ))
+                })?;
+
+                let mut topologies =
+                    MachineTopology::find_latest_by_machine_ids(&mut txn, &[machine_id.clone()])
+                        .await
+                        .map_err(CarbideError::from)?;
+
+                txn.commit().await.map_err(|e| {
+                    CarbideError::from(DatabaseError::new(
+                        file!(),
+                        line!(),
+                        "commit admin_reboot",
+                        e,
+                    ))
+                })?;
+
+                let topology =
+                    topologies
+                        .remove(&machine_id)
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "machine_topology",
+                            id: machine_id.to_string(),
+                        })?;
+
+                let bmc_mac = topology.topology().bmc_info.mac.as_ref().ok_or_else(|| {
+                    CarbideError::NotFoundError {
+                        kind: "bmc_mac",
+                        id: machine_id.to_string(),
+                    }
+                })?;
+
+                let bmc_mac_address = bmc_mac.parse::<MacAddress>().map_err(CarbideError::from)?;
+
                 // Load credentials from Vault
                 let credentials = self
                     .credential_provider
-                    .get_credentials(CredentialKey::Bmc {
-                        user_role: UserRoles::Administrator.to_string(),
-                        machine_id: machine_id.to_string(),
+                    .get_credentials(CredentialKey::BmcCredentials {
+                        credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                     })
                     .await
                     .map_err(|err| match err.downcast::<vaultrs::error::ClientError>() {
