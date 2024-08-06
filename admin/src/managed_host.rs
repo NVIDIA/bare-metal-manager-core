@@ -13,14 +13,13 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
+use super::{rpc, CarbideCliError, CarbideCliResult};
+use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
 use ::rpc::forge_tls_client::ApiConfig;
 use ::rpc::{Machine, MachineId};
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 use tracing::warn;
-
-use super::{rpc, CarbideCliError, CarbideCliResult};
-use crate::cfg::carbide_options::{OutputFormat, ShowManagedHost};
 
 const UNKNOWN: &str = "Unknown";
 
@@ -463,6 +462,7 @@ pub async fn handle_show(
             site_explorer_managed_hosts,
             connected_devices,
             network_devices,
+            exploration_reports: vec![], //Todo - add exploration reports
         },
         output,
         output_format,
