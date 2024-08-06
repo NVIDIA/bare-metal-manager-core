@@ -12,7 +12,6 @@
 
 use crate::api::{log_machine_id, log_request_data, Api};
 use crate::db;
-use crate::db::bmc_metadata::UserRoles;
 use crate::db::instance::{
     DeleteInstance, FindInstanceTypeFilter, Instance, InstanceId, InstanceIdKeyedObjectFilter,
 };
@@ -29,7 +28,8 @@ use crate::model::RpcDataConversionError;
 use crate::redfish::RedfishAuth;
 use crate::CarbideError;
 use ::rpc::forge as rpc;
-use forge_secrets::credentials::CredentialKey;
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use mac_address::MacAddress;
 use std::str::FromStr;
 use tonic::{Request, Response, Status};
 
@@ -490,6 +490,18 @@ pub(crate) async fn invoke_power(
         return Ok(Response::new(rpc::InstancePowerResult {}));
     }
 
+    let bmc_mac = snapshot
+        .host_snapshot
+        .bmc_info
+        .mac
+        .as_ref()
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "bmc_mac",
+            id: machine_id.to_string(),
+        })?;
+
+    let bmc_mac_address = bmc_mac.parse::<MacAddress>().map_err(CarbideError::from)?;
+
     // TODO: The API call should maybe not directly trigger the reboot
     // but instead queue it for the state handler. That will avoid racing
     // with other internal reboot requests from the state handler.
@@ -498,9 +510,8 @@ pub(crate) async fn invoke_power(
         .create_client(
             bmc_ip,
             snapshot.host_snapshot.bmc_info.port,
-            RedfishAuth::Key(CredentialKey::Bmc {
-                machine_id: machine_id.to_string(),
-                user_role: UserRoles::Administrator.to_string(),
+            RedfishAuth::Key(CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             }),
             true,
         )
