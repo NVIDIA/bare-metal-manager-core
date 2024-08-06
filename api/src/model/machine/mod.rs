@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::{
-    bmc_info::BmcInfo, hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot,
-    RpcDataConversionError,
+    bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
+    hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, RpcDataConversionError,
 };
 use crate::cfg::FirmwareComponentType;
 use crate::db::domain::DomainId;
@@ -36,7 +36,7 @@ use crate::{model::hardware_info::HardwareInfo, CarbideError};
 pub mod machine_id;
 pub mod network;
 pub mod upgrade_policy;
-use machine_id::MachineId;
+use machine_id::{MachineId, RpcMachineTypeWrapper};
 use strum_macros::EnumIter;
 
 pub fn get_display_ids(machines: &[MachineSnapshot]) -> String {
@@ -211,6 +211,16 @@ pub struct MachineSnapshot {
     pub dpu_agent_health_report: Option<HealthReport>,
     /// Latest health report received by hardware health
     pub hardware_health_report: Option<HealthReport>,
+
+    // TODO: These fields are not needed every time we load a Machine
+    // and might be migrated somewher else.
+    // For simplicity reasons, they are however referenced here for the moment
+    /// A list of [MachineStateHistory] that this machine has experienced
+    pub history: Vec<MachineStateHistory>,
+
+    // Other machine ids associated with this machine
+    pub associated_host_machine_id: Option<MachineId>,
+    pub associated_dpu_machine_ids: Vec<MachineId>,
 }
 
 impl MachineSnapshot {
@@ -240,6 +250,7 @@ impl MachineSnapshot {
     pub fn reprovisioning_requested(&self) -> Option<&ReprovisionRequest> {
         self.reprovisioning_requested.as_ref()
     }
+
     pub fn bmc_addr(&self) -> Option<SocketAddr> {
         self.bmc_info
             .ip
@@ -249,11 +260,100 @@ impl MachineSnapshot {
     }
 }
 
+impl From<MachineSnapshot> for rpc::forge::Machine {
+    fn from(machine: MachineSnapshot) -> Self {
+        let health = match machine.machine_id.machine_type().is_dpu() {
+            true => machine.dpu_agent_health_report.clone().unwrap_or_else(|| {
+                HealthReport::heartbeat_timeout(
+                    "forge-dpu-agent".to_string(),
+                    "No health data was received from DPU".to_string(),
+                )
+            }),
+            false => HealthReport::empty("aggregate-host-health".to_string()), // TODO: FixMe
+        };
+
+        rpc::Machine {
+            id: Some(machine.machine_id.to_string().into()),
+            state: if machine.machine_id.machine_type().is_dpu() {
+                machine.current.state.dpu_state_string(&machine.machine_id)
+            } else {
+                machine.current.state.to_string()
+            },
+            state_version: machine.current.version.version_string(),
+            machine_type: *RpcMachineTypeWrapper::from(machine.machine_id.machine_type()) as _,
+            events: machine
+                .history
+                .into_iter()
+                .map(|event| event.into())
+                .collect(),
+            interfaces: machine
+                .interfaces
+                .into_iter()
+                .map(|interface| interface.into())
+                .collect(),
+            discovery_info: machine
+                .hardware_info
+                .and_then(|hw_info| match hw_info.try_into() {
+                    Ok(di) => Some(di),
+                    Err(e) => {
+                        tracing::warn!(
+                            machine_id = %machine.machine_id,
+                            error = %e,
+                            "Hardware information couldn't be parsed into discovery info",
+                        );
+                        None
+                    }
+                }),
+            bmc_info: Some(machine.bmc_info.into()),
+            last_reboot_time: machine.last_reboot_time.map(|t| t.into()),
+            network_health: machine
+                .network_status_observation
+                .as_ref()
+                .map(|obs| obs.health_status.clone().into()),
+            last_observation_time: machine
+                .network_status_observation
+                .as_ref()
+                .map(|obs| obs.observed_at.into()),
+            dpu_agent_version: machine
+                .network_status_observation
+                .as_ref()
+                .and_then(|obs| obs.agent_version.clone()),
+            maintenance_reference: machine.maintenance_reference,
+            maintenance_start_time: machine.maintenance_start_time.map(|t| t.into()),
+            associated_host_machine_id: machine
+                .associated_host_machine_id
+                .map(|id| id.to_string().into()),
+            associated_dpu_machine_ids: machine
+                .associated_dpu_machine_ids
+                .iter()
+                .map(|id| id.to_string().into())
+                .collect(),
+            associated_dpu_machine_id: machine
+                .associated_dpu_machine_ids
+                .first()
+                .map(|id| id.to_string().into()),
+            inventory: Some(machine.inventory.clone().into()),
+            last_reboot_requested_time: machine
+                .last_reboot_requested
+                .as_ref()
+                .map(|x| x.time.into()),
+            last_reboot_requested_mode: machine
+                .last_reboot_requested
+                .as_ref()
+                .map(|x| x.mode.to_string()),
+            state_reason: machine.current.outcome.map(|r| r.into()),
+            health: Some(health.into()),
+        }
+    }
+}
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurrentMachineState {
     pub state: ManagedHostState,
     pub version: ConfigVersion,
+    /// Outcome of the last state handler iteration
+    pub outcome: Option<PersistentStateHandlerOutcome>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1250,6 +1350,25 @@ impl ManagedHostState {
             ),
             // TODO: multidpu: reprovision state handling.
             _ => Ok(true),
+        }
+    }
+}
+
+/// History of Machine states for a single Machine
+#[derive(Debug, Clone)]
+pub struct MachineStateHistory {
+    /// The state that was entered
+    pub state: String,
+    // The version number associated with the state change
+    pub state_version: ConfigVersion,
+}
+
+impl From<MachineStateHistory> for rpc::MachineEvent {
+    fn from(value: MachineStateHistory) -> rpc::MachineEvent {
+        rpc::MachineEvent {
+            event: value.state,
+            version: value.state_version.version_string(),
+            time: Some(value.state_version.timestamp().into()),
         }
     }
 }

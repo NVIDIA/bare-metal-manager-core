@@ -9,7 +9,8 @@
  * without an express license agreement from NVIDIA CORPORATION or
  * its affiliates is strictly prohibited.
  */
-use carbide::db::{machine::Machine, machine_state_history::MachineStateHistory};
+use carbide::db::{self, machine::Machine};
+use carbide::model::machine::MachineStateHistory;
 use carbide::model::machine::{machine_id::try_parse_machine_id, ManagedHostState};
 use config_version::ConfigVersion;
 
@@ -73,7 +74,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let result = MachineStateHistory::for_machine(&mut txn, &dpu_machine_id)
+    let result = db::machine_state_history::for_machine(&mut txn, &dpu_machine_id)
         .await
         .unwrap();
 

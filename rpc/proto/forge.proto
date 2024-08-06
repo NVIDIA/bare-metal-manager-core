@@ -1505,14 +1505,14 @@ enum MachineArchitecture {
 }
 
 message MachineEvent {
-  int64 id = 1;
-  common.MachineId machine_id = 2;
+  reserved 1; // previously int64 id = 1;
+  reserved 2; // previously common.MachineId machine_id = 2;
 
   // The lifecycle state of the Machine
   string event = 3;
-  // The version field that is associated with this event
+  // The version field that is associated with the state change
   string version = 5;
-
+  // The time when the state changed
   google.protobuf.Timestamp time = 4;
 }
 
