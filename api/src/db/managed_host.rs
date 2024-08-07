@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use crate::{
     db::{
+        self,
         instance::{FindInstanceTypeFilter, Instance, InstanceId, InstanceIdKeyedObjectFilter},
         machine::Machine,
         DatabaseError,
@@ -31,6 +32,7 @@ use crate::{
 pub async fn load_snapshot(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine_id: &MachineId,
+    options: LoadSnapshotOptions,
 ) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError> {
     let host_machine = if machine_id.machine_type().is_dpu() {
         Machine::find_host_by_dpu_machine_id(txn, machine_id).await?
@@ -56,7 +58,10 @@ pub async fn load_snapshot(
         dpu_snapshots.push(dpu.into());
     }
 
-    let instance = Instance::find_by_machine_id(txn, &host_snapshot.machine_id).await?;
+    let instance = match options.include_instance_data {
+        true => Instance::find_by_machine_id(txn, &host_snapshot.machine_id).await?,
+        false => None,
+    };
 
     let managed_state = host_snapshot.current.state.clone();
     let mut snapshot = ManagedHostStateSnapshot {
@@ -67,6 +72,31 @@ pub async fn load_snapshot(
         aggregate_health: health_report::HealthReport::empty("".to_string()),
     };
     snapshot.derive_aggregate_health();
+
+    if options.include_history {
+        let mut machine_ids = vec![snapshot.host_snapshot.machine_id.clone()];
+        machine_ids.extend(
+            snapshot
+                .dpu_snapshots
+                .iter()
+                .map(|dpu| dpu.machine_id.clone()),
+        );
+        // TODO: Instead of loading this for DPUs and Host, we might just load it for the host and either copy
+        // to all Machine Snapshots, or just keep a single history in `[ManagedHostSnapshot]`.
+        let histories = db::machine_state_history::find_by_machine_ids(txn, &machine_ids).await?;
+
+        for (machine_id, history) in histories.into_iter() {
+            if !machine_id.machine_type().is_dpu() {
+                snapshot.host_snapshot.history = history;
+            } else if let Some(dpu_snapshot) = snapshot
+                .dpu_snapshots
+                .iter_mut()
+                .find(|dpu| dpu.machine_id == machine_id)
+            {
+                dpu_snapshot.history = history;
+            }
+        }
+    }
 
     Ok(Some(snapshot))
 }
@@ -170,4 +200,20 @@ async fn load_host_and_dpu_machine_states(
 struct LoadHostAndDpuMachinesResult {
     pub hosts: Vec<Machine>,
     pub dpus_by_id: HashMap<MachineId, Machine>,
+}
+
+pub struct LoadSnapshotOptions {
+    /// Whether to also load the Machines history
+    pub include_history: bool,
+    /// Whether to load instance details
+    pub include_instance_data: bool,
+}
+
+impl Default for LoadSnapshotOptions {
+    fn default() -> Self {
+        Self {
+            include_history: false,
+            include_instance_data: true,
+        }
+    }
 }

@@ -205,7 +205,7 @@ pub(crate) async fn find_by_machine_id(
         ))
     })?;
 
-    let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
+    let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
@@ -394,7 +394,7 @@ pub(crate) async fn invoke_power(
     };
     log_machine_id(&machine_id);
 
-    let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
+    let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
@@ -581,13 +581,14 @@ pub(crate) async fn update_operating_system(
         .await
         .map_err(CarbideError::from)?;
 
-    let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &instance.machine_id)
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "instance",
-            id: instance_id.to_string(),
-        })?;
+    let mh_snapshot =
+        db::managed_host::load_snapshot(&mut txn, &instance.machine_id, Default::default())
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
     let instance = snapshot_to_instance(mh_snapshot)?;
 
     txn.commit().await.map_err(|e| {
@@ -659,13 +660,14 @@ pub(crate) async fn update_instance_config(
         .await
         .map_err(CarbideError::from)?;
 
-    let mh_snapshot = db::managed_host::load_snapshot(&mut txn, &instance.machine_id)
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "instance",
-            id: instance_id.to_string(),
-        })?;
+    let mh_snapshot =
+        db::managed_host::load_snapshot(&mut txn, &instance.machine_id, Default::default())
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
     let instance = snapshot_to_instance(mh_snapshot)?;
 
     txn.commit().await.map_err(|e| {

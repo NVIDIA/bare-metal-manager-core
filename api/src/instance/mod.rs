@@ -137,13 +137,14 @@ pub async fn allocate_instance(
         )));
     }
 
-    let mut mh_snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
+    let mut mh_snapshot =
+        db::managed_host::load_snapshot(&mut txn, &machine_id, Default::default())
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
 
     // A new instance can be created only in Ready state.
     // This is possible that a instance is created by user, but still not picked by state machine.

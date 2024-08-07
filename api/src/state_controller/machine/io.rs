@@ -77,7 +77,15 @@ impl StateControllerIO for MachineStateControllerIO {
         txn: &mut sqlx::Transaction<sqlx::Postgres>,
         machine_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        db::managed_host::load_snapshot(txn, machine_id).await
+        db::managed_host::load_snapshot(
+            txn,
+            machine_id,
+            db::managed_host::LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: true,
+            },
+        )
+        .await
     }
 
     async fn load_controller_state(

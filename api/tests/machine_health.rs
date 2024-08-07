@@ -17,13 +17,14 @@ use common::api_fixtures::{
     create_managed_host, create_test_env, network_configured_with_health,
     simulate_hardware_health_report,
 };
+use rpc::forge::forge_server::Forge;
 
 #[ctor::ctor]
 fn setup() {
     common::test_logging::init();
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_machine_health_reporting(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -48,13 +49,13 @@ async fn test_machine_health_reporting(
     assert_eq!(dpu_health.source, "forge-dpu-agent".to_string());
     assert!(dpu_health.alerts.is_empty());
 
-    // TODO: Check this via API in the future
-    let mut txn = env.pool.begin().await?;
-    let aggregate_health = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
+    let host_machine = env
+        .api
+        .get_machine(tonic::Request::new(host_machine_id.to_string().into()))
         .await?
-        .unwrap()
-        .aggregate_health;
-    txn.rollback().await?;
+        .into_inner();
+    let aggregate_health =
+        health_report::HealthReport::try_from(host_machine.health.unwrap()).unwrap();
     assert_eq!(aggregate_health.source, "aggregate-host-health");
     let elapsed_since_report =
         chrono::Utc::now().signed_duration_since(aggregate_health.observed_at.unwrap());
@@ -123,14 +124,17 @@ async fn test_machine_health_reporting(
         &expected_dpu_health.clone().into(),
         &reported_dpu_health
     ));
-    // Aggregate health in snapshot also indicates the issue
-    // TODO: Check this via API in the future
-    let mut txn = env.pool.begin().await?;
-    let aggregate_health = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
-        .await?
-        .unwrap()
-        .aggregate_health;
-    txn.rollback().await?;
+    // Aggregate health also indicates the issue
+    let aggregate_health = health_report::HealthReport::try_from(
+        env.api
+            .get_machine(tonic::Request::new(host_machine_id.to_string().into()))
+            .await?
+            .into_inner()
+            .health
+            .unwrap(),
+    )
+    .unwrap();
+
     let elapsed_since_report =
         chrono::Utc::now().signed_duration_since(aggregate_health.observed_at.unwrap());
     assert!(
@@ -147,7 +151,7 @@ async fn test_machine_health_reporting(
     Ok(())
 }
 
-#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment",))]
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_hardware_health_reporting(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -157,12 +161,14 @@ async fn test_hardware_health_reporting(
 
     // Hardware health should start empty.
     let mut txn = env.pool.begin().await?;
-    assert!(db::managed_host::load_snapshot(&mut txn, &host_machine_id)
-        .await?
-        .unwrap()
-        .host_snapshot
-        .hardware_health_report
-        .is_none());
+    assert!(
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
+            .await?
+            .unwrap()
+            .host_snapshot
+            .hardware_health_report
+            .is_none()
+    );
     txn.rollback().await?;
 
     let report = health_report::HealthReport {
@@ -186,12 +192,13 @@ async fn test_hardware_health_reporting(
 
     simulate_hardware_health_report(&env, &host_machine_id, report.clone()).await;
     let mut txn = env.pool.begin().await?;
-    let stored_report = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
-        .await?
-        .unwrap()
-        .host_snapshot
-        .hardware_health_report
-        .unwrap();
+    let stored_report =
+        db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
+            .await?
+            .unwrap()
+            .host_snapshot
+            .hardware_health_report
+            .unwrap();
     txn.rollback().await?;
     let elapsed_since_report =
         chrono::Utc::now().signed_duration_since(stored_report.observed_at.unwrap());

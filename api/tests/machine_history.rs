@@ -12,7 +12,9 @@
 use carbide::db::{self, machine::Machine};
 use carbide::model::machine::MachineStateHistory;
 use carbide::model::machine::{machine_id::try_parse_machine_id, ManagedHostState};
+use common::api_fixtures::create_managed_host;
 use config_version::ConfigVersion;
+use rpc::forge::forge_server::Forge;
 
 mod common;
 use common::api_fixtures::{create_test_env, dpu::create_dpu_machine};
@@ -25,9 +27,7 @@ fn setup() {
 #[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
 async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_sim = env.start_managed_host_sim();
-    let dpu_machine_id =
-        try_parse_machine_id(&create_dpu_machine(&env, &host_sim.config).await).unwrap();
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await?;
 
@@ -42,18 +42,103 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .await?
     .unwrap();
 
+    let expected_initial_dpu_states = vec![
+        "{\"state\": \"created\"}".to_string(), 
+        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformconfiguration\"}}}}}}}}", dpu_machine_id),
+        format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingfornetworkconfig\"}}}}}}}}", dpu_machine_id),
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}".to_string(),
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}".to_string()];
+
     assert_eq!(
-        text_history(machine.history()),
-        vec![
-            "{\"state\": \"created\"}", 
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"init\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"off\"}}}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformpowercycle\", \"substate\": {{\"state\": \"on\"}}}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingforplatformconfiguration\"}}}}}}}}", dpu_machine_id),
-            &format!("{{\"state\": \"dpuinit\", \"dpu_states\": {{\"states\": {{\"{}\": {{\"dpustate\": \"waitingfornetworkconfig\"}}}}}}}}", dpu_machine_id),
-            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingforplatformconfiguration\"}}",
-            "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"waitingfordiscovery\"}}"]
+        text_history(&machine.history()[0..8].to_vec()),
+        expected_initial_dpu_states
     );
+
+    // Check that RPC APIs returns the History if asked for
+    // - GetMachine always returns history
+    // - FindMachines and FindMachinesById should do so if asked for it
+    //   TODO: Check FindMachinesById history once supported
+    let rpc_dpu_machine = env
+        .api
+        .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
+        .await?
+        .into_inner();
+    let rpc_history: Vec<String> = rpc_dpu_machine
+        .events
+        .into_iter()
+        .map(|ev| ev.event)
+        .collect();
+    assert_eq!(rpc_history[0..8].to_vec(), expected_initial_dpu_states);
+    let rpc_dpu_machine = env
+        .api
+        .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
+            id: Some(dpu_machine_id.to_string().into()),
+            fqdn: None,
+            search_config: Some(rpc::forge::MachineSearchConfig {
+                include_dpus: true,
+                include_history: true,
+                include_predicted_host: false,
+                only_maintenance: false,
+                include_associated_machine_id: false,
+                exclude_hosts: false,
+            }),
+        }))
+        .await?
+        .into_inner()
+        .machines
+        .remove(0);
+    let rpc_history: Vec<String> = rpc_dpu_machine
+        .events
+        .into_iter()
+        .map(|ev| ev.event)
+        .collect();
+    assert_eq!(rpc_history[0..8].to_vec(), expected_initial_dpu_states);
+
+    let expected_initial_host_states = vec![
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"setuefipassword\"}}}}",
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"waitforpasswordjobscheduled\"}}}}",
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"powercyclehost\"}}}}",
+        "{\"state\": \"hostinit\", \"machine_state\": {\"state\": \"uefisetup\", \"uefi_setup_info\": {\"uefi_setup_state\": {\"state\": \"waitforpasswordjobcompletion\"}}}}",
+    ];
+
+    let rpc_host_machine = env
+        .api
+        .get_machine(tonic::Request::new(host_machine_id.to_string().into()))
+        .await?
+        .into_inner();
+    let rpc_history: Vec<String> = rpc_host_machine
+        .events
+        .into_iter()
+        .map(|ev| ev.event)
+        .collect();
+    assert_eq!(rpc_history[0..4].to_vec(), expected_initial_host_states);
+    let rpc_host_machine = env
+        .api
+        .find_machines(tonic::Request::new(rpc::forge::MachineSearchQuery {
+            id: Some(host_machine_id.to_string().into()),
+            fqdn: None,
+            search_config: Some(rpc::forge::MachineSearchConfig {
+                include_dpus: false,
+                include_history: true,
+                include_predicted_host: false,
+                only_maintenance: false,
+                include_associated_machine_id: false,
+                exclude_hosts: false,
+            }),
+        }))
+        .await?
+        .into_inner()
+        .machines
+        .remove(0);
+    let rpc_history: Vec<String> = rpc_host_machine
+        .events
+        .into_iter()
+        .map(|ev| ev.event)
+        .collect();
+    assert_eq!(rpc_history[0..4].to_vec(), expected_initial_host_states);
 
     let machine = Machine::find_one(
         &mut txn,
