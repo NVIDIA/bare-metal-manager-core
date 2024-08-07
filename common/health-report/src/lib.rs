@@ -49,6 +49,19 @@ impl HealthReport {
         }
     }
 
+    /// Returns an iterator over all classifications stored in the Health Report
+    /// The iterator can report duplicates
+    pub fn classifications(&self) -> impl Iterator<Item = &HealthAlertClassification> {
+        self.alerts
+            .iter()
+            .flat_map(|alert| alert.classifications.iter())
+    }
+
+    /// Returns `true` if the report contains any alert with the given classification
+    pub fn has_classification(&self, classification: &HealthAlertClassification) -> bool {
+        self.classifications().any(|c| c == classification)
+    }
+
     /// Returns a health report that indicates that no fresh data health data
     /// has been received from a certain subsystem
     pub fn heartbeat_timeout(source: String, message: String) -> Self {
@@ -197,7 +210,10 @@ impl HealthProbeAlert {
             in_alert_since: Some(chrono::Utc::now()),
             message,
             tenant_message: None,
-            classifications: vec![HealthAlertClassification::prevent_host_state_changes()],
+            classifications: vec![
+                HealthAlertClassification::prevent_allocations(),
+                HealthAlertClassification::prevent_host_state_changes(),
+            ],
         }
     }
 
@@ -323,6 +339,11 @@ impl HealthAlertClassification {
     pub fn prevent_host_state_changes() -> Self {
         Self("PreventHostStateChanges".to_string())
     }
+
+    /// Prevents hosts from being allocated as instances
+    pub fn prevent_allocations() -> Self {
+        Self("PreventAllocations".to_string())
+    }
 }
 
 /// A health report could not be converted from an external format
@@ -350,6 +371,40 @@ mod tests {
             format!("{:?} {}", classification, classification).as_str(),
             "\"PreventHostStateChanges\" PreventHostStateChanges"
         );
+    }
+
+    #[test]
+    fn has_classification() {
+        let r1 = HealthReport {
+            source: "Reporter".to_string(),
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA1".to_string()),
+                    target: None,
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![HealthAlertClassification::prevent_allocations()],
+                },
+                HealthProbeAlert {
+                    id: HealthProbeId("ProbeA2".to_string()),
+                    target: Some("t1".to_string()),
+                    in_alert_since: None,
+                    message: "".to_string(),
+                    tenant_message: None,
+                    classifications: vec![
+                        HealthAlertClassification::prevent_allocations(),
+                        HealthAlertClassification::prevent_host_state_changes(),
+                    ],
+                },
+            ],
+        };
+
+        assert!(r1.has_classification(&HealthAlertClassification::prevent_allocations()));
+        assert!(r1.has_classification(&HealthAlertClassification::prevent_host_state_changes()));
+        assert!(!r1.has_classification(&HealthAlertClassification("NotFound".to_string())));
     }
 
     #[test]

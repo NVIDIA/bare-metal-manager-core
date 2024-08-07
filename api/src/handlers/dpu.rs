@@ -454,6 +454,7 @@ pub(crate) async fn record_dpu_network_status(
                 message: failed.clone(),
                 tenant_message: None,
                 classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
                     health_report::HealthAlertClassification::prevent_host_state_changes(),
                 ],
             })
@@ -472,6 +473,7 @@ pub(crate) async fn record_dpu_network_status(
                 message: "PostConfigCheckWait".to_string(),
                 tenant_message: None,
                 classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
                     health_report::HealthAlertClassification::prevent_host_state_changes(),
                 ],
             });

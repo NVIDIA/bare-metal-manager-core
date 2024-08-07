@@ -572,6 +572,7 @@ impl TryFrom<&HealthReport> for health_report::HealthReport {
                 message: failed.1.clone(),
                 tenant_message: None,
                 classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
                     health_report::HealthAlertClassification::prevent_host_state_changes(),
                 ],
             })
