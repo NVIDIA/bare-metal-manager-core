@@ -18,7 +18,6 @@ use carbide::{
         instance::{Instance, InstanceId},
         instance_address::InstanceAddress,
         machine::{Machine, MachineSearchConfig},
-        ObjectFilter,
     },
     instance::{allocate_instance, InstanceAllocationRequest},
     model::{
@@ -45,6 +44,7 @@ use common::api_fixtures::{
         create_instance_with_labels, default_os_config, default_tenant_config, delete_instance,
         single_interface_network_config, FIXTURE_CIRCUIT_ID,
     },
+    network_configured_with_health,
     network_segment::{FIXTURE_NETWORK_SEGMENT_ID, FIXTURE_NETWORK_SEGMENT_ID_1},
 };
 use mac_address::MacAddress;
@@ -1350,30 +1350,26 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     assert_eq!(network_config.dpu_network_pinger_type, None);
 }
 
-// TODO(gk) Restore after https://jirasw.nvidia.com/browse/FORGE-2243
-//#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
-async fn _test_cannot_create_instance_on_unhealthy_dpu(
+#[sqlx::test(fixtures("create_domain", "create_vpc", "create_network_segment"))]
+async fn test_cannot_create_instance_on_unhealthy_dpu(
     _: PgPoolOptions,
     options: PgConnectOptions,
 ) -> eyre::Result<()> {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await;
-    let mut txn = env.pool.begin().await?;
 
-    let machine = &Machine::find(
-        &mut txn,
-        ObjectFilter::One(host_machine_id.clone()),
-        MachineSearchConfig::default(),
-    )
-    .await?[0];
-    let (_, version) = machine.network_config().clone().take();
-
-    // Give it an unhealthy network
-    let netstat_req = tonic::Request::new(rpc::forge::DpuNetworkStatus {
-        dpu_machine_id: Some(dpu_machine_id.to_string().into()),
-        observed_at: None, // server sets it
-        dpu_health: Some(rpc::health::HealthReport {
+    // Report an unhealthy DPU
+    network_configured_with_health(
+        &env,
+        &dpu_machine_id,
+        Some(rpc::forge::NetworkHealth {
+            is_healthy: true,
+            passed: vec![],
+            failed: vec![/* Does not matter anymore. We use dpu_health */],
+            message: None,
+        }),
+        Some(rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
             observed_at: None,
             successes: vec![],
@@ -1384,33 +1380,14 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
                 message: "test_cannot_create_instance_on_unhealthy_dpu".to_string(),
                 tenant_message: None,
                 classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations().to_string(),
                     health_report::HealthAlertClassification::prevent_host_state_changes()
                         .to_string(),
                 ],
             }],
         }),
-        health: Some(rpc::forge::NetworkHealth {
-            is_healthy: false,
-            passed: vec![],
-            failed: vec!["lol".to_string(), "everything".to_string()],
-            message: Some("test_cannot_create_instance_on_unhealthy_dpu".to_string()),
-        }),
-        network_config_version: Some(version.version_string()),
-        instance_config_version: None,
-        instance_network_config_version: None,
-        interfaces: vec![rpc::InstanceInterfaceStatusObservation {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
-            virtual_function_id: None,
-            mac_address: None,
-            addresses: vec![],
-        }],
-        network_config_error: None,
-        instance_id: None,
-        dpu_agent_version: Some("test_cannot_create_instance_on_unhealthy_dpu".to_string()),
-        client_certificate_expiry_unix_epoch_secs: None,
-        fabric_interfaces: vec![],
-    });
-    env.api.record_dpu_network_status(netstat_req).await?;
+    )
+    .await;
 
     let result = env
         .api
@@ -1438,6 +1415,10 @@ async fn _test_cannot_create_instance_on_unhealthy_dpu(
     if err.code() != tonic::Code::Unavailable {
         panic!("Expected grpc code UNAVAILABLE, got {}", err.code());
     }
+    assert_eq!(
+        err.message(),
+        "Host is not available for allocation due to health probe alert"
+    );
     Ok(())
 }
 

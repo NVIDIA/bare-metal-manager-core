@@ -277,6 +277,7 @@ async fn test_sending_only_network_health_updates_dpu_agent_health(pool: sqlx::P
                 message: "Fail1".to_string(),
                 tenant_message: None,
                 classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations().to_string(),
                     health_report::HealthAlertClassification::prevent_host_state_changes()
                         .to_string()
                 ]

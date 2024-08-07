@@ -157,19 +157,18 @@ pub async fn allocate_instance(
         )));
     }
 
-    // HBN must be working on the DPU before we allow an instance
     if mh_snapshot.dpu_snapshots.is_empty() {
         return Err(CarbideError::GenericError(format!(
             "Machine {machine_id} has no DPU. Cannot allocate."
         )));
     }
 
-    for dpu in mh_snapshot.dpu_snapshots.iter() {
-        if !dpu.has_healthy_network() {
-            tracing::error!(%machine_id, "DPU {} with unhealthy network. Instance will have issues.", dpu.machine_id);
-            // TODO(gk) Return this error once this is done: https://jirasw.nvidia.com/browse/FORGE-2243
-            //return Err(CarbideError::UnhealthyNetwork);
-        }
+    if mh_snapshot
+        .aggregate_health
+        .has_classification(&health_report::HealthAlertClassification::prevent_allocations())
+    {
+        tracing::error!(%machine_id, "Host {} can not be allocated due to alerts {:?}", mh_snapshot.host_snapshot.machine_id, mh_snapshot.aggregate_health.alerts);
+        return Err(CarbideError::UnhealthyHost);
     }
 
     if mh_snapshot.host_snapshot.is_maintenance_mode() {
