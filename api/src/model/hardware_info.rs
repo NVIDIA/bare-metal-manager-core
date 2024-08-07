@@ -679,6 +679,12 @@ impl HardwareInfo {
             None => bmc_vendor::BMCVendor::Unknown,
         }
     }
+
+    pub fn model(&self) -> Option<String> {
+        self.dmi_data
+            .as_ref()
+            .map(|dmi_info| dmi_info.product_name.clone())
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -659,13 +659,13 @@
   "dmi_data": {
     "board_name": "",
     "board_version": "",
-    "bios_version": "",
+    "bios_version": "1.13.0",
     "bios_date": "01/01/1971",
     "product_serial": "Host123",
     "board_serial": "HostBoard123",
     "chassis_serial": "HostChassis123",
-    "product_name": "Host Product Name",
-    "sys_vendor": "Host Sys Vendor"
+    "product_name": "PowerEdge R750",
+    "sys_vendor": "Dell Inc."
   },
   "block_devices": [
     {

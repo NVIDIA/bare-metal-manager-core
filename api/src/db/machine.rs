@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -40,9 +40,9 @@ use crate::model::machine::machine_id::{MachineType, RpcMachineTypeWrapper};
 use crate::model::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::model::machine::upgrade_policy::AgentUpgradePolicy;
 use crate::model::machine::{
-    CurrentMachineState, FailureDetails, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineSnapshot, MachineStateHistory, ManagedHostState,
-    ReprovisionRequest, UpgradeDecision,
+    CurrentMachineState, FailureDetails, HostReprovisionRequest, MachineInterfaceSnapshot,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineSnapshot,
+    MachineStateHistory, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::resource_pool::common::CommonPools;
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
@@ -143,6 +143,9 @@ pub struct Machine {
     /// Last time when machine reprovisioning_requested.
     reprovisioning_requested: Option<ReprovisionRequest>,
 
+    /// Last time when host reprovisioning requested
+    host_reprovisioning_requested: Option<HostReprovisionRequest>,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
@@ -156,7 +159,7 @@ pub struct Machine {
     associated_host_machine_id: Option<MachineId>,
     associated_dpu_machine_ids: Vec<MachineId>,
 
-    // Inventory related to a machine.
+    // Inventory related to a DPU machine as reported by the agent there.
     // Software and versions installed on the machine.
     inventory: Option<MachineInventory>,
 
@@ -208,6 +211,8 @@ impl<'r> FromRow<'r, PgRow> for Machine {
         let failure_details: sqlx::types::Json<FailureDetails> = row.try_get("failure_details")?;
         let reprovision_req: Option<sqlx::types::Json<ReprovisionRequest>> =
             row.try_get("reprovisioning_requested")?;
+        let host_reprovision_req: Option<sqlx::types::Json<HostReprovisionRequest>> =
+            row.try_get("host_reprovisioning_requested")?;
 
         let dpu_agent_health_report = row
             .try_get::<Option<sqlx::types::Json<HealthReport>>, _>("dpu_agent_health_report")?
@@ -254,6 +259,7 @@ impl<'r> FromRow<'r, PgRow> for Machine {
             last_discovery_time: row.try_get("last_discovery_time")?,
             failure_details: failure_details.0,
             reprovisioning_requested: reprovision_req.map(|x| x.0),
+            host_reprovisioning_requested: host_reprovision_req.map(|x| x.0),
             dpu_agent_health_report,
             hardware_health_report,
             dpu_agent_upgrade_requested: dpu_agent_upgrade_requested.map(|x| x.0),
@@ -276,7 +282,7 @@ impl From<Machine> for MachineSnapshot {
             bmc_info: machine.bmc_info().clone(),
             bmc_vendor: machine.bmc_vendor(),
             hardware_info: machine.hardware_info().cloned(),
-            inventory: machine.inventory().cloned().unwrap_or_default(),
+            agent_reported_inventory: machine.inventory().cloned().unwrap_or_default(),
             network_config: machine.network_config().clone(),
             interfaces: machine.interfaces().clone(),
             network_status_observation: machine.network_status_observation().cloned(),
@@ -298,6 +304,7 @@ impl From<Machine> for MachineSnapshot {
             discovery_machine_validation_id: machine.discovery_machine_validation_id(),
             cleanup_machine_validation_id: machine.cleanup_machine_validation_id(),
             reprovisioning_requested: machine.reprovisioning_requested().clone(),
+            host_reprovision_requested: machine.host_reprovisioning_requested().clone(),
             dpu_agent_health_report: machine.dpu_agent_health_report,
             hardware_health_report: machine.hardware_health_report,
             associated_dpu_machine_ids: machine.associated_dpu_machine_ids,
@@ -469,6 +476,13 @@ impl Machine {
         match self.hardware_info() {
             Some(hw) => hw.bmc_vendor(),
             None => bmc_vendor::BMCVendor::Unknown,
+        }
+    }
+
+    pub fn model(&self) -> String {
+        match self.hardware_info() {
+            Some(hw) => hw.model().unwrap_or("Unknown".to_string()),
+            None => "Unknown".to_string(),
         }
     }
 
@@ -1071,6 +1085,10 @@ SELECT m.id FROM
         self.reprovisioning_requested.clone()
     }
 
+    pub fn host_reprovisioning_requested(&self) -> Option<HostReprovisionRequest> {
+        self.host_reprovisioning_requested.clone()
+    }
+
     pub fn bios_password_set_time(&self) -> Option<DateTime<Utc>> {
         self.bios_password_set_time
     }
@@ -1595,6 +1613,51 @@ SELECT m.id FROM
             .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
 
         Ok(())
+    }
+
+    pub async fn trigger_host_reprovisioning_request(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> Result<(), DatabaseError> {
+        let req = HostReprovisionRequest {
+            requested_at: chrono::Utc::now(),
+        };
+
+        let query = "UPDATE machines SET host_reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(machine_id.to_string())
+            .bind(sqlx::types::Json(req))
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn clear_host_reprovisioning_request(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+        machine_id: &MachineId,
+    ) -> Result<(), DatabaseError> {
+        let query =
+            "UPDATE machines SET host_reprovisioning_requested = NULL WHERE id=$1 RETURNING id";
+        let _id = sqlx::query_as::<_, DbMachineId>(query)
+            .bind(machine_id.to_string())
+            .fetch_one(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))?;
+
+        Ok(())
+    }
+
+    pub async fn get_host_reprovisioning_machines(
+        txn: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<Vec<Machine>, DatabaseError> {
+        let query = "SELECT * FROM machines
+            WHERE host_reprovisioning_requested IS NOT NULL";
+        sqlx::query_as(query)
+            .fetch_all(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::new(file!(), line!(), query, e))
     }
 
     pub async fn update_controller_state_outcome(

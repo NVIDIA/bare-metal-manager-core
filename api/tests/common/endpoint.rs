@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr},
     str::FromStr,
 };
@@ -106,6 +107,7 @@ fn build_exploration_report(
             }],
         }],
         machine_id,
+        versions: HashMap::default(),
     }
 }
 
@@ -138,5 +140,6 @@ fn build_dpu_exploration_report(machine_id_str: &str) -> EndpointExplorationRepo
         chassis: vec![],
         service: vec![],
         machine_id,
+        versions: HashMap::default(),
     }
 }

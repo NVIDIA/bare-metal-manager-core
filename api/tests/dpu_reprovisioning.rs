@@ -173,7 +173,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
@@ -506,7 +506,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     );
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
@@ -700,10 +700,11 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     );
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
+
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -1035,10 +1036,11 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     );
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
+
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -1367,10 +1369,11 @@ async fn test_reboot_retry(pool: sqlx::PgPool) {
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
+
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -1858,7 +1861,7 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let host_sim = env.start_managed_host_sim();
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
@@ -2001,10 +2004,11 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     trigger_dpu_reprovisioning(&env, dpu_machine_id.to_string(), Mode::Set, true).await;
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
+
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
 
@@ -2139,7 +2143,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
@@ -2448,7 +2452,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     let last_reboot_requested_time = dpu.last_reboot_requested();
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();

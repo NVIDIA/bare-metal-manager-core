@@ -10,14 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use core::fmt;
-use std::sync::Arc;
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    net::{IpAddr, SocketAddr},
-    path::PathBuf,
-};
+use std::{collections::HashMap, fmt, fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use arc_swap::ArcSwap;
 use chrono::Duration;
@@ -27,6 +20,7 @@ use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use crate::state_controller::config::IterationConfig;
 use crate::{model::network_segment::NetworkDefinition, resource_pool::ResourcePoolDef};
 
@@ -197,29 +191,26 @@ pub struct CarbideConfig {
 }
 
 impl CarbideConfig {
-    pub fn get_parsed_hosts(&self) -> Vendor2Firmware {
+    pub fn get_firmware_config(&self) -> FirmwareConfig {
         let mut map: HashMap<String, Firmware> = Default::default();
         for (_, host) in self.host_models.iter() {
             map.insert(
-                vendor_model_to_key(host.vendor.to_owned(), host.model.to_owned()),
+                vendor_model_to_key(host.vendor, host.model.to_owned()),
                 host.clone(),
             );
         }
         for (_, dpu) in self.dpu_models.iter() {
             map.insert(
-                vendor_model_to_key(
-                    dpu.vendor.to_owned(),
-                    DpuModel::from(dpu.model.to_owned()).to_string(),
-                ),
+                vendor_model_to_key(dpu.vendor, DpuModel::from(dpu.model.to_owned()).to_string()),
                 dpu.clone(),
             );
         }
-        Vendor2Firmware { map }
+        FirmwareConfig { map }
     }
 }
 
-fn vendor_model_to_key(vendor: String, model: String) -> String {
-    format!("{}:{}", vendor.to_lowercase(), model.to_lowercase())
+fn vendor_model_to_key(vendor: bmc_vendor::BMCVendor, model: String) -> String {
+    format!("{vendor}:{}", model.to_lowercase())
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -632,7 +623,7 @@ pub fn default_site_explorer_config() -> SiteExplorerConfig {
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Firmware {
-    pub vendor: String,
+    pub vendor: bmc_vendor::BMCVendor,
     pub model: String,
 
     pub components: HashMap<FirmwareComponentType, FirmwareComponent>,
@@ -657,15 +648,64 @@ impl Firmware {
             .captures(redfish_id)
             .is_some()
     }
+    pub fn ordering(&self) -> Vec<FirmwareComponentType> {
+        let mut ordering = self.ordering.clone();
+        if ordering.is_empty() {
+            const ORDERING: [FirmwareComponentType; 2] =
+                [FirmwareComponentType::Bmc, FirmwareComponentType::Uefi];
+            ordering = ORDERING.to_vec();
+        }
+        ordering
+    }
+
+    /// find_version will locate a version number within an EndpointExplorationReport
+    pub fn find_version(
+        &self,
+        report: &EndpointExplorationReport,
+        firmware_type: FirmwareComponentType,
+    ) -> Option<String> {
+        for service in report.service.iter() {
+            if let Some(matching_inventory) = service
+                .inventories
+                .iter()
+                .find(|&x| self.matching_version_id(&x.id, firmware_type))
+            {
+                tracing::debug!(
+                    "find_version {:?}: For {firmware_type:?} found {:?}",
+                    report.machine_id,
+                    matching_inventory.version
+                );
+                return matching_inventory.version.clone();
+            };
+        }
+        None
+    }
 }
 
-#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Copy, Clone)]
+#[derive(
+    Debug, Default, Deserialize, Serialize, Eq, PartialEq, Hash, Copy, Clone, Ord, PartialOrd,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum FirmwareComponentType {
     Bfb,
     Bmc,
     Cec,
     Uefi,
+    #[serde(other)]
+    #[default]
+    Unknown,
+}
+
+impl fmt::Display for FirmwareComponentType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FirmwareComponentType::Bmc => write!(f, "BMC"),
+            FirmwareComponentType::Uefi => write!(f, "UEFI"),
+            FirmwareComponentType::Cec => write!(f, "CEC"),
+            FirmwareComponentType::Bfb => write!(f, "BFB"),
+            FirmwareComponentType::Unknown => write!(f, "Unknown"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -787,12 +827,12 @@ impl Default for FirmwareGlobal {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Vendor2Firmware {
+pub struct FirmwareConfig {
     map: HashMap<String, Firmware>,
 }
 
-impl Vendor2Firmware {
-    pub fn find(&self, address: IpAddr, vendor: String, model: String) -> Option<Firmware> {
+impl FirmwareConfig {
+    pub fn find(&self, vendor: bmc_vendor::BMCVendor, model: String) -> Option<Firmware> {
         let dpu_model = DpuModel::from(model.clone());
         let key = if dpu_model != DpuModel::Unknown {
             vendor_model_to_key(vendor, dpu_model.to_string())
@@ -800,8 +840,28 @@ impl Vendor2Firmware {
             vendor_model_to_key(vendor, model)
         };
         let ret = self.map.get(&key).map(|x| x.to_owned());
-        tracing::debug!("ParsedHosts::find {address}: key {key} found {ret:?}");
+        tracing::debug!("FirmwareConfig::find: key {key} found {ret:?}");
         ret
+    }
+
+    /// find_fw_info_for_host looks up the firmware config for the given endpoint
+    pub fn find_fw_info_for_host(&self, endpoint: &ExploredEndpoint) -> Option<Firmware> {
+        self.find_fw_info_for_host_report(&endpoint.report)
+    }
+
+    /// find_fw_info_for_host_report looks up the firmware config for the given endpoint report
+    pub fn find_fw_info_for_host_report(
+        &self,
+        report: &EndpointExplorationReport,
+    ) -> Option<Firmware> {
+        let vendor = report.vendor?;
+        let model = report
+            .systems
+            .iter()
+            .find(|&x| x.model.is_some())?
+            .model
+            .to_owned()?;
+        self.find(vendor, model)
     }
 }
 
@@ -1289,11 +1349,11 @@ mod tests {
         );
         assert_eq!(config.dpu_models.len(), 2);
         for (_, entry) in config.dpu_models.iter() {
-            assert_eq!(entry.vendor, "Nvidia",);
+            assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Nvidia);
         }
         assert_eq!(config.host_models.len(), 2);
         for (_, entry) in config.host_models.iter() {
-            assert_eq!(entry.vendor, "Dell Inc.",);
+            assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Dell);
         }
         assert_eq!(config.firmware_global.max_uploads, 3);
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));

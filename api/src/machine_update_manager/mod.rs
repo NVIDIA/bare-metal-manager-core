@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,6 +11,7 @@
  */
 pub mod dpu_nic_firmware;
 mod dpu_nic_firmware_metrics;
+mod host_firmware;
 pub mod machine_update_module;
 mod metrics;
 
@@ -20,6 +21,7 @@ use std::{
     time::Duration,
 };
 
+use host_firmware::HostFirmwareUpdate;
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::sync::oneshot;
 
@@ -114,6 +116,12 @@ impl MachineUpdateManager {
                 "Failed to register callback for machine update manager metrics: {}",
                 e
             );
+        }
+
+        if let Some(host_firmware) =
+            HostFirmwareUpdate::new(config.clone(), meter.clone(), config.get_firmware_config())
+        {
+            update_modules.push(Box::new(host_firmware));
         }
 
         MachineUpdateManager {

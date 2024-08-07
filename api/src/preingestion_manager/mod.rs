@@ -19,15 +19,15 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::net::SocketAddr;
 use std::{default::Default, sync::Arc, time::Duration};
 use tokio::{
-    sync::{oneshot, Mutex, Semaphore},
+    sync::{oneshot, Semaphore},
     task::JoinSet,
 };
 
 use self::metrics::PreingestionMetrics;
 use crate::{
     cfg::{
-        CarbideConfig, Firmware, FirmwareComponentType, FirmwareEntry, FirmwareGlobal,
-        Vendor2Firmware,
+        CarbideConfig, Firmware, FirmwareComponentType, FirmwareConfig, FirmwareEntry,
+        FirmwareGlobal,
     },
     db::{explored_endpoints::DbExploredEndpoint, DatabaseError},
     firmware_downloader::FirmwareDownloader,
@@ -46,24 +46,26 @@ pub struct PreingestionManager {
 
 struct PreingestionManagerStatic {
     run_interval: Duration,
-    max_uploads: usize,
     database_connection: PgPool,
     firmware_global: FirmwareGlobal,
-    host_info: Vendor2Firmware,
+    host_info: FirmwareConfig,
     redfish_client_pool: Arc<dyn RedfishClientPool>,
     downloader: FirmwareDownloader,
+    upload_limiter: Arc<Semaphore>,
     concurrency_limit: usize,
 }
 
 impl PreingestionManager {
     const DB_LOCK_QUERY: &'static str =
-        "SELECT pg_try_advisory_xact_lock((SELECT 'preingestion_manager_lock'::regclass::oid)::integer);";
+         "SELECT pg_try_advisory_xact_lock((SELECT 'preingestion_manager_lock'::regclass::oid)::integer);";
 
     pub fn new(
         database_connection: sqlx::PgPool,
         config: Arc<CarbideConfig>,
         redfish_client_pool: Arc<dyn RedfishClientPool>,
         meter: Meter,
+        downloader: Option<FirmwareDownloader>,
+        upload_limiter: Option<Arc<Semaphore>>,
     ) -> PreingestionManager {
         let hold_period = config
             .firmware_global
@@ -82,12 +84,12 @@ impl PreingestionManager {
                     .run_interval
                     .to_std()
                     .unwrap_or(Duration::from_secs(30)),
-                max_uploads: config.firmware_global.max_uploads,
                 database_connection,
                 firmware_global: config.firmware_global.clone(),
-                host_info: config.get_parsed_hosts(),
+                host_info: config.get_firmware_config(),
                 redfish_client_pool,
-                downloader: FirmwareDownloader::new(),
+                downloader: downloader.unwrap_or_default(),
+                upload_limiter: upload_limiter.unwrap_or(Arc::new(Semaphore::new(5))),
                 concurrency_limit: config.firmware_global.concurrency_limit,
             }),
             metric_holder,
@@ -170,19 +172,17 @@ impl PreingestionManager {
         // too many simultaneous postgres transactions, which can cause things to deadlock.
         let limit_sem = Arc::new(Semaphore::new(self.static_info.concurrency_limit));
         let mut task_set = JoinSet::new();
-        let active_uploads = Arc::new(Mutex::new(0));
 
         for endpoint in items.iter() {
             let permit = limit_sem.clone().acquire_owned().await.unwrap();
             let static_info = self.static_info.clone();
             let endpoint = endpoint.clone();
-            let active_uploads = active_uploads.clone();
             let _abort_handle = task_set
                 .build_task()
                 .name(&format!("preingestion {}", endpoint.address))
                 .spawn(async move {
                     let _permit = permit; // retain semaphore until we're done
-                    one_endpoint(static_info, endpoint, active_uploads).await
+                    one_endpoint(static_info, endpoint).await
                 });
         }
 
@@ -195,11 +195,11 @@ impl PreingestionManager {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Error handling preingestion update: {e}");
+                        tracing::warn!("Error handling preingestion update: {e}");
                     }
                 },
                 Err(e) => {
-                    tracing::error!("Error handling preingestion update: {e}");
+                    tracing::warn!("Error handling preingestion update: {e}");
                 }
             }
         }
@@ -239,7 +239,6 @@ struct EndpointResult {
 async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
     endpoint: ExploredEndpoint,
-    active_uploads: Arc<Mutex<usize>>,
 ) -> DatabaseResult<EndpointResult> {
     let mut txn = static_info.database_connection.begin().await.map_err(|e| {
         DatabaseError::new(
@@ -250,18 +249,18 @@ async fn one_endpoint(
         )
     })?;
 
-    tracing::info!("Preingestion on endpoint {:?}", endpoint);
+    tracing::debug!("Preingestion on endpoint {:?}", endpoint);
 
     // Main state machine match.
     let delayed_upgrade = match &endpoint.preingestion_state {
         PreingestionState::Initial => {
             static_info
-                .check_firmware_versions_below_preingestion(&mut txn, &endpoint, active_uploads)
+                .check_firmware_versions_below_preingestion(&mut txn, &endpoint)
                 .await?
         }
         PreingestionState::RecheckVersions => {
             static_info
-                .start_firmware_uploads_or_continue(&mut txn, &endpoint, active_uploads)
+                .start_firmware_uploads_or_continue(&mut txn, &endpoint)
                 .await?
         }
         PreingestionState::UpgradeFirmwareWait {
@@ -294,7 +293,7 @@ async fn one_endpoint(
         }
         PreingestionState::Complete => {
             // This should have been filtered out by the query that got us this list.
-            tracing::info!(
+            tracing::warn!(
                 "Endpoint showed complete preingestion and should not have been here: {endpoint:?}"
             );
             false
@@ -320,37 +319,12 @@ impl PreingestionManagerStatic {
             Some(vendor) => vendor.to_owned(),
             None => {
                 // No vendor found for the endpoint, we can't match firmware
-                tracing::info!("find_fw_info_for_host: {} No vendor", endpoint.address);
+                tracing::debug!("find_fw_info_for_host: {} No vendor", endpoint.address);
                 return None;
             }
         };
-        // Use Systems, not Chassis; at least for Lenovo, Chassis has what is more of a SKU instead of the actual model name.
-        let system_with_model = endpoint.report.systems.iter().find(|&x| x.model.is_some());
-        let model = match system_with_model {
-            Some(chassis) => match &chassis.model {
-                Some(model) => model.to_owned(),
-                None => {
-                    tracing::info!("find_fw_info_for_host: {} No model", endpoint.address);
-                    // No model found for the endpoint, we can't match firmware
-                    return None;
-                }
-            },
-            None if endpoint.report.is_dpu() => endpoint
-                .report
-                .identify_dpu()
-                .map(|d| d.to_string())
-                .unwrap_or("unknown model".to_string()),
-            None => {
-                // No system with model found for the endpoint, we can't match firmware
-                tracing::info!(
-                    "find_fw_info_for_host: {} No system with model.",
-                    endpoint.address
-                );
-                return None;
-            }
-        };
-        self.host_info
-            .find(endpoint.address, vendor.to_string(), model)
+        let model = endpoint.report.model()?;
+        self.host_info.find(vendor, model)
     }
 
     /// check_firmware_versions_below_preingestion will check if we actually need to do firmware upgrades before
@@ -359,12 +333,11 @@ impl PreingestionManagerStatic {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
-        active_uploads: Arc<Mutex<usize>>,
     ) -> DatabaseResult<bool> {
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
         let fw_info = match self.find_fw_info_for_host(endpoint) {
             None => {
-                tracing::info!(
+                tracing::debug!(
                     "check_firmware_versions_below_preingestion {}: No maching firmware info found",
                     endpoint.address
                 );
@@ -377,23 +350,23 @@ impl PreingestionManagerStatic {
         };
         for (fwtype, desc) in &fw_info.components {
             if let Some(min_preingestion) = &desc.preingest_upgrade_when_below {
-                if let Some(current) = find_version(endpoint, &fw_info, *fwtype) {
-                    tracing::info!("check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}", endpoint.address);
+                if let Some(current) = endpoint.find_version(&fw_info, *fwtype) {
+                    tracing::debug!("check_firmware_versions_below_preingestion {}: {fwtype:?} min preingestion {min_preingestion:?} current {current:?}", endpoint.address);
 
                     if version_compare::compare(current, min_preingestion)
                         .is_ok_and(|c| c == version_compare::Cmp::Lt)
                     {
-                        tracing::info!(
-                            "check_firmware_versions_below_preingestion {}: Start upload of {fwtype:?}",
-                            endpoint.address
-                        );
+                        tracing::debug!(
+                             "check_firmware_versions_below_preingestion {}: Start upload of {fwtype:?}",
+                             endpoint.address
+                         );
                         // One or both of the versions are low enough to absolutely need upgrades first - do them both while we're at it.
                         let delayed_upgrade = self
-                            .start_firmware_uploads_or_continue(txn, endpoint, active_uploads)
+                            .start_firmware_uploads_or_continue(txn, endpoint)
                             .await?;
                         return Ok(delayed_upgrade);
                     } else {
-                        tracing::info!(
+                        tracing::debug!(
                             "check_firmware_versions_below_preingestion {}: {fwtype:?} is good",
                             endpoint.address
                         );
@@ -402,7 +375,7 @@ impl PreingestionManagerStatic {
             }
         }
 
-        tracing::info!(
+        tracing::debug!(
             "check_firmware_versions_below_preingestion {}: Satisfied and marking complete",
             endpoint.address
         );
@@ -419,10 +392,9 @@ impl PreingestionManagerStatic {
         &self,
         txn: &mut Transaction<'_, Postgres>,
         endpoint: &ExploredEndpoint,
-        active_uploads: Arc<Mutex<usize>>,
     ) -> DatabaseResult<bool> {
         if endpoint.waiting_for_explorer_refresh {
-            tracing::info!(
+            tracing::debug!(
                 "start_firmware_uploads_or_continue {}: Waiting for explorer refresh",
                 endpoint.address
             );
@@ -433,7 +405,7 @@ impl PreingestionManagerStatic {
         // Determine if auto updates should be enabled.
         // We can't check machine IDs here as they may not be available yet, so use the global value only.
         if !self.firmware_global.autoupdate {
-            tracing::info!(
+            tracing::debug!(
                 "start_firmware_uploads_or_continue {}: Auto updates disabled",
                 endpoint.address
             );
@@ -444,7 +416,7 @@ impl PreingestionManagerStatic {
         let fw_info = match self.find_fw_info_for_host(endpoint) {
             None => {
                 // No desired firmware description found for this host
-                tracing::info!(
+                tracing::debug!(
                     "start_firmware_uploads_or_continue {}: No firmware info found",
                     endpoint.address
                 );
@@ -455,14 +427,14 @@ impl PreingestionManagerStatic {
         };
 
         // Specifying ordering is optional, and defaults to first BMC then UEFI.
-        let mut ordering = fw_info.ordering.clone();
+        let mut ordering = fw_info.ordering().clone();
         if ordering.is_empty() {
             ordering.push(FirmwareComponentType::Bmc);
             ordering.push(FirmwareComponentType::Uefi);
         }
         for upgrade_type in ordering {
             let (done, delayed_upgrade) = self
-                .start_upgrade_if_needed(endpoint, &fw_info, upgrade_type, &active_uploads, txn)
+                .start_upgrade_if_needed(endpoint, &fw_info, upgrade_type, txn)
                 .await?;
 
             if done {
@@ -472,7 +444,7 @@ impl PreingestionManagerStatic {
             }
         }
 
-        tracing::info!(
+        tracing::debug!(
             "start_firmware_uploads_or_continue {}: No further updates needed",
             endpoint.address
         );
@@ -489,31 +461,26 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         fw_info: &Firmware,
         fw_type: FirmwareComponentType,
-        active_uploads: &Arc<Mutex<usize>>,
         txn: &mut Transaction<'_, Postgres>,
     ) -> Result<(bool, bool), DatabaseError> {
         {
             match need_upgrade(endpoint, fw_info, fw_type) {
                 None => {
-                    tracing::info!(
+                    tracing::debug!(
                         "start_upgrade_if_needed {}: Upgrade of {fw_type:?} not needed",
                         endpoint.address
                     );
                     Ok((false, false))
                 }
                 Some(to_install) => {
-                    let mut active_uploads = active_uploads.lock().await;
-                    if *active_uploads >= self.max_uploads {
-                        tracing::info!(
+                    let Ok(_active) = self.upload_limiter.try_acquire() else {
+                        tracing::debug!(
                             "Deferring installation of {:?} on {}, too many uploads already active",
                             to_install,
                             endpoint.address
                         );
                         return Ok((true, true)); // Don't check others
-                    }
-                    *active_uploads += 1;
-                    // Don't keep holding the lock!
-                    drop(active_uploads);
+                    };
 
                     tracing::info!("Installing {:?} on {}", to_install, endpoint.address);
 
@@ -560,7 +527,7 @@ impl PreingestionManagerStatic {
         }) {
             Ok(redfish_client) => redfish_client,
             Err(e) => {
-                tracing::error!("Redfish connection to {} failed: {e}", endpoint.address);
+                tracing::warn!("Redfish connection to {} failed: {e}", endpoint.address);
                 return Ok(());
             }
         };
@@ -572,7 +539,7 @@ impl PreingestionManagerStatic {
                     | Some(TaskState::Starting)
                     | Some(TaskState::Running)
                     | Some(TaskState::Pending) => {
-                        tracing::info!(
+                        tracing::debug!(
                             "Upgrade task for {} not yet complete, current state {:?} message {:?}",
                             endpoint.address,
                             task_info.task_state,
@@ -603,7 +570,7 @@ impl PreingestionManagerStatic {
                     | Some(TaskState::Interrupted)
                     | Some(TaskState::Killed)
                     | Some(TaskState::Cancelled) => {
-                        tracing::error!(
+                        tracing::warn!(
                             "Failure in firmware upgrade for {}: {} {:?}",
                             &endpoint.address,
                             task_info.task_state.unwrap(),
@@ -620,6 +587,12 @@ impl PreingestionManagerStatic {
                             txn,
                         )
                         .await?;
+                        DbExploredEndpoint::re_explore_if_version_matches(
+                            endpoint.address,
+                            endpoint.report_version,
+                            txn,
+                        )
+                        .await?;
 
                         // We need site explorer to requery the version
                         DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
@@ -627,7 +600,7 @@ impl PreingestionManagerStatic {
                     }
                     _ => {
                         // Unexpected state
-                        tracing::error!(
+                        tracing::warn!(
                             "Unrecognized task state for {}: {:?}",
                             endpoint.address,
                             task_info.task_state
@@ -641,10 +614,10 @@ impl PreingestionManagerStatic {
                         // Dells (maybe others) have been observed to not have report the job any more after completing a host reboot for a UEFI upgrade.  If we get a 404 but see that we're at the right version, we're done with that upgrade.
                         if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
                             if let Some(current_version) =
-                                find_version(endpoint, &fw_info, *upgrade_type)
+                                endpoint.find_version(&fw_info, *upgrade_type)
                             {
                                 if current_version == final_version {
-                                    tracing::info!(
+                                    tracing::debug!(
                                         "Marking completion of Redfish task of firmware upgrade for {} with missing task",
                                         &endpoint.address
                                     );
@@ -659,7 +632,7 @@ impl PreingestionManagerStatic {
                     }
                 }
                 _ => {
-                    tracing::error!("Getting Redfish task from {} failed: {e}", endpoint.address);
+                    tracing::warn!("Getting Redfish task from {} failed: {e}", endpoint.address);
                 }
             },
         };
@@ -762,7 +735,7 @@ impl PreingestionManagerStatic {
         upgrade_type: &FirmwareComponentType,
     ) -> DatabaseResult<()> {
         if let Some(fw_info) = self.find_fw_info_for_host(endpoint) {
-            if let Some(current_version) = find_version(endpoint, &fw_info, *upgrade_type) {
+            if let Some(current_version) = endpoint.find_version(&fw_info, *upgrade_type) {
                 if current_version != final_version {
                     // Still not reporting the new version.
                     DbExploredEndpoint::set_waiting_for_explorer_refresh(endpoint.address, txn)
@@ -802,29 +775,6 @@ impl PreingestionManagerStatic {
 
         Ok(())
     }
-}
-
-/// find_version will locate a version number within an ExploredEndpoint
-fn find_version(
-    endpoint: &ExploredEndpoint,
-    fw_info: &Firmware,
-    firmware_type: FirmwareComponentType,
-) -> Option<String> {
-    for service in endpoint.report.service.iter() {
-        if let Some(matching_inventory) = service
-            .inventories
-            .iter()
-            .find(|&x| fw_info.matching_version_id(&x.id, firmware_type))
-        {
-            tracing::info!(
-                "find_version {}: For {firmware_type:?} found {:?}",
-                endpoint.address,
-                matching_inventory.version
-            );
-            return matching_inventory.version.clone();
-        };
-    }
-    None
 }
 
 /// need_upgrade determines if the given endpoint needs a firmware upgrade based on the description in fw_info, and if
@@ -879,7 +829,7 @@ async fn initiate_update(
         )
         .await
     {
-        tracing::info!(
+        tracing::debug!(
             "{} is being downloaded from {}, update deferred",
             to_install.get_filename().display(),
             to_install.get_url()
@@ -898,14 +848,14 @@ async fn initiate_update(
     {
         Ok(redfish_client) => redfish_client,
         Err(e) => {
-            tracing::info!(
+            tracing::debug!(
                 "Failed to open redfish to {}: {e}",
                 endpoint_clone.address.to_string()
             );
             return Ok(());
         }
     };
-    tracing::info!(
+    tracing::debug!(
         "initiate_update: Started upload of firmware to {}",
         endpoint_clone.address
     );
@@ -919,14 +869,14 @@ async fn initiate_update(
     {
         Ok(task) => task,
         Err(e) => {
-            tracing::error!(
+            tracing::warn!(
                 "initiate_update: Failed uploading firmware to {}: {e}",
                 endpoint_clone.address
             );
             return Ok(());
         }
     };
-    tracing::info!(
+    tracing::debug!(
         "initiate_update: Completed upload of firmware to {}",
         endpoint_clone.address
     );

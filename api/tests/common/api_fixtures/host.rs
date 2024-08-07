@@ -175,9 +175,9 @@ pub async fn create_host_machine(
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
+        .hardware_models(env.config.get_firmware_config())
         .build();
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();
@@ -373,9 +373,9 @@ pub async fn create_host_with_machine_validation(
     let machine_interface_id = host_discover_dhcp(env, host_config, dpu_machine_id).await;
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
+        .hardware_models(env.config.get_firmware_config())
         .build();
     let host_machine_id = host_discover_machine(env, host_config, machine_interface_id).await;
     let host_machine_id = try_parse_machine_id(&host_machine_id).unwrap();

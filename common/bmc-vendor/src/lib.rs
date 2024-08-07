@@ -20,6 +20,7 @@ use libredfish::model::service_root::RedfishVendor;
     Clone,
     Copy,
     Debug,
+    Default,
     Eq,
     PartialEq,
     clap::ValueEnum,
@@ -33,6 +34,8 @@ pub enum BMCVendor {
     Supermicro,
     Hpe,
     Nvidia, // DPU, Viking, Oberon
+    #[serde(other)]
+    #[default]
     Unknown,
 }
 

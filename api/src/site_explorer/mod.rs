@@ -10,6 +10,11 @@
  * its affiliates is strictly prohibited.
  */
 
+use config_version::ConfigVersion;
+use itertools::Itertools;
+use mac_address::MacAddress;
+use managed_host::ManagedHost;
+use sqlx::{PgPool, Postgres, Transaction};
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -17,18 +22,11 @@ use std::{
     str::FromStr,
     sync::Arc,
 };
-
-use config_version::ConfigVersion;
-use itertools::Itertools;
-use mac_address::MacAddress;
-use managed_host::ManagedHost;
-use sqlx::PgPool;
-use sqlx::{Postgres, Transaction};
 use tokio::{sync::oneshot, task::JoinSet};
 use tracing::Instrument;
 
 use crate::{
-    cfg::SiteExplorerConfig,
+    cfg::{FirmwareConfig, SiteExplorerConfig},
     db::{
         self,
         bmc_metadata::BmcMetaDataUpdateRequest,
@@ -113,6 +111,7 @@ pub struct SiteExplorer {
     config: SiteExplorerConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
+    firmware_config: Arc<FirmwareConfig>,
     common_pools: Arc<CommonPools>,
 }
 
@@ -126,6 +125,7 @@ impl SiteExplorer {
         explorer_config: SiteExplorerConfig,
         meter: opentelemetry::metrics::Meter,
         endpoint_explorer: Arc<dyn EndpointExplorer>,
+        firmware_config: Arc<FirmwareConfig>,
         common_pools: Arc<CommonPools>,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
@@ -144,6 +144,7 @@ impl SiteExplorer {
             config: explorer_config,
             metric_holder,
             endpoint_explorer,
+            firmware_config,
             common_pools,
         }
     }
@@ -726,6 +727,7 @@ impl SiteExplorer {
 
             let bmc_target_port = self.config.override_target_port.unwrap_or(443);
             let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
+            let firmware_config = self.firmware_config.clone();
 
             let _abort_handle = task_set.spawn(
                 async move {
@@ -750,9 +752,17 @@ impl SiteExplorer {
                         )
                         .await;
 
-                    // Try to generate a MachineId based on the retrieved data
+                    // Try to generate a MachineId and parsed version info based on the retrieved data
                     if let Ok(report) = &mut result {
                         report.generate_machine_id();
+                        if let Some(fw_info) = firmware_config.find_fw_info_for_host_report(report)
+                        {
+                            report.parse_versions(&fw_info);
+                        } else {
+                            // It's possible that we knew about this host type before but do not now, so make sure we
+                            // do not keep stale data.
+                            report.versions = HashMap::default();
+                        }
                     }
 
                     (
@@ -849,13 +859,13 @@ impl SiteExplorer {
                                 exploration_report = ?report,
                                 "Initial exploration of machine"
                             );
-                            DbExploredEndpoint::insert(address, &report, &mut txn).await?
+                            DbExploredEndpoint::insert(address, &report, &mut txn).await?;
                         }
                         Err(e) => {
                             // If an endpoint exploration failed we still track the result in the database
                             // That will avoid immmediatly retrying the exploration in the next run
                             let report = EndpointExplorationReport::new_with_error(e);
-                            DbExploredEndpoint::insert(address, &report, &mut txn).await?
+                            DbExploredEndpoint::insert(address, &report, &mut txn).await?;
                         }
                     }
                     if !**self.config.create_machines.load() {

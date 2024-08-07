@@ -153,7 +153,7 @@ known_firmware = [
 ]
 
 [host_models.dell_r750]
-vendor = "Dell Inc."
+vendor = "Dell"
 model = "PowerEdge R750"
 ordering = ["uefi", "bmc"]
 
@@ -173,7 +173,7 @@ known_firmware = [
 ]
 
 [host_models.dell_r750_plus]
-vendor = "Dell Inc."
+vendor = "Dell"
 model = "PowerEdge R750+"
 ordering = ["uefi", "bmc"]
 

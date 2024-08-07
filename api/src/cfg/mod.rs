@@ -16,8 +16,8 @@ mod file;
 pub use command_line::{Command, Daemon, Options};
 pub use file::{
     default_max_find_by_ids, default_site_explorer_config, AgentUpgradePolicyChoice, AuthConfig,
-    CarbideConfig, DpuModel, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
-    FirmwareGlobal, IBFabricConfig, IbFabricMonitorConfig, IbPartitionStateControllerConfig,
-    MachineStateControllerConfig, MultiDpuConfig, NetworkSegmentStateControllerConfig,
-    SiteExplorerConfig, StateControllerConfig, TlsConfig, Vendor2Firmware,
+    CarbideConfig, DpuModel, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareConfig,
+    FirmwareEntry, FirmwareGlobal, IBFabricConfig, IbFabricMonitorConfig,
+    IbPartitionStateControllerConfig, MachineStateControllerConfig, MultiDpuConfig,
+    NetworkSegmentStateControllerConfig, SiteExplorerConfig, StateControllerConfig, TlsConfig,
 };

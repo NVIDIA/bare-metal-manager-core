@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -78,7 +78,7 @@ struct FakeMachine {
 }
 
 #[sqlx::test(fixtures("create_domain", "create_vpc"))]
-async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     let underlay_segment = create_underlay_network_segment(&env).await;
@@ -239,6 +239,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                         },
                     ],
                 }],
+                versions: HashMap::default(),
             }),
         );
         guard.insert(
@@ -258,6 +259,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 systems: Vec::new(),
                 chassis: Vec::new(),
                 service: Vec::new(),
+                versions: HashMap::default(),
             }),
         );
     }
@@ -277,6 +279,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         explorer_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
     );
 
@@ -458,11 +461,11 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 pcie_devices: vec![],
             }],
             chassis: vec![Chassis {
-                id: "1".to_string(),
-                manufacturer: Some("Lenovo".to_string()),
-                model: Some("7Z73CTOLWW".to_string()),
+                id: "System.Embedded.1".to_string(),
+                manufacturer: Some("Dell Inc.".to_string()),
+                model: Some("PowerEdge R750".to_string()),
                 part_number: Some("SB27A42862".to_string()),
-                serial_number: Some("J304AYYZ".to_string()),
+                serial_number: Some("MXFC40025U031S".to_string()),
                 network_adapters: vec![
                     NetworkAdapter {
                         id: "slot-1".to_string(),
@@ -490,14 +493,33 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                         release_date: None,
                     },
                     Inventory {
-                        id: "BMC-Primary".to_string(),
+                        id: "Installed-25227-6.00.30.00__iDRAC.Embedded.1-1".to_string(),
                         description: Some("The information of BMC (Primary) firmware.".to_string()),
-                        version: Some("38U-3.86".to_string()),
+                        version: Some("6.00.30.00".to_string()),
+                        release_date: Some("2023-09-12T00:00:00Z".to_string()),
+                    },
+                    Inventory {
+                        id: "Current-159-1.6.5__BIOS.Setup.1-1".to_string(),
+                        description: Some("Currently running BIOS firmware.".to_string()),
+                        version: Some("1.6.5".to_string()),
+                        release_date: Some("2023-09-12T00:00:00Z".to_string()),
+                    },
+                    Inventory {
+                        id: "Installed-159-1.6.5__BIOS.Setup.1-1".to_string(),
+                        description: Some("Currently running BIOS firmware.".to_string()),
+                        version: Some("1.6.5".to_string()),
+                        release_date: Some("2023-09-12T00:00:00Z".to_string()),
+                    },
+                    Inventory {
+                        id: "Installed-110428-00.1D.9C__PSU.Slot.1".to_string(),
+                        description: Some("Some other firmware.".to_string()),
+                        version: Some("00.1D.9C".to_string()),
                         release_date: Some("2023-09-12T00:00:00Z".to_string()),
                     },
                 ],
             }],
-            machine_id: None,
+            machine_id: None, // Only DPU reports have a machine ID listed
+            versions: HashMap::default(),
         });
     }
 
@@ -517,7 +539,6 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
     let explored = DbExploredEndpoint::find_all(&mut txn).await.unwrap();
-    txn.commit().await?;
     assert_eq!(explored.len(), 3);
     let mut versions = Vec::new();
     for report in &explored {
@@ -585,6 +606,7 @@ async fn test_site_explorer(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         "1"
     );
 
+    txn.commit().await?;
     Ok(())
 }
 
@@ -721,6 +743,7 @@ async fn test_site_explorer_reexplore(
                         },
                     ],
                 }],
+                versions: HashMap::default(),
             }),
         );
         guard.insert(
@@ -747,6 +770,7 @@ async fn test_site_explorer_reexplore(
         explorer_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
     );
 
@@ -876,6 +900,7 @@ async fn test_site_explorer_creates_managed_host(
         explorer_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
     );
 
@@ -976,6 +1001,7 @@ async fn test_site_explorer_creates_managed_host(
                 },
             ],
         }],
+        versions: HashMap::default(),
     };
     dpu_report.generate_machine_id();
 
@@ -1121,10 +1147,9 @@ async fn test_site_explorer_creates_managed_host(
             .await?
     );
 
-    // Run ManagedHost state iteration
     let handler = MachineStateHandlerBuilder::builder()
         .dpu_up_threshold(chrono::Duration::minutes(1))
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
@@ -1326,6 +1351,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         explorer_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
     );
     let mut txn = env.pool.begin().await.unwrap();
@@ -1440,6 +1466,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                     },
                 ],
             }],
+            versions: HashMap::default(),
         };
         dpu_report.generate_machine_id();
         explored_dpus.push(ExploredDpu {
@@ -1708,6 +1735,7 @@ async fn test_site_explorer_clear_last_known_error(
                 },
             ],
         }],
+        versions: HashMap::default(),
     };
     dpu_report1.generate_machine_id();
 
@@ -1932,6 +1960,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
                 },
             ],
         }],
+        versions: HashMap::default(),
     };
     dpu_report.generate_machine_id();
 
@@ -1998,6 +2027,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         explorer_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
     );
 
@@ -2117,6 +2147,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
                 },
             ],
         }],
+        versions: HashMap::default(),
     };
     dpu_report.generate_machine_id();
     let dpu_machine_id = dpu_report.machine_id.clone().unwrap();
@@ -2184,6 +2215,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         explorer_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
     );
 
