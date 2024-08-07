@@ -449,7 +449,7 @@ async fn get_segments_by_ids(
         let request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
             network_segments_ids: Vec::from(segment_ids),
             include_history: segment_ids.len() == 1, // only request it when getting data for single resource
-            include_num_free_ips: segment_ids.len() == 1, // only request it when getting data for single resource
+            include_num_free_ips: true,
         });
         let segments = client
             .find_network_segments_by_ids(request)
