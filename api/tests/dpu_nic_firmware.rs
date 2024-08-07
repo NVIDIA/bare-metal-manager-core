@@ -19,7 +19,6 @@ use common::api_fixtures::{
     create_test_env, dpu::create_dpu_machine, host::create_host_machine,
     managed_host::create_managed_host_multi_dpu,
 };
-use rpc::common::MachineIdList;
 use rpc::forge::forge_server::Forge;
 use sqlx::Row;
 
@@ -97,8 +96,9 @@ async fn test_start_updates_with_multidpu(
     let rpc_host_id: rpc::MachineId = host_machine_id.to_string().into();
     let host = env
         .api
-        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![rpc_host_id.clone()],
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -170,8 +170,9 @@ async fn test_start_updates_with_multidpu_disabled(
 
     let host = env
         .api
-        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![rpc_host_id.clone()],
+            ..Default::default()
         }))
         .await
         .unwrap()

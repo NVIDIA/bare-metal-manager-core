@@ -1301,8 +1301,9 @@ pub async fn get_machines_by_ids(
     machine_ids: &[::rpc::common::MachineId],
 ) -> CarbideCliResult<rpc::MachineList> {
     with_forge_client(api_config, |mut client| async move {
-        let request = tonic::Request::new(::rpc::common::MachineIdList {
+        let request = tonic::Request::new(::rpc::forge::MachinesByIdsRequest {
             machine_ids: Vec::from(machine_ids),
+            ..Default::default()
         });
         let machine_details = client
             .find_machines_by_ids(request)

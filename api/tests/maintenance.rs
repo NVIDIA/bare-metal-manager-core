@@ -10,8 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+use rpc::forge as rpcf;
 use rpc::forge::forge_server::Forge;
-use rpc::{common::MachineIdList, forge as rpcf};
 use std::collections::HashSet;
 
 mod common;
@@ -153,8 +153,9 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
 
     let host = env
         .api
-        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![rpc_host_id.clone()],
+            ..Default::default()
         }))
         .await
         .unwrap()

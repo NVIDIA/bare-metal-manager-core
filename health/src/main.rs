@@ -163,8 +163,9 @@ pub async fn get_machines(
         machines: Vec::with_capacity(machine_ids.machine_ids.len()),
     };
     for ids_chunk in machine_ids.machine_ids.chunks(100) {
-        let request = tonic::Request::new(::rpc::common::MachineIdList {
+        let request = tonic::Request::new(::rpc::forge::MachinesByIdsRequest {
             machine_ids: Vec::from(ids_chunk),
+            ..Default::default()
         });
         let machines = client
             .find_machines_by_ids(request)

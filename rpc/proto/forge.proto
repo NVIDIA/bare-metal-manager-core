@@ -120,7 +120,7 @@ service Forge {
   rpc DeleteInterface(InterfaceDeleteQuery) returns (google.protobuf.Empty);
   rpc FindIpAddress(FindIpAddressRequest) returns (FindIpAddressResponse);
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
-  rpc FindMachinesByIds(common.MachineIdList) returns (MachineList);
+  rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
   rpc FindMachineIdsByBmcIps(BmcIpList) returns (MachineIdBmcIpPairs);
   rpc IdentifyUuid(IdentifyUuidRequest) returns (IdentifyUuidResponse);
@@ -1347,6 +1347,11 @@ message InstanceReleaseRequest {
 }
 
 message InstanceReleaseResult {
+}
+
+message MachinesByIdsRequest {
+  repeated common.MachineId machine_ids = 1;
+  bool include_history = 2;
 }
 
 message MachineSearchConfig {

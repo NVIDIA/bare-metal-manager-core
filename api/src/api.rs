@@ -984,9 +984,10 @@ impl Forge for Api {
 
     async fn find_machines_by_ids(
         &self,
-        request: Request<::rpc::common::MachineIdList>,
+        request: Request<::rpc::forge::MachinesByIdsRequest>,
     ) -> Result<Response<::rpc::MachineList>, Status> {
         log_request_data(&request);
+        let request = request.into_inner();
         let mut txn = self.database_connection.begin().await.map_err(|e| {
             CarbideError::from(DatabaseError::new(
                 file!(),
@@ -997,11 +998,11 @@ impl Forge for Api {
         })?;
         let search_config = MachineSearchConfig {
             include_associated_machine_id: true,
+            include_history: request.include_history,
             ..Default::default()
         };
 
         let machine_ids: Result<Vec<MachineId>, CarbideError> = request
-            .into_inner()
             .machine_ids
             .iter()
             .map(|id| {

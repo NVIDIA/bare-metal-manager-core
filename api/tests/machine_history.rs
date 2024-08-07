@@ -60,7 +60,6 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Check that RPC APIs returns the History if asked for
     // - GetMachine always returns history
     // - FindMachines and FindMachinesById should do so if asked for it
-    //   TODO: Check FindMachinesById history once supported
     let rpc_dpu_machine = env
         .api
         .get_machine(tonic::Request::new(dpu_machine_id.to_string().into()))
@@ -85,6 +84,22 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 include_associated_machine_id: false,
                 exclude_hosts: false,
             }),
+        }))
+        .await?
+        .into_inner()
+        .machines
+        .remove(0);
+    let rpc_history: Vec<String> = rpc_dpu_machine
+        .events
+        .into_iter()
+        .map(|ev| ev.event)
+        .collect();
+    assert_eq!(rpc_history[0..8].to_vec(), expected_initial_dpu_states);
+    let rpc_dpu_machine = env
+        .api
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![dpu_machine_id.to_string().into()],
+            include_history: true,
         }))
         .await?
         .into_inner()
@@ -128,6 +143,22 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 include_associated_machine_id: false,
                 exclude_hosts: false,
             }),
+        }))
+        .await?
+        .into_inner()
+        .machines
+        .remove(0);
+    let rpc_history: Vec<String> = rpc_host_machine
+        .events
+        .into_iter()
+        .map(|ev| ev.event)
+        .collect();
+    assert_eq!(rpc_history[0..4].to_vec(), expected_initial_host_states);
+    let rpc_host_machine = env
+        .api
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![host_machine_id.to_string().into()],
+            include_history: true,
         }))
         .await?
         .into_inner()

@@ -16,7 +16,7 @@ use ::rpc::forge::{
     DpuNetworkStatus, ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
     NetworkHealth,
 };
-use rpc::{common::MachineIdList, forge::forge_server::Forge};
+use rpc::forge::forge_server::Forge;
 
 pub mod common;
 use common::api_fixtures::{
@@ -52,8 +52,9 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
     let managed_host_id = api_fixtures::managed_host::create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(MachineIdList {
+        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
             machine_ids: vec![managed_host_id.to_string().into()],
+            ..Default::default()
         }))
         .await
         .unwrap()
