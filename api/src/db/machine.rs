@@ -521,18 +521,6 @@ impl Machine {
         self.network_status_observation.as_ref()
     }
 
-    /// Is the HBN on this machine's DPU healthy and working?
-    /// Only for DPU machines.
-    pub fn has_healthy_network(&self) -> Result<bool, eyre::Report> {
-        if !self.is_dpu() {
-            eyre::bail!("has_healthy_network can only be called on a DPU");
-        }
-        Ok(match &self.network_status_observation {
-            None => false,
-            Some(obs) => obs.health_status.is_healthy,
-        })
-    }
-
     pub fn loopback_ip(&self) -> Option<Ipv4Addr> {
         self.network_config().loopback_ip
     }

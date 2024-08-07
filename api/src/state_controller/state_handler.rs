@@ -158,6 +158,9 @@ pub enum StateHandlerError {
 
     #[error("Dpu: {0} is missing from states.")]
     MissingDpuFromState(MachineId),
+
+    #[error("State will not be advanced due to health probe alert")]
+    HealthProbeAlert,
 }
 
 impl StateHandlerError {
@@ -186,6 +189,7 @@ impl StateHandlerError {
             },
             StateHandlerError::ManualInterventionRequired(_) => "manual_intervention_required",
             StateHandlerError::MissingDpuFromState(_) => "missing_dpu_from_managedhost_state",
+            StateHandlerError::HealthProbeAlert => "health_probe_alert",
         }
     }
 }
