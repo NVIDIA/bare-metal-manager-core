@@ -23,6 +23,7 @@ use crate::{
         dhcp_record::{DhcpRecord, InstanceDhcpRecord},
         instance::Instance,
         machine::Machine,
+        managed_host::LoadSnapshotOptions,
         DatabaseError,
     },
     dhcp::allocation::DhcpError,
@@ -38,13 +39,20 @@ async fn validate_dhcp_request(
     remote_id: Option<String>,
     host_machine_id: &MachineId,
 ) -> CarbideResult<()> {
-    let snapshot = db::managed_host::load_snapshot(txn, host_machine_id)
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "machine",
-            id: host_machine_id.to_string(),
-        })?;
+    let snapshot = db::managed_host::load_snapshot(
+        txn,
+        host_machine_id,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: host_machine_id.to_string(),
+    })?;
 
     let Some(remote_id) = remote_id else {
         tracing::error!(

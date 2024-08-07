@@ -84,6 +84,31 @@ impl ManagedHostStateSnapshot {
         aggregate_health.observed_at = Some(chrono::Utc::now());
         self.aggregate_health = aggregate_health;
     }
+
+    /// Creates an RPC Machine representation for either the Host or one of the DPUs
+    pub fn rpc_machine_state(
+        &self,
+        dpu_machine_id: Option<&MachineId>,
+    ) -> Option<rpc::forge::Machine> {
+        match dpu_machine_id {
+            None => {
+                let mut rpc_machine: rpc::forge::Machine = self.host_snapshot.clone().into();
+                rpc_machine.health = Some(self.aggregate_health.clone().into());
+                Some(rpc_machine)
+            }
+            Some(dpu_machine_id) => {
+                let dpu_snapshot = self
+                    .dpu_snapshots
+                    .iter()
+                    .find(|dpu| dpu.machine_id == *dpu_machine_id)?;
+                let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
+                // In case the DPU does not know the associated Host - we can backfill the data here
+                rpc_machine.associated_host_machine_id =
+                    Some(self.host_snapshot.machine_id.to_string().into());
+                Some(rpc_machine)
+            }
+        }
+    }
 }
 
 impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {

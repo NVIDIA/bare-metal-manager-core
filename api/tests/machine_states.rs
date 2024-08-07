@@ -745,7 +745,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
+    let snapshot = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
         .await
         .unwrap()
         .unwrap();
@@ -762,7 +762,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
 
-    let snapshot1 = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
+    let snapshot1 = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
         .await
         .unwrap()
         .unwrap();
@@ -794,7 +794,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot2 = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
+    let snapshot2 = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
         .await
         .unwrap()
         .unwrap();
@@ -826,7 +826,7 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let snapshot3 = db::managed_host::load_snapshot(&mut txn, &host_machine_id)
+    let snapshot3 = db::managed_host::load_snapshot(&mut txn, &host_machine_id, Default::default())
         .await
         .unwrap()
         .unwrap();

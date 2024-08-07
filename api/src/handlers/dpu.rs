@@ -65,7 +65,7 @@ pub(crate) async fn get_managed_host_network_config(
         ))
     })?;
 
-    let snapshot = db::managed_host::load_snapshot(&mut txn, &dpu_machine_id)
+    let snapshot = db::managed_host::load_snapshot(&mut txn, &dpu_machine_id, Default::default())
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {

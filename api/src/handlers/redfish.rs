@@ -6,7 +6,7 @@ use tonic::{Response, Status};
 
 use crate::{
     api::{log_machine_id, log_request_data, Api},
-    db::{self, DatabaseError},
+    db::{self, managed_host::LoadSnapshotOptions, DatabaseError},
     model::machine::machine_id::{try_parse_machine_id, MachineId},
     redfish::RedfishAuth,
     CarbideError,
@@ -18,13 +18,20 @@ async fn get_redfish_client(
     machine_id: &MachineId,
 ) -> Result<Box<dyn Redfish>, CarbideError> {
     log_machine_id(machine_id);
-    let snapshot = db::managed_host::load_snapshot(txn, machine_id)
-        .await
-        .map_err(CarbideError::from)?
-        .ok_or(CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
+    let snapshot = db::managed_host::load_snapshot(
+        txn,
+        machine_id,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+        },
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
 
     let bmc_ip =
         snapshot

@@ -45,6 +45,7 @@ use crate::db::explored_endpoints::DbExploredEndpoint;
 use crate::db::ib_partition::{IBPartition, IBPartitionId};
 use crate::db::machine::{MachineSearchConfig, MaintenanceMode};
 use crate::db::machine_interface::MachineInterfaceId;
+use crate::db::managed_host::LoadSnapshotOptions;
 use crate::db::network_devices::NetworkDeviceSearchConfig;
 use crate::dynamic_settings;
 use crate::handlers::machine_validation::{
@@ -918,21 +919,39 @@ impl Forge for Api {
 
         let machine_id = try_parse_machine_id(&request.into_inner()).map_err(CarbideError::from)?;
         log_machine_id(&machine_id);
-        let (machine, _) = self
-            .load_machine(
-                &machine_id,
-                MachineSearchConfig {
-                    include_dpus: false,
-                    include_history: true,
-                    include_predicted_host: false,
-                    only_maintenance: false,
-                    include_associated_machine_id: true,
-                    exclude_hosts: false,
-                },
-            )
-            .await?;
 
-        Ok(Response::new(rpc::Machine::from(machine)))
+        let mut txn = self.database_connection.begin().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(file!(), line!(), "begin get_machine", e))
+        })?;
+        let snapshot = db::managed_host::load_snapshot(
+            &mut txn,
+            &machine_id,
+            LoadSnapshotOptions {
+                include_history: true,
+                include_instance_data: false,
+            },
+        )
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
+
+        txn.commit().await.map_err(|e| {
+            CarbideError::from(DatabaseError::new(file!(), line!(), "end get_machine", e))
+        })?;
+
+        let rpc_machine = snapshot
+            .rpc_machine_state(match machine_id.machine_type().is_dpu() {
+                true => Some(&machine_id),
+                false => None,
+            })
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
+        Ok(Response::new(rpc_machine))
     }
 
     async fn find_machine_ids(
@@ -2828,13 +2847,20 @@ impl Forge for Api {
             ));
         }
 
-        let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            })?;
+        let snapshot = db::managed_host::load_snapshot(
+            &mut txn,
+            &machine_id,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+            },
+        )
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
 
         let redfish_client = self
             .redfish_pool
@@ -2885,13 +2911,20 @@ impl Forge for Api {
             ));
         }
 
-        let snapshot = db::managed_host::load_snapshot(&mut txn, &machine_id)
-            .await
-            .map_err(CarbideError::from)?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            })?;
+        let snapshot = db::managed_host::load_snapshot(
+            &mut txn,
+            &machine_id,
+            LoadSnapshotOptions {
+                include_history: false,
+                include_instance_data: false,
+            },
+        )
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
 
         let redfish_client = crate::redfish::build_redfish_client_from_bmc_ip(
             snapshot.host_snapshot.bmc_addr(),
