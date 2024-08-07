@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{bmc_info::BmcInfo, hardware_info::DpuData};
 use crate::{
-    cfg::{DpuModel, FirmwareComponentType},
+    cfg::{DpuModel, Firmware, FirmwareComponentType},
     model::{
         hardware_info::{DmiData, HardwareInfo},
         machine::machine_id::MachineId,
@@ -28,7 +28,7 @@ use crate::{
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
 /// only be adjusted in a backward compatible fashion.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "PascalCase")]
 pub struct EndpointExplorationReport {
     /// The type of the endpoint
@@ -54,6 +54,9 @@ pub struct EndpointExplorationReport {
     /// available to calculate the `MachineId`, this field contains the `MachineId`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<MachineId>,
+    /// Parsed versions
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub versions: HashMap<FirmwareComponentType, String>,
 }
 
 impl EndpointExplorationReport {
@@ -63,6 +66,30 @@ impl EndpointExplorationReport {
         }
 
         false
+    }
+
+    /// model does a best effort to find a model name within the report
+    pub fn model(&self) -> Option<String> {
+        // Prefer Systems, not Chassis; at least for Lenovo, Chassis has what is more of a SKU instead of the actual model name.
+        let system_with_model = self.systems.iter().find(|&x| x.model.is_some());
+        Some(match system_with_model {
+            Some(chassis) => match &chassis.model {
+                Some(model) => model.to_owned(),
+                None => {
+                    return None;
+                }
+            },
+            None if self.is_dpu() => self
+                .identify_dpu()
+                .map(|d| d.to_string())
+                .unwrap_or("unknown model".to_string()),
+            None => match self.chassis.iter().find(|&x| x.model.is_some()) {
+                Some(chassis) => chassis.model.as_ref().unwrap().to_string(),
+                None => {
+                    return None;
+                }
+            },
+        })
     }
 }
 
@@ -110,6 +137,29 @@ impl Display for ExploredEndpoint {
 impl ExploredEndpoint {
     pub fn cannot_login(&self) -> bool {
         self.report.cannot_login()
+    }
+
+    /// find_version will locate a version number within an ExploredEndpoint
+    pub fn find_version(
+        &self,
+        fw_info: &Firmware,
+        firmware_type: FirmwareComponentType,
+    ) -> Option<String> {
+        for service in self.report.service.iter() {
+            if let Some(matching_inventory) = service
+                .inventories
+                .iter()
+                .find(|&x| fw_info.matching_version_id(&x.id, firmware_type))
+            {
+                tracing::debug!(
+                    "find_version {}: For {firmware_type:?} found {:?}",
+                    self.address,
+                    matching_inventory.version
+                );
+                return matching_inventory.version.clone();
+            };
+        }
+        None
     }
 }
 
@@ -435,6 +485,7 @@ impl EndpointExplorationReport {
             service: Vec::new(),
             vendor: None,
             machine_id: None,
+            versions: HashMap::default(),
         }
     }
 
@@ -551,6 +602,7 @@ impl EndpointExplorationReport {
             FirmwareComponentType::Uefi => self.dpu_uefi_version(),
             FirmwareComponentType::Cec => None,
             FirmwareComponentType::Bfb => None,
+            FirmwareComponentType::Unknown => None,
         }
     }
 
@@ -570,6 +622,14 @@ impl EndpointExplorationReport {
         self.get_inventory_map()
             .get("DPU_UEFI")
             .and_then(|value| value.version.clone())
+    }
+
+    pub fn parse_versions(&mut self, fw_info: &Firmware) {
+        for fwtype in fw_info.components.keys() {
+            if let Some(current) = fw_info.find_version(self, *fwtype) {
+                self.versions.insert(*fwtype, current);
+            }
+        }
     }
 }
 
@@ -629,7 +689,7 @@ impl EndpointExplorationError {
 }
 
 /// The type of the endpoint
-#[derive(Copy, Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "PascalCase")]
 pub enum EndpointType {
     Bmc,
@@ -997,6 +1057,7 @@ mod tests {
                 },
             ],
             machine_id: None,
+            versions: HashMap::default(),
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1046,6 +1107,7 @@ mod tests {
                 },
             ],
             machine_id: None,
+            versions: HashMap::default(),
         };
         report.generate_machine_id();
 

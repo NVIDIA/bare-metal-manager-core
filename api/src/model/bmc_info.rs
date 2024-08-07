@@ -1,8 +1,10 @@
 use ::rpc::forge as rpc;
 
+use eyre::{eyre, Report};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
+use std::net::IpAddr;
 
 // TODO(chet): Once SocketAddr::parse_ascii is no longer an experimental
 // feature, it would be good to parse bmc_info.ip to verify it's a valid IP
@@ -36,6 +38,18 @@ impl From<rpc::BmcInfo> for BmcInfo {
             version: value.version,
             firmware_version: value.firmware_version,
         }
+    }
+}
+
+impl BmcInfo {
+    pub fn ip_addr(&self) -> Result<IpAddr, Report> {
+        self.ip
+            .as_ref()
+            .ok_or(eyre! {"Missing BMC address"})?
+            .parse()
+            .map_err(|e| {
+                eyre! {"Bad address {:?} {e}", self.ip }
+            })
     }
 }
 

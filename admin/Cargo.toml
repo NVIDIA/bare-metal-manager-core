@@ -16,6 +16,7 @@ clap = { workspace = true }
 clap_complete = "*"
 color-eyre = "*"
 eyre = "*"
+figment = { version = "0.10.10", features = ["env", "toml"] }
 http = "0.2"
 libredfish = { workspace = true }
 prettytable-rs = "^0.10"

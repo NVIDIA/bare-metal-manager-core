@@ -32,42 +32,6 @@ pub struct DpuNicFirmwareUpdate {
 
 #[async_trait]
 impl MachineUpdateModule for DpuNicFirmwareUpdate {
-    fn new(config: Arc<CarbideConfig>, meter: opentelemetry::metrics::Meter) -> Option<Self>
-    where
-        Self: Sized,
-    {
-        if !config.dpu_nic_firmware_reprovision_update_enabled {
-            return None;
-        }
-
-        if let Some(expected_dpu_firmware_version) = config.dpu_nic_firmware_update_version.as_ref()
-        {
-            let metrics = Arc::new(Mutex::new(DpuNicFirmwareUpdateMetrics::new(meter.clone())));
-            let metrics_clone = metrics.clone();
-            if let Ok(locked_metrics) = metrics.lock() {
-                if let Err(e) =
-                    meter.register_callback(&locked_metrics.instruments(), move |observer| {
-                        if let Ok(mut locked_metrics_clone) = metrics_clone.lock() {
-                            locked_metrics_clone.observe(observer);
-                        }
-                    })
-                {
-                    tracing::warn!(
-                        "Failed to register metrics callback for DpuNicFirmwareUpdate: {}",
-                        e
-                    );
-                }
-            }
-
-            Some(DpuNicFirmwareUpdate {
-                expected_dpu_firmware_versions: expected_dpu_firmware_version.clone(),
-                metrics: Some(metrics),
-            })
-        } else {
-            None
-        }
-    }
-
     async fn get_updates_in_progress(
         &self,
         txn: &mut Transaction<'_, Postgres>,
@@ -242,6 +206,39 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
 }
 
 impl DpuNicFirmwareUpdate {
+    pub fn new(config: Arc<CarbideConfig>, meter: opentelemetry::metrics::Meter) -> Option<Self> {
+        if !config.dpu_nic_firmware_reprovision_update_enabled {
+            return None;
+        }
+
+        if let Some(expected_dpu_firmware_version) = config.dpu_nic_firmware_update_version.as_ref()
+        {
+            let metrics = Arc::new(Mutex::new(DpuNicFirmwareUpdateMetrics::new(meter.clone())));
+            let metrics_clone = metrics.clone();
+            if let Ok(locked_metrics) = metrics.lock() {
+                if let Err(e) =
+                    meter.register_callback(&locked_metrics.instruments(), move |observer| {
+                        if let Ok(mut locked_metrics_clone) = metrics_clone.lock() {
+                            locked_metrics_clone.observe(observer);
+                        }
+                    })
+                {
+                    tracing::warn!(
+                        "Failed to register metrics callback for DpuNicFirmwareUpdate: {}",
+                        e
+                    );
+                }
+            }
+
+            Some(DpuNicFirmwareUpdate {
+                expected_dpu_firmware_versions: expected_dpu_firmware_version.clone(),
+                metrics: Some(metrics),
+            })
+        } else {
+            None
+        }
+    }
+
     pub async fn check_for_updates(
         &self,
         txn: &mut Transaction<'_, Postgres>,

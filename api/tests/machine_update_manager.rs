@@ -49,10 +49,6 @@ struct TestUpdateModule {
 
 #[async_trait]
 impl MachineUpdateModule for TestUpdateModule {
-    fn new(_config: Arc<CarbideConfig>, _meter: opentelemetry::metrics::Meter) -> Option<Self> {
-        None
-    }
-
     async fn get_updates_in_progress(
         &self,
         _txn: &mut Transaction<'_, Postgres>,

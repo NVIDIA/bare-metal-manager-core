@@ -26,12 +26,15 @@ use super::{
     bmc_info::BmcInfo, controller_outcome::PersistentStateHandlerOutcome,
     hardware_info::MachineInventory, instance::snapshot::InstanceSnapshot, RpcDataConversionError,
 };
-use crate::cfg::FirmwareComponentType;
-use crate::db::domain::DomainId;
-use crate::db::machine_interface::MachineInterfaceId;
-use crate::db::network_segment::NetworkSegmentId;
-use crate::state_controller::state_handler::StateHandlerError;
-use crate::{model::hardware_info::HardwareInfo, CarbideError};
+use crate::{
+    cfg::FirmwareComponentType,
+    db::{
+        domain::DomainId, machine_interface::MachineInterfaceId, network_segment::NetworkSegmentId,
+    },
+    model::hardware_info::HardwareInfo,
+    state_controller::state_handler::StateHandlerError,
+    CarbideError,
+};
 
 pub mod machine_id;
 pub mod network;
@@ -164,9 +167,9 @@ pub struct MachineSnapshot {
     pub machine_id: MachineId,
     /// Hardware Information that was discovered about this Machine
     pub hardware_info: Option<HardwareInfo>,
-    /// Inventory related to a machine.
+    /// Inventory related to a DPU machine.
     /// Software and versions installed on the machine.
-    pub inventory: MachineInventory,
+    pub agent_reported_inventory: MachineInventory,
     /// The desired network configuration for this machine
     /// Includes the loopback_ip address. Do not query that
     /// directly, use `.loopback_ip()` instead.
@@ -198,6 +201,7 @@ pub struct MachineSnapshot {
     pub failure_details: FailureDetails,
     /// Reprovisioning is needed?
     pub reprovision_requested: Option<ReprovisionRequest>,
+    pub host_reprovision_requested: Option<HostReprovisionRequest>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     /// Last host validation finished.
     pub last_machine_validation_time: Option<DateTime<Utc>>,
@@ -332,7 +336,7 @@ impl From<MachineSnapshot> for rpc::forge::Machine {
                 .associated_dpu_machine_ids
                 .first()
                 .map(|id| id.to_string().into()),
-            inventory: Some(machine.inventory.clone().into()),
+            inventory: Some(machine.agent_reported_inventory.clone().into()),
             last_reboot_requested_time: machine
                 .last_reboot_requested
                 .as_ref()
@@ -411,6 +415,11 @@ pub enum ManagedHostState {
 
     /// State used to indicate that DPU reprovisioning is going on.
     DPUReprovision { dpu_states: DpuReprovisionStates },
+
+    /// State used to indicate that host reprovisioning is going on
+    HostReprovision {
+        reprovision_state: HostReprovisionState,
+    },
 
     /// State used to indicate the API is currently waiting on the
     /// machine to send attestation measurements, or waiting for
@@ -595,6 +604,28 @@ pub enum MeasuringState {
     /// interaction or trusted approval automation), or by
     /// manually creating a new bundle.
     PendingBundle,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum HostReprovisionState {
+    CheckingFirmware,
+    WaitingForFirmwareUpgrade {
+        task_id: String,
+        final_version: String,
+        firmware_type: FirmwareComponentType,
+    },
+    ResetForNewFirmware {
+        final_version: String,
+        firmware_type: FirmwareComponentType,
+    },
+    NewFirmwareReportedWait {
+        final_version: String,
+        firmware_type: FirmwareComponentType,
+    },
+    FailedFirmwareUpgrade {
+        firmware_type: FirmwareComponentType,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -880,7 +911,7 @@ pub struct RetryInfo {
     pub count: u64,
 }
 
-/// Possible Instance state-machine implementation
+/// Possible Instance state-machine implementation, for when the machine host is assigned to a tenant
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum InstanceState {
@@ -910,6 +941,12 @@ pub struct ReprovisionRequest {
     pub user_approval_received: bool,
     #[serde(default)]
     pub restart_reprovision_requested_at: DateTime<Utc>,
+}
+
+/// Struct to store information if host reprovision is requested.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostReprovisionRequest {
+    pub requested_at: DateTime<Utc>,
 }
 
 /// Should a forge-dpu-agent upgrade itself?
@@ -1003,6 +1040,12 @@ impl Display for ReprovisionState {
     }
 }
 
+impl Display for HostReprovisionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
 impl Display for MeasuringState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
@@ -1037,6 +1080,9 @@ impl Display for ManagedHostState {
             }
             ManagedHostState::DPUReprovision { .. } => {
                 write!(f, "Reprovisioning")
+            }
+            ManagedHostState::HostReprovision { reprovision_state } => {
+                write!(f, "HostReprovisioning/{}", reprovision_state)
             }
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{}", measuring_state)
@@ -1095,6 +1141,9 @@ impl ManagedHostState {
                         .map(|x| x.to_string())
                         .unwrap_or("Unknown DPU".to_string())
                 )
+            }
+            ManagedHostState::HostReprovision { reprovision_state } => {
+                format!("HostReprovisioning/{}", reprovision_state)
             }
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{}", measuring_state)

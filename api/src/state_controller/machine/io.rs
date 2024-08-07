@@ -203,6 +203,7 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::ForceDeletion => ("forcedeletion", ""),
             ManagedHostState::Failed { .. } => ("failed", ""),
             ManagedHostState::DPUReprovision { .. } => ("reprovisioning", ""),
+            ManagedHostState::HostReprovision { .. } => ("hostreprovisioning", ""),
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }
@@ -273,6 +274,11 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::Failed { .. } => true,
             ManagedHostState::DPUReprovision { .. } => {
                 time_in_state > std::time::Duration::from_secs(30 * 60)
+            }
+            ManagedHostState::HostReprovision { .. } => {
+                // Multiple types of firmware may need to be updated, and in some cases it can take a while.
+                // This SHOULD be enough based on current observed behavior, but may need to be extended.
+                time_in_state > std::time::Duration::from_secs(40 * 60)
             }
             ManagedHostState::Measuring { measuring_state } => match measuring_state {
                 // The API shouldn't be waiting for measurements for long. As soon

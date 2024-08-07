@@ -36,6 +36,7 @@ use crate::{
     cfg::CarbideConfig,
     db::DatabaseError,
     db_init, ethernet_virtualization,
+    firmware_downloader::FirmwareDownloader,
     ib::{self, IBFabricManager},
     ib_fabric_monitor::IbFabricMonitor,
     ipmitool::{IPMITool, IPMIToolImpl, IPMIToolTestImpl},
@@ -55,7 +56,10 @@ use crate::{
         },
     },
 };
-use tokio::sync::oneshot::{Receiver, Sender};
+use tokio::sync::{
+    oneshot::{Receiver, Sender},
+    Semaphore,
+};
 
 pub fn parse_carbide_config(
     config_str: String,
@@ -71,6 +75,13 @@ pub fn parse_carbide_config(
         .extract()
         .wrap_err("Failed to load configuration files")?;
 
+    for (label, _) in config
+        .host_models
+        .iter()
+        .filter(|(_, host)| host.vendor == bmc_vendor::BMCVendor::Unknown)
+    {
+        tracing::error!("Host firmware configuration has invalid vendor for {label}")
+    }
     Ok(Arc::new(config))
 }
 
@@ -314,6 +325,8 @@ pub async fn start_api(
     )
     .await?;
 
+    let downloader = FirmwareDownloader::new();
+    let upload_limiter = Arc::new(Semaphore::new(carbide_config.firmware_global.max_uploads));
     // This can take couple of seconds to migrate, by this time machine state controller will throw
     // error. Ignore it.
     // This can be removed once all environments are updated to new states.
@@ -337,8 +350,10 @@ pub async fn start_api(
                 .dpu_wait_time(carbide_config.machine_state_controller.dpu_wait_time)
                 .power_down_wait(carbide_config.machine_state_controller.power_down_wait)
                 .failure_retry_time(carbide_config.machine_state_controller.failure_retry_time)
-                .hardware_models(carbide_config.get_parsed_hosts())
+                .hardware_models(carbide_config.get_firmware_config())
+                .firmware_downloader(&downloader)
                 .attestation_enabled(carbide_config.attestation_enabled)
+                .upload_limiter(upload_limiter.clone())
                 .build(),
         ))
         .ipmi_tool(ipmi_tool.clone())
@@ -396,6 +411,7 @@ pub async fn start_api(
             shared_redfish_pool.clone(),
             vault_client.clone(),
         )),
+        Arc::new(carbide_config.get_firmware_config()),
         common_pools.clone(),
     );
     let _site_explorer_stop_handle = site_explorer.start()?;
@@ -409,6 +425,8 @@ pub async fn start_api(
         carbide_config.clone(),
         shared_redfish_pool.clone(),
         meter.clone(),
+        Some(downloader.clone()),
+        Some(upload_limiter),
     );
     let _preingestion_manager_stop_handle = preingestion_manager.start()?;
 

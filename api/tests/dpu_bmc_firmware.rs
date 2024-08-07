@@ -70,6 +70,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         explorer_config,
         test_meter.meter(),
         endpoint_explorer.clone(),
+        Arc::new(env.config.get_firmware_config()),
         env.common_pools.clone(),
     );
 
@@ -177,6 +178,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
                 },
             ],
         }],
+        versions: HashMap::default(),
     };
     dpu_report.generate_machine_id();
 
@@ -259,7 +261,7 @@ async fn test_bmc_fw_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let handler = MachineStateHandlerBuilder::builder()
         .dpu_up_threshold(chrono::Duration::minutes(1))
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();

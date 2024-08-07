@@ -164,9 +164,9 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     // let state machine check the failure condition.
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
+        .hardware_models(env.config.get_firmware_config())
         .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -211,9 +211,9 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
 
     // let state machine check the failure condition.
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
+        .hardware_models(env.config.get_firmware_config())
         .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -285,7 +285,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     // Tell state handler to mark DPU as unhealthy after 1 second
     let handler = MachineStateHandlerBuilder::builder()
         .dpu_up_threshold(chrono::Duration::seconds(1))
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
@@ -332,9 +332,9 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     // let state machine check the failure condition.
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
+        .hardware_models(env.config.get_firmware_config())
         .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;
@@ -604,9 +604,9 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     let _ = forge_agent_control(&env, dpu_machine_id.to_string().into()).await;
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
+        .hardware_models(env.config.get_firmware_config())
         .build();
 
     // Now we're stuck waiting for DPU agent to run
@@ -648,9 +648,9 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     let (host_machine_id, _dpu_machine_id) = common::api_fixtures::create_managed_host(&env).await;
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
+        .hardware_models(env.config.get_firmware_config())
         .build();
     env.run_machine_state_controller_iteration(handler.clone())
         .await;

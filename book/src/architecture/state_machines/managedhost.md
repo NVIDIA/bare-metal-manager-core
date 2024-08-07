@@ -74,4 +74,19 @@ if_state --> DpuDiscoveringState: True
   Ready             --> Failed         : On Failure
   Assigned          --> Failed         : On Failure
   WaitingForCleanup --> Failed         : On Failure
+
+  state HostReprovision {
+    [*] --> HostReprovision_CheckingFirmware
+    HostReprovision_CheckingFirmware --> HostReprovision_WaitingForFirmwareUpgrade
+
+   %%
+    HostReprovision_WaitingForFirmwareUpgrade --> HostReprovision_ResetForNewFirmware
+    HostReprovision_ResetForNewFirmware --> HostReprovision_NewFirmwareReportedWait
+    HostReprovision_NewFirmwareReportedWait --> HostReprovision_FailedFirmwareUpgrade
+    HostReprovision_NewFirmwareReportedWait --> HostReprovision_CheckingFirmware
+    HostReprovision_FailedFirmwareUpgrade
+  }
+  Ready --> HostReprovision
+  HostReprovision_CheckingFirmware --> WaitingForLockdown
+  HostReprovision_CheckingFirmware --> Ready
 ```

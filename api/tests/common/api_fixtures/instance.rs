@@ -202,7 +202,7 @@ pub async fn advance_created_instance_into_ready_state(
     instance_id: InstanceId,
 ) -> rpc::Instance {
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();
@@ -276,7 +276,7 @@ pub async fn delete_instance(
     );
 
     let handler = MachineStateHandlerBuilder::builder()
-        .hardware_models(env.config.get_parsed_hosts())
+        .hardware_models(env.config.get_firmware_config())
         .reachability_params(env.reachability_params)
         .attestation_enabled(env.attestation_enabled)
         .build();

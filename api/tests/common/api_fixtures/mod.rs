@@ -220,6 +220,7 @@ impl TestEnv {
             },
             ManagedHostState::DPUReprovision { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
+            ManagedHostState::HostReprovision { .. } => state.clone(),
         }
     }
 
@@ -402,7 +403,7 @@ impl TestEnv {
 
 fn dpu_fw_example() -> Firmware {
     Firmware {
-        vendor: "Nvidia".to_string(),
+        vendor: bmc_vendor::BMCVendor::Nvidia,
         model: "Bluefield 3 SmartNIC Main Card".to_string(),
         components: HashMap::from([(
             FirmwareComponentType::Bmc,
@@ -425,17 +426,17 @@ fn dpu_fw_example() -> Firmware {
 
 fn host_firmware_example() -> Firmware {
     Firmware {
-        vendor: "dell".to_string(),
-        model: "R750".to_string(),
+        vendor: bmc_vendor::BMCVendor::Dell,
+        model: "PowerEdge R750".to_string(),
         components: HashMap::from([
             (
                 FirmwareComponentType::Bmc,
                 FirmwareComponent {
-                    current_version_reported_as: Some(Regex::new("^idrac").unwrap()),
-                    preingest_upgrade_when_below: Some("0.5".to_string()),
+                    current_version_reported_as: Some(Regex::new("^Installed-.*__iDRAC.").unwrap()),
+                    preingest_upgrade_when_below: Some("5".to_string()),
                     known_firmware: vec![
                         FirmwareEntry {
-                            version: "1.1".to_string(),
+                            version: "6.1".to_string(),
                             default: false,
                             filename: Some("/dev/null".to_string()),
                             url: Some("file://dev/null".to_string()),
@@ -443,7 +444,7 @@ fn host_firmware_example() -> Firmware {
                             mandatory_upgrade_from_priority: None,
                         },
                         FirmwareEntry {
-                            version: "1.0".to_string(),
+                            version: "6.00.30.00".to_string(),
                             default: true,
                             filename: Some("/dev/null".to_string()),
                             url: Some("file://dev/null".to_string()),
@@ -451,7 +452,7 @@ fn host_firmware_example() -> Firmware {
                             mandatory_upgrade_from_priority: None,
                         },
                         FirmwareEntry {
-                            version: "0.9".to_string(),
+                            version: "5".to_string(),
                             default: false,
                             filename: Some("/dev/null".to_string()),
                             url: Some("file://dev/null".to_string()),
@@ -464,9 +465,18 @@ fn host_firmware_example() -> Firmware {
             (
                 FirmwareComponentType::Uefi,
                 FirmwareComponent {
-                    current_version_reported_as: Some(Regex::new("^bios").unwrap()),
-                    preingest_upgrade_when_below: Some("0.5".to_string()),
-                    known_firmware: vec![],
+                    current_version_reported_as: Some(
+                        Regex::new("^Current-.*__BIOS.Setup.").unwrap(),
+                    ),
+                    preingest_upgrade_when_below: Some("1.13.2".to_string()),
+                    known_firmware: vec![FirmwareEntry {
+                        version: "1.13.2".to_string(),
+                        default: true,
+                        filename: Some("/dev/null".to_string()),
+                        url: Some("file://dev/null".to_string()),
+                        checksum: None,
+                        mandatory_upgrade_from_priority: None,
+                    }],
                 },
             ),
         ]),
@@ -503,8 +513,8 @@ pub fn get_config() -> CarbideConfig {
         dpu_nic_firmware_update_version: None,
         dpu_nic_firmware_initial_update_enabled: true,
         dpu_nic_firmware_reprovision_update_enabled: true,
-        max_concurrent_machine_updates: None,
-        machine_update_run_interval: None,
+        max_concurrent_machine_updates: Some(10),
+        machine_update_run_interval: Some(1),
         site_explorer: carbide::cfg::default_site_explorer_config(),
         dpu_dhcp_server_enabled: false,
         nvue_enabled: true,

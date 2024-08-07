@@ -36,6 +36,12 @@ struct FirmwareDownloaderActual {
     client: Option<Client>,
 }
 
+impl Default for FirmwareDownloader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FirmwareDownloader {
     pub fn new() -> FirmwareDownloader {
         FirmwareDownloader {

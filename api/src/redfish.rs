@@ -563,8 +563,9 @@ impl Redfish for RedfishSimClient {
     }
 
     async fn lockdown_status(&self) -> Result<libredfish::Status, RedfishError> {
-        // TODO: Return the real lockdown status based on the simulated host
-        Err(RedfishError::NoContent)
+        Ok(libredfish::Status::build_fake(
+            libredfish::EnabledDisabled::Disabled,
+        ))
     }
 
     async fn setup_serial_console(&self) -> Result<(), RedfishError> {

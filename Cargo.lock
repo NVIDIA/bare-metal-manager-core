@@ -29,6 +29,7 @@ dependencies = [
  "clap_complete",
  "color-eyre",
  "eyre",
+ "figment",
  "forge-tls",
  "forge-version",
  "forge_secrets",
