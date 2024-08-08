@@ -240,6 +240,7 @@ dependencies = [
  "forge-tls",
  "forge-version",
  "forge_secrets",
+ "futures",
  "http 0.2.12",
  "ipnetwork",
  "lazy_static",

@@ -10,7 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-use crate::machine_a_tron::MachineATronInstance;
 use crate::utils::IntegrationTestEnvironment;
 use ::machine_a_tron::{BmcMockRegistry, MachineATronConfig, MachineConfig};
 use bmc_mock::ListenerOrAddress;
@@ -231,6 +230,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     let Some(test_env) = IntegrationTestEnvironment::try_from_environment().await? else {
         return Ok(());
     };
+    let host_count = 10;
 
     let carbide_api_addr = test_env.carbide_api_addr;
     let root_dir = test_env.root_dir.clone();
@@ -239,7 +239,7 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
         machines: BTreeMap::from([(
             "config".to_string(),
             MachineConfig {
-                host_count: 10,
+                host_count,
                 dpu_per_host_count: 2,
                 boot_delay: 1,
                 dpu_reboot_delay: 1,
@@ -302,18 +302,45 @@ async fn test_integration_machine_a_tron() -> eyre::Result<()> {
     let tenant1_vpc = vpc::create(carbide_api_addr)?;
     subnet::create(carbide_api_addr, &tenant1_vpc)?;
 
-    let MachineATronInstance { join_handle } =
+    let mut mat_handle =
         machine_a_tron::run_local(mat_config, root_dir, bmc_address_registry.clone())
             .await
             .unwrap();
 
     let timeout = Duration::from_secs(20 * 60);
-    tokio::select! {
+    let machine_actors = tokio::select! {
         _ = sleep(timeout) => {
             panic!("Timed out after {} seconds waiting for machines to achieve ready status", timeout.as_secs());
         }
-        msg = join_handle => msg?,
+        msg = mat_handle.wait_until_ready() => msg,
     }?;
+
+    assert_eq!(machine_actors.len(), host_count as usize);
+
+    // Ensure each instance has correctly configured network interfaces
+    for machine_actor in machine_actors {
+        let instance_json = instance::get_instance_json_by_machine_id(
+            carbide_api_addr,
+            machine_actor
+                .observed_machine_id()
+                .await?
+                .expect("HostMachine should have a Machine ID once it's in ready state")
+                .to_string()
+                .as_str(),
+        )?;
+        let serde_json::Value::Object(interface) =
+            &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
+        else {
+            panic!("Allocated instance does not have interface configuration")
+        };
+
+        let serde_json::Value::Array(addrs) = &interface["addresses"] else {
+            panic!("Interface does not have addresses")
+        };
+        assert_eq!(addrs.len(), 1);
+    }
+
+    mat_handle.stop().await?;
     server_handle.stop().await?;
     test_env.db_pool.close().await;
     bmc_mock_handle.stop().await?;

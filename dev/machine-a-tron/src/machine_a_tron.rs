@@ -138,7 +138,7 @@ impl MachineATron {
                     match api_client::allocate_instance(
                         &self.app_context.clone(),
                         &hid_for_instance.to_string(),
-                        &"subnet_0".to_string(),
+                        "subnet_0",
                     )
                     .await
                     {

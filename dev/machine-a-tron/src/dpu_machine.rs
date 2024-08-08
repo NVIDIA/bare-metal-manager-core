@@ -135,11 +135,7 @@ impl DpuMachine {
     }
 
     async fn process_state(&mut self) -> Duration {
-        self.api_state = get_api_state(
-            &self.app_context,
-            self.state_machine.machine_id().ok().as_ref(),
-        )
-        .await;
+        self.api_state = get_api_state(&self.app_context, self.observed_machine_id.as_ref()).await;
         if self.paused {
             return Duration::MAX;
         }
@@ -164,7 +160,7 @@ impl DpuMachine {
             self.state_machine, self.api_state
         ));
 
-        if let Ok(machine_id) = self.state_machine.machine_id() {
+        if let Some(machine_id) = self.state_machine.machine_id() {
             self.observed_machine_id = Some(machine_id);
         }
 

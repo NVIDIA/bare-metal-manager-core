@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
@@ -40,7 +41,7 @@ pub struct HostMachine {
     // may change for instance if we go from a predicted host to a regular host.
     observed_machine_id: Option<MachineId>,
     // This will be populated with callers waiting for the host to be MachineUp/Ready
-    ready_waiters: Option<Vec<oneshot::Sender<()>>>,
+    state_waiters: HashMap<String, Vec<oneshot::Sender<()>>>,
     paused: bool,
 }
 
@@ -94,7 +95,7 @@ impl HostMachine {
             logger: log_collector.log_sink(Some("H:".to_string())),
             log_collector,
             observed_machine_id: None,
-            ready_waiters: None,
+            state_waiters: HashMap::new(),
             tui_event_tx: None,
             paused: true,
         }
@@ -132,8 +133,10 @@ impl HostMachine {
                     }
                     self.maybe_update_tui().await;
 
-                    if self.is_up_and_ready() {
-                        if let Some(waiters) = self.ready_waiters.take() {
+                    // If the host is up, and if anyone is waiting for the current state to be
+                    // reached, notify them.
+                    if self.state_machine.is_up() {
+                        if let Some(waiters) = self.state_waiters.remove(&self.api_state) {
                             for waiter in waiters.into_iter() {
                                 _ = waiter.send(());
                             }
@@ -146,7 +149,7 @@ impl HostMachine {
                             // Wake up to refresh the API state and UI
                             self.api_state = get_api_state(
                                 &self.app_context,
-                                self.state_machine.machine_id().ok().as_ref(),
+                                self.observed_machine_id.as_ref(),
                             )
                             .await;
                             continue; // go back to sleeping
@@ -219,7 +222,7 @@ impl HostMachine {
             self.state_machine, self.api_state
         ));
 
-        if let Ok(machine_id) = self.state_machine.machine_id() {
+        if let Some(machine_id) = self.state_machine.machine_id() {
             self.observed_machine_id = Some(machine_id);
         }
 
@@ -232,11 +235,11 @@ impl HostMachine {
                 _ = reply.send(self.observed_machine_id.clone());
                 HandleMessageResult::ContinuePolling
             }
-            HostMachineMessage::WaitUntilReady(reply) => {
-                if let Some(ready_waiters) = self.ready_waiters.as_mut() {
-                    ready_waiters.push(reply);
+            HostMachineMessage::WaitUntilMachineUpWithApiState(state, reply) => {
+                if let Some(state_waiters) = self.state_waiters.get_mut(&state) {
+                    state_waiters.push(reply);
                 } else {
-                    self.ready_waiters = Some(vec![reply]);
+                    self.state_waiters.insert(state, vec![reply]);
                 }
                 HandleMessageResult::ContinuePolling
             }
@@ -294,10 +297,6 @@ impl HostMachine {
             .send(UiEvent::MachineUpdate(self.host_details().await))
             .await
             .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
-    }
-
-    fn is_up_and_ready(&self) -> bool {
-        self.state_machine.is_up() && self.api_state.eq("Ready")
     }
 
     // Note: We can't implment From<HostMachine> for HostDetails, because we need this to be async
@@ -404,7 +403,7 @@ pub enum HandleMessageResult {
 enum HostMachineMessage {
     GetObservedMachineID(oneshot::Sender<Option<rpc::MachineId>>),
     GetApiState(oneshot::Sender<String>),
-    WaitUntilReady(oneshot::Sender<()>),
+    WaitUntilMachineUpWithApiState(String, oneshot::Sender<()>),
     AttachToUI(Option<mpsc::Sender<UiEvent>>),
     SetPaused(bool),
     Stop(bool, oneshot::Sender<()>),
@@ -433,10 +432,13 @@ impl HostMachineActor {
         Ok(rx.await?)
     }
 
-    pub async fn wait_until_ready(&self) -> eyre::Result<()> {
+    pub async fn wait_until_machine_up_with_api_state(&self, state: &str) -> eyre::Result<()> {
         let (tx, rx) = oneshot::channel();
         self.message_tx
-            .send(HostMachineMessage::WaitUntilReady(tx))?;
+            .send(HostMachineMessage::WaitUntilMachineUpWithApiState(
+                state.to_owned(),
+                tx,
+            ))?;
         Ok(rx.await?)
     }
 

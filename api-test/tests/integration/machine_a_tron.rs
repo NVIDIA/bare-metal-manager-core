@@ -11,12 +11,15 @@
  */
 use bmc_mock::TarGzOption;
 use forge_tls::client_config::get_forge_root_ca_path;
+use futures::future::join_all;
+use machine_a_tron::api_client::allocate_instance;
 use machine_a_tron::{
-    BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, MachineATron, MachineATronConfig,
-    MachineATronContext,
+    BmcMockRegistry, BmcRegistrationMode, DhcpRelayService, HostMachineActor, MachineATron,
+    MachineATronConfig, MachineATronContext,
 };
 use rpc::forge_tls_client::ForgeClientConfig;
 use std::path::PathBuf;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 /// Run a machine-a-tron instance with the given config in the background, returning a JoinHandle
@@ -29,7 +32,7 @@ pub async fn run_local(
     app_config: MachineATronConfig,
     repo_root: PathBuf,
     bmc_address_registry: BmcMockRegistry,
-) -> eyre::Result<MachineATronInstance> {
+) -> eyre::Result<MachineATronHandle> {
     let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
 
@@ -57,7 +60,7 @@ pub async fn run_local(
         });
     });
 
-    let mat = MachineATron::new(app_context);
+    let mat = MachineATron::new(app_context.clone());
     let machine_actors = mat
         .make_machines(
             &dhcp_client,
@@ -66,27 +69,70 @@ pub async fn run_local(
         )
         .await?;
 
-    let all_machines_job = tokio::spawn(async move {
-        for machine_actor in machine_actors {
-            machine_actor.wait_until_ready().await?;
-            let machine_id = machine_actor
-                .observed_machine_id()
-                .await?
-                .map(|m| m.to_string())
-                .unwrap_or("<Unknown>".to_string());
-            tracing::info!("Machine {machine_id} has made it to Ready/MachineUp, all done");
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (stop_tx, stop_rx) = oneshot::channel();
+    let join_handle = tokio::spawn(async move {
+        let all_result = join_all(machine_actors.iter().map(|machine_actor| {
+            let app_context = app_context.clone();
+            async move {
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Ready")
+                    .await?;
+                let machine_id = machine_actor
+                    .observed_machine_id()
+                    .await?
+                    .expect("Machine ID should be set if host is ready");
+                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+                allocate_instance(&app_context.clone(), &machine_id.to_string(), "tenant1").await?;
+                machine_actor
+                    .wait_until_machine_up_with_api_state("Assigned/Ready")
+                    .await?;
+                tracing::info!("Machine {machine_id} has made it to Assigned/Ready, all done");
+                Ok::<HostMachineActor, eyre::Report>(machine_actor.clone())
+            }
+        }))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, eyre::Report>>();
+
+        _ = ready_tx.send(all_result);
+        stop_rx.await?;
+
+        for machine_actor in machine_actors.into_iter() {
             machine_actor.stop(true).await?;
         }
+
         dhcp_client.stop_service().await;
         dhcp_handle.await?;
         Ok(())
     });
 
-    Ok(MachineATronInstance {
-        join_handle: all_machines_job,
+    Ok(MachineATronHandle {
+        ready_rx: Some(ready_rx),
+        stop_tx_and_join_handle: Some((stop_tx, join_handle)),
     })
 }
 
-pub struct MachineATronInstance {
-    pub join_handle: JoinHandle<eyre::Result<()>>,
+pub struct MachineATronHandle {
+    ready_rx: Option<oneshot::Receiver<eyre::Result<Vec<HostMachineActor>>>>,
+    stop_tx_and_join_handle: Option<(oneshot::Sender<()>, JoinHandle<eyre::Result<()>>)>,
+}
+
+impl MachineATronHandle {
+    pub async fn wait_until_ready(&mut self) -> eyre::Result<Vec<HostMachineActor>> {
+        if let Some(ready_rx) = self.ready_rx.take() {
+            ready_rx.await?
+        } else {
+            Err(eyre::Report::msg("Ready channel already awaited"))
+        }
+    }
+
+    pub async fn stop(&mut self) -> eyre::Result<()> {
+        if let Some((stop_tx, join_handle)) = self.stop_tx_and_join_handle.take() {
+            _ = stop_tx.send(());
+            join_handle.await?
+        } else {
+            Err(eyre::Report::msg("Stop channel already consumed"))
+        }
+    }
 }
