@@ -73,7 +73,7 @@
 			<td>{% if host.is_network_healthy %}<div class="healthy">Healthy{% else %}<div class="unhealthy">{{ host.network_err_message }}{% endif %}</div></td>
 			<td style="padding: 0;">
 				<table style="width: 100%;">
-					<tr><th>Host BMC</th><td><a href="/admin/explored_endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>
+					<tr><th>Host BMC</th><td><a href="/admin/explored-endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>
 					<tr><th>DPU BMC</th><td>{{ host.dpu_properties(DpuProperty::BmcIp)|safe }}</td></tr>
 					<tr><th>Host Admin</th><td>{{ host.host_admin_ip }}</td></tr>
 					<tr><th>DPU OOB</th><td>{{ host.dpu_properties(DpuProperty::OobIp)|safe }}</td></tr>

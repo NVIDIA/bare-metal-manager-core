@@ -22,7 +22,7 @@
 			{{ endpoint.exploration_requested }}
 			{% if !endpoint.exploration_requested %}
 				<br>
-				<form id="reexplore_action" method="POST" action="/admin/explored_endpoint/{{ endpoint.address }}/reexplore">
+				<form id="reexplore_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/reexplore">
 					<input type="hidden" name="if_version_match" value="{{ endpoint.report_version }}"/>
 					<button style="margin-left: 0" type="submit">Request re-exploration</button>
 				</form>
