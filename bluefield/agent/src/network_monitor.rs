@@ -41,6 +41,18 @@ impl fmt::Display for DpuInfo {
     }
 }
 
+impl TryFrom<rpc::DpuInfo> for DpuInfo {
+    type Error = std::net::AddrParseError;
+
+    fn try_from(rpc_info: rpc::DpuInfo) -> Result<Self, Self::Error> {
+        let ip = IpAddr::from_str(&rpc_info.loopback_ip)?;
+        Ok(DpuInfo {
+            id: rpc_info.id,
+            ip,
+        })
+    }
+}
+
 /// Structure to store ping results for one DPU in one cycle
 pub struct DpuPingResult {
     pub dpu_info: DpuInfo,
@@ -63,39 +75,20 @@ impl DpuPingResult {
 /// Network monitor struct handles network connectivity checks
 pub struct NetworkMonitor {
     machine_id: String,                 // DPU id
-    peer_dpus: Vec<DpuInfo>,            // List of peer DPUs to monitor
     metrics: Option<Arc<MetricsState>>, // Metrics for monitoring
     pinger: Arc<dyn Ping>,              // Pinger that help ping DPUs and get results
-    loopback_ip: String,
 }
 
 impl NetworkMonitor {
-    pub async fn new(
+    pub fn new(
         machine_id: String,
         metrics: Option<Arc<MetricsState>>,
         pinger: Arc<dyn Ping>,
-        forge_api: &str,
-        client_config: ForgeClientConfig,
     ) -> Self {
-        let mut peer_dpus: Vec<DpuInfo> = Vec::new();
-        let mut loopback_ip: String = "".to_string();
-        // @TODO: move initialization to first run iteration
-        match find_peer_dpu_machines(&machine_id, forge_api, client_config.clone()).await {
-            Ok((new_loopback_ip, new_peer_dpus)) => {
-                peer_dpus = new_peer_dpus;
-                loopback_ip = new_loopback_ip;
-            }
-            Err(e) => {
-                tracing::error!("Failed to fetch list of peer DPUs: {}", e);
-            }
-        }
-
         Self {
             machine_id,
-            peer_dpus,
             metrics,
             pinger,
-            loopback_ip,
         }
     }
 
@@ -105,6 +98,20 @@ impl NetworkMonitor {
         client_config: ForgeClientConfig,
         close_receiver: &mut watch::Receiver<bool>,
     ) {
+        // Initial fetch peer dpu list from API
+        let mut peer_dpus = Vec::new();
+        let mut loopback_ip: Option<IpAddr> = None;
+
+        match find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone()).await {
+            Ok((dpu_info, new_peer_dpus)) => {
+                peer_dpus = new_peer_dpus;
+                loopback_ip = Some(dpu_info.ip);
+            }
+            Err(e) => {
+                tracing::error!("Network monitor failed to get dpu info list from API {}", e);
+            }
+        }
+
         let mut peer_dpus_fetch_interval =
             tokio::time::interval(Duration::from_secs(DPU_LIST_FETCH_INTERVAL));
         let mut next_monitor_time = Instant::now();
@@ -116,20 +123,20 @@ impl NetworkMonitor {
                 }
                 _ = peer_dpus_fetch_interval.tick() => {
                     match find_peer_dpu_machines(&self.machine_id, forge_api, client_config.clone()).await {
-                        Ok((new_loopback_ip, new_peer_dpus)) => {
-                            self.peer_dpus = new_peer_dpus;
-                            self.loopback_ip = new_loopback_ip;
+                        Ok((dpu_info, new_peer_dpus)) => {
+                            peer_dpus = new_peer_dpus;
+                            loopback_ip = Some(dpu_info.ip);
                         }
                         Err(e) => {
                             tracing::error!("Failed to fetch list of peer DPUs: {}", e);
-                            self.peer_dpus = Vec::new();
-                            self.loopback_ip = "".to_string();
+                            peer_dpus = Vec::new();
+                            loopback_ip = None;
                         }
                     }
                 }
                 _ = time::sleep_until(next_monitor_time) => {
                     // Run the monitoring task and dynamically adjust the interval
-                    let elapsed_time = self.run_monitor().await;
+                    let elapsed_time = self.run_monitor(&peer_dpus, loopback_ip).await;
                     let interval = self.set_loop_interval(&elapsed_time);
                     next_monitor_time = Instant::now() + interval;
                 }
@@ -138,11 +145,17 @@ impl NetworkMonitor {
     }
 
     /// Handle periodic monitor cycles
-    pub async fn run_monitor(&mut self) -> Duration {
+    pub async fn run_monitor(
+        &mut self,
+        peer_dpus: &Vec<DpuInfo>,
+        loopback_ip: Option<IpAddr>,
+    ) -> Duration {
         let mut elapsed_time = Duration::from_secs(0);
-        if !self.loopback_ip.is_empty() && !self.peer_dpus.is_empty() {
+        if let (Some(ip), false) = (loopback_ip, peer_dpus.is_empty()) {
             let start_time = Instant::now();
-            self.run_onetime(false).await;
+            if let Err(e) = self.monitor_concurrent(peer_dpus, ip, false).await {
+                error!("Failed to run network check: {}", e);
+            }
             elapsed_time = start_time.elapsed();
         }
 
@@ -155,22 +168,26 @@ impl NetworkMonitor {
     }
 
     /// Handle one time network check request from commandline
-    pub async fn run_onetime(&mut self, enable_record_result: bool) {
-        match self.monitor_concurrent(enable_record_result).await {
-            Ok(Some(mut results)) => {
-                if enable_record_result {
-                    results.sort_by_key(|result| result.dpu_info.ip);
-                    self.format_results(&results);
-                }
-            }
-            Ok(None) => {
-                if enable_record_result {
-                    error!("Failed to enable record result");
-                }
-            }
+    /// Fetches new list from
+    pub async fn run_onetime(&mut self, forge_api: &str, client_config: ForgeClientConfig) {
+        let (loopback_ip, peer_dpus) = match find_peer_dpu_machines(
+            &self.machine_id,
+            forge_api,
+            client_config.clone(),
+        )
+        .await
+        {
+            Ok((dpu_info, new_peer_dpus)) => (dpu_info.ip, new_peer_dpus),
             Err(e) => {
-                error!("Failed to run network check: {}", e);
+                tracing::error!("Network monitor failed to get dpu info list from API {}", e);
+                return;
             }
+        };
+
+        match self.monitor_concurrent(&peer_dpus, loopback_ip, true).await {
+            Ok(Some(results)) => self.format_results(&results, loopback_ip.to_string()),
+            Ok(None) => tracing::info!("No results found"),
+            Err(e) => error!("Failed to run network check: {}", e),
         }
     }
 
@@ -178,6 +195,8 @@ impl NetworkMonitor {
     /// Only log information here
     pub async fn monitor_concurrent(
         &self,
+        peer_dpus: &Vec<DpuInfo>,
+        loopback_ip: IpAddr,
         enable_record_result: bool,
     ) -> Result<Option<Vec<DpuPingResult>>, eyre::Report> {
         let concurrent_limit = 100;
@@ -195,17 +214,13 @@ impl NetworkMonitor {
         });
 
         // Concurrent jobs to ping DPUs and get results
-        stream::iter(&self.peer_dpus)
+        stream::iter(peer_dpus)
             .for_each_concurrent(concurrent_limit, |peer_dpu| {
                 let metrics = self.metrics.clone();
                 let machine_id = self.machine_id.clone();
                 let tx_clone = tx.clone();
                 async move {
-                    match self
-                        .pinger
-                        .ping_dpu(peer_dpu.clone(), self.loopback_ip.clone())
-                        .await
-                    {
+                    match self.pinger.ping_dpu(peer_dpu.clone(), loopback_ip).await {
                         Ok(ping_result) => {
                             // Export metrics if metadata service enabled
                             if let Some(metrics) = &metrics {
@@ -247,7 +262,7 @@ impl NetworkMonitor {
     }
 
     /// Format check results into JSON format
-    fn format_results(&self, results: &[DpuPingResult]) {
+    fn format_results(&self, results: &[DpuPingResult], loopback_ip: String) {
         let mut formatted_results: Vec<_> = results
             .iter()
             .map(|result| {
@@ -272,6 +287,7 @@ impl NetworkMonitor {
 
         let final_result = json!({
             "dpu_id": self.machine_id,
+            "loopback_ip": if loopback_ip.is_empty() { "Unknown".to_string() } else { loopback_ip} ,
             "results": formatted_results,
             "timestamp": Utc::now().timestamp(),
         });
@@ -313,35 +329,28 @@ pub async fn find_peer_dpu_machines(
     dpu_machine_id: &str,
     forge_api: &str,
     client_config: ForgeClientConfig,
-) -> Result<(String, Vec<DpuInfo>), eyre::Report> {
+) -> Result<(DpuInfo, Vec<DpuInfo>), eyre::Report> {
     // Get list of DPU information from API
     let dpu_info_list = fetch_dpu_info_list(forge_api, client_config).await?;
 
     // Get this DPU loopback IP
-    let dpu_ip = dpu_info_list
+    let dpu_info: DpuInfo = dpu_info_list
         .dpu_list
         .iter()
         .find(|dpu_info| dpu_info.id == dpu_machine_id)
         .ok_or_else(|| eyre::eyre!("DPU with id {} not found", dpu_machine_id))?
-        .loopback_ip
-        .clone();
+        .clone()
+        .try_into()?;
 
     // Remove this DPU from the list
     let peer_dpus: Vec<DpuInfo> = dpu_info_list
         .dpu_list
         .into_iter()
         .filter(|dpu_info| dpu_info.id != dpu_machine_id)
-        .filter_map(|dpu_info| {
-            IpAddr::from_str(&dpu_info.loopback_ip)
-                .ok()
-                .map(|ip| DpuInfo {
-                    id: dpu_info.id,
-                    ip,
-                })
-        })
+        .filter_map(|dpu_info| dpu_info.try_into().ok())
         .collect();
 
-    Ok((dpu_ip, peer_dpus))
+    Ok((dpu_info, peer_dpus))
 }
 
 #[async_trait]
@@ -350,7 +359,7 @@ pub trait Ping: Send + Sync {
     async fn ping_dpu(
         &self,
         dpu_info: DpuInfo,
-        loopback_ip: String,
+        loopback_ip: IpAddr,
     ) -> Result<DpuPingResult, eyre::Report>;
 }
 
@@ -369,6 +378,18 @@ impl fmt::Display for NetworkPingerType {
 
 #[derive(Debug, Clone)]
 pub struct ParseNetworkPingerTypeError;
+
+impl TryFrom<i32> for NetworkPingerType {
+    type Error = ParseNetworkPingerTypeError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(NetworkPingerType::HbnExec),
+            1 => Ok(NetworkPingerType::OobNetBind),
+            _ => Err(ParseNetworkPingerTypeError),
+        }
+    }
+}
 
 impl FromStr for NetworkPingerType {
     type Err = ParseNetworkPingerTypeError;
@@ -408,7 +429,7 @@ impl Ping for OobNetBindPinger {
     async fn ping_dpu(
         &self,
         dpu_info: DpuInfo,
-        _loopback_ip: String,
+        _loopback_ip: IpAddr,
     ) -> Result<DpuPingResult, eyre::Report> {
         let interface = "oob_net0";
         let config = Config::builder().interface(interface).build();
@@ -470,7 +491,7 @@ impl Ping for HbnExecPinger {
     async fn ping_dpu(
         &self,
         dpu_info: DpuInfo,
-        loopback_ip: String,
+        loopback_ip: IpAddr,
     ) -> Result<DpuPingResult, eyre::Report> {
         let container_id: String = hbn::get_hbn_container_id()
             .await
@@ -483,9 +504,9 @@ impl Ping for HbnExecPinger {
                 "-W",
                 "1",
                 "-c",
-                "5",
+                &MAX_PINGS_PER_DPU.to_string(),
                 "-I",
-                &loopback_ip,
+                &loopback_ip.to_string(),
                 &dpu_info.ip.to_string(),
             ],
             true,

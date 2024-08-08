@@ -163,24 +163,20 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 .wrap_err("network check machine registration error")?
                 .machine_id;
 
-            let pinger: Arc<dyn Ping> = if let Some(pinger_type) = options.network_pinger_type {
-                tracing::info!("Using {}", pinger_type);
-                Arc::from(pinger_type)
-            } else {
-                tracing::info!("Using OobNetBind");
-                Arc::from(NetworkPingerType::OobNetBind)
+            let pinger_type = match options.network_pinger_type {
+                Some(pinger_type) => pinger_type,
+                None => NetworkPingerType::OobNetBind,
             };
 
-            let mut network_monitor = network_monitor::NetworkMonitor::new(
-                machine_id.to_string(),
-                None,
-                pinger,
-                &agent.forge_system.api_server,
-                forge_client_config.clone(),
-            )
-            .await;
+            tracing::info!("Using {}", pinger_type);
+            let pinger: Arc<dyn Ping> = Arc::from(pinger_type);
 
-            network_monitor.run_onetime(true).await;
+            let mut network_monitor =
+                network_monitor::NetworkMonitor::new(machine_id.to_string(), None, pinger);
+
+            network_monitor
+                .run_onetime(&agent.forge_system.api_server, forge_client_config.clone())
+                .await;
         }
 
         // Output a templated file

@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -101,10 +102,7 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
         machine_id.to_string(),
         Some(metrics_states.clone()),
         Arc::new(MockPinger),
-        &forge_api,
-        forge_client_config.clone(),
-    )
-    .await;
+    );
 
     info!("Starting network monitor");
     tokio::spawn(async move {
@@ -279,7 +277,7 @@ impl Default for TestMeter {
 pub struct MockPinger;
 #[async_trait]
 impl Ping for MockPinger {
-    async fn ping_dpu(&self, dpu_info: DpuInfo, _interface: String) -> Result<DpuPingResult> {
+    async fn ping_dpu(&self, dpu_info: DpuInfo, _interface: IpAddr) -> Result<DpuPingResult> {
         info!("Received ping request for {}", dpu_info);
         let ping_result = DpuPingResult {
             dpu_info,
