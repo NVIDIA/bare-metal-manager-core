@@ -10,13 +10,12 @@
  * its affiliates is strictly prohibited.
  */
 
-use std::net::SocketAddr;
-
 use super::{
     grpcurl::{grpcurl, grpcurl_id},
     host::discover_machine,
     machine::wait_for_state,
 };
+use std::net::SocketAddr;
 
 pub fn create(
     addr: SocketAddr,
@@ -142,6 +141,15 @@ pub fn get_instance_state(addr: SocketAddr, instance_id: &str) -> eyre::Result<S
     tracing::info!("\tCurrent instance state: {state}");
 
     Ok(state)
+}
+
+pub fn get_instance_json_by_machine_id(
+    addr: SocketAddr,
+    machine_id: &str,
+) -> eyre::Result<serde_json::Value> {
+    let data = serde_json::json!({ "id": machine_id });
+    let response = grpcurl(addr, "FindInstanceByMachineID", Some(&data))?;
+    Ok(serde_json::from_str(&response)?)
 }
 
 /// Waits for an instance to reach a certain state

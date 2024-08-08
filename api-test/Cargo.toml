@@ -20,6 +20,7 @@ tokio.workspace = true
 toml = "0.8.8"
 tracing = "*"
 tracing-subscriber = { version = "*", features = ["env-filter", "local-time"] }
+futures = "0.3"
 
 # [local-dependencies]
 agent = { path = "../bluefield/agent" }

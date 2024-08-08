@@ -70,9 +70,8 @@ pub enum MachineState {
 }
 
 enum NextState {
-    Some(MachineState),
+    Advance(MachineState),
     SleepFor(Duration),
-    UpdateAndDelay(MachineState, Duration),
 }
 
 impl MachineStateMachine {
@@ -102,15 +101,11 @@ impl MachineStateMachine {
     pub async fn advance(&mut self, nic_available: bool) -> Duration {
         let next_state = self.next_state(nic_available).await;
         match next_state {
-            Ok(NextState::Some(next_state)) => {
+            Ok(NextState::Advance(next_state)) => {
                 self.state = next_state;
                 self.config.run_interval_working
             }
             Ok(NextState::SleepFor(duration)) => duration,
-            Ok(NextState::UpdateAndDelay(next_state, duration)) => {
-                self.state = next_state;
-                duration
-            }
             Err(e) => {
                 // TODO:
                 // For now, any unhandled errors will just retry in the same state after sleeping
@@ -160,10 +155,12 @@ impl MachineStateMachine {
                 ));
 
                 let maybe_bmc_mock_handle = self.run_bmc_mock(dhcp_info.ip_address).await?;
-                Ok(NextState::Some(MachineState::Init(BmcInitializedState {
-                    _bmc_mock_handle: maybe_bmc_mock_handle,
-                    bmc_dhcp_info: dhcp_info,
-                })))
+                Ok(NextState::Advance(MachineState::Init(
+                    BmcInitializedState {
+                        _bmc_mock_handle: maybe_bmc_mock_handle,
+                        bmc_dhcp_info: dhcp_info,
+                    },
+                )))
             }
             MachineState::MachineDown(inner_state) => {
                 let reboot_delay_secs = match self.machine_info {
@@ -173,7 +170,7 @@ impl MachineStateMachine {
                 let elapsed = inner_state.since.elapsed();
                 let delay = Duration::from_secs(reboot_delay_secs);
                 if elapsed >= delay {
-                    Ok(NextState::Some(MachineState::Init(
+                    Ok(NextState::Advance(MachineState::Init(
                         inner_state.bmc_state.clone(),
                     )))
                 } else {
@@ -218,7 +215,7 @@ impl MachineStateMachine {
                     bmc_state: inner_state.clone(),
                     machine_dhcp_info,
                 });
-                Ok(NextState::Some(next_state))
+                Ok(NextState::Advance(next_state))
             }
             MachineState::DhcpComplete(inner_state) => {
                 let Some(machine_interface_id) = inner_state
@@ -249,9 +246,8 @@ impl MachineStateMachine {
                             machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
                             bmc_state: inner_state.bmc_state.clone(),
                             machine_discovery_result: None,
-                            last_network_status_update: None,
                         });
-                        return Ok(NextState::Some(next_state));
+                        return Ok(NextState::Advance(next_state));
                     }
                     PXEresponse::Error => {
                         return Err(MachineStateError::PxeError);
@@ -294,10 +290,10 @@ impl MachineStateMachine {
                         bmc_state: inner_state.bmc_state.clone(),
                         machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
                     });
-                Ok(NextState::Some(next_state))
+                Ok(NextState::Advance(next_state))
             }
             MachineState::HardwareDiscoveryComplete(inner_state) => {
-                let machine_id = self.machine_id()?;
+                let machine_id = self.machine_id().ok_or(MissingMachineId)?;
                 let start = Instant::now();
                 api_client::update_bmc_metadata(
                     &self.app_context,
@@ -332,7 +328,7 @@ impl MachineStateMachine {
 
                 // Hosts will send a validation report after sending discovery info
                 if let MachineInfo::Host(_) = self.machine_info {
-                    let machine_id = self.machine_id()?;
+                    let machine_id = self.machine_id().ok_or(MissingMachineId)?;
                     let start = Instant::now();
                     let control_response =
                         forge_agent_control(&self.app_context, machine_id.clone()).await;
@@ -359,52 +355,29 @@ impl MachineStateMachine {
                     machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
                     bmc_state: inner_state.bmc_state.clone(),
                     machine_discovery_result: Some(inner_state.machine_discovery_result.clone()),
-                    last_network_status_update: None,
                 });
-                Ok(NextState::Some(next_state))
+                Ok(NextState::Advance(next_state))
             }
-            MachineState::MachineUp(inner_state) => {
-                if let MachineInfo::Host(_) = self.machine_info {
-                    // Hosts don't run forge-agent, return. We're now booted up, so we don't need to
-                    // run again until we get rebooted.
-                    return Ok(NextState::SleepFor(Duration::MAX));
-                }
-
-                let wait = match inner_state.last_network_status_update {
-                    Some(instant) => {
-                        let elapsed = instant.elapsed();
-                        if elapsed >= self.config.network_status_run_interval {
-                            Duration::default()
-                        } else {
-                            self.config.network_status_run_interval - elapsed
+            MachineState::MachineUp(_) => {
+                match self.machine_info {
+                    MachineInfo::Dpu(_) => match self.machine_id() {
+                        Some(machine_id) => {
+                            // DPUs send network status periodically
+                            self.send_network_status_observation(machine_id).await?;
+                            Ok(NextState::SleepFor(self.config.network_status_run_interval))
                         }
+                        None => {
+                            // When a DPU first boots it doesn't have a machine-id allocated yet
+                            self.logger.info("Booted without machine-id (likely waiting for site-explorer), not sending network status. Will wait to be rebooted by API server".to_string());
+                            Ok(NextState::SleepFor(Duration::MAX))
+                        }
+                    },
+                    MachineInfo::Host(_) => {
+                        // Hosts don't run forge-agent, so don't send network status. We're now
+                        // booted up, so we don't need to run again until we get rebooted.
+                        Ok(NextState::SleepFor(Duration::MAX))
                     }
-                    None => Duration::default(),
-                };
-
-                if wait > Duration::default() {
-                    return Ok(NextState::SleepFor(wait));
                 }
-
-                let Ok(machine_id) = self.machine_id() else {
-                    // When a DPU first boots it doesn't have a machine-id allocated yet. So we
-                    // can't send any network config. Wait until we get rebooted.
-                    return Ok(NextState::SleepFor(Duration::MAX));
-                };
-
-                let next_state = MachineState::MachineUp(MachineUpState {
-                    last_network_status_update: Some(Instant::now()),
-                    bmc_state: inner_state.bmc_state.clone(),
-                    machine_dhcp_info: inner_state.machine_dhcp_info.clone(),
-                    machine_discovery_result: inner_state.machine_discovery_result.clone(),
-                });
-
-                self.send_network_status_observation(machine_id).await?;
-                // Wake us up again to do more network status updates.
-                Ok(NextState::UpdateAndDelay(
-                    next_state,
-                    self.config.network_status_run_interval,
-                ))
             }
         }
     }
@@ -429,7 +402,7 @@ impl MachineStateMachine {
             interfaces = vec![rpc::forge::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: None,
-                mac_address: None,
+                mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                 addresses: vec![iface.ip.clone()],
             }]
         } else {
@@ -441,7 +414,7 @@ impl MachineStateMachine {
                 interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
                     virtual_function_id: iface.virtual_function_id,
-                    mac_address: None,
+                    mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
                     addresses: vec![iface.ip.clone()],
                 });
             }
@@ -475,7 +448,7 @@ impl MachineStateMachine {
         })
     }
 
-    pub fn machine_id(&self) -> Result<rpc::MachineId, MachineStateError> {
+    pub fn machine_id(&self) -> Option<rpc::MachineId> {
         match &self.state {
             MachineState::BmcInit => None,
             MachineState::MachineDown(state) => state.bmc_state.bmc_dhcp_info.machine_id.as_ref(),
@@ -493,7 +466,6 @@ impl MachineStateMachine {
                 .or(state.machine_dhcp_info.machine_id.as_ref()),
         }
         .cloned()
-        .ok_or(MissingMachineId)
     }
 
     pub fn machine_ip(&self) -> Option<Ipv4Addr> {
@@ -586,7 +558,6 @@ pub struct MachineUpState {
     machine_dhcp_info: DhcpResponseInfo,
     bmc_state: BmcInitializedState,
     machine_discovery_result: Option<MachineDiscoveryResult>,
-    last_network_status_update: Option<Instant>,
 }
 
 impl Display for MachineState {

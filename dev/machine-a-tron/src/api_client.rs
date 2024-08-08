@@ -410,11 +410,11 @@ pub async fn find_machine_ids(
 pub async fn allocate_instance(
     app_context: &MachineATronContext,
     host_machine_id: &str,
-    network_segment_name: &String,
+    network_segment_name: &str,
 ) -> ClientApiResult<rpc::forge::Instance> {
     with_forge_client(app_context, |mut client| async move {
         let segment_request = tonic::Request::new(rpc::forge::NetworkSegmentSearchFilter{
-                                    name: Some(network_segment_name.clone()),
+                                    name: Some(network_segment_name.to_owned()),
                                     tenant_org_id: None,
                                 });
 
