@@ -486,7 +486,7 @@ dependencies = [
  "http 1.1.0",
  "http-body 1.0.0",
  "http-body-util",
- "hyper 1.4.0",
+ "hyper 1.4.1",
  "hyper-util",
  "itoa",
  "matchit",
@@ -577,7 +577,7 @@ dependencies = [
  "http 1.1.0",
  "http-body 1.0.0",
  "http-body-util",
- "hyper 1.4.0",
+ "hyper 1.4.1",
  "hyper-util",
  "pin-project-lite",
  "rustls 0.21.12",
@@ -721,7 +721,7 @@ dependencies = [
  "eyre",
  "flate2",
  "http-body 1.0.0",
- "hyper 1.4.0",
+ "hyper 1.4.1",
  "lazy_static",
  "libredfish",
  "mac_address",
@@ -1743,6 +1743,7 @@ dependencies = [
  "log",
  "lru",
  "mac_address",
+ "metrics-endpoint",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2923,9 +2924,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4fe55fb7a772d59a5ff1dfbff4fe0258d19b89fec4b233e75d35d5d2316badc"
+checksum = "50dfd22e0e76d0f662d429a5f80fcaf3855009297eab6a0a9f8543834744ba05"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -2979,7 +2980,7 @@ dependencies = [
  "futures-util",
  "http 1.1.0",
  "http-body 1.0.0",
- "hyper 1.4.0",
+ "hyper 1.4.1",
  "pin-project-lite",
  "tokio",
 ]
@@ -3589,6 +3590,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "metrics-endpoint"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "hyper 0.14.28",
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "prometheus",
+ "tracing",
 ]
 
 [[package]]

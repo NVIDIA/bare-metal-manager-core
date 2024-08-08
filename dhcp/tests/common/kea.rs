@@ -130,6 +130,7 @@ impl Kea {
                     "library": hook_lib,
                     "parameters": {
                         "carbide-api-url": api_server_url,
+                        "carbide-metrics-endpoint": "[::]:1089",
                         "carbide-nameservers": "1.1.1.1,8.8.8.8",
                         "carbide-provisioning-server-ipv4": "127.0.0.1"
                     }
